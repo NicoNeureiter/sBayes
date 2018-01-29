@@ -3,6 +3,7 @@
 from __future__ import absolute_import, division, print_function, \
     unicode_literals
 
+import pickle
 from math import sqrt, atan2
 
 import numpy as np
@@ -59,3 +60,13 @@ def compute_direction(a, b):
     b = np.asarray(b)
     ba = b - a
     return (np.pi/2 - atan2(ba[1], ba[0])) % (2*np.pi)
+
+
+def dump(data, path):
+    with open(path, 'wb') as dump_file:
+        pickle.dump(data, dump_file)
+
+
+def load_from(path):
+    with open(path, 'rb') as dump_file:
+        return pickle.load(dump_file)
