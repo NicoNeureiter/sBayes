@@ -101,7 +101,7 @@ def get_network():
         adj_mat[v2, v1] = 1
 
     adj_list = np.array(adj_list)
-    adj_mat = adj_mat.tocsc()
+    adj_mat = adj_mat.tocsr()
 
     net = {'vertices': vertices,
            'edges': edges,
