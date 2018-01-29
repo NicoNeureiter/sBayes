@@ -9,10 +9,10 @@ import pickle
 import matplotlib.pyplot as plt
 import csv
 import scipy.sparse as sps
-import igraph
 
 from src.model import compute_likelihood
 from src.preprocessing import get_network, get_features, compute_feature_prob
+from src.util import timeit
 from src.config import *
 
 
@@ -37,70 +37,87 @@ def lookup_lh(min_size, max_size, feat_prob):
 
     return lookup_dict
 
-# from functools import lru_cache
-#
-# @lru_cache(maxsize=1e5)
-def compute_neighbours(zone, adj_list):
-    return list({v_neigh for v in zone for v_neigh in adj_list[v]
-                 if v_neigh not in zone})
 
-def propose_contact_zone(net, prev_zone, max_size=50):
+def compute_neighbours(zone, adj_mat):
+    # return np.clip(adj_mat.dot(zone) - zone, 0, 1)
+    return (adj_mat.dot(zone) - zone).astype(bool)
+
+
+def propose_contact_zone(net, prev_zone, max_size):
     """This function proposes a new candidate zone in the network. The new zone differs
     from the previous one by exactly on vertex.
 
         :In
-        - prev_zone (list): the previous zone, which will be modified to generate
+        - prev_zone (np.array): the previous zone, which will be modified to generate
             the new one.
         :Out
         - zone: a list of vertices that are part of the zone.
         - proposal_prob: the probability of the transition under the proposal
             distribution.
     """
-    neighbours = compute_neighbours(prev_zone, net['adj_list'])
-    # print(sorted(neighbours))
+    new_zone = prev_zone.copy()
 
     # Decide whether to grow or to shrink the zone:
     grow = (random.random() < 0.5)
 
     # Ensure we don't exceed size limits
-    if len(prev_zone) <= 1:
+    prev_size = np.sum(prev_zone)
+    if prev_size <= 1:
         grow = True
-    if len(prev_zone) >= max_size:
+    if prev_size >= max_size:
         grow = False
 
     if grow:
+        neighbours = compute_neighbours(prev_zone, net['adj_mat'])
+        # neighbours = net['adj_mat'].dot(prev_zone)
+        # neighbours -= prev_zone
+        # neighbours = np.clip(neighbours, 0, 1)
+        # print(sorted(neighbours))
+
         # Add a neigbhour to the zone.
-        new_zone = prev_zone + [np.random.choice(neighbours)]
+        i_new = np.random.choice(neighbours.nonzero()[0])
+        new_zone[i_new] = 1
 
         # Transition probability when growing
-        q = 0.5 / len(neighbours)
+        q = 0.5 / np.sum(neighbours)
+
     else:
         # Remove a vertex from the zone.
-        kicked_out = random.choice(prev_zone)
-        new_zone = [z for z in prev_zone if z != kicked_out]
+        i_out = random.choice(prev_zone.nonzero()[0])
+        new_zone[i_out] = 0
 
         # Transition probability when shrinking
-        q = 0.5 / len(prev_zone)
+        q = 0.5 / prev_size
 
     return new_zone, q
 
 
 def transition_probability(net, prev_zone, new_zone):
-    if prev_zone < new_zone:
+    """Get the probability to move from prev_zone to new_zone under proposal
+    distribution defined above."""
+    prev_size = np.sum(prev_zone)
+    if prev_size < np.sum(new_zone):
         # Zone was growing
-        neighbours = compute_neighbours(prev_zone, net['adj_list'])
-        return 0.5 / len(neighbours)
+
+        neighbours = compute_neighbours(prev_zone, net['adj_mat'])
+        return 0.5 / np.sum(neighbours > 0)
 
     else:
         # Zone was shrinking
-        return 0.5 / len(prev_zone)
+        return 0.5 / prev_size
 
 
-def run_metropolis_hastings(it, net, feat, lh_lookup, max_size):
+@timeit
+def run_metropolis_hastings(n_iter, net, feat, lh_lookup, max_size):
     # Generate a random starting point
-    start_language = random.choice(net['vertices'])
-    zone = [start_language] + net['adj_list'][start_language]
-    size = len(zone)
+    i_start = random.randrange(net['n'])
+    zone = np.zeros(net['n'])
+    zone[i_start] = 1
+
+    zone += net['adj_mat'].dot(zone)
+    zone = np.clip(zone, 0, 1)
+
+    size = np.sum(zone)
 
     # Compute the likelihood of the starting zone
     lh = compute_likelihood(zone, feat, lh_lookup)
@@ -116,9 +133,9 @@ def run_metropolis_hastings(it, net, feat, lh_lookup, max_size):
     # The candidate diffusion differs from the current diffusion
     # The proposal distribution defines how much the candidate diffusion differs
 
-    for i in range(1, it):
+    for i in range(1, n_iter):
         # Propose a new candidate for the start location
-        candidate_zone, q = propose_contact_zone(net, zone)
+        candidate_zone, q = propose_contact_zone(net, zone, max_size=max_size)
 
         # Compute back-transition probability
         q_back = transition_probability(net, zone, candidate_zone)
@@ -134,15 +151,15 @@ def run_metropolis_hastings(it, net, feat, lh_lookup, max_size):
         if np.log(random.uniform(0, 1)) < a:
             zone = candidate_zone
             lh = lh_cand
-            size = len(zone)
+            size = np.sum(zone)
             acc += 1
 
         mcmc_stats['posterior'].append(dict([('iteration', i),
-                                             ('languages', zone),
+                                             ('languages', zone.astype(bool)),
                                              ('size', size),
-                                             ("log_likelihood", lh)]))
+                                             ('log_likelihood', lh)]))
 
-    mcmc_stats['acceptance_ratio'] = acc / it
+    mcmc_stats['acceptance_ratio'] = acc / n_iter
     return mcmc_stats
 
 
@@ -188,12 +205,13 @@ if __name__ == "__main__":
 
     # Tune the MCMC
     # Number of iterations of the Markov Chain while tuning
-    iterations = 5000
+    N_ITER = 4000
+    PLOT_INTERVAL = 1000
 
-    mcmc = run_metropolis_hastings(iterations, network, features, lh_lookup,
+    mcmc = run_metropolis_hastings(N_ITER, network, features, lh_lookup,
                                    max_size=MAX_SIZE)
 
-    print(mcmc['acceptance_ratio'])
+    print('Acceptance Ration: %.2f' % mcmc['acceptance_ratio'])
 
     locations = network['locations']
     posterior = mcmc['posterior']
@@ -208,13 +226,13 @@ if __name__ == "__main__":
         (0.7, 0.3, 0.15),
         (1., 0.4, 0.3),
         (0.8, 0.1, 0.6),
-    ]
+    ] + [(0.9, 0.0, 0.7)]*20
     with open(PATH_MCMC_RESULTS, 'w') as csvfile:
         result_writer = csv.writer(csvfile, delimiter=';', quotechar='"',
                                    quoting=csv.QUOTE_MINIMAL, lineterminator='\n')
         result_writer.writerow(["Iterations", "Languages", "Log-lh", "size"])
 
-        for i, sample in enumerate(posterior[::1000]):
+        for i, sample in enumerate(posterior[::PLOT_INTERVAL]):
             result_writer.writerow([sample['iteration'], sample['languages'],
                                     sample['log_likelihood'], sample['size']])
 

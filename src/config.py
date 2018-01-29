@@ -7,7 +7,7 @@ from __future__ import absolute_import, division, print_function, \
 MAX_SIZE = 50
 """int: The maximum size for the contact zones."""
 
-RELOAD_DATA = True
+RELOAD_DATA = False
 """bool: Reload the data from the DB, preprocess is and dump it."""
 
 # Paths for dump files
