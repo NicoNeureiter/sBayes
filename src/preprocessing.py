@@ -108,6 +108,8 @@ def get_network():
            'locations': locations,
            'adj_list': adj_list,
            'adj_mat': adj_mat,
+           'n': n_v,
+           'm': n_e
            # 'network': lang_network,
            # 'bbox': bbox
            }
