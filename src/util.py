@@ -6,7 +6,27 @@ from __future__ import absolute_import, division, print_function, \
 from math import sqrt, atan2
 
 import numpy as np
+import time as _time
 
+
+def reachable_vertices(x, adj_mat):
+    return adj_mat.dot(x).clip(0, 1)
+
+def timeit(fn):
+    """Timing decorator. Measures and prints the time that a function took from call
+    to return.
+    """
+    def fn_timed(*args, **kwargs):
+        start = _time.time()
+
+        result = fn(*args, **kwargs)
+
+        time_passed = _time.time() - start
+        print('%r  %2.2f ms' % (fn.__name__, time_passed * 1000))
+
+        return result
+
+    return fn_timed
 
 def compute_distance(a, b):
     """
