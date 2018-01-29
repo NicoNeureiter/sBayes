@@ -3,10 +3,20 @@
 from __future__ import absolute_import, division, print_function, \
     unicode_literals
 
-# Configuration
+# Sampling parameters
+N_ITER = 5000
+"""int: Number of MCMC steps."""
+
+PLOT_INTERVAL = 1000
+"""int: Number of steps between plotting samples."""
+
 MAX_SIZE = 50
 """int: The maximum size for the contact zones."""
 
+P_GLOBAL = 0.2
+"""float: Probability at which the new sample is generated from global distribution."""
+
+# Config flags
 RELOAD_DATA = False
 """bool: Reload the data from the DB, preprocess is and dump it."""
 
@@ -18,3 +28,12 @@ LOOKUP_TABLE_PATH = 'data/processed/lookup_table.pkl'
 
 # Path for results
 PATH_MCMC_RESULTS = 'data/results/mcmc_results.csv'
+
+
+# Ploting
+COLOR_WHEEL = [
+    (0., 0., 0.),
+    (0.4, 0.0, 0.2),
+    (0.75, 0.6, 0.),
+    (0.35, 0.55, 0.),
+] + [(0.25, 0.7, 0.2),] * 20
