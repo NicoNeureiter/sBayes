@@ -3,6 +3,16 @@
 from __future__ import absolute_import, division, print_function, \
     unicode_literals
 
+# Simulate contact zones
+TOTAL_N_FEATURES = 23
+"""The total number of simulated features"""
+
+N_CONTACT_FEATURES = 20
+"""The number of features for which the algorithm simulates contact"""
+
+P_CONTACT = 0.8
+"""The probability of 0/1 in the contact zones"""
+
 # Sampling parameters
 N_ITER = 5000
 """int: Number of MCMC steps."""
@@ -17,20 +27,20 @@ P_GLOBAL = 0.2
 """float: Probability at which the new sample is generated from global distribution."""
 
 # Config flags
-RELOAD_DATA = False
-"""bool: Reload the data from the DB, preprocess is and dump it."""
+RELOAD_DATA = True
+"""bool: Reload the data from the DB, preprocess it and dump it."""
 
 # Paths for dump files
 NETWORK_PATH = 'data/processed/network.pkl'
 FEATURES_PATH = 'data/processed/features.pkl'
 FEATURE_PROB_PATH = 'data/processed/feature_prob.pkl'
 LOOKUP_TABLE_PATH = 'data/processed/lookup_table.pkl'
-
+CONTACT_ZONES_PATH = 'data/processed/contact_zones.pkl'
 # Path for results
 PATH_MCMC_RESULTS = 'data/results/mcmc_results.csv'
 
 
-# Ploting
+# Plotting
 COLOR_WHEEL = [
     (0., 0., 0.),
     (0.4, 0.0, 0.2),
