@@ -29,6 +29,7 @@ def timeit(fn):
 
     return fn_timed
 
+
 def compute_distance(a, b):
     """
         This function computes the Euclidean distance between two points a and b
