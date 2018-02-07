@@ -6,356 +6,356 @@ Iterations;Languages;Log-lh;size
  False False False False False False False False False False False False
  False False False False False False False False False False False False
  False False False False False False False False False False False False
+ False False False False False False False False False False False False
+ False False False False False False False False False False False False
+ False False False False False False False False False False False False
+ False False False False False False False False False False False False
+ False False False False False False False False False False False False
+ False False False False False False False False False False False False
+ False False False False False False False False False False False  True
+ False False False False False False False False False False False False
+ False False False False False False False False False False False False
+ False False False False False False False False False False False False
+ False False False False False False False False False False False False
+ False False False False False False False False False False False False
+ False False False False False False False False False False False False
+ False False False False False False False False False False False False
+ False False False False False False False False False False False False
+ False False False False False False False False False False False False
+ False False False False False False False False False False False False
+ False False False False False False False False False False False False
+ False False False False False False False False False False False  True
+ False False  True  True False False  True  True False False False False
+ False False False False False False False False False False False False
+ False False False False False False False False False False False False
+ False False False False False False False False False False False False
+ False False False False False False False False False False False False
+ False False False False False False False False False False False False
+ False False False False False False False False False False False False
+ False False False False False False False False False False False False
+ False False False False False False False False False False False False
+ False False False False False False False False False False False False
+ False False False False False False False False False False False False
+ False False False False False False False False False False False False
+ False False False False False False False False False False False False
+ False False False False False False False False False False False False
+ False False False False False False False False False False False False
+ False False False False False False False False False False False False
+ False False False False False False False False False False False False
+ False False False False False False False False False False False False
+ False False False False False False False False False False False False
+ False False False False False False False False False False False False
+ False False False False False False False False False False False False
+ False False False False False False False False False False False False
+ False False False False False False False False False False False False
+ False False False False False False False False False False False False
+ False False False False False False False False False False False False
+ False False False False False False False False False False False False
+ False False False False False False False False False False False False
+ False False False False False False False False False False False False
+ False False False False False False False False False False False False
+ False False False False False False False False False False False False
+ False False False False False  True False False False False False False
+ False False False False False False False False False False False False
+ False False False False False False False False False False False False
+ False False False False False False False False False False False False
+ False False False False False False False False False False False False
+ False False False False False False False False False False False False
+ False False False False False False False False False False False False
+ False False False False False False False False False False False False
+ False False False False False False False False False False False False
+ False False False False False False False False False False False False
+ False False False False False False False False False False False False
+ False False False False False False False False False False False False
+ False False False False False False False False False False False False
+ False False False False False False False False False False False False
+ False False False False False False False False False False False False
+ False]";19.102892351;7
+1001;"[False False False False False False False False False False False False
+ False False False False False False False False False False False False
+ False False False False False False False False False False False False
+ False False False False False False False  True False False False False
+ False False False False False False False False False False False False
+ False False False False False False False False False False False False
+ False False False False False False False False False  True False  True
+ False False False False False False False  True False False False False
+ False False False False False False False False False  True False False
+ False False False False False False False False False False False False
+ False False  True False False False  True False False False False False
+ False False False False False False False False False False False False
+ False False False False False False False False False False False False
+ False False False False False False False False  True False False False
+ False False False False False False False False False  True  True False
+ False False  True False False False False False False  True False False
+ False False False False False False False False False False False  True
+ False False False False False False False False False False False False
+ False False False False False False False False False False False False
+ False False False False False False False False False False False False
+ False False False False False False False False False False False False
+ False False False False False False  True False False False False False
+ False False False False False False False False False False False False
+ False False False False False False False False False False  True False
+  True False False False  True False  True  True False False False False
  False False False  True False False False False False False False False
  False False False False False False False False False False False False
  False False False False False False False False False False False False
  False False False False False False False False False False False False
  False False False False False False False False False False False False
  False False False False False False False False False False False False
- False False False False False False False False False False False False
- False False False False False False False False False False False False
- False False False False False False False False False False False False
- False False False False False False False False False False False False
- False False False False False False False  True False False False False
- False False False False  True False False False False False False False
- False False False False False False False False False False False False
- False False False False False False False False False False False False
- False False False False False False False False False False False False
- False False False False False False False False False False False False
- False False False False False False False False False False False False
- False False False False False False False False False False False False
- False False False False  True False False False False False False False
- False False False False False False False False False False False False
- False False False False False False False False False False False False
- False False False False False False False  True False False False False
- False False False False False False False False False False False False
- False False False False False False False False False False False False
- False False False False False False False False False False False False
- False False False False False False False False False False False False
- False False False False False False False False False False False False
- False False False False False False False False False False False False
- False False False False False False False False False False False False
- False False False False False False False False False False False False
- False False False False False False False False False False False False
-  True False False False False False False False False False False False
- False False False False False False False False False False False False
- False False False False False False False False False False False False
- False False False False False False False False False False False False
- False False False False False False False False False False False False
- False False False False False False False False False False False False
- False False False False False False False False False False False False
- False False False False False False False False False False False False
- False False False False False False False False False False False False
- False False False False False False False False False False False False
- False False False False False False False False False False False False
- False False False False False False False False False False False False
- False False False False False False False False False False False False
- False False False False False False False False False False False False
- False False False False False False False False False False False False
- False False False False False False False False False False False False
- False False False False False False False False False False False False
- False False False False False False False False False False False False
- False False False False False False False False False False False False
- False False False False False False False False False False False False
- False False False False False False False False False False False False
- False False False False False False False False False False False False
- False False False False False False False False False False False False
- False False False False False False False False False False False False
- False False False False False False False False False False False False
- False False False False False False False False False False False False
- False False False False False False False False False False False False
- False False False False False False  True False False False False False
- False False False False False False False False False False False False
- False False False False False False False False False False False False
- False False False False False False False False False False False False
- False False False False False False False False False False False False
- False False False False False False False False False False False False
- False]";22.9097638203;7
-1001;"[False False False False False False False False False False False False
- False False False False False False False False False False False False
- False False False False False False False False False False False False
- False False False False False False False False False False False False
- False False False False  True False False False False False False False
- False False False False False False False False False False False False
- False False False False False False  True False False False False False
- False False False False False False False False False False False False
- False False False False False False False False False False False False
-  True False False False False False False False False False False False
- False False False False False False False False False False False False
- False False False False False False False False False False False False
- False False False False False False False False False False False False
- False False False False False False False False False False False False
- False False False False False False False False False False False False
- False False False False False False False False False False False False
- False False False False False False False False False False False False
- False False False False False False False False False False False False
- False False False False False False False False False False False False
- False False False False False False  True False False False False False
- False False False False False False False False False False False False
- False False False False  True  True False False False False False False
- False False False False False False False False  True False False False
- False False  True False False  True  True False  True False False False
- False False False False False False False False  True False False False
- False False False False False False False False False False False False
- False False False False False False False False False False False False
- False False False False False False False False False False False False
- False False False False False False False False False False False False
- False False False False False False False False False False False False
- False False False False False False False False False False False False
- False False False False False False False False False False False False
- False False False False False False False False False False False False
- False False False False False False False False False False False False
- False False False False False False False False False False False False
- False False False False False False False False False False False False
- False False False False False  True False False False False False False
-  True False False False False False False False False False False False
- False False False False False False False  True False False False False
- False False False False False False False False False False False False
- False False False False False False False False False False False False
- False False False  True False False False False False False  True False
- False False False False False False False False False False False  True
- False False False False False False False False False False False False
- False False False False False False False False False False False False
- False False False False False False False False False False False False
  False False False False False False  True  True False False False False
  False False False False False False False False False False False False
  False False False False False False False False False False False False
- False False  True False False False False False False False False False
- False False False False  True  True False False False False False False
  False False False False False False False False False False False False
- False False False False  True False False  True False False  True False
- False False  True False False False False False False False False False
- False False False False False  True False False False False False False
+ False False False False False False False False False False False False
+ False False False False False False False False False False False False
+ False False False False False False False False False False False False
+ False False False False False False False False False False False False
  False  True False False False False False False False False False False
-  True False False False False False  True False False False False False
  False False False False False False False False False False False False
  False False False False False False False False False False False False
  False False False False False False False False False False False False
  False False False False False False False False False False False False
  False False False False False False False False False False False False
+ False  True False False False False False  True False False  True False
  False False False False False False False False False False False False
- False False False False False False False  True False False False False
+ False False False False False False False False  True False False  True
+  True False  True False False False False False  True  True  True False
+  True False False False False False False False False False False  True
+ False False False False False False False False  True False  True False
+ False False False False False False False False False False False False
+ False False False False False  True False False False False False False
+ False False False False False False False False False False False False
+ False False False False False False False False False False False False
+ False False False False  True False False False False False False False
+ False False False False False False False False  True False False False
+ False False False False False False False False False  True False False
+ False False False False False False  True  True False False False False
  False False False False False False False False False False False False
  False False False False False False False False False False False False
  False False False False False False False False False False False False
+ False False False False False False False False False  True False False
  False False False False False False False False False False False False
  False False False False False False False False False False False False
  False False False False False False False False False False False False
-  True False False False False False False False False False  True False
- False]";268.438871231;34
+ False False False False False False False False False False  True False
+ False False False False False False False False False False False False
+ False False False False False False False False False False False False
+ False False False False False False False False False False False  True
+ False False  True False  True False False False  True False False False
+ False]";419.802390756;49
 2001;"[False False False False False False False False False False False False
  False False False False False False False False False False False False
  False False False False False False False False False False False False
- False False False False False False False False False False False False
- False False False False  True False False False False False False False
- False False False False False False False False False False False False
- False False False False False False  True False False False False False
- False False False False False False False False False False False False
- False False False False False False False False False False False False
-  True False False False False False False False False False False False
- False False False False False False False False False False False False
- False False False False False False False False False False False False
- False False False False False False False False False False False False
- False False False False False False False False False False False False
- False False False False False False False False False False False False
- False False False False False False False False False False False False
- False False False False False False False False False False False False
- False False False False False False False False False False False False
- False False False False False False False False False False False False
- False False False False False False  True False False False False False
- False False False False False False False False False False False False
- False False False False  True  True False False False False False False
- False False False False False False False False  True False False False
- False False  True False False  True  True False  True False False False
- False False False False False False False False  True False False False
- False False False False False False False False False False False False
- False False False False False False False False False False False False
- False False False False False False False False False False False False
- False False False False False False False False False False False False
- False False False False False False False False False False False False
- False False False False False False False False False False False False
- False False False False False False False False False False False False
- False False False False False False False False False False False False
- False False False False False False False False False False False False
- False False False False False False False False False False False False
- False False False False False False False False False False False False
- False False False False False  True False False False False False False
-  True False False False False False False False False False False False
  False False False False False False False  True False False False False
  False False False False False False False False False False False False
  False False False False False False False False False False False False
- False False False  True False False False False False False  True False
- False False False False False False False False False False False  True
+ False False False False False False False False False  True False  True
+ False False  True False False False False  True False False False False
+ False False False False False False False False False  True False False
+ False  True False False False False False False False False False False
+ False False False False False False  True False False False False False
+ False False False False False False False False False False False False
+ False False False False False False False False False False False False
+ False False False False False False False False  True False False False
+ False False False False False False False False False  True  True False
+ False False  True False False False False False False  True False False
+ False False False False False False False False False False False False
+ False False False False False False False False False False False False
+ False False False False False False False False False False False False
+ False False False False False False False False False False False False
+ False False False False False False False False False False False False
+ False False False False False False  True False False False False False
+ False False False False False False False False False False False False
+ False False False False  True False False False False False  True False
+  True False False False  True False  True  True False False False False
+ False False False  True False False False False False False False False
+ False False False False False False False False False False False False
+ False False False False False False False False False False False False
  False False False False False False False False False False False False
  False False False False False False False False False False False False
  False False False False False False False False False False False False
  False False False False False False  True  True False False False False
  False False False False False False False False False False False False
  False False False False False False False False False False False False
- False False  True False False False False False False False False False
- False False False False  True  True False False False False False False
  False False False False False False False False False False False False
- False False False False  True False False  True False False  True False
- False False  True False False False False False False False False False
- False False False False False  True False False False False False False
+ False False False False False False False False False False False False
+ False False False False False False False False False False False False
+ False False False False False False False False False False False False
+ False False False False False False False False False False False False
  False  True False False False False False False False False False False
-  True False False False False False  True False False False False False
  False False False False False False False False False False False False
  False False False False False False False False False False False False
  False False False False False False False False False False False False
  False False False False False False False False False False False False
+  True False False False False False False False False False False False
+ False False False False False False False  True False False  True False
+ False False False False False False False False False False False False
+ False False False False False False False False  True False False  True
+  True False  True False False False False False  True  True  True False
+  True False False False False False False False False False False  True
+ False False False False False False False False  True False  True False
+ False False False False False False False False False False False False
+ False False False False False  True False False False False False False
  False False False False False False False False False False False False
  False False False False False False False False False False False False
- False False False False False False False  True False False False False
+ False False False False  True False False False False False False False
+ False False False False False False False False  True False False False
+ False False False False False False False False False  True False False
+ False False False False False False  True False False False False False
  False False False False False False False False False False False False
  False False False False False False False False False False False False
  False False False False False False False False False False False False
+ False False False False False False False False False  True False False
  False False False False False False False False False False False False
  False False False False False False False False False False False False
  False False False False False False False False False False False False
  False False False False False False False False False False  True False
- False]";267.931567467;33
+ False False False False False False False False False False False False
+ False False False False False False False False False False False False
+ False False False False False False False False False False False  True
+ False False  True False  True False False False  True False False False
+ False]";434.855297971;49
 3001;"[False False False False False False False False False False False False
  False False False False False False False False False False False False
  False False False False False False False False False False False False
- False False False False False False False False False False False False
- False False False False  True False False False False False False False
- False False False False False False False False False False False False
- False False False False False False  True False False False False False
+ False False False False False False False  True False False False False
  False False False False False False False False False False False False
  False False False False False False False False False False False False
-  True False False False False False False False False False False False
- False False False False False False False False False False False False
- False False False False False False False False False False False False
- False False False False False False False False False False False False
- False False False False False False False False False False False False
- False False False False False False False False False False False False
- False False False False False False False False False False False False
- False False False False False False False False False False False False
- False False False False False False False False False False False False
- False False False False False False False False False False False False
- False False False False False False  True False False False False False
- False False False False False False False False False False False False
- False False  True False  True  True False False False False False False
- False False False False False False False False  True False False False
- False False  True False False  True  True False  True False False False
- False False False False False False False False  True False False False
- False False False False False False False False False False False False
- False False False False False False False False False False False False
- False False False False False False False False False False False False
- False False False False False False False False False False False False
- False False False False False False False False False False False False
- False False False False False False False False False False False False
- False False False False False False False False False False False False
- False False False False False False False False False False False False
- False False False False False False False False False False False False
- False False False False False False False False False False False False
- False False False False False False False False False False False False
- False False False False False  True False False False False False False
-  True False False False False False False False False False False False
- False False False False False False  True  True False False False False
- False False False False False False False False False False False False
- False False False False False False False False False False False False
- False False False  True False False False False False False  True False
- False False False False False False False False False False False  True
- False False False False False False False False False False False False
- False False False False False False False False False False False False
- False False False False False False False False False False False False
- False False False False False False  True  True False False False False
- False False False False False False False False False False False False
- False False False False False False False False False False False False
- False False  True False False False False False False False False False
- False False False False  True  True False False False False False False
- False False False False False False False False False False False False
- False False False False  True False False  True False False  True False
- False False  True False False False False False False False False False
- False False False False False  True False False False False False False
+ False False False False False False False False False  True False  True
+ False False  True False False False False  True False False False False
+ False False False False False False False False False  True False False
  False  True False False False False False False False False False False
-  True False False False False False  True False False False False False
+ False False False False False False  True False False False False False
+ False False False False False False False False False False False False
+ False False False False False False False False False False False False
+ False False False False False False False False  True False False False
+ False False False False False False False False False  True  True False
+ False False  True False False False False False False  True False False
+ False False False False False False False False False False False False
+ False False False False False False False False False False False False
+ False False False False False False False False False False False False
+ False False False False False False False False False False False False
+ False False False False False False False False False False False False
+ False False False False False False  True False False False False False
+ False False False False False False False False False False False False
+ False False False False  True False False False False False  True False
+  True False False False  True False False  True False False False False
+ False False False  True False False False False False False False False
+ False False False False False False False False False False False False
+ False False False False False False False False False False False False
+ False False False False False False False False False False False False
+ False False False False False False False False False False False False
+ False False False False False False False False False False False False
+ False False False False False False  True  True False False False False
+ False False False False False False False False False False False False
+ False False False False False False False False False False False False
+ False False False False False False False False False False False False
+ False False False False False False False False False False False False
+ False False False False False False False False False False False False
  False False False False False False False False False False False False
  False False False False False False False False False False False False
  False  True False False False False False False False False False False
  False False False False False False False False False False False False
  False False False False False False False False False False False False
  False False False False False False False False False False False False
- False False False False False False False  True False False False False
- False False False False False False False False False False False False
- False False False False False False False False False False False False
- False False False False False False False False False False False False
- False False False False False False False False False False False False
- False False False False False False False False False False False False
- False False False False False False False False False False False False
-  True False False False False False False False False False  True False
- False]";271.129563319;37
-4001;"[False False False False False False False False False False False False
- False False False False False False False False False False False False
- False False False False False False False False False False False False
- False False False False False False False False False False False False
- False False False False  True False False False False False False False
- False False False False False False False False False False False False
- False False False False False False False False False False False False
- False False False False False False False False False False False False
  False False False False False False False False False False False False
   True False False False False False False False False False False False
- False False False False False False False False False False False False
- False False False False False False False False False False False False
- False False False False False False False False False False False False
- False False False False False False False False False False False False
- False False False False False False False False False False False False
- False False False False False False False False False False False False
- False False False False False False False False False False False False
- False False False False False False False False False False False False
- False False False False False False False False False False False False
- False False False False False False  True False False False False False
- False False False False False False False False False False False False
- False False False False  True  True False False False False False False
- False False False False False False False False  True False False False
- False False  True False False  True  True False  True False False False
- False False False False False False False False  True False False False
- False False False False False False False False False False False False
- False False False False False False False False False False False False
- False False False False False False False False False False False False
- False False False False False False False False False False False False
- False False False False False False False False False False False False
- False False False False False False False False False False False False
- False False False False False False False False False False False False
- False False False False False False False False False False False False
- False False False False False False False False False False False False
- False False False False False False False False False False False False
- False False False False False False False False False False False False
- False False False False False  True False False False False False False
-  True False False False False False False False False False False False
- False False False False False False False  True False False False False
- False False False False False False False False False False False False
- False False False False False False False False False False False False
- False False False  True False False False False False False  True False
- False False False False False False False False False False False  True
- False False False False False False False False False False False False
- False False False False False False False False False False False False
- False False False False False False False False False False False False
- False False False False False False  True  True False False False False
- False False False False False False False False False False False False
- False False False False False False False False False False False False
- False False  True False False False False False False False False False
- False False False False  True  True False False False False False False
- False False False False False False False False False False False False
  False False False False False False False  True False False  True False
- False False  True False False False False False False False False False
+ False False False False False False False False False False False False
+ False False False False False False False False  True False False  True
+  True False  True False False False False False  True  True  True False
+  True False False False False False False  True False False False  True
+ False False False False False False False False  True False  True False
+ False False False False False False False False False False False False
  False False False False False  True False False False False False False
- False  True False False False False False False False False False False
-  True False False False False False  True False False False False False
  False False False False False False False False False False False False
  False False False False False False False False False False False False
- False  True False False False False False False False False False False
- False False False False False False False False False False False False
- False False False False False False False False False False False False
- False False False False False False False False False False False False
- False False False False False False False  True False False False False
+ False False False False  True False False False False False False False
+ False False False False False False False False  True False False False
+ False False False False False False False False False  True False False
+ False False False False False False  True  True False False False False
  False False False False False False False False False False False False
  False False False False False False False False False False False False
  False False False False False False False False False False False False
+ False False False False False False False False False  True False False
  False False False False False False False False False False False False
  False False False False False False False False False False False False
  False False False False False False False False False False False False
  False False False False False False False False False False  True False
- False]";268.253403448;32
+ False False False False False False False False False False False False
+ False False False False False False False False False False False False
+ False False False False False False False False False False False  True
+ False False  True False  True False False False  True False False False
+ False]";443.918504812;50
+4001;"[False False False False False False False False False False False False
+ False False False False False False False False False False False False
+ False False False False False False False False False False False False
+ False False False False False False False  True False False False False
+ False False False False False False False False False False False False
+ False False False False False False False False False False False False
+ False False False False False False False False False  True False  True
+ False False  True False False False False  True False False False False
+ False False False False False False False False False  True False False
+ False  True False False False False False False False False False False
+ False False False False False False  True False False False False False
+ False False False False False False False False False False False False
+ False False False False False False False False False False False False
+ False False False False False False False False  True False False False
+ False False False False False False False False False  True  True False
+ False False  True False False False False False False  True False False
+ False False False False False False False False False False False False
+ False False False False False False False False False False False False
+ False False False False False False False False False False False False
+ False False False False False False False False False False False False
+ False False False False False False False False False False False False
+ False False False False False False  True False False False False False
+ False False False False False False False False False False False False
+ False False False False  True False False False False False  True False
+  True False False False  True False False  True False False False False
+ False False False  True False False False False False False False False
+ False False False False False False False False False False False False
+ False False False False False False False False False False False False
+ False False False False False False False False False False False False
+ False False False False False False False False False False False False
+ False False False False False False False False False False False False
+ False False False False False False  True  True False False False False
+ False False False False False False False False False False False False
+ False False False False False False False False False False False False
+ False False False False False False False False False False False False
+ False False False False False False False False False False False False
+ False False False False False False False False False False False False
+ False False False False False False False False False False False False
+ False False False False False False False False False False False False
+ False  True False False False False False False False False False False
+ False False False False False False False False False False False False
+ False False False False False False False False False False False False
+ False False False False False False False False False False False False
+ False False False False False False False False False False False False
+  True False False False False False False False False False False False
+ False False False False False False False  True False False  True False
+ False False False False False False False False False False False False
+ False False False False False False False False  True False False  True
+  True False  True False False False False False  True  True  True False
+  True False False False False False False  True False False False  True
+ False False False False False False False False  True False  True False
+ False False False False False False False False False False False False
+ False False False False False  True False False False False False False
+ False False False False False False False False False False False False
+ False False False False False False False False False False False False
+ False False False False  True False False False False False False False
+ False False False False False False False False  True False False False
+ False False False False False False False False False  True False False
+ False False False False False False  True  True False False False False
+ False False False False False False False False False False False False
+ False False False False False False False False False False False False
+ False False False False False False False False False False False False
+ False False False False False False False False False  True False False
+ False False False False False False False False False False False False
+ False False False False False False False False False False False False
+ False False False False False False False False False False False False
+ False False False False False False False False False False  True False
+ False False False False False False False False False False False False
+ False False False False False False False False False False False False
+ False False False False False False False False False False False  True
+ False False  True False  True False False False  True False False False
+ False]";443.918504812;50

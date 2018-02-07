@@ -5,9 +5,11 @@ import random
 import numpy as np
 import matplotlib.pyplot as plt
 import csv
+import os
 
 from src.model import compute_likelihood, lookup_log_likelihood
-from src.preprocessing import get_network, get_features, compute_feature_prob
+from src.preprocessing import get_network, compute_feature_prob, get_contact_zones, \
+    simulate_background_distribution, simulate_contact
 from src.util import timeit, dump, load_from
 from src.config import *
 
@@ -175,30 +177,35 @@ def run_metropolis_hastings(n_iter, net, feat, lh_lookup, max_size, p_global):
 
 if __name__ == "__main__":
     if RELOAD_DATA:
+
         # Get all necessary data
         # Retrieve the network from the DB
         network = get_network()
         dump(network, NETWORK_PATH)
 
-        # Retrieve the features for all languages in the sample
-        features = get_features()
-        dump(features, FEATURES_PATH)
+        # Retrieve the contact zones
+        contact_zones = get_contact_zones()
+        dump(contact_zones, CONTACT_ZONES_PATH)
 
-        # Compute the probability of a feature to be present/absent
-        feature_prob = compute_feature_prob(features)
-        dump(feature_prob, FEATURE_PROB_PATH)
-
-        # Compute lookup tables for likelihood and direction,
-        # this speeds up the processing time of the algorithm
-        lh_lookup = lookup_log_likelihood(1, MAX_SIZE, feature_prob)
-        dump(lh_lookup, LOOKUP_TABLE_PATH)
     else:
         # Load preprocessed data from dump files
         network = load_from(NETWORK_PATH)
-        features = load_from(FEATURES_PATH)
-        feature_prob = load_from(FEATURE_PROB_PATH)
-        lh_lookup = load_from(LOOKUP_TABLE_PATH)
+        contact_zones = load_from(CONTACT_ZONES_PATH)
 
+    # Simulate distribution of features
+    features_bg = simulate_background_distribution(TOTAL_N_FEATURES, len(network['vertices']))
+
+    # Simulate contact zones
+    features = simulate_contact(N_CONTACT_FEATURES, features_bg, P_CONTACT, contact_zones)
+
+    # Compute the probability of a feature to be present or absent
+    feature_prob = compute_feature_prob(features)
+
+    # Compute lookup tables for likelihood
+    # this speeds up the processing time of the algorithm
+    lh_lookup = lookup_log_likelihood(1, MAX_SIZE, feature_prob)
+
+    # Run the mcmc
     mcmc = run_metropolis_hastings(N_ITER, network, features, lh_lookup,
                                    max_size=MAX_SIZE, p_global=P_GLOBAL)
 

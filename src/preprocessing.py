@@ -9,6 +9,7 @@ from contextlib import contextmanager
 import numpy as np
 import pandas
 import psycopg2
+import copy
 from igraph import Graph
 
 
@@ -56,7 +57,7 @@ def get_network():
     # Get vertices from PostgreSQL
     with psql_connection(commit=True) as connection:
         query_v = "SELECT id, mx AS x, my AS y " \
-                  "FROM cz_sim.contact_zone_7_test;"
+                  "FROM cz_sim.contact_zones_raw;"
         cursor = connection.cursor()
         cursor.execute(query_v)
         rows_v = cursor.fetchall()
@@ -116,30 +117,85 @@ def get_network():
     return net
 
 
-def get_features():
+def get_contact_zones():
     """
-        This function retrieves the features of all simulated languages from the DB
+        This function retrieves all contact zones from the DB
         :In
         -
         :Out
-        - f: a binary matrix of all features
+        - contact_zones: a dict with all contact zones
         """
     with psql_connection(commit=True) as connection:
+        query_cz = "SELECT cz, array_agg(id) " \
+                   "FROM cz_sim.contact_zones_raw " \
+                   "WHERE cz != 0 " \
+                   "GROUP BY cz"
 
-        # Retrieve the features for all languages
-        f = pandas.read_sql_query("SELECT f1, f2, f3, f4, f5, f6,"
-                                  "f7, f8, f9, f10, f11, f12, f13,"
-                                  "f14, f15, f16, f17, f18, f19, f20,"
-                                  "f21, f22, f23, f24, f25, f26, f27,"
-                                  "f28, f29, f30 "
-                                  "FROM cz_sim.contact_zone_7_test ORDER BY id ASC;", connection)
-    f = f.as_matrix()
+        cursor = connection.cursor()
+        cursor.execute(query_cz)
+        rows_cz = cursor.fetchall()
+        contact_zones = {}
+        for cz in rows_cz:
+            contact_zones[cz[0]] = cz[1]
+    return contact_zones
 
-    # Change A to 0 and P to 1
-    f[f == 'A'] = 0
-    f[f == 'P'] = 1
 
-    return f
+def simulate_background_distribution(m_feat, n_sites):
+    """
+        This function draws m samples from a Binomial distribution for n binary features (0 = absence, 1 = presence)
+        The probability of success (1) of each feature is drawn frm a uniform distribution between 0.05 and 0.95
+        Thus, a feature can be considerably skewed towards 0 or 1, but there are no extreme distributions
+        in which one state is hardly possible at all
+
+        :In
+        - m_feat: number of features
+        - n_sites: number of sites for which a feature is simulated
+        :Out
+        - features: a dictionary comprising the simulated features
+        """
+    successes = np.random.uniform(0.05, 0.95, m_feat)
+    it = np.nditer(successes, flags=['f_index'])
+    features = {}
+
+    for s in it:
+        f = np.random.binomial(n=1, p=s, size=n_sites)
+        f_idx = 'f' + str(it.index + 1)
+        features[f_idx] = f
+
+    return features
+
+
+def simulate_contact(n_feat, features, p, contact_zones):
+    """
+        This function simulates contact in a contact zone. For each zone the function randomly
+        chooses n features, for which the similarity is increased
+        :In
+        - n_feat: number of features for which the function simulates contact
+        - features: dict of features for which contact is simulated
+        - p: Probability of success, the strength of the similarity in the contact zone
+        - contact_zones: region of neighbouring features for which contact is simulated
+        :Out
+        - features_adjusted: a dict containing the adjusted features
+        """
+    features_adjusted = copy.deepcopy(features)
+    # Iterate over all contact zones
+    for cz in contact_zones:
+
+        # Choose n features for which the similarity is increased
+        f_to_adjust = np.random.choice(list(features.keys()), n_feat, replace=False)
+
+        for f in f_to_adjust:
+            # increase similarity either towards presence (1) or absence (0)
+            p = np.random.choice([p, 1-p])
+            f_adjusted = np.random.binomial(n=1, p=p, size=len(contact_zones[cz]))
+            for a, _ in enumerate(f_adjusted):
+                idx = contact_zones[cz][a]
+                features_adjusted[f][idx] = f_adjusted[a]
+    # return as numpy array to improve run time of mcmc
+
+    features_adjusted_mat = np.ndarray.transpose(np.array([features_adjusted[i] for i in features_adjusted.keys()]))
+
+    return features_adjusted_mat
 
 
 def compute_feature_prob(feat):
