@@ -11,6 +11,8 @@ import pandas
 import psycopg2
 from igraph import Graph
 
+DB_TABLE = 'cz_sim.contact_zones'
+# DB_TABLE = 'cz_sim.contact_zone_7_test'
 
 @contextmanager
 def psql_connection(commit=False):
@@ -56,7 +58,7 @@ def get_network():
     # Get vertices from PostgreSQL
     with psql_connection(commit=True) as connection:
         query_v = "SELECT id, mx AS x, my AS y " \
-                  "FROM cz_sim.contact_zone_7_test;"
+                  "FROM {table};".format(table=DB_TABLE)
         cursor = connection.cursor()
         cursor.execute(query_v)
         rows_v = cursor.fetchall()
@@ -127,12 +129,14 @@ def get_features():
     with psql_connection(commit=True) as connection:
 
         # Retrieve the features for all languages
-        f = pandas.read_sql_query("SELECT f1, f2, f3, f4, f5, f6,"
-                                  "f7, f8, f9, f10, f11, f12, f13,"
-                                  "f14, f15, f16, f17, f18, f19, f20,"
-                                  "f21, f22, f23, f24, f25, f26, f27,"
-                                  "f28, f29, f30 "
-                                  "FROM cz_sim.contact_zone_7_test ORDER BY id ASC;", connection)
+        FEATURE_COLUMNS = "f1, f2, f3, f4, f5, f6, f7, f8, f9, f10, f11, f12, f13, " \
+                          "f14, f15, f16, f17, f18, f19, f20, f21, f22, f23, f24, " \
+                          "f25, f26, f27, f28, f29, f30"
+        f = pandas.read_sql_query("SELECT {columns} " \
+                                  "FROM {table} " \
+                                  "ORDER BY id ASC;".format(columns=FEATURE_COLUMNS,
+                                                            table=DB_TABLE),
+                                  connection)
     f = f.as_matrix()
 
     # Change A to 0 and P to 1
