@@ -7,10 +7,12 @@ import sys
 from contextlib import contextmanager
 
 import numpy as np
-import pandas
+import scipy.sparse as sps
 import psycopg2
 import copy
-from igraph import Graph
+
+DB_ZONE_TABLE = 'cz_sim.contact_zones_raw'
+DB_EDGE_TABLE = 'cz_sim.delaunay_edge_list'
 
 
 @contextmanager
@@ -57,7 +59,7 @@ def get_network():
     # Get vertices from PostgreSQL
     with psql_connection(commit=True) as connection:
         query_v = "SELECT id, mx AS x, my AS y " \
-                  "FROM cz_sim.contact_zones_raw;"
+                  "FROM {table};".format(table=DB_ZONE_TABLE)
         cursor = connection.cursor()
         cursor.execute(query_v)
         rows_v = cursor.fetchall()
@@ -79,7 +81,7 @@ def get_network():
     # Get edges from PostgreSQL
     with psql_connection(commit=True) as connection:
         query_e = "SELECT v1, v2 " \
-                  "FROM cz_sim.delaunay_edge_list;"
+                  "FROM {table};".format(table=DB_EDGE_TABLE)
 
         cursor = connection.cursor()
         cursor.execute(query_e)
@@ -91,7 +93,6 @@ def get_network():
         edges[i, 0] = gid_to_idx[e[0]]
         edges[i, 1] = gid_to_idx[e[1]]
 
-    import scipy.sparse as sps
     adj_list = [[] for _ in range(n_v)]
     adj_mat = sps.lil_matrix((n_v, n_v))
 
