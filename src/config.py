@@ -4,8 +4,11 @@ from __future__ import absolute_import, division, print_function, \
     unicode_literals
 
 # Sampling parameters
-N_ITER = 5000
+N_STEPS = 1000
 """int: Number of MCMC steps."""
+
+N_SAMPLES = 200
+"""int: Number of generated samples."""
 
 PLOT_INTERVAL = 1000
 """int: Number of steps between plotting samples."""
@@ -13,7 +16,7 @@ PLOT_INTERVAL = 1000
 MAX_SIZE = 50
 """int: The maximum size for the contact zones."""
 
-P_GLOBAL = 0.2
+P_GLOBAL = 0.0
 """float: Probability at which the new sample is generated from global distribution."""
 
 # Config flags
