@@ -4,7 +4,7 @@ from __future__ import absolute_import, division, print_function, \
     unicode_literals
 
 import numpy as np
-import scipy.stats
+from scipy.stats import binom_test
 
 
 def compute_likelihood(zone, features, ll_lookup):
@@ -22,8 +22,7 @@ def compute_likelihood(zone, features, ll_lookup):
     zone_size = len(idx)
 
     # Count the presence and absence
-    present = np.sum(features[idx], axis=0)
-    # present = zone.dot(features)
+    present = features[idx].sum(axis=0)
     log_lh = 0
 
     for f_idx, f_freq in enumerate(present):
@@ -43,12 +42,11 @@ def lookup_log_likelihood(min_size, max_size, feat_prob):
     """
 
     lookup_dict = {}
-    for f in range(0, len(feat_prob)):
-        lookup_dict[f] = {}
+    for i_feat, p_global in enumerate(feat_prob):
+        lookup_dict[i_feat] = {}
         for s in range(min_size, max_size + 1):
-            lookup_dict[f][s] = {}
-            for p in range(s + 1):
-                lookup_dict[f][s][p] = -np.log(scipy.stats.binom_test(p, s, feat_prob[f],
-                                               alternative='two-sided'))
+            lookup_dict[i_feat][s] = {}
+            for p_zone in range(s + 1):
+                lookup_dict[i_feat][s][p_zone] = -np.log(binom_test(p_zone, s, p_global))
 
     return lookup_dict
