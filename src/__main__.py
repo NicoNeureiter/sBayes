@@ -4,6 +4,8 @@ import random
 import math
 
 import numpy as np
+from igraph import Graph
+
 from src.preprocessing import get_network, compute_feature_prob, get_contact_zones, \
     simulate_background_distribution, simulate_contact
 from src.model import compute_likelihood, lookup_log_likelihood
@@ -39,51 +41,23 @@ def get_neighbours(zone, adj_mat):
     return np.logical_and(adj_mat.dot(zone).astype(bool), ~zone)
 
 
-def global_step(net, prev_zone):
-    """Globally sample a new zone to escape local modes.
+def grow_step(zone, net, max_size):
+    adj_mat = net['adj_mat']
+    new_zone = zone.copy()
 
-    :In
-        - net (dict): Network graph.
-        - prev_zone (np.array): The previous zone (needed to compute the back-transition
-            probability)
-    :Out
-        - new_zone (np.array): The proposed new contact zone.
-        - q (float): The proposal probability.
-        - q_back (float): The probability to transition back (new_zone -> prev_zone).
-    """
-    # Propose new zone like in initialization
-    new_zone = sample_initial_zone(net, lookup_table=initial_zones)
+    zone_idx = zone.nonzero()[0]
+    size = len(zone_idx)
 
-    # Transition is uniform over all edges
-    q = 1 / net['n']
-
-    # Back-transition probability depends on the shape of the zone
-    # adj_mat_zone = adj_mat[prev_zone, prev_zone]
-    # degree_in_zone = adj_mat_zone.sum(axis=0)
-
-    # if np.max(degree_in_zone) == (prev_size - 1)
-    if prev_zone.tolist() in initial_zones:
-        q_back = q
-    else:
-        q_back = 0
-
-    return new_zone, q, q_back
-
-
-def grow_step(prev_zone, adj_mat, max_size):
-    prev_size = np.count_nonzero(prev_zone)
-    new_zone = prev_zone.copy()
-
-    neighbours = get_neighbours(prev_zone, adj_mat)
+    neighbours = get_neighbours(zone, adj_mat)
 
     # Add a neighbour to the zone.
     i_new = random.choice(neighbours.nonzero()[0])
     new_zone[i_new] = 1
-    new_size = prev_size + 1
+    new_size = size + 1
 
     # Transition probability when growing.
     q = 1 / np.count_nonzero(neighbours)
-    if prev_size > 1:
+    if size > 1:
         q /= 2
 
     # Back-probability (-> shrinking)
@@ -94,18 +68,32 @@ def grow_step(prev_zone, adj_mat, max_size):
     return new_zone, q, q_back
 
 
-def shrink_step(prev_zone, adj_mat, max_size):
-    prev_size = np.count_nonzero(prev_zone)
-    new_zone = prev_zone.copy()
+def shrink_step(zone, net, max_size):
+    G = net['graph']
+    adj_mat = net['adj_mat']
+    new_zone = zone.copy()
+
+    zone_idx = zone.nonzero()[0]
+    size =len(zone_idx)
+
+    G_zone = G.induced_subgraph(zone_idx)
+    assert G_zone.is_connected()
+
+    cut_vs_idx = G_zone.cut_vertices()
+    if len(cut_vs_idx) == size:
+        return None
+
+    cut_vertices = G_zone.vs[cut_vs_idx]['name']
+    removal_candidates = [v for v in zone_idx if v not in cut_vertices]
 
     # Remove a vertex from the zone.
-    i_out = random.choice(prev_zone.nonzero()[0])
+    i_out = random.choice(removal_candidates)
     new_zone[i_out] = 0
-    new_size = prev_size - 1
+    new_size = size - 1
 
     # Transition probability when shrinking.
-    q = 1 / prev_size
-    if prev_size < max_size:
+    q = 1 / size
+    if size < max_size:
         q /= 2
 
     # Back-probability (-> growing)
@@ -114,35 +102,52 @@ def shrink_step(prev_zone, adj_mat, max_size):
     if new_size > 1:
         q_back /= 2
 
+    G_new_zone = G.induced_subgraph(new_zone.nonzero()[0])
+    assert G_new_zone.is_connected()
+
     return new_zone, q, q_back
 
 
-def swap_step(prev_zone, adj_mat):
-    prev_size = np.count_nonzero(prev_zone)
-    new_zone = prev_zone.copy()
+def swap_step(zone, net, max_swaps=5):
+    G = net['graph']
+    adj_mat = net['adj_mat']
+    new_zone = zone.copy()
+
 
     # Compute the neighbourhood
-    neighbours = get_neighbours(prev_zone, adj_mat)
+    neighbours = get_neighbours(zone, adj_mat)
     neighbours_idx = neighbours.nonzero()[0]
     n_neighbours = len(neighbours_idx)
 
-    # n_swaps = random.randrange(1, min([n_neighbours, prev_size]) - 1)
-
     # Add a neighbour to the zone
-    # i_new = random.sample(neighbours_idx.tolist(), n_swaps)
     i_new = random.choice(neighbours_idx)
     new_zone[i_new] = 1
 
+
+    zone_idx = new_zone.nonzero()[0]
+    size = len(zone_idx)
+
+    # # Compute cut_vertices (can be removed while keeping zone connected)
+    G_zone = G.induced_subgraph(zone_idx)
+    assert G_zone.is_connected()
+
+    cut_vs_idx = G_zone.cut_vertices()
+    if len(cut_vs_idx) == size:
+        return None
+
+    cut_vertices = G_zone.vs[cut_vs_idx]['name']
+    removal_candidates = [v for v in zone_idx if v not in cut_vertices]
+
     # Remove a vertex from the zone.
-    i_out = random.choice(prev_zone.nonzero()[0])
+    i_out = random.choice(removal_candidates)
     new_zone[i_out] = 0
 
-    if prev_size != np.count_nonzero(new_zone):
+    if size-1 != np.count_nonzero(new_zone):
         print('Zone:', )
-        print(i_new)
+        print('   ', i_new)
 
 
-    back_neighbours = get_neighbours(prev_zone, adj_mat)
+    back_neighbours = get_neighbours(zone, adj_mat)
     q = 1. / np.count_nonzero(neighbours)
     q_back = 1. / np.count_nonzero(back_neighbours)
 
@@ -174,7 +179,7 @@ def propose_contact_zone(net, prev_zone, max_size, p_global=0.):
     #     return np.random.permutation(prev_zone), 1., 1.
 
     if random.random() < 0.5:
-        return swap_step(prev_zone, net['adj_mat'])
+        return swap_step(prev_zone, net)
 
     # Continue with local mcmc steps...
     # Decide whether to grow or to shrink the zone:
@@ -188,9 +193,14 @@ def propose_contact_zone(net, prev_zone, max_size, p_global=0.):
         grow = False
 
     if grow:
-        return grow_step(prev_zone, net['adj_mat'], max_size)
+        return grow_step(prev_zone, net, max_size)
     else:
-        return shrink_step(prev_zone, net['adj_mat'], max_size)
+        result = shrink_step(prev_zone, net, max_size)
+        if result:
+            return result
+        else:
+            # No way to shrink while keeping the zone connected
+            return grow_step(prev_zone, net, max_size)
 
 
 @timeit
@@ -219,32 +229,44 @@ def run_metropolis_hastings(net, n_samples, n_steps, feat, lh_lookup, max_size,
     accepted = 0
     samples = np.zeros((n_samples, net['n'])).astype(bool)
 
+    # Generate a random starting zone and comput its log-likelihood
+    zone = sample_initial_zone(net)
+    # llh = compute_likelihood(zone, feat, lh_lookup)
+    llh = 1.
 
     for i_sample in range(n_samples):
 
-        # Generate a random starting zone and comput its log-likelihood
-        zone = sample_initial_zone(net)
-        llh = compute_likelihood(zone, feat, lh_lookup)
+        # zone = sample_initial_zone(net)
+        # # llh = compute_likelihood(zone, feat, lh_lookup)
+        # llh = 1.
 
-        for _ in range(n_steps):
-            prev_zone = zone
-            q = q_back = 1.
-            for _ in range(5):
+        for k in range(n_steps):
+            candidate_zone, q, q_back = propose_contact_zone(net, zone,
+                                                             max_size=max_size)
 
-                # Propose a new candidate for the start location
-                candidate_zone, q_, q_back_ = propose_contact_zone(net, prev_zone,
-                                                                   max_size=max_size)
-                prev_zone = candidate_zone
-                q *= q_
-                q_back *= q_back_
+            # q = q_back = 1.
+            # for _ in range(5):
+            #
+            #     # Propose a new candidate for the start location
+            #     candidate_zone, q_, q_back_ = propose_contact_zone(net, prev_zone,
+            #                                                        max_size=max_size)
+            #     prev_zone = candidate_zone
+            #     q *= q_
+            #     q_back *= q_back_
 
             # Compute the likelihood of the candidate zone
+
             llh_cand = compute_likelihood(candidate_zone, feat, lh_lookup)
+
+            # Annealing: Scale all LL values to one in the begining, then converge to
+            # the true likelihood.
+            t = ((k + 1) / n_steps)
+            # print(t)
 
             # This is the core of the MCMC: We compare the candidate to the current zone
             # Usually, we go for the better of the two zones,
             # but sometimes we decide for the candidate, even if it's worse
-            a = (llh_cand - llh) + math.log(q_back / q)
+            a = (llh_cand - llh)*t + math.log(q_back / q)
 
             if math.log(random.random()) < a:
                 zone = candidate_zone
@@ -254,7 +276,9 @@ def run_metropolis_hastings(net, n_samples, n_steps, feat, lh_lookup, max_size,
         samples[i_sample] = zone
         mcmc_stats['likelihoods'].append(llh)
 
-        print('Log-Likelihood: %.4f' % llh)
+        print('Log-Likelihood:     %.2f' % llh)
+        print('Acceptance ration:  %.2f' % (accepted / ((i_sample+1) * n_steps)))
+        print()
 
         if plot_samples:
             plot_zone(zone, net)
@@ -278,36 +302,49 @@ if __name__ == "__main__":
         contact_zones = get_contact_zones()
         dump(contact_zones, CONTACT_ZONES_PATH)
 
+        # Simulate distribution of features
+        features_bg = simulate_background_distribution(TOTAL_N_FEATURES, len(network['vertices']))
+        dump(features_bg, FEATURES_BG_PATH)
+
+        # Simulate contact zones
+        features = simulate_contact(N_CONTACT_FEATURES, features_bg, P_CONTACT, contact_zones)
+        dump(features, FEATURES_PATH)
+
+        # Compute the probability of a feature to be present or absent
+        feature_prob = compute_feature_prob(features)
+        dump(feature_prob, FEATURE_PROB_PATH)
+
+        # Compute lookup tables for likelihood
+        # this speeds up the processing time of the algorithm
+        lh_lookup = lookup_log_likelihood(1, MAX_SIZE, feature_prob)
+        dump(lh_lookup, LOOKUP_TABLE_PATH)
+
     else:
         # Load preprocessed data from dump files
         network = load_from(NETWORK_PATH)
         contact_zones = load_from(CONTACT_ZONES_PATH)
-
-    # Simulate distribution of features
-    features_bg = simulate_background_distribution(TOTAL_N_FEATURES, len(network['vertices']))
-
-    # Simulate contact zones
-    features = simulate_contact(N_CONTACT_FEATURES, features_bg, P_CONTACT, contact_zones)
-
-    # Compute the probability of a feature to be present or absent
-    feature_prob = compute_feature_prob(features)
-
-    # Compute lookup tables for likelihood
-    # this speeds up the processing time of the algorithm
-    lh_lookup = lookup_log_likelihood(1, MAX_SIZE, feature_prob)
+        features_bg = load_from(FEATURES_BG_PATH)
+        features = load_from(FEATURES_PATH)
+        features_prob = load_from(FEATURE_PROB_PATH)
+        lh_lookup = load_from(LOOKUP_TABLE_PATH)
 
     vertices = network['vertices']
     locations = network['locations']
-    network['adj_mat'] = network['adj_mat']
     adj_mat = network['adj_mat']
-    print(network['n'])
 
-    edge_counts = defaultdict(int)
+    G = Graph(network['n'])
+    G.vs['name'] = list(range(network['n']))
+    for u, v in zip(*adj_mat.nonzero()):
+        G.add_edge(u, v)
+
+    network['graph'] = G
+
+    print(network['n'])
 
     samples, mcmc_stats = run_metropolis_hastings(network, N_SAMPLES, N_STEPS,
                                                   features, lh_lookup,
                                                   max_size=MAX_SIZE,
-                                                  plot_samples=True)
+                                                  plot_samples=True )
 
     likelihood = np.asarray(mcmc_stats['likelihoods'])
 
@@ -344,4 +381,6 @@ if __name__ == "__main__":
     print('Acceptance Ratio: %.2f' % mcmc_stats ['acceptance_ratio'])
 
     plot_posterior(samples, adj_mat, locations)
-    # plot_posterior(samples, adj_mat, locations, weights=cluster_weights)
+
+    # likelihood /= np.mean(likelihood)
+    # plot_posterior(samples, adj_mat, locations, weights=likelihood)
