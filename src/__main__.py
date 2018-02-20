@@ -6,13 +6,15 @@ import math
 import numpy as np
 from igraph import Graph
 
-from src.preprocessing import get_network, \
-                              compute_feature_prob, \
-                              get_contact_zones, \
-                              simulate_background_distribution, \
-                              simulate_contact
-from src.model import lookup_log_likelihood, \
-                      compute_geo_likelihood
+from src.preprocessing import (get_network,
+                               compute_feature_prob,
+                               get_contact_zones,
+                               simulate_background_distribution,
+                               simulate_contact,
+                               ecdf_geo_likelihood)
+from src.model import (lookup_log_likelihood,
+                       compute_geo_likelihood)
+
 from src.plotting import plot_zone, plot_posterior
 from src.util import timeit, dump, load_from, get_neighbours
 from src.config import *
@@ -173,8 +175,8 @@ def swap_step(zone, net, max_swaps=5):
 
 def propose_contact_zone(net, prev_zone, max_size, p_global=0.):
     """This function proposes a new candidate zone in the network. The new zone differs
-    from the previous one by exactly on vertex. An exception are global update steps
-    the are performed with probability p_global and should avoid getting stuck in local
+    from the previous one by exactly one vertex. An exception are global update steps, which
+    are performed with probability p_global and should avoid getting stuck in local
     modes.
 
     :In
@@ -248,26 +250,20 @@ def run_metropolis_hastings(net, n_samples, n_steps, feat, lh_lookup, max_size,
 
     for i_sample in range(n_samples):
 
-        # zone = sample_initial_zone(net)
-        # # llh = compute_likelihood(zone, feat, lh_lookup)
-        # llh = 1.
+        if RESTART_CHAIN:
+            # Restart the chain from a random location after every sample after every
+            # sample
+            zone = sample_initial_zone(net)
+            ll = compute_likelihood(zone, feat, lh_lookup)
+            if USE_GEO_LL:
+                ll += compute_geo_likelihood(zone, net)
 
         for k in range(n_steps):
+            # Propose a candidate zone
             candidate_zone, q, q_back = propose_contact_zone(net, zone,
                                                              max_size=max_size)
 
-            # q = q_back = 1.
-            # for _ in range(5):
-            #
-            #     # Propose a new candidate for the start location
-            #     candidate_zone, q_, q_back_ = propose_contact_zone(net, prev_zone,
-            #                                                        max_size=max_size)
-            #     prev_zone = candidate_zone
-            #     q *= q_
-            #     q_back *= q_back_
-
             # Compute the likelihood of the candidate zone
-
             ll_cand = compute_likelihood(candidate_zone, feat, lh_lookup)
 
             if USE_GEO_LL:
@@ -343,6 +339,9 @@ if __name__ == "__main__":
         features = load_from(FEATURES_PATH)
         features_prob = load_from(FEATURE_PROB_PATH)
         lh_lookup = load_from(LOOKUP_TABLE_PATH)
+
+    # # Compute probability density function for geo-likelihood
+    # ecdf_geo_likelihood(network, min_n=MIN_SIZE, max_n=MAX_SIZE, samples_per_n=10000)
 
     vertices = network['vertices']
     locations = network['locations']

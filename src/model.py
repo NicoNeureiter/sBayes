@@ -44,12 +44,12 @@ def compute_likelihood_generative(zone, features, *args):
 
 def compute_likelihood(zone, features, ll_lookup):
     """This function computes the likelihood of a zone.
-    The function performs a two-sided binomial test. The test computes the probability of
+    The function performs a one-sided binomial test. The test computes the probability of
     the observed presence/absence in the zone given the presence/absence in the data.
-    Then the function takes the logarithm of the binomial test and multiplies it by -1.
-    If the data in the zone follow the general trend, the zone is not indicative of
-    language contact. When the binomial test yields a high value, the negative logarithm
-    is small."""
+    Then the function takes the negative logarithm of the binomial test.
+    When the data in the zone have less (or the same) presence as expected by the general trend,
+    the zone is not indicative of language contact. When the data have more presence it is indicative of language contact.
+    When the binomial test yields a small value the negative logarithm is large ."""
 
     # Retrieve all languages in the zone
     idx = zone.nonzero()[0]
@@ -72,7 +72,7 @@ def lookup_log_likelihood(min_size, max_size, feat_prob):
     - max_size: the maximum number of languages in a zone
     - feat_prob: the probability of a feature to be present
     :Out
-    - lookup_dict: the lookup table of likelihoods for a specific feature, sample size and presence
+    - lookup_dict: the lookup table of likelihoods for a specific feature, sample size and observed presence
     """
 
     lookup_dict = {}
@@ -81,9 +81,12 @@ def lookup_log_likelihood(min_size, max_size, feat_prob):
         for s in range(min_size, max_size + 1):
             lookup_dict[i_feat][s] = {}
             for p_zone in range(s + 1):
+                # The binomial test computes the p-value of having k or more (!) successes out of n trials,
+                # given a specific probability of success
+                # For a two-binomial test, simply remove "greater"
                 lookup_dict[i_feat][s][p_zone] = \
-                    - math.log(binom_test(p_zone, s, p_global))
-                    # math.log(1 - binom_test(p_zone, s, p_global) + EPS)
+                    - math.log(binom_test(p_zone, s, p_global, 'greater'))
+                    # math.log(1 - binom_test(p_zone, s, p_global, 'greater') + EPS)
 
     return lookup_dict
 
