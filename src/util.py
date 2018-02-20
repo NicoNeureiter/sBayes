@@ -4,6 +4,7 @@ from __future__ import absolute_import, division, print_function, \
     unicode_literals
 
 import pickle
+import random
 from math import sqrt, atan2
 
 import numpy as np
@@ -81,3 +82,36 @@ def dump(data, path):
 def load_from(path):
     with open(path, 'rb') as dump_file:
         return pickle.load(dump_file)
+
+
+def get_neighbours(zone, adj_mat):
+    """Compute the neighbourhood of a zone (excluding vertices from the zone itself)."""
+    return np.logical_and(adj_mat.dot(zone), ~zone)
+
+
+def grow_zone(size, adj_mat):
+    """Grow a zone of size <size> by starting from a random point and iteratively
+    adding random neighbours.
+
+    Args:
+        size (int): Desired size of the zone.
+        adj_mat (np.ndarray): Adjacency Matrix
+
+    Returns:
+        (np.ndarray): The randomly generated zone of size <size>.
+    """
+    n = adj_mat.shape[0]
+    zone = np.zeros(n).astype(bool)
+
+    # Choose starting point
+    i = random.randrange(size)
+    zone[i] = 1
+
+    for _ in range(size-1):
+        neighbours = get_neighbours(zone, adj_mat)
+
+        # Add a neighbour to the zone.
+        i_new = random.choice(neighbours.nonzero()[0])
+        zone[i_new] = 1
+
+    return zone
