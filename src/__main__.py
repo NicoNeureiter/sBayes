@@ -5,7 +5,7 @@ import math
 
 import numpy as np
 from src.preprocessing import get_network, compute_feature_prob, get_contact_zones, \
-    simulate_background_distribution, simulate_contact
+    simulate_background_distribution, simulate_contact, ecdf_geo_likelihood
 from src.model import compute_likelihood, lookup_log_likelihood
 from src.plotting import plot_zone, plot_posterior
 from src.util import timeit, dump, load_from
@@ -151,8 +151,8 @@ def swap_step(prev_zone, adj_mat):
 
 def propose_contact_zone(net, prev_zone, max_size, p_global=0.):
     """This function proposes a new candidate zone in the network. The new zone differs
-    from the previous one by exactly on vertex. An exception are global update steps
-    the are performed with probability p_global and should avoid getting stuck in local
+    from the previous one by exactly one vertex. An exception are global update steps, which
+    are performed with probability p_global and should avoid getting stuck in local
     modes.
 
     :In
@@ -222,7 +222,7 @@ def run_metropolis_hastings(net, n_samples, n_steps, feat, lh_lookup, max_size,
 
     for i_sample in range(n_samples):
 
-        # Generate a random starting zone and comput its log-likelihood
+        # Generate a random starting zone and compute its log-likelihood
         zone = sample_initial_zone(net)
         llh = compute_likelihood(zone, feat, lh_lookup)
 
@@ -292,9 +292,12 @@ if __name__ == "__main__":
     # Compute the probability of a feature to be present or absent
     feature_prob = compute_feature_prob(features)
 
-    # Compute lookup tables for likelihood
+    # Compute lookup tables for feature likelihood
     # this speeds up the processing time of the algorithm
     lh_lookup = lookup_log_likelihood(1, MAX_SIZE, feature_prob)
+
+    # Compute probability density function for geo-likelihood
+    ecdf_geo_likelihood(network, min_n=MIN_SIZE, max_n=MAX_SIZE, samples_per_n=10000)
 
     vertices = network['vertices']
     locations = network['locations']

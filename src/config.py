@@ -23,6 +23,9 @@ N_SAMPLES = 200
 PLOT_INTERVAL = 1000
 """int: Number of steps between plotting samples."""
 
+MIN_SIZE = 5
+"""int: The minimum size for the contact zones."""
+
 MAX_SIZE = 50
 """int: The maximum size for the contact zones."""
 

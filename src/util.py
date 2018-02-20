@@ -13,6 +13,7 @@ import time as _time
 def reachable_vertices(x, adj_mat):
     return adj_mat.dot(x).clip(0, 1)
 
+
 def timeit(fn):
     """Timing decorator. Measures and prints the time that a function took from call
     to return.
