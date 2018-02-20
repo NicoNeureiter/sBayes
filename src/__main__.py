@@ -6,12 +6,21 @@ import math
 import numpy as np
 from igraph import Graph
 
-from src.preprocessing import get_network, compute_feature_prob, get_contact_zones, \
-    simulate_background_distribution, simulate_contact
-from src.model import compute_likelihood, lookup_log_likelihood
+from src.preprocessing import get_network, \
+                              compute_feature_prob, \
+                              get_contact_zones, \
+                              simulate_background_distribution, \
+                              simulate_contact
+from src.model import lookup_log_likelihood, \
+                      compute_geo_likelihood
 from src.plotting import plot_zone, plot_posterior
-from src.util import timeit, dump, load_from
+from src.util import timeit, dump, load_from, get_neighbours
 from src.config import *
+
+if LL_MODE == 'generative':
+    from src.model import compute_likelihood_generative as compute_likelihood
+else:
+    from src.model import compute_likelihood
 
 
 def sample_initial_zone(net, lookup_table=None):
@@ -36,12 +45,17 @@ def sample_initial_zone(net, lookup_table=None):
     return zone
 
 
-def get_neighbours(zone, adj_mat):
-    """Compute the neighbourhood of a zone (excluding vertices from the zone itself)."""
-    return np.logical_and(adj_mat.dot(zone).astype(bool), ~zone)
-
-
 def grow_step(zone, net, max_size):
+    """Sample a nei
+
+    Args:
+        zone:
+        net:
+        max_size:
+
+    Returns:
+
+    """
     adj_mat = net['adj_mat']
     new_zone = zone.copy()
 
@@ -62,6 +76,7 @@ def grow_step(zone, net, max_size):
 
     # Back-probability (-> shrinking)
     q_back = 1 / new_size
+
     if new_size < max_size:
         q_back /= 2
 
@@ -76,15 +91,17 @@ def shrink_step(zone, net, max_size):
     zone_idx = zone.nonzero()[0]
     size =len(zone_idx)
 
-    G_zone = G.induced_subgraph(zone_idx)
-    assert G_zone.is_connected()
+    # G_zone = G.induced_subgraph(zone_idx)
+    # assert G_zone.is_connected()
+    #
+    # cut_vs_idx = G_zone.cut_vertices()
+    # if len(cut_vs_idx) == size:
+    #     return None
+    #
+    # cut_vertices = G_zone.vs[cut_vs_idx]['name']
+    # removal_candidates = [v for v in zone_idx if v not in cut_vertices]
 
-    cut_vs_idx = G_zone.cut_vertices()
-    if len(cut_vs_idx) == size:
-        return None
-
-    cut_vertices = G_zone.vs[cut_vs_idx]['name']
-    removal_candidates = [v for v in zone_idx if v not in cut_vertices]
+    removal_candidates = zone_idx
 
     # Remove a vertex from the zone.
     i_out = random.choice(removal_candidates)
@@ -99,11 +116,9 @@ def shrink_step(zone, net, max_size):
     # Back-probability (-> growing)
     back_neighbours = get_neighbours(new_zone, adj_mat)
     q_back = 1 / np.count_nonzero(back_neighbours)
+
     if new_size > 1:
         q_back /= 2
-
-    G_new_zone = G.induced_subgraph(new_zone.nonzero()[0])
-    assert G_new_zone.is_connected()
 
     return new_zone, q, q_back
 
@@ -127,16 +142,18 @@ def swap_step(zone, net, max_swaps=5):
     zone_idx = new_zone.nonzero()[0]
     size = len(zone_idx)
 
-    # # Compute cut_vertices (can be removed while keeping zone connected)
-    G_zone = G.induced_subgraph(zone_idx)
-    assert G_zone.is_connected()
+    # # # Compute cut_vertices (can be removed while keeping zone connected)
+    # G_zone = G.induced_subgraph(zone_idx)
+    # assert G_zone.is_connected()
+    #
+    # cut_vs_idx = G_zone.cut_vertices()
+    # if len(cut_vs_idx) == size:
+    #     return None
+    #
+    # cut_vertices = G_zone.vs[cut_vs_idx]['name']
+    # removal_candidates = [v for v in zone_idx if v not in cut_vertices]
 
-    cut_vs_idx = G_zone.cut_vertices()
-    if len(cut_vs_idx) == size:
-        return None
-
-    cut_vertices = G_zone.vs[cut_vs_idx]['name']
-    removal_candidates = [v for v in zone_idx if v not in cut_vertices]
+    removal_candidates = zone_idx
 
     # Remove a vertex from the zone.
     i_out = random.choice(removal_candidates)
@@ -171,13 +188,6 @@ def propose_contact_zone(net, prev_zone, max_size, p_global=0.):
         - q (float): The proposal probability.
         - q_back (float): The probability to transition back (new_zone -> prev_zone)
     """
-
-    # GLOBAL SAMPLING NOT USED NOW....
-    # # From time to time resample globally:
-    # if random.random() < p_global:
-    #     # return global_step(net, prev_zone)
-    #     return np.random.permutation(prev_zone), 1., 1.
-
     if random.random() < 0.5:
         return swap_step(prev_zone, net)
 
@@ -187,7 +197,7 @@ def propose_contact_zone(net, prev_zone, max_size, p_global=0.):
 
     # Ensure we don't exceed size limits
     prev_size = np.count_nonzero(prev_zone)
-    if prev_size <= 1:
+    if prev_size <= MIN_SIZE:
         grow = True
     if prev_size >= max_size:
         grow = False
@@ -228,11 +238,13 @@ def run_metropolis_hastings(net, n_samples, n_steps, feat, lh_lookup, max_size,
 
     accepted = 0
     samples = np.zeros((n_samples, net['n'])).astype(bool)
+    temperature = 1.
 
     # Generate a random starting zone and comput its log-likelihood
     zone = sample_initial_zone(net)
-    # llh = compute_likelihood(zone, feat, lh_lookup)
-    llh = 1.
+    ll = compute_likelihood(zone, feat, lh_lookup)
+    if USE_GEO_LL:
+        ll += compute_geo_likelihood(zone, net)
 
     for i_sample in range(n_samples):
 
@@ -256,28 +268,34 @@ def run_metropolis_hastings(net, n_samples, n_steps, feat, lh_lookup, max_size,
 
             # Compute the likelihood of the candidate zone
 
-            llh_cand = compute_likelihood(candidate_zone, feat, lh_lookup)
+            ll_cand = compute_likelihood(candidate_zone, feat, lh_lookup)
 
-            # Annealing: Scale all LL values to one in the begining, then converge to
-            # the true likelihood.
-            t = ((k + 1) / n_steps)
-            # print(t)
+            if USE_GEO_LL:
+                # Assign a likelihood to the geographic distribution of the languages
+                # in the zone. Should ensure more connected zones.
+                ll_cand += compute_geo_likelihood(candidate_zone, net)
+
+            if SIMULATED_ANNEALING:
+                # Simulated annealing: Scale all LL values to one in the beginning,
+                # then converge to the true likelihood.
+                temperature = ((k + 1) / n_steps) ** 2
 
             # This is the core of the MCMC: We compare the candidate to the current zone
             # Usually, we go for the better of the two zones,
             # but sometimes we decide for the candidate, even if it's worse
-            a = (llh_cand - llh)*t + math.log(q_back / q)
+            a = (ll_cand - ll) * temperature + math.log(q_back / q)
 
             if math.log(random.random()) < a:
                 zone = candidate_zone
-                llh = llh_cand
+                ll = ll_cand
                 accepted += 1
 
         samples[i_sample] = zone
-        mcmc_stats['likelihoods'].append(llh)
+        mcmc_stats['likelihoods'].append(ll)
 
-        print('Log-Likelihood:     %.2f' % llh)
-        print('Acceptance ration:  %.2f' % (accepted / ((i_sample+1) * n_steps)))
+        print('Log-Likelihood:        %.2f' % ll)
+        print('Size:                  %i' % np.count_nonzero(zone))
+        print('Acceptance ratio:  %.2f' % (accepted / ((i_sample+1) * n_steps)))
         print()
 
         if plot_samples:
@@ -289,8 +307,6 @@ def run_metropolis_hastings(net, n_samples, n_steps, feat, lh_lookup, max_size,
 
 
 if __name__ == "__main__":
-    from collections import defaultdict
-
     if RELOAD_DATA:
 
         # Get all necessary data
