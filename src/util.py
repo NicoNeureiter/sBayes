@@ -9,6 +9,16 @@ from math import sqrt, atan2
 import numpy as np
 import time as _time
 
+import scipy as sp
+
+
+def beta_binom_logpmf(alpha, beta, n, k):
+    part_1 = sp.special.comb(n, k)
+    part_2 = sp.special.betaln(k + alpha, n - k + beta)
+    part_3 = sp.special.betaln(alpha, beta)
+
+    return np.mean(np.log(part_1) + part_2 - part_3)
+
 
 def reachable_vertices(x, adj_mat):
     return adj_mat.dot(x).clip(0, 1)
