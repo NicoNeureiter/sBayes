@@ -13,6 +13,7 @@ N_CONTACT_FEATURES = 20
 P_CONTACT = 0.8
 """The probability of 0/1 in the contact zones"""
 
+
 # Sampling parameters
 N_STEPS = 1000
 """int: Number of MCMC steps."""
@@ -32,9 +33,27 @@ MAX_SIZE = 100
 P_GLOBAL = 0.0
 """float: Probability at which the new sample is generated from global distribution."""
 
+
 # Config flags
+LIKELIHOOD_MODES = ['generative', 'binom_test', 'binom_test_2']
+"""list: All implemented modes for the likelihood function."""
+
+LL_MODE = LIKELIHOOD_MODES[2]
+"""str: The switch for which likelihood to use."""
+
+USE_GEO_LL = False
+"""bool: Use the geo-likelihood (more connected regions)."""
+
+RESTART_CHAIN = False
+"""bool: Restart the chain from a random point after every sample."""
+
+SIMULATED_ANNEALING = True
+"""bool: Slowly increase a temerature parameter to smoothly blend from sampling from a 
+uniform distribution to the actual likelihood. Should help with separated modes."""
+
 RELOAD_DATA = False
-"""bool: Reload the data from the DB, preprocess it and dump it."""
+"""bool: Reload the data from the DB, pre-process it and dump it."""
+
 
 # Paths for dump files
 NETWORK_PATH = 'data/processed/network.pkl'
