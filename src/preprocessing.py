@@ -5,7 +5,7 @@ from __future__ import absolute_import, division, print_function, \
 
 import sys
 from contextlib import contextmanager
-
+from src.util import compute_distance, grow_zone
 import numpy as np
 import scipy.sparse as sps
 import psycopg2
@@ -106,15 +106,23 @@ def get_network():
     adj_list = np.array(adj_list)
     adj_mat = adj_mat.tocsr()
 
+    # Graph
+    g = igraph.Graph()
+    g.add_vertices(vertices)
+    # Add weighted edges
+    for e in edges:
+        dist = compute_distance(edges[e[0]], edges[e[1]])
+        g.add_edge(e[0], e[1], weight=dist)
+
     net = {'vertices': vertices,
            'edges': edges,
            'locations': locations,
            'adj_list': adj_list,
            'adj_mat': adj_mat,
            'n': n_v,
-           'm': n_e
-           # 'network': lang_network,
-           # 'bbox': bbox
+           'm': n_e,
+           'graph': g,
+           #'bbox': bbox
            }
     return net
 
@@ -214,47 +222,45 @@ def compute_feature_prob(feat):
     return p_present
 
 
-def ecdf_geo_likelihood(net,min_n, max_n, samples_per_n):
+def generate_ecdf_geo_likelihood(net, min_n, max_n, samples_per_n):
 
-    # To do:
-    # - Compute the spatial distance between all adjacent vertices and store as an attribute of the tree
-    # - Subset the network
-    # - Compute minimum spanning tree
-    # - Compute distance from minimum spanning tree
-    # - Generate ecdf
     """
         This function generates an empirical cumulative density function (ecdf), which represents
         the geo likelihood of a contact zone.
         The function
         a) grows x contact zones of size n, where n is between min_n and max_n,
-        b) for each contact zone: generate the minimum spanning tree and extracts its cumulative Euclidean distance
+        b) for each contact zone: generate the minimum spanning tree and extracts its Euclidean distance
         c) for each size n: generates an ecdf for all cumulative distances of all minimum spanning trees
         : In
         - net: a network graph
         - min_n: the minimum number of languages in a zone
         - max_n: the maximum number of languages in a zone
-        -
+        - sample_per_n: the number of samples in the ecdf
         : Out
-        - ecdf: the empirical cumulative density function for all cumulative distances of all minimum spanning trees"""
+        - ecdf: the empirical cumulative density function for all distances of all minimum spanning trees of size n"""
 
-    for n in range(min_n, max_n):
-        # a)
-        # Initialize contact zone
-        zone = sample_initial_zone(net, lookup_table=None)
+    ecdf = {}
+    for n in range(min_n, max_n+1):
+        dist_span_tree = []
 
-        ecdf = {}
-        print(zone)
-        # Grow contact zone until it has the desired size
-        while np.count_nonzero(zone):
-            zone = grow_step(zone, net['adj_mat'], n)
-            print(zone)
+        for _ in range(samples_per_n):
 
-            # Generate minimum spanning tree
-            tree = zone.igraph.spanning_tree(weights=distance)
+            # a) grow contact zones
+            zone = grow_zone(n, net['adj_mat'])
+            v = zone.nonzero()[0]
+            # b) generate a minimum spanning tree and extract its Euclidean distance
+            sub_g = net['graph'].subgraph(v)
+            span_tree = sub_g.spanning_tree(weights=sub_g.es["weight"])
+            dist_span_tree.append(sum(span_tree.es['weight']))
 
-            # Compute the cumulative distance
+        #  c) generate an ecdf for each size n
+        ecdf[n] = np.sort(dist_span_tree)
 
-            # Generate the ecd
+    return ecdf
+
+
+
+
 
 
 

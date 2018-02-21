@@ -83,7 +83,7 @@ def lookup_log_likelihood(min_size, max_size, feat_prob):
             for p_zone in range(s + 1):
                 # The binomial test computes the p-value of having k or more (!) successes out of n trials,
                 # given a specific probability of success
-                # For a two-binomial test, simply remove "greater"
+                # For a two-sided binomial test, simply remove "greater"
                 lookup_dict[i_feat][s][p_zone] = \
                     - math.log(binom_test(p_zone, s, p_global, 'greater'))
                     # math.log(1 - binom_test(p_zone, s, p_global, 'greater') + EPS)
@@ -113,6 +113,30 @@ def compute_geo_likelihood(zone: np.ndarray, network: dict):
     ll = np.mean(gaussian.logpdf(locations_zone, loc=mu, scale=std))
 
     return ll
+
+
+def compute_empirical_geo_likelihood(zone, net, ecdf_geo):
+
+    """
+        This function computes the empirical geo likelihood of a zone.
+        :In
+        -zone: boolean array representing the current zone
+        -net: a network graph
+        -ecdf_geo: the empirical cumulative density function for all distances of all minimum spanning trees of size n
+        : Out
+        geo_lh: the geo likelihood of the zone
+    """
+
+    # Compute the minimum spanning tree of the zone and its distance
+    v = zone.nonzero()[0]
+    sub_g = net['graph'].subgraph(v)
+    st = sub_g.spanning_tree(weights=sub_g.es["weight"])
+    d = (sum(st.es['weight']))
+    x = ecdf_geo[len(v)]
+
+    # Compute likelihood
+    geo_lh = -np.log(np.searchsorted(x, d, side='left') / x.size)
+    return geo_lh
 
 
 if __name__ == '__main__':

@@ -11,9 +11,10 @@ from src.preprocessing import (get_network,
                                get_contact_zones,
                                simulate_background_distribution,
                                simulate_contact,
-                               ecdf_geo_likelihood)
+                               generate_ecdf_geo_likelihood)
 from src.model import (lookup_log_likelihood,
-                       compute_geo_likelihood)
+                       compute_geo_likelihood,
+                       compute_empirical_geo_likelihood)
 
 from src.plotting import plot_zone, plot_posterior
 from src.util import timeit, dump, load_from, get_neighbours
@@ -242,11 +243,15 @@ def run_metropolis_hastings(net, n_samples, n_steps, feat, lh_lookup, max_size,
     samples = np.zeros((n_samples, net['n'])).astype(bool)
     temperature = 1.
 
-    # Generate a random starting zone and comput its log-likelihood
+    # Generate a random starting zone and compute its log-likelihood
     zone = sample_initial_zone(net)
     ll = compute_likelihood(zone, feat, lh_lookup)
-    if USE_GEO_LL:
-        ll += compute_geo_likelihood(zone, net)
+    geo_weight = GEO_LIKELIHOOD_WEIGHT * feat.shape[1]
+    if GEO_LL_MODE == "Gaussian":
+        ll += geo_weight * compute_geo_likelihood(zone, net)
+    elif GEO_LL_MODE == "Empirical":
+        # Compute the empirical geo-likelihood of a zone
+        ll += geo_weight * compute_empirical_geo_likelihood(zone, net, ecdf_geo)
 
     for i_sample in range(n_samples):
 
@@ -255,8 +260,11 @@ def run_metropolis_hastings(net, n_samples, n_steps, feat, lh_lookup, max_size,
             # sample
             zone = sample_initial_zone(net)
             ll = compute_likelihood(zone, feat, lh_lookup)
-            if USE_GEO_LL:
-                ll += compute_geo_likelihood(zone, net)
+            if GEO_LL_MODE == "Gaussian":
+                ll += geo_weight * compute_geo_likelihood(zone, net)
+            elif GEO_LL_MODE == "Empirical":
+                # Compute the empirical geo-likelihood of a zone
+                ll += geo_weight * compute_empirical_geo_likelihood(zone, net, ecdf_geo)
 
         for k in range(n_steps):
             # Propose a candidate zone
@@ -266,10 +274,13 @@ def run_metropolis_hastings(net, n_samples, n_steps, feat, lh_lookup, max_size,
             # Compute the likelihood of the candidate zone
             ll_cand = compute_likelihood(candidate_zone, feat, lh_lookup)
 
-            if USE_GEO_LL:
+            if GEO_LL_MODE == "Gaussian":
                 # Assign a likelihood to the geographic distribution of the languages
                 # in the zone. Should ensure more connected zones.
-                ll_cand += compute_geo_likelihood(candidate_zone, net)
+                ll_cand += geo_weight * compute_geo_likelihood(candidate_zone, net)
+            elif GEO_LL_MODE == "Empirical":
+
+                ll_cand += geo_weight * compute_empirical_geo_likelihood(zone, net, ecdf_geo)
 
             if SIMULATED_ANNEALING:
                 # Simulated annealing: Scale all LL values to one in the beginning,
@@ -331,6 +342,9 @@ if __name__ == "__main__":
         lh_lookup = lookup_log_likelihood(1, MAX_SIZE, feature_prob)
         dump(lh_lookup, LOOKUP_TABLE_PATH)
 
+        # Generate an empirical distribution for estimating the geo-likelihood
+        ecdf_geo = generate_ecdf_geo_likelihood(network, min_n=MIN_SIZE, max_n=MAX_SIZE, samples_per_n=10000)
+        dump(ecdf_geo, ECDF_GEO_PATH)
     else:
         # Load preprocessed data from dump files
         network = load_from(NETWORK_PATH)
@@ -339,22 +353,11 @@ if __name__ == "__main__":
         features = load_from(FEATURES_PATH)
         features_prob = load_from(FEATURE_PROB_PATH)
         lh_lookup = load_from(LOOKUP_TABLE_PATH)
-
-    # # Compute probability density function for geo-likelihood
-    # ecdf_geo_likelihood(network, min_n=MIN_SIZE, max_n=MAX_SIZE, samples_per_n=10000)
+        ecdf_geo = load_from(ECDF_GEO_PATH)
 
     vertices = network['vertices']
     locations = network['locations']
     adj_mat = network['adj_mat']
-
-    G = Graph(network['n'])
-    G.vs['name'] = list(range(network['n']))
-    for u, v in zip(*adj_mat.nonzero()):
-        G.add_edge(u, v)
-
-    network['graph'] = G
-
-    print(network['n'])
 
     samples, mcmc_stats = run_metropolis_hastings(network, N_SAMPLES, N_STEPS,
                                                   features, lh_lookup,
@@ -393,7 +396,7 @@ if __name__ == "__main__":
     # plt.hist(sizes, bins=20)
     # plt.show()
 
-    print('Acceptance Ratio: %.2f' % mcmc_stats ['acceptance_ratio'])
+    print('Acceptance Ratio: %.2f' % mcmc_stats['acceptance_ratio'])
 
     plot_posterior(samples, adj_mat, locations)
 
