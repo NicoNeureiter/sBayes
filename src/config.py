@@ -44,7 +44,7 @@ LL_MODE = LIKELIHOOD_MODES[2]
 GEO_LIKELIHOOD_MODES = ['None', 'Gaussian', 'Empirical']
 """list: All implemented modes for the geo-likelihood"""
 
-GEO_LL_MODE = GEO_LIKELIHOOD_MODES[1]
+GEO_LL_MODE = GEO_LIKELIHOOD_MODES[2]
 """str: The switch for the geo-likelihood to use."""
 
 RESTART_CHAIN = False
@@ -54,10 +54,10 @@ SIMULATED_ANNEALING = True
 """bool: Slowly increase a temperature parameter to smoothly blend from sampling from a
 uniform distribution to the actual likelihood. Should help with separated modes."""
 
-RELOAD_DATA = False
+RELOAD_DATA = True
 """bool: Reload the data from the DB, pre-process it and dump it."""
 
-GEO_LIKELIHOOD_WEIGHT = 1
+GEO_LIKELIHOOD_WEIGHT = 5.
 """float: The weight of the geo-likelihood as compared to the feature likelihood"""
 
 # Paths for dump files

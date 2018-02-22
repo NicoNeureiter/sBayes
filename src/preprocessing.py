@@ -2,21 +2,29 @@
 # -*- coding: utf-8 -*-
 from __future__ import absolute_import, division, print_function, \
     unicode_literals
-
 import sys
+import copy
+
 from contextlib import contextmanager
-from src.util import compute_distance, grow_zone
+from scipy.stats import gamma
+
 import numpy as np
 import scipy.sparse as sps
 import psycopg2
-import copy
 import igraph
+
+from src.util import compute_distance, grow_zone
+
+# Peter
+# -> config
 
 DB_ZONE_TABLE = 'cz_sim.contact_zones_raw'
 DB_EDGE_TABLE = 'cz_sim.delaunay_edge_list'
 
 
 @contextmanager
+# Peter
+# -> change to Google stylk, change settings docstring style to google
 def psql_connection(commit=False):
     """
         This function opens a connection to PostgreSQL,
@@ -45,7 +53,8 @@ def psql_connection(commit=False):
     finally:
         conn.close()
 
-
+# Peter
+# -> change to Google stylk, change settings docstring style to google
 def get_network():
     """
         This function first retrieves the edge list and the coordinates of the simulated languages
@@ -109,10 +118,14 @@ def get_network():
     # Graph
     g = igraph.Graph()
     g.add_vertices(vertices)
-    # Add weighted edges
+
     for e in edges:
         dist = compute_distance(edges[e[0]], edges[e[1]])
         g.add_edge(e[0], e[1], weight=dist)
+
+    # Distance matrix
+    diff = locations[:, None] - locations
+    dist_mat = np.linalg.norm(diff, axis=-1)
 
     net = {'vertices': vertices,
            'edges': edges,
@@ -122,11 +135,11 @@ def get_network():
            'n': n_v,
            'm': n_e,
            'graph': g,
-           #'bbox': bbox
-           }
+           'dist_mat': dist_mat}
     return net
 
-
+# Peter
+# -> change to Google stylk, change settings docstring style to google
 def get_contact_zones():
     """
         This function retrieves all contact zones from the DB
@@ -149,7 +162,8 @@ def get_contact_zones():
             contact_zones[cz[0]] = cz[1]
     return contact_zones
 
-
+# Peter
+# -> change to Google stylk, change settings docstring style to google
 def simulate_background_distribution(m_feat, n_sites):
     """
         This function draws m samples from a Binomial distribution for n binary features (0 = absence, 1 = presence)
@@ -174,7 +188,8 @@ def simulate_background_distribution(m_feat, n_sites):
 
     return features
 
-
+# Peter
+# -> change to Google stylk, change settings docstring style to google
 def simulate_contact(n_feat, features, p, contact_zones):
     """
         This function simulates contact in a contact zone. For each zone the function randomly
@@ -207,7 +222,8 @@ def simulate_contact(n_feat, features, p, contact_zones):
 
     return features_adjusted_mat
 
-
+# Peter
+# -> change to Google stylk, change settings docstring style to google
 def compute_feature_prob(feat):
     """
         This function computes the base-line probabilities for a feature to be present
@@ -221,7 +237,9 @@ def compute_feature_prob(feat):
 
     return p_present
 
-
+# Peter
+# -> change to Google stylk, change settings docstring style to google
+# Full, delauney, gabriel, mst
 def generate_ecdf_geo_likelihood(net, min_n, max_n, samples_per_n):
 
     """
@@ -238,27 +256,35 @@ def generate_ecdf_geo_likelihood(net, min_n, max_n, samples_per_n):
         - sample_per_n: the number of samples in the ecdf
         : Out
         - ecdf: the empirical cumulative density function for all distances of all minimum spanning trees of size n"""
-
+    adj_mat = net['adj_mat']
+    dist_mat = net['dist_mat']
     ecdf = {}
     for n in range(min_n, max_n+1):
-        dist_span_tree = []
+        dist_sum = []
 
         for _ in range(samples_per_n):
 
             # a) grow contact zones
-            zone = grow_zone(n, net['adj_mat'])
-            v = zone.nonzero()[0]
-            # b) generate a minimum spanning tree and extract its Euclidean distance
-            sub_g = net['graph'].subgraph(v)
-            span_tree = sub_g.spanning_tree(weights=sub_g.es["weight"])
-            dist_span_tree.append(sum(span_tree.es['weight']))
+            zone = grow_zone(n, adj_mat)
+
+            # v = zone.nonzero()[0]
+            #
+            # # b) generate a minimum spanning tree and extract its Euclidean distance
+            # sub_g = net['graph'].subgraph(v)
+            # span_tree = sub_g.spanning_tree(weights=sub_g.es["weight"])
+            # dist_span_tree.append(sum(span_tree.es['weight']))
+
+            dist_sum.append(dist_mat[zone][:, zone].sum())
 
         #  c) generate an ecdf for each size n
-        ecdf[n] = np.sort(dist_span_tree)
+        #  the ecdf comprises an empirical distribution and a fitted gamma distribution
+
+        ecdf[n] = {'empirical': np.sort(dist_sum),
+                   'fitted_gamma': gamma.fit(dist_sum)}
 
     return ecdf
 
-
+# TODO Nico: pickle files laden oder nicht Problem
 
 
 

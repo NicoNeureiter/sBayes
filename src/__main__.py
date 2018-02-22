@@ -25,8 +25,10 @@ if LL_MODE == 'generative':
 else:
     from src.model import compute_likelihood
 
-
-def sample_initial_zone(net, lookup_table=None):
+# -> Sampling modul
+# - fixed size hinzufuegen
+# Nico
+def sample_initial_zone(net, size=None):
     """Generate an initial zone by sampling a random vertex and adding its
     neighbourhood.
         :In
@@ -34,20 +36,16 @@ def sample_initial_zone(net, lookup_table=None):
         :Out
         - zone (np.array): The generated zone as a bool array.
     """
-    if lookup_table is not None:
-        zone_as_list = random.choice(lookup_table)
-        zone = np.array(zone_as_list)
-    else:
-        zone = np.zeros(net['n'])
-
-        v = random.randrange(net['n'])
-        zone[v] = 1
-        zone += net['adj_mat'].dot(zone)
-        zone = zone.astype(bool)
-
+    zone = np.zeros(net['n'])
+    v = random.randrange(net['n'])
+    zone[v] = 1
+    zone += net['adj_mat'].dot(zone)
+    zone = zone.astype(bool)
     return zone
 
-
+# -> sampling modul
+# -> Kommentare, Kommentare, Kommentare ...
+# Nico
 def grow_step(zone, net, max_size):
     """Sample a nei
 
@@ -85,6 +83,10 @@ def grow_step(zone, net, max_size):
 
     return new_zone, q, q_back
 
+# -> samling modul
+# Switch connected
+# Kommentare
+# Nico
 
 def shrink_step(zone, net, max_size):
     G = net['graph']
@@ -112,7 +114,7 @@ def shrink_step(zone, net, max_size):
     new_size = size - 1
 
     # Transition probability when shrinking.
-    q = 1 / size
+    q = 1 / len(removal_candidates)
     if size < max_size:
         q /= 2
 
@@ -125,12 +127,15 @@ def shrink_step(zone, net, max_size):
 
     return new_zone, q, q_back
 
+# Nico
+# -> sampling modul
+# Kommentare
+# Swap mit untersciedlichen Groessen
 
 def swap_step(zone, net, max_swaps=5):
     G = net['graph']
     adj_mat = net['adj_mat']
     new_zone = zone.copy()
-
 
     # Compute the neighbourhood
     neighbours = get_neighbours(zone, adj_mat)
@@ -143,7 +148,6 @@ def swap_step(zone, net, max_swaps=5):
 
 
     zone_idx = new_zone.nonzero()[0]
-    size = len(zone_idx)
 
     # # # Compute cut_vertices (can be removed while keeping zone connected)
     # G_zone = G.induced_subgraph(zone_idx)
@@ -162,19 +166,17 @@ def swap_step(zone, net, max_swaps=5):
     i_out = random.choice(removal_candidates)
     new_zone[i_out] = 0
 
-    if size-1 != np.count_nonzero(new_zone):
-        print('Zone:', )
-        print('   ', i_new)
-
-
     back_neighbours = get_neighbours(zone, adj_mat)
     q = 1. / np.count_nonzero(neighbours)
     q_back = 1. / np.count_nonzero(back_neighbours)
 
     return new_zone, q, q_back
 
-
-def propose_contact_zone(net, prev_zone, max_size, p_global=0.):
+# Parameter fuer swap, grow shrink probabilities
+# -> sampling module
+# min_size as argument
+# Nico
+def propose_contact_zone(net, prev_zone, max_size):
     """This function proposes a new candidate zone in the network. The new zone differs
     from the previous one by exactly one vertex. An exception are global update steps, which
     are performed with probability p_global and should avoid getting stuck in local
@@ -185,7 +187,6 @@ def propose_contact_zone(net, prev_zone, max_size, p_global=0.):
         - prev_zone (np.array): the previous zone, which will be modified to generate
             the new one.
         - max_size (int): upper bound on the number of languages in a zone.
-        - p_global (float): probability (frequency) of global update steps. (in [0,1])
     :Out
         - new_zone (np.array): The proposed new contact zone.
         - q (float): The proposal probability.
@@ -215,7 +216,10 @@ def propose_contact_zone(net, prev_zone, max_size, p_global=0.):
             # No way to shrink while keeping the zone connected
             return grow_step(prev_zone, net, max_size)
 
-
+# Nico
+# -> Sampling module
+# min_size as argument
+# type of likelihood in lh function
 @timeit
 def run_metropolis_hastings(net, n_samples, n_steps, feat, lh_lookup, max_size,
                             plot_samples=False):
@@ -247,6 +251,7 @@ def run_metropolis_hastings(net, n_samples, n_steps, feat, lh_lookup, max_size,
     zone = sample_initial_zone(net)
     ll = compute_likelihood(zone, feat, lh_lookup)
     geo_weight = GEO_LIKELIHOOD_WEIGHT * feat.shape[1]
+
     if GEO_LL_MODE == "Gaussian":
         ll += geo_weight * compute_geo_likelihood(zone, net)
     elif GEO_LL_MODE == "Empirical":
@@ -337,13 +342,14 @@ if __name__ == "__main__":
         feature_prob = compute_feature_prob(features)
         dump(feature_prob, FEATURE_PROB_PATH)
 
-        # Compute lookup tables for likelihood
+        # Compute a lookup table for likelihood
         # this speeds up the processing time of the algorithm
         lh_lookup = lookup_log_likelihood(1, MAX_SIZE, feature_prob)
         dump(lh_lookup, LOOKUP_TABLE_PATH)
 
+        # TODO Peter  samples_per_n -> config
         # Generate an empirical distribution for estimating the geo-likelihood
-        ecdf_geo = generate_ecdf_geo_likelihood(network, min_n=MIN_SIZE, max_n=MAX_SIZE, samples_per_n=10000)
+        ecdf_geo = generate_ecdf_geo_likelihood(network, min_n=MIN_SIZE, max_n=MAX_SIZE, samples_per_n=2000)
         dump(ecdf_geo, ECDF_GEO_PATH)
     else:
         # Load preprocessed data from dump files
@@ -366,6 +372,7 @@ if __name__ == "__main__":
 
     likelihood = np.asarray(mcmc_stats['likelihoods'])
 
+    # TODO: Nico put stuff in function or delete, as you like
     # n_clusters = 12
     # k_means = KMeans(n_clusters)
     #
@@ -400,5 +407,3 @@ if __name__ == "__main__":
 
     plot_posterior(samples, adj_mat, locations)
 
-    # likelihood /= np.mean(likelihood)
-    # plot_posterior(samples, adj_mat, locations, weights=likelihood)

@@ -1,14 +1,22 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+
+
+# Peter
+# -> change import
+
 from __future__ import absolute_import, division, print_function, \
     unicode_literals
 import math
 
 import numpy as np
-from scipy.stats import binom_test, binom, norm as gaussian
+from scipy.stats import binom_test, binom, norm as gaussian, gamma
+from scipy.sparse.csgraph import minimum_spanning_tree
 
 EPS = np.finfo(float).eps
 
+# Nico
+# -> change to Google stylk, change settings docstring style to google
 
 def binom_ll(features):
     """Compute the maximum log-likelihood of a binomial distribution."""
@@ -41,7 +49,8 @@ def compute_likelihood_generative(zone, features, *args):
 
     return ll_zone + ll_rest
 
-
+# Peter
+# -> change to Google stylk, change settings docstring style to google
 def compute_likelihood(zone, features, ll_lookup):
     """This function computes the likelihood of a zone.
     The function performs a one-sided binomial test. The test computes the probability of
@@ -64,7 +73,9 @@ def compute_likelihood(zone, features, ll_lookup):
 
     return log_lh
 
-
+# Nico
+# -> change to Google stylk, change settings docstring style to google
+# flags einbauen
 def lookup_log_likelihood(min_size, max_size, feat_prob):
     """This function generates a lookup table of likelihoods
     :In
@@ -90,7 +101,9 @@ def lookup_log_likelihood(min_size, max_size, feat_prob):
 
     return lookup_dict
 
-
+# Nico
+# Empirische durschnitteliche Varianz um Gausssche Verteilung zu definieren
+# 0.1 weg
 def compute_geo_likelihood(zone: np.ndarray, network: dict):
     """
 
@@ -108,13 +121,14 @@ def compute_geo_likelihood(zone: np.ndarray, network: dict):
     k = locations_zone.shape[0]
 
     mu = np.mean(locations_zone, axis=0)
-    std = np.std(locations, axis=0) * 0.1  # * (k/n + EPS)**0.5
+    std = np.std(locations, axis=0) * 0.1
 
     ll = np.mean(gaussian.logpdf(locations_zone, loc=mu, scale=std))
 
     return ll
 
-
+# Peter
+# flags fuer Gabriel usw
 def compute_empirical_geo_likelihood(zone, net, ecdf_geo):
 
     """
@@ -129,29 +143,21 @@ def compute_empirical_geo_likelihood(zone, net, ecdf_geo):
 
     # Compute the minimum spanning tree of the zone and its distance
     v = zone.nonzero()[0]
-    sub_g = net['graph'].subgraph(v)
-    st = sub_g.spanning_tree(weights=sub_g.es["weight"])
-    d = (sum(st.es['weight']))
-    x = ecdf_geo[len(v)]
+    dist_mat = net['dist_mat']
+    dist_mat_zone = dist_mat[zone][:, zone]
+    d = dist_mat_zone.sum()
+
+    # mst = minimum_spanning_tree(dist_mat_zone)
+    # d = mst.sum()
+
+    # sub_g = net['graph'].subgraph(v)
+    # st = sub_g.spanning_tree(weights=sub_g.es["weight"])
+    # d = (sum(st.es['weight']))
 
     # Compute likelihood
-    geo_lh = -np.log(np.searchsorted(x, d, side='left') / x.size)
+    x = ecdf_geo[len(v)]['fitted_gamma']
+    geo_lh = -np.log(gamma.cdf(d, *x))
+    print (d, len(v), 1-gamma.cdf(d, *x),  geo_lh)
+    #geo_lh = -np.log(np.searchsorted(x, d, side='left') / x.size)
     return geo_lh
 
-
-if __name__ == '__main__':
-    import matplotlib.pyplot as plt
-
-    for n in [10, 50, 100, 500]:
-        k = np.arange(n+1)
-        p = k / n
-        plt.plot(p, np.log2(binom.pmf(k, n, p)))
-
-    # n = 200
-    # for l in [20, 60]:
-    #     k = np.arange(n + 1)
-    #     plt.plot(k, poisson.pmf(k, l))
-    #     plt.plot(k, binom.pmf(k, n, l/n), '--')
-
-    plt.tight_layout(True)
-    plt.show()

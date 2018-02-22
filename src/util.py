@@ -13,14 +13,6 @@ import time as _time
 import scipy as sp
 
 
-def beta_binom_logpmf(alpha, beta, n, k):
-    part_1 = sp.special.comb(n, k)
-    part_2 = sp.special.betaln(k + alpha, n - k + beta)
-    part_3 = sp.special.betaln(alpha, beta)
-
-    return np.mean(np.log(part_1) + part_2 - part_3)
-
-
 def reachable_vertices(x, adj_mat):
     return adj_mat.dot(x).clip(0, 1)
 
@@ -41,7 +33,8 @@ def timeit(fn):
 
     return fn_timed
 
-
+# Peter
+# change to Google
 def compute_distance(a, b):
     """
         This function computes the Euclidean distance between two points a and b
@@ -59,22 +52,6 @@ def compute_distance(a, b):
     return dist
 
 
-def compute_direction(a, b):
-    """
-        This function computes the direction between two points a and b in clockwise direction
-        north = 0 , east = pi/2, south = pi, west = 3pi/2
-        :In
-          - A: x and y coordinates of the point a, in a metric CRS
-          - B: x and y coordinates of the point b, in a metric CRS.
-        :Out
-          - dir_rad: the direction from A to B in radians
-        """
-    a = np.asarray(a)
-    b = np.asarray(b)
-    ba = b - a
-    return (np.pi/2 - atan2(ba[1], ba[0])) % (2*np.pi)
-
-
 def dump(data, path):
     with open(path, 'wb') as dump_file:
         pickle.dump(data, dump_file)
@@ -89,7 +66,8 @@ def get_neighbours(zone, adj_mat):
     """Compute the neighbourhood of a zone (excluding vertices from the zone itself)."""
     return np.logical_and(adj_mat.dot(zone), ~zone)
 
-
+# Peter
+# -> sampling
 def grow_zone(size, adj_mat):
     """Grow a zone of size <size> by starting from a random point and iteratively
     adding random neighbours.
