@@ -304,7 +304,7 @@ def run_metropolis_hastings(net, n_samples, n_steps, feat, lh_lookup, max_size,
             if SIMULATED_ANNEALING:
                 # Simulated annealing: Scale all LL values to one in the beginning,
                 # then converge to the true likelihood.
-                temperature = ((k + 1) / n_steps) ** ALPHA_ANEALING
+                temperature = ((k + 1) / n_steps) ** ALPHA_ANNEALING
 
             # This is the core of the MCMC: We compare the candidate to the current zone
             # Usually, we go for the better of the two zones,
@@ -315,6 +315,8 @@ def run_metropolis_hastings(net, n_samples, n_steps, feat, lh_lookup, max_size,
                 zone = candidate_zone
                 ll = ll_cand
                 accepted += 1
+
+            # mcmc_stats['likelihoods'].append(ll)
 
         samples[i_sample] = zone
         mcmc_stats['likelihoods'].append(ll)
@@ -384,40 +386,6 @@ if __name__ == "__main__":
                                                   max_size=MAX_SIZE,
                                                   plot_samples=True)
 
-    likelihood = np.asarray(mcmc_stats['likelihoods'])
-
-    # TODO: Nico put stuff in function or delete, as you like
-    # n_clusters = 12
-    # k_means = KMeans(n_clusters)
-    #
-    # # sample_means = (samples / samples.sum(axis=1)[:, None]).dot(locations)
-    # # cluster_idx = k_means.fit_predict(sample_means)
-    #
-    # cluster_idx = k_means.fit_predict(samples / samples.sum(axis=1)[:, None])
-    #
-    # cluster_weights = np.ones(N_SAMPLES)
-    #
-    # plt.scatter(*locations.T, lw=0, alpha=0.2, s=4)
-    # for i in range(n_clusters):
-    #     mean_lh = np.mean(likelihood[cluster_idx == i])
-    #     freq = np.sum(cluster_idx == i)
-    #     cluster_weights[cluster_idx == i] = (mean_lh / freq)
-    #     print(np.sum(cluster_idx==i))
-    #     cluster_vertices = samples[cluster_idx==i].sum(axis=0).astype(bool)
-    #
-    #     plt.scatter(*locations[cluster_vertices].T, lw=0, s=10)
-    #
-    # plt.show()
-    #
-    # cluster_weights /= np.mean(cluster_weights)
-    # print(np.unique(cluster_weights))
-    #
-    #
-    # sizes = samples.astype(bool).sum(axis=1)
-    # plt.hist(sizes, bins=20)
-    # plt.show()
-
-    print('Acceptance Ratio: %.2f' % mcmc_stats['acceptance_ratio'])
 
     plot_posterior(samples, adj_mat, locations)
 
