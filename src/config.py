@@ -15,23 +15,25 @@ P_CONTACT = 0.8
 
 
 # Sampling parameters
-N_STEPS = 1000
+N_STEPS = 5000
 """int: Number of MCMC steps."""
 
 N_SAMPLES = 200
 """int: Number of generated samples."""
 
-PLOT_INTERVAL = 1000
-"""int: Number of steps between plotting samples."""
-
 MIN_SIZE = 5
 """int: The minimum size for the contact zones."""
 
-MAX_SIZE = 50
+MAX_SIZE = 40
 """int: The maximum size for the contact zones."""
 
-P_GLOBAL = 0.0
-"""float: Probability at which the new sample is generated from global distribution."""
+P_SWAP = 1.0
+"""float: Frequency of 'swap' steps, where a node gets replaced by another (size 
+remains constant)."""
+
+ALPHA_ANEALING = 1.5
+"""float: The parameter controlling the cooling schedule for the simulated annealing 
+temperature."""
 
 
 # Config flags
@@ -44,17 +46,17 @@ LL_MODE = LIKELIHOOD_MODES[2]
 GEO_LIKELIHOOD_MODES = ['None', 'Gaussian', 'Empirical']
 """list: All implemented modes for the geo-likelihood"""
 
-GEO_LL_MODE = GEO_LIKELIHOOD_MODES[2]
+GEO_LL_MODE = GEO_LIKELIHOOD_MODES[1]
 """str: The switch for the geo-likelihood to use."""
 
-RESTART_CHAIN = False
+RESTART_CHAIN = True
 """bool: Restart the chain from a random point after every sample."""
 
 SIMULATED_ANNEALING = True
 """bool: Slowly increase a temperature parameter to smoothly blend from sampling from a
 uniform distribution to the actual likelihood. Should help with separated modes."""
 
-RELOAD_DATA = True
+RELOAD_DATA = False
 """bool: Reload the data from the DB, pre-process it and dump it."""
 
 # Parameters for geo-likelihood

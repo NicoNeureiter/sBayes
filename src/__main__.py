@@ -16,7 +16,7 @@ from src.model import (lookup_log_likelihood,
                        compute_geo_likelihood,
                        compute_empirical_geo_likelihood)
 from src.plotting import plot_zone, plot_posterior
-from src.util import timeit, dump, load_from, get_neighbours
+from src.util import timeit, dump, load_from, get_neighbours, grow_zone
 from src.config import *
 
 if LL_MODE == 'generative':
@@ -35,12 +35,14 @@ def sample_initial_zone(net, size=None):
         :Out
         - zone (np.array): The generated zone as a bool array.
     """
-    zone = np.zeros(net['n'])
-    v = random.randrange(net['n'])
-    zone[v] = 1
-    zone += net['adj_mat'].dot(zone)
-    zone = zone.astype(bool)
-    return zone
+    return grow_zone(MAX_SIZE, net['adj_mat'])
+    # zone = np.zeros(net['n'])
+    # v = random.randrange(net['n'])
+    # zone[v] = 1
+    # zone += net['adj_mat'].dot(zone)
+    # zone = zone.astype(bool)
+    # return zone
+
 
 # -> sampling modul
 # -> Kommentare, Kommentare, Kommentare ...
@@ -132,6 +134,19 @@ def shrink_step(zone, net, max_size):
 # Swap mit untersciedlichen Groessen
 
 def swap_step(zone, net, max_swaps=5):
+    """Propose an MCMC transition by removing a vertex and adding another one from the
+    neighbourhood.
+
+    Args:
+        zone (np.ndarray): Current zone given as a boolean array.
+        net (dict): Network graph.
+        max_swaps (int): The maximum number of swaps to perform in this step.
+
+    Returns:
+        np.array: The proposed new contact zone.
+        float: The proposal probability.
+        float: The probability to transition back (new_zone -> prev_zone)
+    """
     G = net['graph']
     adj_mat = net['adj_mat']
     new_zone = zone.copy()
@@ -144,7 +159,6 @@ def swap_step(zone, net, max_swaps=5):
     # Add a neighbour to the zone
     i_new = random.choice(neighbours_idx)
     new_zone[i_new] = 1
-
 
     zone_idx = new_zone.nonzero()[0]
 
@@ -191,7 +205,7 @@ def propose_contact_zone(net, prev_zone, max_size):
         - q (float): The proposal probability.
         - q_back (float): The probability to transition back (new_zone -> prev_zone)
     """
-    if random.random() < 0.5:
+    if random.random() < P_SWAP:
         return swap_step(prev_zone, net)
 
     # Continue with local mcmc steps...
@@ -289,7 +303,7 @@ def run_metropolis_hastings(net, n_samples, n_steps, feat, lh_lookup, max_size,
             if SIMULATED_ANNEALING:
                 # Simulated annealing: Scale all LL values to one in the beginning,
                 # then converge to the true likelihood.
-                temperature = ((k + 1) / n_steps) ** 2
+                temperature = ((k + 1) / n_steps) ** ALPHA_ANEALING
 
             # This is the core of the MCMC: We compare the candidate to the current zone
             # Usually, we go for the better of the two zones,
@@ -367,7 +381,7 @@ if __name__ == "__main__":
     samples, mcmc_stats = run_metropolis_hastings(network, N_SAMPLES, N_STEPS,
                                                   features, lh_lookup,
                                                   max_size=MAX_SIZE,
-                                                  plot_samples=True )
+                                                  plot_samples=True)
 
     likelihood = np.asarray(mcmc_stats['likelihoods'])
 

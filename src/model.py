@@ -9,11 +9,14 @@ import numpy as np
 
 from scipy.stats import binom_test, binom, norm as gaussian, gamma
 from src.util import triangulation
+from src.config import LL_MODE
+
+
 EPS = np.finfo(float).eps
+
 
 # Nico
 # -> change to Google stylk, change settings docstring style to google
-
 def binom_ll(features):
     """Compute the maximum log-likelihood of a binomial distribution."""
     k = features.sum(axis=0)
@@ -22,7 +25,7 @@ def binom_ll(features):
 
     ll = binom.logpmf(k, n, p)
 
-    return np.mean(ll)
+    return np.sum(ll)
 
 
 def compute_likelihood_generative(zone, features, *args):
@@ -38,12 +41,12 @@ def compute_likelihood_generative(zone, features, *args):
     """
 
     features_zone = features[zone, :]
-    features_rest = features[~zone, :]
+    # features_rest = features[~zone, :]
 
     ll_zone = binom_ll(features_zone)
-    ll_rest = binom_ll(features_rest)
+    # ll_rest = binom_ll(features_rest)
 
-    return ll_zone + ll_rest
+    return ll_zone
 
 
 def compute_likelihood(zone, features, ll_lookup):
@@ -86,6 +89,17 @@ def lookup_log_likelihood(min_size, max_size, feat_prob):
     :Out
     - lookup_dict: the lookup table of likelihoods for a specific feature, sample size and observed presence
     """
+    if LL_MODE == 'binom_test_2':
+        # The binomial test computes the p-value of having k or more (!) successes out of n trials,
+        # given a specific probability of success
+        # For a two-sided binomial test, simply remove "greater"
+        def ll(p_zone, s, p_global):
+            return math.log(1 - binom_test(p_zone, s, p_global, 'greater') + EPS)
+
+    else:
+        # This version of the ll is more sensitive to exceptional observations.
+        def ll(p_zone, s, p_global):
+            return - math.log(binom_test(p_zone, s, p_global, 'greater'))
 
     lookup_dict = {}
     for i_feat, p_global in enumerate(feat_prob):
@@ -93,12 +107,7 @@ def lookup_log_likelihood(min_size, max_size, feat_prob):
         for s in range(min_size, max_size + 1):
             lookup_dict[i_feat][s] = {}
             for p_zone in range(s + 1):
-                # The binomial test computes the p-value of having k or more (!) successes out of n trials,
-                # given a specific probability of success
-                # For a two-sided binomial test, simply remove "greater"
-                lookup_dict[i_feat][s][p_zone] = \
-                    - math.log(binom_test(p_zone, s, p_global, 'greater'))
-                    # math.log(1 - binom_test(p_zone, s, p_global, 'greater') + EPS)
+                lookup_dict[i_feat][s][p_zone] = ll(p_zone, s, p_global)
 
     return lookup_dict
 
@@ -117,9 +126,6 @@ def compute_geo_likelihood(zone: np.ndarray, network: dict):
     """
     locations = network['locations']
     locations_zone = locations[zone]
-
-    n = locations.shape[0]
-    k = locations_zone.shape[0]
 
     mu = np.mean(locations_zone, axis=0)
     std = np.std(locations, axis=0) * 0.1
