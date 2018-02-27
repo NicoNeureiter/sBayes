@@ -105,7 +105,7 @@ def grow_zone(size, adj_mat):
     zone = np.zeros(n).astype(bool)
 
     # Choose starting point
-    i = random.randrange(size)
+    i = random.randrange(n)
     zone[i] = 1
 
     for _ in range(size-1):
