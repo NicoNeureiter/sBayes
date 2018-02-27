@@ -15,7 +15,7 @@ P_CONTACT = 0.8
 
 
 # Sampling parameters
-N_STEPS = 1000
+N_STEPS = 5000
 """int: Number of MCMC steps."""
 
 N_SAMPLES = 200
@@ -27,21 +27,26 @@ PLOT_INTERVAL = 1000
 MIN_SIZE = 5
 """int: The minimum size for the contact zones."""
 
-MAX_SIZE = 50
+MAX_SIZE = 40
 """int: The maximum size for the contact zones."""
 
-P_GLOBAL = 0.0
-"""float: Probability at which the new sample is generated from global distribution."""
+P_SWAP = 1.0
+"""float: Frequency of 'swap' steps, where a node gets replaced by another (size 
+remains constant)."""
+
+ALPHA_ANEALING = 1.5
+"""float: The parameter controlling the cooling schedule for the simulated annealing 
+temperature."""
 
 
 # Config flags
 LIKELIHOOD_MODES = ['generative', 'binom_test', 'binom_test_2']
 """list: All implemented modes for the likelihood function."""
 
-LL_MODE = LIKELIHOOD_MODES[2]
+LL_MODE = LIKELIHOOD_MODES[0]
 """str: The switch for which likelihood to use."""
 
-USE_GEO_LL = False
+USE_GEO_LL = True
 """bool: Use the geo-likelihood (more connected regions)."""
 
 RESTART_CHAIN = False
