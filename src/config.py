@@ -59,8 +59,17 @@ uniform distribution to the actual likelihood. Should help with separated modes.
 RELOAD_DATA = False
 """bool: Reload the data from the DB, pre-process it and dump it."""
 
+# Parameters for geo-likelihood
 GEO_LIKELIHOOD_WEIGHT = 5.
 """float: The weight of the geo-likelihood as compared to the feature likelihood"""
+
+SAMPLES_PER_ZONE_SIZE = 10000
+"""int: The number of samples for generating the empirical geo-likelihood"""
+
+
+# Names of DB tables
+DB_ZONE_TABLE = 'cz_sim.contact_zones_raw'
+DB_EDGE_TABLE = 'cz_sim.delaunay_edge_list'
 
 # Paths for dump files
 NETWORK_PATH = 'data/processed/network.pkl'
@@ -73,3 +82,6 @@ ECDF_GEO_PATH = 'data/processed/ecdf_geo.pkl'
 
 # Path for results
 PATH_MCMC_RESULTS = 'data/results/mcmc_results.csv'
+
+
+

@@ -15,7 +15,6 @@ from src.preprocessing import (get_network,
 from src.model import (lookup_log_likelihood,
                        compute_geo_likelihood,
                        compute_empirical_geo_likelihood)
-
 from src.plotting import plot_zone, plot_posterior
 from src.util import timeit, dump, load_from, get_neighbours, grow_zone
 from src.config import *
@@ -363,9 +362,9 @@ if __name__ == "__main__":
         lh_lookup = lookup_log_likelihood(1, MAX_SIZE, feature_prob)
         dump(lh_lookup, LOOKUP_TABLE_PATH)
 
-        # TODO Peter  samples_per_n -> config
         # Generate an empirical distribution for estimating the geo-likelihood
-        ecdf_geo = generate_ecdf_geo_likelihood(network, min_n=MIN_SIZE, max_n=MAX_SIZE, samples_per_n=2000)
+        ecdf_geo = generate_ecdf_geo_likelihood(network, min_n=MIN_SIZE, max_n=MAX_SIZE,
+                                                nr_samples=SAMPLES_PER_ZONE_SIZE, plot=True)
         dump(ecdf_geo, ECDF_GEO_PATH)
     else:
         # Load preprocessed data from dump files
