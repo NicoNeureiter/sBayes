@@ -21,9 +21,6 @@ N_STEPS = 5000
 N_SAMPLES = 200
 """int: Number of generated samples."""
 
-PLOT_INTERVAL = 1000
-"""int: Number of steps between plotting samples."""
-
 MIN_SIZE = 5
 """int: The minimum size for the contact zones."""
 
@@ -43,22 +40,27 @@ temperature."""
 LIKELIHOOD_MODES = ['generative', 'binom_test', 'binom_test_2']
 """list: All implemented modes for the likelihood function."""
 
-LL_MODE = LIKELIHOOD_MODES[0]
+LL_MODE = LIKELIHOOD_MODES[2]
 """str: The switch for which likelihood to use."""
 
-USE_GEO_LL = True
-"""bool: Use the geo-likelihood (more connected regions)."""
+GEO_LIKELIHOOD_MODES = ['None', 'Gaussian', 'Empirical']
+"""list: All implemented modes for the geo-likelihood"""
 
-RESTART_CHAIN = False
+GEO_LL_MODE = GEO_LIKELIHOOD_MODES[1]
+"""str: The switch for the geo-likelihood to use."""
+
+RESTART_CHAIN = True
 """bool: Restart the chain from a random point after every sample."""
 
 SIMULATED_ANNEALING = True
-"""bool: Slowly increase a temerature parameter to smoothly blend from sampling from a 
+"""bool: Slowly increase a temperature parameter to smoothly blend from sampling from a
 uniform distribution to the actual likelihood. Should help with separated modes."""
 
 RELOAD_DATA = False
 """bool: Reload the data from the DB, pre-process it and dump it."""
 
+GEO_LIKELIHOOD_WEIGHT = 5.
+"""float: The weight of the geo-likelihood as compared to the feature likelihood"""
 
 # Paths for dump files
 NETWORK_PATH = 'data/processed/network.pkl'
@@ -67,6 +69,7 @@ FEATURES_BG_PATH = 'data/processed/features_bg.pkl'
 FEATURE_PROB_PATH = 'data/processed/feature_prob.pkl'
 LOOKUP_TABLE_PATH = 'data/processed/lookup_table.pkl'
 CONTACT_ZONES_PATH = 'data/processed/contact_zones.pkl'
+ECDF_GEO_PATH = 'data/processed/ecdf_geo.pkl'
 
 # Path for results
 PATH_MCMC_RESULTS = 'data/results/mcmc_results.csv'
