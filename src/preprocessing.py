@@ -10,30 +10,23 @@ from scipy.stats import gamma
 
 import numpy as np
 import scipy.sparse as sps
+import scipy.spatial as spatial
 import psycopg2
 import igraph
 
-from src.util import compute_distance, grow_zone
-
-# Peter
-# -> config
-
-DB_ZONE_TABLE = 'cz_sim.contact_zones_raw'
-DB_EDGE_TABLE = 'cz_sim.delaunay_edge_list'
+from src.util import compute_distance, grow_zone, triangulation
+from src.config import *
+from src.plotting import plot_proximity_graph
 
 
 @contextmanager
-# Peter
-# -> change to Google stylk, change settings docstring style to google
 def psql_connection(commit=False):
+    """This function opens a connection to PostgreSQL, performs a DB operation and finally closes the connection
+
+    Args:
+        commit (boolean): specifies if the operation is executed
     """
-        This function opens a connection to PostgreSQL,
-        performs a DB operation and finally closes the connection
-        :In
-        - commit: a Boolean variable that specifies if the operation is actually executed
-        :Out
-        -
-        """
+
     # Connection settings for PostgreSQL
     conn = psycopg2.connect(dbname='limits-db', port=5432, user='contact_zones',
                             password='letsfindthemcontactzones', host='limits.geo.uzh.ch')
@@ -53,17 +46,14 @@ def psql_connection(commit=False):
     finally:
         conn.close()
 
-# Peter
-# -> change to Google stylk, change settings docstring style to google
+
 def get_network():
-    """
-        This function first retrieves the edge list and the coordinates of the simulated languages
-        from the DB, then converts these into a spatial network.
-        :In
-        -
-        :Out
-        - net: a dictionary containing the network (igraph), its vertices and edges, and its
-        adjacency matrix
+    """ This function retrieves the edge list and the coordinates of the simulated languages
+    from the DB and then converts these into a spatial network.
+
+    Returns:
+        dict: a dictionary containing the network, its vertices and edges, an adjacency list and matrix
+        and a distance matrix
         """
 
     # Get vertices from PostgreSQL
@@ -103,6 +93,7 @@ def get_network():
         edges[i, 0] = gid_to_idx[e[0]]
         edges[i, 1] = gid_to_idx[e[1]]
 
+    # Adjacency list and matrix
     adj_list = [[] for _ in range(n_v)]
     adj_mat = sps.lil_matrix((n_v, n_v))
 
@@ -138,15 +129,12 @@ def get_network():
            'dist_mat': dist_mat}
     return net
 
-# Peter
-# -> change to Google stylk, change settings docstring style to google
+
 def get_contact_zones():
-    """
-        This function retrieves all contact zones from the DB
-        :In
-        -
-        :Out
-        - contact_zones: a dict with all contact zones
+    """This function retrieves all contact zones from the DB
+
+    Returns:
+        dict: the contact zones
         """
     with psql_connection(commit=True) as connection:
         query_cz = "SELECT cz, array_agg(id) " \
@@ -162,20 +150,18 @@ def get_contact_zones():
             contact_zones[cz[0]] = cz[1]
     return contact_zones
 
-# Peter
-# -> change to Google stylk, change settings docstring style to google
-def simulate_background_distribution(m_feat, n_sites):
-    """
-        This function draws m samples from a Binomial distribution for n binary features (0 = absence, 1 = presence)
-        The probability of success (1) of each feature is drawn from a uniform distribution between 0.05 and 0.95
-        Thus, a feature can be considerably skewed towards 0 or 1, but there are no extreme distributions
-        in which one state is hardly possible at all
 
-        :In
-        - m_feat: number of features
-        - n_sites: number of sites for which a feature is simulated
-        :Out
-        - features: a dictionary comprising the simulated features
+def simulate_background_distribution(m_feat, n_sites):
+    """This function draws <n_sites> samples from a Binomial distribution for <m_feat> binary features, where
+    1 implies the presence of the feature, and 0 the absence. For ech feature the probability of success is drawn from
+    a uniform distribution between 0.05 and 0.95. Thus, some feature are balanced and some are skewed towards 0 or 1.
+
+    Args:
+        m_feat (int): number of features
+        n_sites (int): number of sites for which feature are simulated
+
+    Returns:
+        dict: the simulated features
         """
     successes = np.random.uniform(0.05, 0.95, m_feat)
     it = np.nditer(successes, flags=['f_index'])
@@ -188,25 +174,26 @@ def simulate_background_distribution(m_feat, n_sites):
 
     return features
 
-# Peter
-# -> change to Google stylk, change settings docstring style to google
+
 def simulate_contact(n_feat, features, p, contact_zones):
-    """
-        This function simulates contact in a contact zone. For each zone the function randomly
-        chooses n features, for which the similarity is increased
-        :In
-        - n_feat: number of features for which the function simulates contact
-        - features: dict of features for which contact is simulated
-        - p: Probability of success, the strength of the similarity in the contact zone
-        - contact_zones: region of neighbouring features for which contact is simulated
-        :Out
-        - features_adjusted: a dict containing the adjusted features
+    """This function simulates language contact. For each contact zone the function randomly chooses <n_feat> features,
+    for which the similarity is increased.
+
+    Args:
+        n_feat (int): the number of features for which the function simulates contact
+        features (list): features for which contact is simulated
+        p (float): probability of success, defines the degree of similarity in the contact zone
+        contact_zones (dict): a region of sites for which contact is simulated
+
+    Returns:
+        np.ndarray: the adjusted features
         """
     features_adjusted = copy.deepcopy(features)
+
     # Iterate over all contact zones
     for cz in contact_zones:
 
-        # Choose n features for which the similarity is increased
+        # Choose <n_feat> features for which the similarity is increased
         f_to_adjust = np.random.choice(list(features.keys()), n_feat, replace=False)
 
         for f in f_to_adjust:
@@ -216,72 +203,89 @@ def simulate_contact(n_feat, features, p, contact_zones):
             for a, _ in enumerate(f_adjusted):
                 idx = contact_zones[cz][a]
                 features_adjusted[f][idx] = f_adjusted[a]
-    # return as numpy array to improve run time of mcmc
 
     features_adjusted_mat = np.ndarray.transpose(np.array([features_adjusted[i] for i in features_adjusted.keys()]))
 
     return features_adjusted_mat
 
-# Peter
-# -> change to Google stylk, change settings docstring style to google
+
 def compute_feature_prob(feat):
-    """
-        This function computes the base-line probabilities for a feature to be present
-        :In
-        - feat: a matrix of features
-        :Out
-        - p_present: a vector containing the probabilities of features to be present"""
+    """This function computes the base-line probabilities for a feature to be present in the data.
+
+    Args:
+        feat (np.ndarray): a matrix of all features
+
+    Returns:
+        array: the probability of each feature to be present """
+
     n = len(feat)
     present = np.count_nonzero(feat, axis=0)
     p_present = present/n
 
     return p_present
 
-# Peter
-# -> change to Google stylk, change settings docstring style to google
-# Full, delauney, gabriel, mst
-def generate_ecdf_geo_likelihood(net, min_n, max_n, samples_per_n):
 
-    """
-        This function generates an empirical cumulative density function (ecdf), which represents
-        the geo likelihood of a contact zone.
-        The function
-        a) grows x contact zones of size n, where n is between min_n and max_n,
-        b) for each contact zone: generate the minimum spanning tree and extracts its Euclidean distance
-        c) for each size n: generates an ecdf for all cumulative distances of all minimum spanning trees
-        : In
-        - net: a network graph
-        - min_n: the minimum number of languages in a zone
-        - max_n: the maximum number of languages in a zone
-        - sample_per_n: the number of samples in the ecdf
-        : Out
-        - ecdf: the empirical cumulative density function for all distances of all minimum spanning trees of size n"""
+def generate_ecdf_geo_likelihood(net, min_n, max_n, nr_samples, plot=False):
+
+    """ This function generates an empirical cumulative density function (ecdf), which is then used to compute the
+    geo-likelihood of a contact zone. The function
+    a) grows <nr samples> contact zones of size n, where n is between <min_n> and <max_n>,
+    b) for each contact zone: generates a complete graph, delaunay graph and a minimum spanning tree
+    and computes the summed length of each graph's edges
+    c) for each size n: generates an ecdf of all summed lengths
+    d) fits a gamma function to the ecdf
+
+    Args:
+        net (dict): network containing the graph, location,...
+        min_n (int): the minimum number of languages in a zone
+        max_n (): the maximum number of languages in a zone
+        nr_samples (): the number of samples in the ecdf
+
+    Returns:
+        dict: a dictionary comprising the empirical and fitted ecdf for all types of graphs anf all sizes n
+        """
+
     adj_mat = net['adj_mat']
     dist_mat = net['dist_mat']
     ecdf = {}
     for n in range(min_n, max_n+1):
-        dist_sum = []
+        complete_sum = []
+        delaunay_sum = []
+        mst_sum = []
 
-        for _ in range(samples_per_n):
+        for _ in range(nr_samples):
 
-            # a) grow contact zones
+            # a)
             zone = grow_zone(n, adj_mat)
 
-            # v = zone.nonzero()[0]
-            #
-            # # b) generate a minimum spanning tree and extract its Euclidean distance
-            # sub_g = net['graph'].subgraph(v)
-            # span_tree = sub_g.spanning_tree(weights=sub_g.es["weight"])
-            # dist_span_tree.append(sum(span_tree.es['weight']))
+            # b
+            # Complete graph
+            complete_sum.append(dist_mat[zone][:, zone].sum())
 
-            dist_sum.append(dist_mat[zone][:, zone].sum())
+            # Delaunay graph
+            triang = triangulation(net, zone)
+            delaunay_sum.append(sum(triang.es['weight']))
+
+            # Minimum spanning tree
+            mst = triang.spanning_tree(weights=triang.es["weight"])
+            mst_sum.append(sum(mst.es['weight']))
+
+            if plot:
+                # Plot graphs
+                plot_proximity_graph(net, zone, triang)
+
+                # Minimum spanning tree
+                plot_proximity_graph(net, zone, mst)
 
         #  c) generate an ecdf for each size n
-        #  the ecdf comprises an empirical distribution and a fitted gamma distribution
+        #  the ecdf comprises an empirical distribution and a fitted gamma distribution for each type of graph
 
-        ecdf[n] = {'empirical': np.sort(dist_sum),
-                   'fitted_gamma': gamma.fit(dist_sum)}
-
+        ecdf[n] = {'complete': {'empirical': np.sort(complete_sum),
+                                'fitted_gamma': gamma.fit(complete_sum)},
+                   'delaunay': {'empirical': np.sort(delaunay_sum),
+                                'fitted_gamma': gamma.fit(delaunay_sum)},
+                   'mst': {'empirical': np.sort(mst_sum),
+                           'fitted_gamma': gamma.fit(mst_sum)}}
     return ecdf
 
 # TODO Nico: pickle files laden oder nicht Problem

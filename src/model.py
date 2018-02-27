@@ -1,18 +1,14 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
-
-# Peter
-# -> change import
-
 from __future__ import absolute_import, division, print_function, \
     unicode_literals
+
 import math
-
 import numpy as np
-from scipy.stats import binom_test, binom, norm as gaussian, gamma
-from scipy.sparse.csgraph import minimum_spanning_tree
 
+from scipy.stats import binom_test, binom, norm as gaussian, gamma
+from src.util import triangulation
 EPS = np.finfo(float).eps
 
 # Nico
@@ -49,18 +45,23 @@ def compute_likelihood_generative(zone, features, *args):
 
     return ll_zone + ll_rest
 
-# Peter
-# -> change to Google stylk, change settings docstring style to google
-def compute_likelihood(zone, features, ll_lookup):
-    """This function computes the likelihood of a zone.
-    The function performs a one-sided binomial test. The test computes the probability of
-    the observed presence/absence in the zone given the presence/absence in the data.
-    Then the function takes the negative logarithm of the binomial test.
-    When the data in the zone have less (or the same) presence as expected by the general trend,
-    the zone is not indicative of language contact. When the data have more presence it is indicative of language contact.
-    When the binomial test yields a small value the negative logarithm is large ."""
 
-    # Retrieve all languages in the zone
+def compute_likelihood(zone, features, ll_lookup):
+
+    """ This function computes the feature likelihood of a zone. The function performs a one-sided binomial test yielding
+    a p-value for the observed presence of a feature in the zone given the presence of the feature in the data.
+    The likelihood of a zone is the negative logarithm of this p-value. Zones with more present features than expected
+    by the presence of a feature in the data have a small p-value and are thus indicative of language contact.
+
+    Args:
+        zone(np.ndarray): The current zone (boolean array)
+        features(np.ndarray): The feature matrix
+        ll_lookup(dict): A lookup table of likelihoods for all features, given a specific zone size
+
+    Returns:
+        log_lh(float): The feature-likelihood of the zone
+    """
+
     idx = zone.nonzero()[0]
     zone_size = len(idx)
 
@@ -127,37 +128,40 @@ def compute_geo_likelihood(zone: np.ndarray, network: dict):
 
     return ll
 
-# Peter
-# flags fuer Gabriel usw
-def compute_empirical_geo_likelihood(zone, net, ecdf_geo):
 
-    """
-        This function computes the empirical geo likelihood of a zone.
-        :In
-        -zone: boolean array representing the current zone
-        -net: a network graph
-        -ecdf_geo: the empirical cumulative density function for all distances of all minimum spanning trees of size n
-        : Out
-        geo_lh: the geo likelihood of the zone
-    """
+def compute_empirical_geo_likelihood(zone: np.ndarray, net: dict, ecdf_geo: dict, type: str):
 
-    # Compute the minimum spanning tree of the zone and its distance
+    """ This function computes the empirical geo-likelihood of a zone.
+    Args:
+        zone (np.ndarray): The current zone (boolean array)
+        net (dict): A network containing the graph, location,...
+        ecdf_geo (dict): The empirically generated geo-likelihood functions
+        type (str): Defines which subgraph is used to compute the geo-likelihood, either
+                    "minimum spanning tree", "delaunay" or "complete"
+    Returns:
+        geo_lh(float): The geo-likelihood of the zone
+    """
     v = zone.nonzero()[0]
-    dist_mat = net['dist_mat']
-    dist_mat_zone = dist_mat[zone][:, zone]
-    d = dist_mat_zone.sum()
 
-    # mst = minimum_spanning_tree(dist_mat_zone)
-    # d = mst.sum()
+    if type == "complete":
 
-    # sub_g = net['graph'].subgraph(v)
-    # st = sub_g.spanning_tree(weights=sub_g.es["weight"])
-    # d = (sum(st.es['weight']))
+        dist_mat = net['dist_mat']
+        dist_mat_zone = dist_mat[zone][:, zone]
+        d = dist_mat_zone.sum()
+
+    else:
+        triang = triangulation(net, zone)
+
+        if type == "delaunay":
+            d = sum(triang.es['weight'])
+
+        elif type == "minimum spanning tree":
+            mst = triang.spanning_tree(weights=triang.es["weight"])
+            d = sum(mst.es['weight'])
 
     # Compute likelihood
-    x = ecdf_geo[len(v)]['fitted_gamma']
+    x = ecdf_geo[len(v)][type]['fitted_gamma']
     geo_lh = -np.log(gamma.cdf(d, *x))
-    print (d, len(v), 1-gamma.cdf(d, *x),  geo_lh)
-    #geo_lh = -np.log(np.searchsorted(x, d, side='left') / x.size)
+
     return geo_lh
 

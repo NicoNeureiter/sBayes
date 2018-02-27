@@ -4,8 +4,12 @@ from __future__ import absolute_import, division, print_function, \
     unicode_literals
 
 import matplotlib.pyplot as plt
+
+plt.style.use('ggplot')
+
 import numpy as np
 from scipy.stats import gamma
+import matplotlib.ticker as ticker
 from matplotlib.collections import LineCollection
 
 # Peter
@@ -16,6 +20,26 @@ def plot_zone(zone, network):
     plt.scatter(*locations.T, s=5, alpha=0.2)
     plt.scatter(*locations[zone].T, s=10)
     plt.show()
+
+# PLOT_COLORS = {
+#
+#     'histogram': 1,
+#     'zones': {'background_points': }
+#
+# }
+
+
+def get_colors():
+    """This function creates a dict with colors
+    Returns:
+        (dict): a dictionary comprising the plot colors
+    """
+
+    plot_colors = { 'histogram': {'fitted_line': 'blue',
+                                  'background': "white"},
+                    'zones': {'background_points': 'grey',
+                              'zones': 'darkorange'}}
+    return plot_colors
 
 
 def plot_posterior(samples, adj_mat, locations, weights=None):
@@ -40,23 +64,67 @@ def plot_posterior(samples, adj_mat, locations, weights=None):
 
     plt.show()
 
-# Peter
-# fix this plot
-# include gabriel usw.
-def plot_ecdf_geo_likelihood(ecdf, zone_size):
-    x = ecdf[zone_size]['empirical']
-    n, bins, patches = plt.hist(x, 30, normed=1, facecolor='grey', edgecolor='white', alpha=0.75)
+
+def plot_proximity_graph(net, zone, graph):
+    """ This function generates a plot of the entire network, the current zone and its proximity graph
+    Args:
+        net (dict): The full network containing all sites.
+        zone (np.ndarray): The current zone (boolean array).
+        graph (dict): Either a delaunay triangulation or a minimum spanning tree of the zone.
+    """
+
+    all_sites = net['locations']
+    v = zone.nonzero()[0]
+    zone_sites = net['locations'][v]
+
+    lines = []
+
+    for e in graph.es:
+        lines.append([tuple(zone_sites[e.tuple[0]]), tuple(zone_sites[e.tuple[1]])])
+
+    lc = LineCollection(lines, colors="blue")
+    plt.axes().add_collection(lc)
+    plt.plot(*all_sites.T, 'ro', ms=2, color="")
+    plt.plot(*zone_sites.T, 'ro', color="orange")
+    plt.show()
+
+
+def plot_histogram_empirical_geo_likelihood(e_gl, zone_size, gl_type):
+    """
+
+    Args:
+        e_gl (dict): the empirical geo-likelihood
+        zone_size (): the size of the zone for which the histogram is generated
+        gl_type (): the type of geo-likelihood, either "complete", "delaunay" or "mst"
+    """
+    # Load the color palette for plotting
+
+    fig, ax = plt.subplots()
+
+    col = get_colors()
+
+    d = e_gl[zone_size][gl_type]['empirical']
+    ax.hist(d, 30, normed=1, facecolor='grey', edgecolor='white', alpha=0.75)
 
     # add a 'best fit' line
-    #y = gamma.fit(x)
+    x = np.linspace(0, max(d), 500)
+    shape, loc, scale = e_gl[zone_size][gl_type]['fitted_gamma']
+    y = gamma.pdf(x, shape, loc, scale)
+    ax.plot(x, y, color=col['histogram']['fitted_line'])
+    ax.set_facecolor(col['histogram']['background'])
 
-    #plt.plot(x, y, color='r')
+    plt.ticklabel_format(style='sci', axis='y', scilimits=(0, 0))
 
-    plt.xlabel('Distance')
+    plt.xlabel('Length [km]', labelpad=40)
     plt.ylabel('Probability')
-    plt.title('Distribution of distances along the spanning tree for zones of size %i' % zone_size, fontsize=11)
+    if gl_type == "complete":
+        title_plot = "Complete Graph"
+    if gl_type == "delaunay":
+        title_plot = " Delaunay Graph"
+    if gl_type == "mst":
+        title_plot = "Minimum Spanning Tree"
+    plt.title('Length of the %s for zones of size %i' % (title_plot, zone_size))
     plt.grid(False)
-
     plt.show()
 
 
@@ -74,7 +142,7 @@ if __name__ == '__main__':
     ecdf = load_from(ECDF_GEO_PATH)
 
     # Plot the empirical distribution of the geo-likelihood
-    plot_ecdf_geo_likelihood(ecdf, 30)
+    plot_histogram_empirical_geo_likelihood(ecdf, 10, gl_type="complete")
 
 
     # Plot locations as scatter
@@ -102,3 +170,4 @@ if __name__ == '__main__':
     # plt.axes().set_yticks([])
     # plt.tight_layout(True)
     # plt.show()
+
