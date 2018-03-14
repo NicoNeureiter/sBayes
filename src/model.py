@@ -99,7 +99,12 @@ def lookup_log_likelihood(min_size, max_size, feat_prob):
     else:
         # This version of the ll is more sensitive to exceptional observations.
         def ll(p_zone, s, p_global):
-            return - math.log(binom_test(p_zone, s, p_global, 'greater'))
+            p = binom_test(p_zone, s, p_global, 'greater')
+            try:
+                return - math.log(p)
+            except Exception as e:
+                print(p_zone, s, p_global, p)
+                raise e
 
     lookup_dict = {}
     for i_feat, p_global in enumerate(feat_prob):

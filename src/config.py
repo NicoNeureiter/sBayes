@@ -24,7 +24,7 @@ N_SAMPLES = 3
 MIN_SIZE = 5
 """int: The minimum size for the contact zones."""
 
-MAX_SIZE = 1000
+MAX_SIZE = 10
 """int: The maximum size for the contact zones."""
 
 P_SWAP = 0.1
@@ -48,14 +48,14 @@ GEO_LIKELIHOOD_MODES = ['None', 'Gaussian', 'Empirical']
 GEO_LL_MODE = GEO_LIKELIHOOD_MODES[2]
 """str: The switch for the geo-likelihood to use."""
 
-RESTART_CHAIN = True
+RESTART_CHAIN = False
 """bool: Restart the chain from a random point after every sample."""
 
-SIMULATED_ANNEALING = False
+SIMULATED_ANNEALING = True
 """bool: Slowly increase a temperature parameter to smoothly blend from sampling from a
 uniform distribution to the actual likelihood. Should help with separated modes."""
 
-RELOAD_DATA = False
+RELOAD_DATA = True
 """bool: Reload the data from the DB, pre-process it and dump it."""
 
 NUMBER_PARALLEL_ZONES = 3

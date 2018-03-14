@@ -246,7 +246,6 @@ def generate_ecdf_geo_likelihood(net, min_n, max_n, nr_samples, plot=False):
         dict: a dictionary comprising the empirical and fitted ecdf for all types of graphs and all sizes n
         """
 
-    adj_mat = net['adj_mat']
     dist_mat = net['dist_mat']
     ecdf = {}
     for n in range(min_n, max_n+1):
@@ -257,7 +256,7 @@ def generate_ecdf_geo_likelihood(net, min_n, max_n, nr_samples, plot=False):
         for _ in range(nr_samples):
 
             # a)
-            zone = grow_zone(n, adj_mat)
+            zone, _ = grow_zone(n, net)
 
             # b
             # Complete graph

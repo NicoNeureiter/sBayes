@@ -100,7 +100,7 @@ def get_neighbours(zone, already_in_zone, adj_mat):
     return neighbours
 
 
-def grow_zone(size, net, already_in_zone):
+def grow_zone(size, net, already_in_zone=None):
     """ This function grows a zone of size <size> excluding any of the nodes in <already_in_zone>.
     Args:
         size (int): The number of nodes in the zone.
@@ -112,6 +112,9 @@ def grow_zone(size, net, already_in_zone):
 
     """
     n = net['adj_mat'].shape[0]
+
+    if already_in_zone is None:
+        already_in_zone = np.zeros(n, bool)
 
     # Initialize the zone
     zone = np.zeros(n).astype(bool)
