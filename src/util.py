@@ -63,53 +63,81 @@ def load_from(path):
         return pickle.load(dump_file)
 
 
-def get_neighbours(zone, adj_mat):
-    """Compute the neighbourhood of a zone (excluding vertices from the zone itself).
-
+def bounding_box(points):
+    """ This function retrieves the bounding box for a set of 2-dimensional input points
     Args:
-        zone (np.ndarray): the current zone (boolean array)
-        adj_mat (np.ndarray): Adjacency Matrix (boolean)
+        points (numpy.array): Point tuples (x,y) for which the bounding box is computed
 
     Returns:
-        np.ndarray: The neighborhood of the zone (boolean array)
+        (dict): the bounding box of the points
     """
-    return np.logical_and(adj_mat.dot(zone), ~zone)
+    x = [x[0] for x in points]
+    y = [x[1] for x in points]
+    box = {'x_max': max(x),
+           'y_max': max(y),
+           'x_min': min(x),
+           'y_min': min(y)}
 
-# Peter
-# -> sampling
-def grow_zone(size, adj_mat):
-    """Grow a zone of size <size> by starting from a random point and iteratively
-    adding random neighbours.
+    return box
+
+
+def get_neighbours(zone, already_in_zone, adj_mat):
+    """This function computes the neighbourhood of a zone, excluding vertices already
+    belonging to this zone or any other zone.
 
     Args:
-        size (int): Desired size of the zone.
-        adj_mat (np.ndarray): Adjacency Matrix (boolean)
+        zone (np.array): The current contact zone (boolean array)
+        already_in_zone (np.array): All nodes in the network already assigned to a zone (boolean array)
+        adj_mat (np.array): The adjacency matrix (boolean)
 
     Returns:
-        np.ndarray: The randomly generated zone of size <size>.
+        np.array: The neighborhood of the zone (boolean array)
     """
-    n = adj_mat.shape[0]
+
+    # Get all neighbors of the current zone, excluding all vertices that are already in a zone
+
+    neighbours = np.logical_and(adj_mat.dot(zone), ~already_in_zone)
+    return neighbours
+
+
+def grow_zone(size, net, already_in_zone):
+    """ This function grows a zone of size <size> excluding any of the nodes in <already_in_zone>.
+    Args:
+        size (int): The number of nodes in the zone.
+        net (dict): A dictionary comprising all sites of the network.
+        already_in_zone (np.array): All nodes in the network already assigned to a zone (boolean array)
+
+    Returns:
+        (np.array, np.array): The new zone (boolean), all nodes in the network already assigned to a zone (boolean)
+
+    """
+    n = net['adj_mat'].shape[0]
+
+    # Initialize the zone
     zone = np.zeros(n).astype(bool)
 
-    # Choose starting point
-    i = random.randrange(n)
-    zone[i] = 1
+    # Get all vertices that already belong to a zone (occupied_n) and all free vertices (free_n)
+    occupied_n = np.nonzero(already_in_zone)[0]
+    free_n = set(range(n)) - set(occupied_n)
+    i = random.sample(free_n, 1)[0]
+    zone[i] = already_in_zone[i] = 1
 
     for _ in range(size-1):
-        neighbours = get_neighbours(zone, adj_mat)
 
-        # Add a neighbour to the zone.
+        neighbours = get_neighbours(zone, already_in_zone, net['adj_mat'])
+        # Add a neighbour to the zone
         i_new = random.choice(neighbours.nonzero()[0])
-        zone[i_new] = 1
+        zone[i_new] = already_in_zone[i_new] = 1
 
-    return zone
+    return zone, already_in_zone
+
 
 
 def triangulation(net, zone):
     """ This function computes a delaunay triangulation for a set of input locations in a zone
     Args:
         net (dict): The full network containing all sites.
-        zone (np.ndarray): The current zone (boolean array).
+        zone (np.array): The current zone (boolean array).
 
     Returns:
         (graph): the delaunay triangulation as a weighted graph

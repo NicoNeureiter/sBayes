@@ -181,7 +181,7 @@ def simulate_contact(n_feat, features, p, contact_zones):
 
     Args:
         n_feat (int): the number of features for which the function simulates contact
-        features (list): features for which contact is simulated
+        features (dict): features for which contact is simulated
         p (float): probability of success, defines the degree of similarity in the contact zone
         contact_zones (dict): a region of sites for which contact is simulated
 
@@ -198,7 +198,7 @@ def simulate_contact(n_feat, features, p, contact_zones):
 
         for f in f_to_adjust:
             # increase similarity either towards presence (1) or absence (0)
-            p = np.random.choice([p, 1-p])
+            # p = np.random.choice([p, 1-p])
             f_adjusted = np.random.binomial(n=1, p=p, size=len(contact_zones[cz]))
             for a, _ in enumerate(f_adjusted):
                 idx = contact_zones[cz][a]
@@ -238,11 +238,12 @@ def generate_ecdf_geo_likelihood(net, min_n, max_n, nr_samples, plot=False):
     Args:
         net (dict): network containing the graph, location,...
         min_n (int): the minimum number of languages in a zone
-        max_n (): the maximum number of languages in a zone
-        nr_samples (): the number of samples in the ecdf
+        max_n (int): the maximum number of languages in a zone
+        nr_samples (int): the number of samples in the ecdf
+        plot(boolean): Plot the triangulation?
 
     Returns:
-        dict: a dictionary comprising the empirical and fitted ecdf for all types of graphs anf all sizes n
+        dict: a dictionary comprising the empirical and fitted ecdf for all types of graphs and all sizes n
         """
 
     adj_mat = net['adj_mat']
@@ -270,22 +271,22 @@ def generate_ecdf_geo_likelihood(net, min_n, max_n, nr_samples, plot=False):
             mst = triang.spanning_tree(weights=triang.es["weight"])
             mst_sum.append(sum(mst.es['weight']))
 
-            if plot:
+            if plot and n == 15:
                 # Plot graphs
-                plot_proximity_graph(net, zone, triang)
+                plot_proximity_graph(net, zone, triang, "delaunay")
 
                 # Minimum spanning tree
-                plot_proximity_graph(net, zone, mst)
+                plot_proximity_graph(net, zone, mst, "mst")
 
         #  c) generate an ecdf for each size n
         #  the ecdf comprises an empirical distribution and a fitted gamma distribution for each type of graph
 
         ecdf[n] = {'complete': {'empirical': np.sort(complete_sum),
-                                'fitted_gamma': gamma.fit(complete_sum)},
+                                'fitted_gamma': gamma.fit(complete_sum, floc=0)},
                    'delaunay': {'empirical': np.sort(delaunay_sum),
-                                'fitted_gamma': gamma.fit(delaunay_sum)},
+                                'fitted_gamma': gamma.fit(delaunay_sum, floc=0)},
                    'mst': {'empirical': np.sort(mst_sum),
-                           'fitted_gamma': gamma.fit(mst_sum)}}
+                           'fitted_gamma': gamma.fit(mst_sum, floc=0)}}
     return ecdf
 
 # TODO Nico: pickle files laden oder nicht Problem
