@@ -9,7 +9,7 @@ import numpy as np
 
 from scipy.stats import binom_test, binom, norm as gaussian, gamma
 from src.util import triangulation
-from src.config import LL_MODE
+from src.config import FEATURE_LL_MODE
 
 
 EPS = np.finfo(float).eps
@@ -18,7 +18,14 @@ EPS = np.finfo(float).eps
 # Nico
 # -> change to Google stylk, change settings docstring style to google
 def binom_ll(features):
-    """Compute the maximum log-likelihood of a binomial distribution."""
+    """Compute the maximum log-likelihood of a binomial distribution.
+
+    Args:
+        features (np.ndarray): n*m array containing m features of n samples.
+
+    Returns:
+
+    """
     k = features.sum(axis=0)
     n = features.shape[0]
     p = k / n
@@ -78,7 +85,7 @@ def compute_likelihood(zone, features, ll_lookup):
     return log_lh
 
 # Nico
-# -> change to Google stylk, change settings docstring style to google
+# -> change to Google style, change settings docstring style to google
 # flags einbauen
 def lookup_log_likelihood(min_size, max_size, feat_prob):
     """This function generates a lookup table of likelihoods
@@ -89,7 +96,7 @@ def lookup_log_likelihood(min_size, max_size, feat_prob):
     :Out
     - lookup_dict: the lookup table of likelihoods for a specific feature, sample size and observed presence
     """
-    if LL_MODE == 'binom_test_2':
+    if FEATURE_LL_MODE == 'binom_test_2':
         # The binomial test computes the p-value of having k or more (!) successes out of n trials,
         # given a specific probability of success
         # For a two-sided binomial test, simply remove "greater"
@@ -113,13 +120,13 @@ def lookup_log_likelihood(min_size, max_size, feat_prob):
 
 # Nico
 # Empirische durschnitteliche Varianz um Gausssche Verteilung zu definieren
-# 0.1 weg
-def compute_geo_likelihood(zone: np.ndarray, network: dict):
+def compute_geo_likelihood(zone: np.ndarray, network: dict, std: np.ndarray):
     """
 
     Args:
         zone (np.ndarray): boolean array representing the current zone
         network (dict): network containing the graph, location,...
+        std (np.ndarray): Standard deviation of the gaussian distribution
 
     Returns:
         float: geographical likelihood
@@ -128,7 +135,6 @@ def compute_geo_likelihood(zone: np.ndarray, network: dict):
     locations_zone = locations[zone]
 
     mu = np.mean(locations_zone, axis=0)
-    std = np.std(locations, axis=0) * 0.1
 
     ll = np.mean(gaussian.logpdf(locations_zone, loc=mu, scale=std))
 

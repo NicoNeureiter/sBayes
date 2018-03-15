@@ -27,23 +27,30 @@ MIN_SIZE = 5
 MAX_SIZE = 40
 """int: The maximum size for the contact zones."""
 
-P_SWAP = 1.0
+P_SWAP = 1.0  # TODO remove (replaced by P_TRANSITION_MODE)
 """float: Frequency of 'swap' steps, where a node gets replaced by another (size 
 remains constant)."""
 
-ALPHA_ANEALING = 1.5
+ALPHA_ANNEALING = 1.5
 """float: The parameter controlling the cooling schedule for the simulated annealing 
 temperature."""
 
+P_TRANSITION_MODE = {
+    'swap': 0.5,
+    'grow': 0.25,
+    'shrink': 0.25}
+assert sum(P_TRANSITION_MODE.values()) == 1.
+"""list: Frequency of performing a 'swap', 'grow' or 'shrink' step, respectively (has 
+to sum up to 1)."""
 
 # Config flags
-LIKELIHOOD_MODES = ['generative', 'binom_test', 'binom_test_2']
+FEATURE_LIKELIHOOD_MODES = ['generative', 'binom_test', 'binom_test_2']
 """list: All implemented modes for the likelihood function."""
 
-LL_MODE = LIKELIHOOD_MODES[2]
+FEATURE_LL_MODE = FEATURE_LIKELIHOOD_MODES[2]
 """str: The switch for which likelihood to use."""
 
-GEO_LIKELIHOOD_MODES = ['None', 'Gaussian', 'Empirical']
+GEO_LIKELIHOOD_MODES = ['none', 'gaussian', 'empirical']
 """list: All implemented modes for the geo-likelihood"""
 
 GEO_LL_MODE = GEO_LIKELIHOOD_MODES[1]
