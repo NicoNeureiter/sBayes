@@ -21,7 +21,7 @@ def binom_ll(features):
     """Compute the maximum log-likelihood of a binomial distribution.
 
     Args:
-        features (np.ndarray): n*m array containing m features of n samples.
+        features (np.array): n*m array containing m features of n samples.
 
     Returns:
 
@@ -40,7 +40,7 @@ def compute_likelihood_generative(zone, features, *args):
     languages are modeled as independent binomial distributions.
 
     Args:
-        zone (np.ndarray): boolean array representing the zone
+        zone (np.array): boolean array representing the zone
         features: feature matrix (boolean)
 
     Returns:
@@ -56,7 +56,7 @@ def compute_likelihood_generative(zone, features, *args):
     return ll_zone
 
 
-def compute_likelihood(zone, features, ll_lookup):
+def compute_feature_likelihood(zone, features, ll_lookup):
 
     """ This function computes the feature likelihood of a zone. The function performs a one-sided binomial test yielding
     a p-value for the observed presence of a feature in the zone given the presence of the feature in the data.
@@ -64,12 +64,12 @@ def compute_likelihood(zone, features, ll_lookup):
     by the presence of a feature in the data have a small p-value and are thus indicative of language contact.
 
     Args:
-        zone(np.ndarray): The current zone (boolean array)
-        features(np.ndarray): The feature matrix
-        ll_lookup(dict): A lookup table of likelihoods for all features, given a specific zone size
+        zone(np.array): The current zone (boolean array).
+        features(np.array): The feature matrix.
+        ll_lookup(dict): A lookup table of likelihoods for all features for a specific zone size.
 
     Returns:
-        log_lh(float): The feature-likelihood of the zone
+        float: The feature-likelihood of the zone.
     """
 
     idx = zone.nonzero()[0]
@@ -106,7 +106,12 @@ def lookup_log_likelihood(min_size, max_size, feat_prob):
     else:
         # This version of the ll is more sensitive to exceptional observations.
         def ll(p_zone, s, p_global):
-            return - math.log(binom_test(p_zone, s, p_global, 'greater'))
+            p = binom_test(p_zone, s, p_global, 'greater')
+            try:
+                return - math.log(p)
+            except Exception as e:
+                print(p_zone, s, p_global, p)
+                raise e
 
     lookup_dict = {}
     for i_feat, p_global in enumerate(feat_prob):
@@ -120,13 +125,13 @@ def lookup_log_likelihood(min_size, max_size, feat_prob):
 
 # Nico
 # Empirische durschnitteliche Varianz um Gausssche Verteilung zu definieren
-def compute_geo_likelihood(zone: np.ndarray, network: dict, std: np.ndarray):
+def compute_geo_likelihood(zone: np.array, network: dict, std: np.array):
     """
 
     Args:
-        zone (np.ndarray): boolean array representing the current zone
+        zone (np.array): boolean array representing the current zone
         network (dict): network containing the graph, location,...
-        std (np.ndarray): Standard deviation of the gaussian distribution
+        std (np.array): Standard deviation of the gaussian distribution
 
     Returns:
         float: geographical likelihood
@@ -141,21 +146,21 @@ def compute_geo_likelihood(zone: np.ndarray, network: dict, std: np.ndarray):
     return ll
 
 
-def compute_empirical_geo_likelihood(zone: np.ndarray, net: dict, ecdf_geo: dict, type: str):
+def compute_empirical_geo_likelihood(zone: np.array, net: dict, ecdf_geo: dict, lh_type: str):
 
     """ This function computes the empirical geo-likelihood of a zone.
     Args:
-        zone (np.ndarray): The current zone (boolean array)
-        net (dict): A network containing the graph, location,...
+        zone (np.array): The current zone (boolean array)
+        net (dict):  The full network containing all sites.
         ecdf_geo (dict): The empirically generated geo-likelihood functions
-        type (str): Defines which subgraph is used to compute the geo-likelihood, either
-                    "minimum spanning tree", "delaunay" or "complete"
+        lh_type (str): Defines which subgraph is used to compute the geo-likelihood, either
+                    "complete", "delaunay" or "minimum spanning tree"
     Returns:
         geo_lh(float): The geo-likelihood of the zone
     """
     v = zone.nonzero()[0]
 
-    if type == "complete":
+    if lh_type == "complete":
 
         dist_mat = net['dist_mat']
         dist_mat_zone = dist_mat[zone][:, zone]
@@ -164,16 +169,16 @@ def compute_empirical_geo_likelihood(zone: np.ndarray, net: dict, ecdf_geo: dict
     else:
         triang = triangulation(net, zone)
 
-        if type == "delaunay":
+        if lh_type == "delaunay":
             d = sum(triang.es['weight'])
 
-        elif type == "minimum spanning tree":
+        elif lh_type == "mst":
             mst = triang.spanning_tree(weights=triang.es["weight"])
             d = sum(mst.es['weight'])
 
     # Compute likelihood
-    x = ecdf_geo[len(v)][type]['fitted_gamma']
-    geo_lh = -np.log(gamma.cdf(d, *x))
+    x = ecdf_geo[len(v)][lh_type]['fitted_gamma']
 
+    geo_lh = -np.log(gamma.cdf(d, *x))
     return geo_lh
 

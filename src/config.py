@@ -4,7 +4,7 @@ from __future__ import absolute_import, division, print_function, \
     unicode_literals
 
 # Simulate contact zones
-TOTAL_N_FEATURES = 23
+TOTAL_N_FEATURES = 30
 """The total number of simulated features"""
 
 N_CONTACT_FEATURES = 20
@@ -18,16 +18,16 @@ P_CONTACT = 0.8
 N_STEPS = 5000
 """int: Number of MCMC steps."""
 
-N_SAMPLES = 200
+N_SAMPLES = 3
 """int: Number of generated samples."""
 
 MIN_SIZE = 5
 """int: The minimum size for the contact zones."""
 
-MAX_SIZE = 40
+MAX_SIZE = 10
 """int: The maximum size for the contact zones."""
 
-P_SWAP = 1.0  # TODO remove (replaced by P_TRANSITION_MODE)
+P_SWAP = 0.5  # TODO remove (replaced by P_TRANSITION_MODE)
 """float: Frequency of 'swap' steps, where a node gets replaced by another (size 
 remains constant)."""
 
@@ -43,34 +43,37 @@ assert sum(P_TRANSITION_MODE.values()) == 1.
 """list: Frequency of performing a 'swap', 'grow' or 'shrink' step, respectively (has 
 to sum up to 1)."""
 
+
 # Config flags
 FEATURE_LIKELIHOOD_MODES = ['generative', 'binom_test', 'binom_test_2']
 """list: All implemented modes for the likelihood function."""
 
-FEATURE_LL_MODE = FEATURE_LIKELIHOOD_MODES[2]
+FEATURE_LL_MODE = FEATURE_LIKELIHOOD_MODES[1]
 """str: The switch for which likelihood to use."""
 
 GEO_LIKELIHOOD_MODES = ['none', 'gaussian', 'empirical']
 """list: All implemented modes for the geo-likelihood"""
 
-GEO_LL_MODE = GEO_LIKELIHOOD_MODES[1]
+GEO_LL_MODE = GEO_LIKELIHOOD_MODES[2]
 """str: The switch for the geo-likelihood to use."""
 
-RESTART_CHAIN = True
+RESTART_CHAIN = False
 """bool: Restart the chain from a random point after every sample."""
 
 SIMULATED_ANNEALING = True
 """bool: Slowly increase a temperature parameter to smoothly blend from sampling from a
 uniform distribution to the actual likelihood. Should help with separated modes."""
 
-RELOAD_DATA = False
+RELOAD_DATA = True
 """bool: Reload the data from the DB, pre-process it and dump it."""
 
+NUMBER_PARALLEL_ZONES = 3
+"""int: Number of parallel contact zones"""
 # Parameters for geo-likelihood
-GEO_LIKELIHOOD_WEIGHT = 5.
+GEO_LIKELIHOOD_WEIGHT = 1
 """float: The weight of the geo-likelihood as compared to the feature likelihood"""
 
-SAMPLES_PER_ZONE_SIZE = 10000
+SAMPLES_PER_ZONE_SIZE = 1000
 """int: The number of samples for generating the empirical geo-likelihood"""
 
 

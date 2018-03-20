@@ -13,49 +13,46 @@ from src.preprocessing import (get_network,
                                simulate_contact,
                                generate_ecdf_geo_likelihood)
 from src.model import (lookup_log_likelihood,
-                       compute_geo_likelihood,
+                       compute_feature_likelihood,
                        compute_empirical_geo_likelihood)
-from src.plotting import plot_zone, plot_posterior
+from src.plotting import plot_zones, plot_posterior
 from src.util import timeit, dump, load_from, get_neighbours, grow_zone
 from src.config import *
 
-if LL_MODE == 'generative':
-    from src.model import compute_likelihood_generative as compute_likelihood
-else:
-    from src.model import compute_likelihood
 
-# -> Sampling modul
-# - fixed size hinzufuegen
-# Nico
-def sample_initial_zone(net, size=None):
-    """Generate an initial zone by sampling a random vertex and adding its
+def sample_initial_zones(net, nr_zones):
+    """This function generates <nr_zones> initial zones by sampling random vertices and adding their
     neighbourhood.
-        :In
-        - net (dict): The dictionary describing the network graph
-        :Out
-        - zone (np.array): The generated zone as a bool array.
-    """
-    return grow_zone(MAX_SIZE, net['adj_mat'])
-    # zone = np.zeros(net['n'])
-    # v = random.randrange(net['n'])
-    # zone[v] = 1
-    # zone += net['adj_mat'].dot(zone)
-    # zone = zone.astype(bool)
-    # return zone
-
-
-# -> sampling modul
-# -> Kommentare, Kommentare, Kommentare ...
-# Nico
-def grow_step(zone, net, max_size):
-    """Sample a nei
 
     Args:
-        zone:
-        net:
-        max_size:
+        net (dict): A dictionary comprising all sites of the network.
+        nr_zones (int): Number of zones.
 
     Returns:
+        dict: A dictionary comprising all generated zones, each zone is a boolean np.array.
+    """
+    n = net['adj_mat'].shape[0]
+    already_in_zone = np.zeros(n).astype(bool)
+    init_zones = {}
+
+    for i in range(nr_zones):
+        g = grow_zone(MIN_SIZE, net, already_in_zone)
+        init_zones[i] = g[0]
+        already_in_zone += g[1]
+
+    return init_zones
+
+
+def grow_step(zone, net, already_in_zone):
+    """This function increases the size of a contact zone.
+    Args:
+        zone (np.array: The current contact zone (boolean array)
+        net (dict): A dictionary comprising all sites of the network.
+        already_in_zone (np.array): All nodes in the network already assigned to a zone (boolean array)
+
+    Returns:
+        np.array, np.array, float, float: The new zone and all nodes already assigned to a zone (boolean arrays),
+        the transition probability and the back probability
 
     """
     adj_mat = net['adj_mat']
@@ -64,14 +61,16 @@ def grow_step(zone, net, max_size):
     zone_idx = zone.nonzero()[0]
     size = len(zone_idx)
 
-    neighbours = get_neighbours(zone, adj_mat)
+    neighbours = get_neighbours(zone, already_in_zone, adj_mat)
 
-    # Add a neighbour to the zone.
+    # Add a neighbour to the zone
     i_new = random.choice(neighbours.nonzero()[0])
-    new_zone[i_new] = 1
+
+    new_zone[i_new] = already_in_zone[i_new] = 1
+
     new_size = size + 1
 
-    # Transition probability when growing.
+    # Transition probability when growing
     q = 1 / np.count_nonzero(neighbours)
     if size > 1:
         q /= 2
@@ -79,48 +78,45 @@ def grow_step(zone, net, max_size):
     # Back-probability (-> shrinking)
     q_back = 1 / new_size
 
-    if new_size < max_size:
+    if new_size < MAX_SIZE:
         q_back /= 2
 
     return new_zone, q, q_back
 
-# -> samling modul
-# Switch connected
-# Kommentare
-# Nico
 
-def shrink_step(zone, net, max_size):
-    G = net['graph']
+def shrink_step(zone, net, already_in_zone):
+    """This function decreases the size of a contact zone.
+    Args:
+        zone (np.array: The current contact zone (boolean array)
+        net (dict): A dictionary comprising all sites of the network
+        already_in_zone (np.array): All nodes in the network already assigned to a zone (boolean array)
+
+    Returns:
+        np.array, np.array, float, float: The new zone and all nodes already assigned to a zone (boolean arrays),
+        the transition probability and the back probability
+
+    """
+
     adj_mat = net['adj_mat']
     new_zone = zone.copy()
 
     zone_idx = zone.nonzero()[0]
-    size =len(zone_idx)
-
-    # G_zone = G.induced_subgraph(zone_idx)
-    # assert G_zone.is_connected()
-    #
-    # cut_vs_idx = G_zone.cut_vertices()
-    # if len(cut_vs_idx) == size:
-    #     return None
-    #
-    # cut_vertices = G_zone.vs[cut_vs_idx]['name']
-    # removal_candidates = [v for v in zone_idx if v not in cut_vertices]
+    size = len(zone_idx)
 
     removal_candidates = zone_idx
 
     # Remove a vertex from the zone.
     i_out = random.choice(removal_candidates)
-    new_zone[i_out] = 0
+    new_zone[i_out] = already_in_zone[i_out] = 0
     new_size = size - 1
 
     # Transition probability when shrinking.
     q = 1 / len(removal_candidates)
-    if size < max_size:
+    if size < MAX_SIZE:
         q /= 2
 
     # Back-probability (-> growing)
-    back_neighbours = get_neighbours(new_zone, adj_mat)
+    back_neighbours = get_neighbours(new_zone, already_in_zone, adj_mat)
     q_back = 1 / np.count_nonzero(back_neighbours)
 
     if new_size > 1:
@@ -128,209 +124,178 @@ def shrink_step(zone, net, max_size):
 
     return new_zone, q, q_back
 
-# Nico
-# -> sampling modul
-# Kommentare
-# Swap mit untersciedlichen Groessen
 
-def swap_step(zone, net, max_swaps=5):
-    """Propose an MCMC transition by removing a vertex and adding another one from the
+def swap_step(zone, net, already_in_zone):
+    """Propose an MCMC transition by removing a vertex from the zone and adding another from the
     neighbourhood.
 
     Args:
-        zone (np.ndarray): Current zone given as a boolean array.
-        net (dict): Network graph.
-        max_swaps (int): The maximum number of swaps to perform in this step.
+        zone (np.array): The current contact zone (boolean).
+        net (dict): A dictionary comprising all sites of the network.
+        already_in_zone (np.array): All nodes in the network already assigned to a zone (boolean array).
 
     Returns:
         np.array: The proposed new contact zone.
         float: The proposal probability.
         float: The probability to transition back (new_zone -> prev_zone)
     """
-    G = net['graph']
+
     adj_mat = net['adj_mat']
     new_zone = zone.copy()
 
     # Compute the neighbourhood
-    neighbours = get_neighbours(zone, adj_mat)
+    neighbours = get_neighbours(zone, already_in_zone, adj_mat)
     neighbours_idx = neighbours.nonzero()[0]
-    n_neighbours = len(neighbours_idx)
 
     # Add a neighbour to the zone
     i_new = random.choice(neighbours_idx)
-    new_zone[i_new] = 1
+    new_zone[i_new] = already_in_zone[i_new] = 1
 
     zone_idx = new_zone.nonzero()[0]
-
-    # # # Compute cut_vertices (can be removed while keeping zone connected)
-    # G_zone = G.induced_subgraph(zone_idx)
-    # assert G_zone.is_connected()
-    #
-    # cut_vs_idx = G_zone.cut_vertices()
-    # if len(cut_vs_idx) == size:
-    #     return None
-    #
-    # cut_vertices = G_zone.vs[cut_vs_idx]['name']
-    # removal_candidates = [v for v in zone_idx if v not in cut_vertices]
-
     removal_candidates = zone_idx
 
     # Remove a vertex from the zone.
     i_out = random.choice(removal_candidates)
-    new_zone[i_out] = 0
+    new_zone[i_out] = already_in_zone[i_out] = 0
 
-    back_neighbours = get_neighbours(zone, adj_mat)
+    back_neighbours = get_neighbours(zone, already_in_zone, adj_mat)
     q = 1. / np.count_nonzero(neighbours)
     q_back = 1. / np.count_nonzero(back_neighbours)
 
     return new_zone, q, q_back
 
-# Parameter fuer swap, grow shrink probabilities
-# -> sampling module
-# min_size as argument
-# Nico
-def propose_contact_zone(net, prev_zone, max_size):
+
+def propose_contact_zone(zone, net, already_in_zone):
     """This function proposes a new candidate zone in the network. The new zone differs
     from the previous one by exactly one vertex. An exception are global update steps, which
     are performed with probability p_global and should avoid getting stuck in local
     modes.
 
-    :In
-        - net (dict): Network graph.
-        - prev_zone (np.array): the previous zone, which will be modified to generate
-            the new one.
-        - max_size (int): upper bound on the number of languages in a zone.
-    :Out
-        - new_zone (np.array): The proposed new contact zone.
-        - q (float): The proposal probability.
-        - q_back (float): The probability to transition back (new_zone -> prev_zone)
-    """
-    if random.random() < P_SWAP:
-        return swap_step(prev_zone, net)
+    Args:
+        zone (np.array): the input zone, which will be modified to generate the new one.
+        net (dict): A dictionary comprising all sites of the network.
+        already_in_zone (np.array): All nodes in the network already assigned to a zone (boolean array).
 
-    # Continue with local mcmc steps...
+    Returns:
+        np.array, float, float: The proposed new contact zone, the proposal probability and the back-probability.
+
+    """
+
+    # Decide whether to swap
+    if random.random() < P_SWAP:
+        return swap_step(zone, net, already_in_zone)
+
     # Decide whether to grow or to shrink the zone:
     grow = (random.random() < 0.5)
 
-    # Ensure we don't exceed size limits
-    prev_size = np.count_nonzero(prev_zone)
+    # Ensure we don't exceed the size limits
+    prev_size = np.count_nonzero(zone)
     if prev_size <= MIN_SIZE:
         grow = True
-    if prev_size >= max_size:
+    if prev_size >= MAX_SIZE:
         grow = False
 
     if grow:
-        return grow_step(prev_zone, net, max_size)
+        return grow_step(zone, net, already_in_zone)
     else:
-        result = shrink_step(prev_zone, net, max_size)
-        if result:
-            return result
-        else:
-            # No way to shrink while keeping the zone connected
-            return grow_step(prev_zone, net, max_size)
+        return shrink_step(zone, net, already_in_zone)
 
-# Nico
-# -> Sampling module
-# min_size as argument
-# type of likelihood in lh function
+
 @timeit
-def run_metropolis_hastings(net, n_samples, n_steps, feat, lh_lookup, max_size,
-                            plot_samples=False):
+def run_metropolis_hastings(net, n_samples, n_steps, feat, lh_lookup, plot_samples=False):
     """ Generate samples according to the likelihood defined in lh_lookup and model.py.
-     A sample is defined by a set of vertices (represented by a binary vector).
+    A sample is defined by a set of vertices (represented by a binary vector).
 
     args:
-        net (dict): Network dictionary containing infos about the graph.
+        net (dict): The full network containing all sites.
         n_samples (int): The number of samples to be generated.
         n_steps (int): The number of MCMC-steps for every sample.
         feat (np.array): The (binary) feature matrix.
         lh_lookup (dict): Lookup table for more efficient computation of the likelihood.
-        max_size (int): The maximum size of a cluster.
 
     kwargs:
-        plot_samples (bool): Plot every sampled zone (many plots!).
+        plot_samples (bool): Plot every sampled zone.
+
     return:
         np.array: generated samples
     """
 
     # This dictionary stores statistics and results of the MCMC.
-    mcmc_stats = {'likelihoods': [], 'acceptance_ratio': 0.}
+    mcmc_stats = {'lh': {'per_zone': {},
+                         'aggregated': []},
+                  'samples': {'per_zone': {},
+                              'aggregated': []},
+                  'acceptance_ratio': 0.}
+
+    # Each of the zones gets their own sub-dicts
+    for n in range(NUMBER_PARALLEL_ZONES):
+        mcmc_stats['lh']['per_zone'][n] = []
+        mcmc_stats['samples']['per_zone'][n] = []
 
     accepted = 0
-    samples = np.zeros((n_samples, net['n'])).astype(bool)
-    temperature = 1.
 
-    # Generate a random starting zone and compute its log-likelihood
-    zone = sample_initial_zone(net)
-    ll = compute_likelihood(zone, feat, lh_lookup)
+    # Define the impact of the geo_weigth
     geo_weight = GEO_LIKELIHOOD_WEIGHT * feat.shape[1]
 
-    if GEO_LL_MODE == "Gaussian":
-        ll += geo_weight * compute_geo_likelihood(zone, net)
-    elif GEO_LL_MODE == "Empirical":
-        # Compute the empirical geo-likelihood of a zone
-        ll += geo_weight * compute_empirical_geo_likelihood(zone, net, ecdf_geo)
+    # Generate random initial zones
+    zones = sample_initial_zones(net, NUMBER_PARALLEL_ZONES)
+    lh = {}
+
+    for z in zones:
+        lh[z] = compute_feature_likelihood(zones[z], feat, lh_lookup)
+        lh[z] += geo_weight * compute_empirical_geo_likelihood(zones[z], net, ecdf_geo, lh_type="mst")
 
     for i_sample in range(n_samples):
 
         if RESTART_CHAIN:
-            # Restart the chain from a random location after every sample after every
-            # sample
-            zone = sample_initial_zone(net)
-            ll = compute_likelihood(zone, feat, lh_lookup)
-            if GEO_LL_MODE == "Gaussian":
-                ll += geo_weight * compute_geo_likelihood(zone, net)
-            elif GEO_LL_MODE == "Empirical":
-                # Compute the empirical geo-likelihood of a zone
-                ll += geo_weight * compute_empirical_geo_likelihood(zone, net, ecdf_geo)
+            # Restart the chain from a random location after every sample
+            zones = sample_initial_zones(net, NUMBER_PARALLEL_ZONES)
+
+            for z in zones:
+                lh[z] = compute_feature_likelihood(zones[z], feat, lh_lookup)
+                lh[z] += geo_weight * compute_empirical_geo_likelihood(zones[z], net, ecdf_geo, lh_type="mst")
 
         for k in range(n_steps):
-            # Propose a candidate zone
-            candidate_zone, q, q_back = propose_contact_zone(net, zone,
-                                                             max_size=max_size)
+            for z in zones:
 
-            # Compute the likelihood of the candidate zone
-            ll_cand = compute_likelihood(candidate_zone, feat, lh_lookup)
+                # Propose a candidate zone
+                in_zone = sum(zones.values()).astype(bool)
+                candidate_zone, q, q_back = propose_contact_zone(zones[z], net, in_zone)
 
-            if GEO_LL_MODE == "Gaussian":
-                # Assign a likelihood to the geographic distribution of the languages
-                # in the zone. Should ensure more connected zones.
-                ll_cand += geo_weight * compute_geo_likelihood(candidate_zone, net)
-            elif GEO_LL_MODE == "Empirical":
+                # Compute the likelihood of the candidate zone
+                lh_cand = compute_feature_likelihood(candidate_zone, feat, lh_lookup)
+                lh_cand += geo_weight * compute_empirical_geo_likelihood(candidate_zone, net, ecdf_geo, lh_type="mst")
 
-                ll_cand += geo_weight * compute_empirical_geo_likelihood(zone, net, ecdf_geo)
+                # This is the core of the MCMC: We compare the candidate to the current zone
+                # Usually, we go for the better of the two zones,
+                # but sometimes we decide for the candidate, even if it's worse
 
-            if SIMULATED_ANNEALING:
-                # Simulated annealing: Scale all LL values to one in the beginning,
-                # then converge to the true likelihood.
-                temperature = ((k + 1) / n_steps) ** ALPHA_ANNEALING
+                a = (lh_cand - lh[z]) + math.log(q_back / q)
+                if math.log(random.random()) < a:
+                    zones[z] = candidate_zone
+                    lh[z] = lh_cand
+                    accepted += 1
 
-            # This is the core of the MCMC: We compare the candidate to the current zone
-            # Usually, we go for the better of the two zones,
-            # but sometimes we decide for the candidate, even if it's worse
-            a = (ll_cand - ll) * temperature + math.log(q_back / q)
+        for z in zones:
 
-            if math.log(random.random()) < a:
-                zone = candidate_zone
-                ll = ll_cand
-                accepted += 1
+            mcmc_stats['lh']['per_zone'][z].append(lh[z])
+            mcmc_stats['samples']['per_zone'][z].append(zones[z])
 
-            # mcmc_stats['likelihoods'].append(ll)
+            mcmc_stats['lh']['aggregated'] += lh[z]
 
-        samples[i_sample] = zone
-        mcmc_stats['likelihoods'].append(ll)
+        mcmc_stats['lh']['aggregated'] = sum(lh.values())
+        mcmc_stats['samples']['aggregated'] = sum(zones.values()).astype(bool)
 
-        print('Log-Likelihood:        %.2f' % ll)
-        print('Size:                  %i' % np.count_nonzero(zone))
-        print('Acceptance ratio:  %.2f' % (accepted / ((i_sample+1) * n_steps)))
+        print('Log-Likelihood:        %.2f' % mcmc_stats['lh']['aggregated'])
+        print('Size:                  %i' % np.count_nonzero(mcmc_stats['samples']['aggregated']))
+        print('Acceptance ratio:  %.2f' % (accepted / ((i_sample + 1) * n_steps)))
         print()
 
         if plot_samples:
-            plot_zone(zone, net)
+            plot_zones(zones, net)
 
     mcmc_stats['acceptance_ratio'] = accepted / (n_steps * n_samples)
-
-    return samples, mcmc_stats
+    return mcmc_stats
 
 
 if __name__ == "__main__":
@@ -364,8 +329,9 @@ if __name__ == "__main__":
 
         # Generate an empirical distribution for estimating the geo-likelihood
         ecdf_geo = generate_ecdf_geo_likelihood(network, min_n=MIN_SIZE, max_n=MAX_SIZE,
-                                                nr_samples=SAMPLES_PER_ZONE_SIZE, plot=True)
+                                                nr_samples=SAMPLES_PER_ZONE_SIZE, plot=False)
         dump(ecdf_geo, ECDF_GEO_PATH)
+
     else:
         # Load preprocessed data from dump files
         network = load_from(NETWORK_PATH)
@@ -380,11 +346,9 @@ if __name__ == "__main__":
     locations = network['locations']
     adj_mat = network['adj_mat']
 
-    samples, mcmc_stats = run_metropolis_hastings(network, N_SAMPLES, N_STEPS,
-                                                  features, lh_lookup,
-                                                  max_size=MAX_SIZE,
-                                                  plot_samples=True)
+    mcmc_stats = run_metropolis_hastings(network, N_SAMPLES, N_STEPS, features, lh_lookup, plot_samples=True)
 
+    print('Acceptance Ratio: %.2f' % mcmc_stats['acceptance_ratio'])
 
-    plot_posterior(samples, adj_mat, locations)
+    #plot_posterior(mcmc_stats['samples']['aggregated'], network)
 
