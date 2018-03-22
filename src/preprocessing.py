@@ -10,7 +10,7 @@ from scipy.stats import gamma
 
 import numpy as np
 import scipy.sparse as sps
-import scipy.spatial as spatial
+from scipy.sparse.csgraph import minimum_spanning_tree
 import psycopg2
 import igraph
 
@@ -54,7 +54,7 @@ def get_network():
     Returns:
         dict: a dictionary containing the network, its vertices and edges, an adjacency list and matrix
         and a distance matrix
-        """
+    """
 
     # Get vertices from PostgreSQL
     with psql_connection(commit=True) as connection:
@@ -226,7 +226,6 @@ def compute_feature_prob(feat):
 
 
 def generate_ecdf_geo_likelihood(net, min_n, max_n, nr_samples, plot=False):
-
     """ This function generates an empirical cumulative density function (ecdf), which is then used to compute the
     geo-likelihood of a contact zone. The function
     a) grows <nr samples> contact zones of size n, where n is between <min_n> and <max_n>,
@@ -264,11 +263,11 @@ def generate_ecdf_geo_likelihood(net, min_n, max_n, nr_samples, plot=False):
 
             # Delaunay graph
             triang = triangulation(net, zone)
-            delaunay_sum.append(sum(triang.es['weight']))
+            delaunay_sum.append(triang.sum())
 
             # Minimum spanning tree
-            mst = triang.spanning_tree(weights=triang.es["weight"])
-            mst_sum.append(sum(mst.es['weight']))
+            mst = minimum_spanning_tree(triang)
+            mst_sum.append(mst.sum())
 
             if plot and n == 15:
                 # Plot graphs

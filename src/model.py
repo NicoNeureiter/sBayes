@@ -8,15 +8,15 @@ import math
 import numpy as np
 
 from scipy.stats import binom_test, binom, norm as gaussian, gamma
-from src.util import triangulation
+from scipy.sparse.csgraph import minimum_spanning_tree
+
+from src.util import triangulation, timeit, cache_arg, hash_bool_array
 from src.config import FEATURE_LL_MODE
 
 
 EPS = np.finfo(float).eps
 
 
-# Nico
-# -> change to Google stylk, change settings docstring style to google
 def binom_ll(features):
     """Compute the maximum log-likelihood of a binomial distribution.
 
@@ -24,7 +24,7 @@ def binom_ll(features):
         features (np.array): n*m array containing m features of n samples.
 
     Returns:
-
+        float: Log-likelihood of MLE binomial distribution.
     """
     k = features.sum(axis=0)
     n = features.shape[0]
@@ -36,8 +36,8 @@ def binom_ll(features):
 
 
 def compute_likelihood_generative(zone, features, *args):
-    """Log-likelihood of a generative model, where the zone and the rest of the
-    languages are modeled as independent binomial distributions.
+    """Log-likelihood of a generative model, where the zone is modeled as a
+    binomial distributions.
 
     Args:
         zone (np.array): boolean array representing the zone
@@ -48,14 +48,13 @@ def compute_likelihood_generative(zone, features, *args):
     """
 
     features_zone = features[zone, :]
-    # features_rest = features[~zone, :]
 
     ll_zone = binom_ll(features_zone)
-    # ll_rest = binom_ll(features_rest)
 
     return ll_zone
 
 
+@cache_arg(0, hash_bool_array)
 def compute_feature_likelihood(zone, features, ll_lookup):
 
     """ This function computes the feature likelihood of a zone. The function performs a one-sided binomial test yielding
@@ -84,17 +83,16 @@ def compute_feature_likelihood(zone, features, ll_lookup):
 
     return log_lh
 
-# Nico
-# -> change to Google style, change settings docstring style to google
-# flags einbauen
+
 def lookup_log_likelihood(min_size, max_size, feat_prob):
     """This function generates a lookup table of likelihoods
-    :In
-    - min_size: the minimum number of languages in a zone
-    - max_size: the maximum number of languages in a zone
-    - feat_prob: the probability of a feature to be present
-    :Out
-    - lookup_dict: the lookup table of likelihoods for a specific feature, sample size and observed presence
+    Args:
+        min_size (int): the minimum number of languages in a zone.
+        max_size (int): the maximum number of languages in a zone.
+        feat_prob (np.array): the probability of a feature to be present.
+    Returns:
+        dict: the lookup table of likelihoods for a specific feature,
+            sample size and observed presence.
     """
     if FEATURE_LL_MODE == 'binom_test_2':
         # The binomial test computes the p-value of having k or more (!) successes out of n trials,
@@ -124,7 +122,7 @@ def lookup_log_likelihood(min_size, max_size, feat_prob):
     return lookup_dict
 
 # Nico
-# Empirische durschnitteliche Varianz um Gausssche Verteilung zu definieren
+# TODO Empirische durschnittliche Varianz um Gausssche Verteilung zu definieren
 def compute_geo_likelihood(zone: np.array, network: dict, std: np.array):
     """
 
@@ -146,6 +144,7 @@ def compute_geo_likelihood(zone: np.array, network: dict, std: np.array):
     return ll
 
 
+@cache_arg(0, hash_bool_array)
 def compute_empirical_geo_likelihood(zone: np.array, net: dict, ecdf_geo: dict, lh_type: str):
 
     """ This function computes the empirical geo-likelihood of a zone.
@@ -158,6 +157,7 @@ def compute_empirical_geo_likelihood(zone: np.array, net: dict, ecdf_geo: dict, 
     Returns:
         geo_lh(float): The geo-likelihood of the zone
     """
+
     v = zone.nonzero()[0]
 
     if lh_type == "complete":
@@ -170,15 +170,19 @@ def compute_empirical_geo_likelihood(zone: np.array, net: dict, ecdf_geo: dict, 
         triang = triangulation(net, zone)
 
         if lh_type == "delaunay":
-            d = sum(triang.es['weight'])
+            d = triang.sum()
 
         elif lh_type == "mst":
-            mst = triang.spanning_tree(weights=triang.es["weight"])
-            d = sum(mst.es['weight'])
+            mst = minimum_spanning_tree(triang)
+            d = mst.sum()
+
+        else:
+            raise ValueError('Unknown lh_type: %s' % lh_type)
 
     # Compute likelihood
     x = ecdf_geo[len(v)][lh_type]['fitted_gamma']
 
     geo_lh = -np.log(gamma.cdf(d, *x))
+
     return geo_lh
 
