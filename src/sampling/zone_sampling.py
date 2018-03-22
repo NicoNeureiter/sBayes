@@ -1,25 +1,26 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-from __future__ import absolute_import, division, print_function, \
-    unicode_literals
+from __future__ import absolute_import, division, print_function, unicode_literals
 import random as _random
+
 import numpy as np
 
-from src.sampling.mcmc import MCMC
-from src.model import compute_likelihood, compute_geo_likelihood,\
-    compute_empirical_geo_likelihood
+from src.sampling.mcmc import ComponentMCMC
+from src.model import compute_feature_likelihood, compute_geo_likelihood,\
+    compute_empirical_geo_likelihood, compute_likelihood_generative
 from src.util import grow_zone, get_neighbours
+from src.plotting import plot_zones
+from src.config import *
 
 
-class ZoneMCMC(MCMC):
+class ZoneMCMC(ComponentMCMC):
 
     def __init__(self, network, features, n_steps, min_size, max_size, p_transition_mode,
-                 geo_weight, lh_lookup, ecdf_geo,
-                 feature_ll_mode='generative', geo_ll_mode='gaussian',
-                 ecdf_type='complete', geo_std=None, fixed_size=True,
-                 connected_only=False, **kwargs):
+                 geo_weight, lh_lookup, n_zones=1, ecdf_geo=None,
+                 feature_ll_mode=FEATURE_LL_MODE, geo_ll_mode=GEO_LL_MODE,
+                 ecdf_type=GEO_ECDF_TYPE, geo_std=None, connected_only=False, **kwargs):
 
-        super(ZoneMCMC, self).__init__(n_steps, **kwargs)
+        super(ZoneMCMC, self).__init__(n_zones, n_steps, **kwargs)
 
         # Data
         self.network = network
@@ -28,15 +29,17 @@ class ZoneMCMC(MCMC):
         self.locations = network['locations']
         self.graph = network['graph']
 
+        self.n_zones = n_zones
+        self.n = self.adj_mat.shape[0]
+
         # Prior assumptions about zone size / connectedness
         self.min_size = min_size
         self.max_size = max_size
-        self.fixed_size = fixed_size
         self.connected_only = connected_only
 
         # Mode frequency / weight,
         self.p_transition_mode = p_transition_mode
-        self.geo_weight = geo_weight
+        self.geo_weight = geo_weight * features.shape[1]
 
         # Likelihood modes
         self.feature_ll_mode = feature_ll_mode
@@ -51,21 +54,36 @@ class ZoneMCMC(MCMC):
         self.lh_lookup = lh_lookup
         self.ecdf_geo = ecdf_geo
 
+    def log_likelihood(self, zone):
+        if np.ndim(zone) == 2:
+            return sum([self.log_likelihood(z) for z in zone])
 
-    def log_likelihood(self, x):
-        ll_feature = compute_likelihood(x, self.features, self.lh_lookup)
+        if self.feature_ll_mode == 'generative':
+            ll_feature = compute_likelihood_generative(zone, self.features)
+            # rest = ~np.any(self._sample + zone, axis=0)
+            # ll_feature += compute_likelihood_generative(rest, self.features)
+        else:
+            ll_feature = compute_feature_likelihood(zone, self.features, self.lh_lookup)
 
-        if self.geo_ll_mode == "Gaussian":
+        if self.geo_ll_mode == 'gaussian':
             # Compute the geo-likelihood based on a gaussian distribution.
-            ll_geo = compute_geo_likelihood(x, self.network, self.geo_std)
-        elif self.geo_ll_mode == "Empirical":
+            ll_geo = compute_geo_likelihood(zone, self.network, self.geo_std)
+
+        elif self.geo_ll_mode == 'empirical':
             # Compute the empirical geo-likelihood of a zone
-            ll_geo = compute_empirical_geo_likelihood(x, self.network, self.ecdf_geo,
-                                                      self.ecdf_type)
+            ll_geo = compute_empirical_geo_likelihood(zone, self.network, self.ecdf_geo,
+                                                      lh_type=self.ecdf_type)
+
+        elif self.geo_ll_mode == 'none':
+            ll_geo = 0
+
         else:
             raise ValueError('Unknown geo_ll_mode: %s' % self.geo_ll_mode)
 
-        return ll_feature + self.geo_weight * ll_geo
+        # Weight geo-likelihood
+        ll_geo *= self.geo_weight
+
+        return ll_feature + ll_geo
 
     def swap_step(self, x_prev, n_swaps=1):
         """Propose a transition by removing a vertex and adding another one from the
@@ -80,49 +98,94 @@ class ZoneMCMC(MCMC):
             float: The proposal probability.
             float: The probability to transition back (new_zone -> prev_zone)
         """
-        x_new = x_prev.copy()
 
-        size = np.count_nonzero(x_prev)
+        # Select current zone
+        i_zone = self._current_zone
+        zone_prev = x_prev[i_zone, :]
+        zone_new = zone_prev.copy()
+        occupied = np.any(x_prev, axis=0)
 
         # Compute the neighbourhood
-        neighbours = get_neighbours(x_prev, self.adj_mat)
+        neighbours = get_neighbours(zone_prev, occupied, self.adj_mat)
         neighbours_idx = neighbours.nonzero()[0]
 
         # Add a neighbour to the zone
-        i_new = _random.choice(neighbours_idx)
-        x_new[i_new] = 1
+        try:
+            i_new = _random.choice(neighbours_idx)
+        except IndexError as e:
+            print(zone_new.nonzero(), neighbours_idx)
+            raise e
 
-        zone_idx = x_prev.nonzero()[0]
-
-        if self.connected_only:
-            # # Compute cut_vertices (can be removed while keeping zone connected)
-            G_zone = self.graph.induced_subgraph(zone_idx)
-            assert G_zone.is_connected()
-
-            cut_vs_idx = G_zone.cut_vertices()
-            if len(cut_vs_idx) == size + 1:
-                return None
-
-            cut_vertices = G_zone.vs[cut_vs_idx]['name']
-            removal_candidates = [v for v in zone_idx if v not in cut_vertices]
-        else:
-            removal_candidates = zone_idx
+        zone_new[i_new] = occupied[i_new] = 1
 
         # Remove a vertex from the zone.
+        removal_candidates = self.get_removal_candidates(zone_new)
         i_out = _random.choice(removal_candidates)
-        x_new[i_out] = 0
+        zone_new[i_out] = occupied[i_out] = 0
 
-        back_neighbours = get_neighbours(x_new, self.adj_mat)
+        # Compute transition probabilities
+        back_neighbours = get_neighbours(zone_new, occupied, self.adj_mat)
         q = 1. / np.count_nonzero(neighbours)
         q_back = 1. / np.count_nonzero(back_neighbours)
 
-        return x_new, q, q_back
+        return zone_new, q, q_back
 
     def grow_step(self, x_prev):
-        pass
+
+        # Select current zone
+        i_zone = self._current_zone
+        zone_prev = x_prev[i_zone]
+        zone_new = zone_prev.copy()
+        occupied = np.any(x_prev, axis=0)
+
+        size_prev = np.count_nonzero(zone_prev)
+        size_new = size_prev + 1
+
+        # Add a neighbour to the zone
+        neighbours = get_neighbours(zone_prev, occupied, self.adj_mat)
+        i_new = _random.choice(neighbours.nonzero()[0])
+        zone_new[i_new] = occupied[i_new] = 1
+
+        # Transition probability when growing
+        q = 1 / np.count_nonzero(neighbours)
+        if size_prev > self.min_size:
+            q /= 2
+
+        # Back-probability (-> shrinking)
+        q_back = 1 / size_new
+        if size_new < self.max_size:
+            q_back /= 2
+
+        return zone_new, q, q_back
 
     def shrink_step(self, x_prev):
-        pass
+
+        # Select current zone
+        i_zone = self._current_zone
+        zone_prev = x_prev[i_zone]
+        zone_new = zone_prev.copy()
+        occupied = np.any(x_prev, axis=0)
+
+        size_prev = np.count_nonzero(zone_prev)
+        size_new = size_prev - 1
+
+        # Remove a vertex from the zone.
+        removal_candidates = self.get_removal_candidates(zone_prev)
+        i_out = _random.choice(removal_candidates)
+        zone_new[i_out] = occupied[i_out] = 0
+
+        # Transition probability when shrinking.
+        q = 1 / len(removal_candidates)
+        if size_prev < self.max_size:
+            q /= 2
+
+        # Back-probability (-> growing)
+        back_neighbours = get_neighbours(zone_new, occupied, self.adj_mat)
+        q_back = 1 / np.count_nonzero(back_neighbours)
+        if size_new > self.min_size:
+            q_back /= 2
+
+        return zone_new, q, q_back
 
     def propose_step(self, x_prev):
         """This function proposes a new candidate zone in the network. The new zone differs
@@ -138,35 +201,95 @@ class ZoneMCMC(MCMC):
             q (float): The proposal probability.
             q_back (float): The probability to transition back (new_zone -> prev_zone)
         """
+        i_zone = self._current_zone
+        zone_prev = x_prev[i_zone]
+
         modeselektor = _random.random()
 
-        # Swap step
         if modeselektor < self.p_transition_mode['swap']:
+            # Swap step
             return self.swap_step(x_prev)
 
-        # Grow or shrink?
-        grow = (modeselektor < self.p_transition_mode['grow'])
-
-        # Ensure we don't exceed size limits
-        prev_size = np.count_nonzero(x_prev)
-        if prev_size <= self.min_size:
-            grow = True
-        if prev_size >= self.max_size:
-            grow = False
-
-        if grow:
-            return self.grow_step(x_prev)
         else:
-            result = self.shrink_step(x_prev)
+            # Grow or shrink?
+            grow = (modeselektor < self.p_transition_mode['grow'])
 
-            if result:
-                return result
+            # Ensure we don't exceed size limits
+            prev_size = np.count_nonzero(zone_prev)
+            assert self.min_size <= prev_size <= self.max_size
+            if prev_size <= self.min_size:
+                grow = True
+            if prev_size >= self.max_size:
+                grow = False
+
+            if grow:
+                return self.grow_step(x_prev)
+
             else:
-                # No way to shrink while keeping the zone connected
-                return x_prev
+                result = self.shrink_step(x_prev)
+
+                if result:
+                    return result
+                else:
+                    # No way to shrink while keeping the zone connected
+                    return x_prev[self._current_zone], 1., 1.
 
     def generate_initial_sample(self):
-        if self.fixed_size:
-            return grow_zone(self.max_size, self.adj_mat)
+        """Generate initial sample zones by growing a zone through random
+        grow-steps up to self.min_size.
+
+        Returns:
+            np.array: The generated initial zones.
+        """
+        self._lls = np.full(self.n_components, -np.inf)
+
+        occupied = np.zeros(self.n, bool)
+        init_zones = np.zeros((self.n_zones, self.n), bool)
+
+        for i in range(self.n_zones):
+            g = grow_zone(self.min_size, self.network, occupied)
+            init_zones[i, :] = g[0]
+            occupied = g[1]
+
+        return init_zones
+
+    def get_removal_candidates(self, zone):
+        """Nodes which can be removed from the given zone. If connectedness is
+        required (connected_only = True), only non-cutvertices are returned.
+
+        Args:
+            zone (np.array): The zone from which removal candidate is selected.
+
+        Returns:
+            list: Index-list of removal candidates.
+        """
+        zone_idx = zone.nonzero()[0]
+        size = len(zone_idx)
+
+        if not self.connected_only:
+            # If connectedness is not required, all nodes are candidates.
+            return zone_idx
+
         else:
-            return grow_zone(self.min_size, self.adj_mat)
+            # Compute non cut-vertices (can be removed while keeping zone connected).
+            G_zone = self.graph.induced_subgraph(zone_idx)
+            assert G_zone.is_connected()
+
+            cut_vs_idx = G_zone.cut_vertices()
+            if len(cut_vs_idx) == size:
+                return []
+
+            cut_vertices = G_zone.vs[cut_vs_idx]['name']
+
+            return [v for v in zone_idx if v not in cut_vertices]
+
+    def plot_sample(self, x):
+        plot_zones(x, self.network)
+
+    def log_sample_statistics(self):
+        super(ZoneMCMC, self).log_sample_statistics()
+
+        print()
+        print('Current zones log-likelihood: ', self._lls)
+        print('Current total log-likelihood: ', self._ll)
+        print('Current zone sizes:           ', np.count_nonzero(self._sample, axis=-1))
