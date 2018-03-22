@@ -5,16 +5,28 @@ from __future__ import absolute_import, division, print_function, \
 
 import pickle
 import random
+import time as _time
+
 import igraph
 import numpy as np
-import time as _time
 import scipy.spatial as spatial
+from scipy.sparse import csr_matrix
 
 from math import sqrt
 
 
-def reachable_vertices(x, adj_mat):
-    return adj_mat.dot(x).clip(0, 1)
+def hash_array(a):
+    """Hash function for numpy arrays.
+    (not 100% efficient, due to copying in .tobytes()).
+    """
+    return a.data.tobytes()
+
+
+def hash_bool_array(a):
+    """Hash function for boolean numpy arrays. More space efficient due to .packbits().
+    (not 100% efficient, due to copying in .tobytes()).
+    """
+    return np.packbits(a).data.tobytes()
 
 
 def timeit(fn):
@@ -32,6 +44,67 @@ def timeit(fn):
         return result
 
     return fn_timed
+
+
+def cache_kwarg(kwarg_key, hash_function=hash):
+    """Decorator to cache functions based on a specified keyword argument.
+    Caution: Changes in other arguments are ignored!
+
+    Args:
+        kwarg_key (str): The key of the keyword argument to be cached.
+        hash_function (callable): Custom hash function (for types with no default hash method).
+
+    Returns:
+        callable: Cached function.
+    """
+    def decorator(fn):
+        cache = {}
+
+        def fn_cached(*args, **kwargs):
+            kwarg_value = kwargs[kwarg_key]
+            hashed = hash_function(kwarg_value)
+
+            if hashed in cache:
+                return cache[hashed]
+            else:
+                result = fn(*args, **kwargs)
+                cache[hashed] = result
+                return result
+
+        return fn_cached
+
+    return decorator
+
+
+def cache_arg(arg_id, hash_function=hash):
+    """Decorator to cache functions based on a specified argument.
+    Caution: Changes in other arguments are ignored!
+
+    Args:
+        arg_id (int): The index of the argument to be cached (index in args tuple, i.e. in the
+            order of the arguments, as specified in the function header).
+        hash_function: Custom hash function (for types with no default hash method).
+
+    Returns:
+        callable: Cached function.
+    """
+    def decorator(fn):
+        cache = {}
+
+        def fn_cached(*args, **kwargs):
+            arg_value = args[arg_id]
+            hashed = hash_function(arg_value)
+
+            if hashed in cache:
+                return cache[hashed]
+            else:
+                result = fn(*args, **kwargs)
+                cache[hashed] = result
+                return result
+
+        return fn_cached
+
+    return decorator
 
 
 def compute_distance(a, b):
@@ -54,11 +127,13 @@ def compute_distance(a, b):
 
 
 def dump(data, path):
+    """Dump the given data to the given path (using pickle)."""
     with open(path, 'wb') as dump_file:
         pickle.dump(data, dump_file)
 
 
 def load_from(path):
+    """Load and return data from the given path (using pickle)."""
     with open(path, 'rb') as dump_file:
         return pickle.load(dump_file)
 
@@ -81,6 +156,7 @@ def bounding_box(points):
     return box
 
 
+@cache_arg(0, hash_bool_array)
 def get_neighbours(zone, already_in_zone, adj_mat):
     """This function computes the neighbourhood of a zone, excluding vertices already
     belonging to this zone or any other zone.
@@ -108,7 +184,8 @@ def grow_zone(size, net, already_in_zone=None):
         already_in_zone (np.array): All nodes in the network already assigned to a zone (boolean array)
 
     Returns:
-        (np.array, np.array): The new zone (boolean), all nodes in the network already assigned to a zone (boolean)
+        np.array: The new zone (boolean).
+        np.array: all nodes in the network already assigned to a zone (boolean).
 
     """
     n = net['adj_mat'].shape[0]
@@ -117,7 +194,7 @@ def grow_zone(size, net, already_in_zone=None):
         already_in_zone = np.zeros(n, bool)
 
     # Initialize the zone
-    zone = np.zeros(n).astype(bool)
+    zone = np.zeros(n, bool)
 
     # Get all vertices that already belong to a zone (occupied_n) and all free vertices (free_n)
     occupied_n = np.nonzero(already_in_zone)[0]
@@ -133,7 +210,6 @@ def grow_zone(size, net, already_in_zone=None):
         zone[i_new] = already_in_zone[i_new] = 1
 
     return zone, already_in_zone
-
 
 
 def triangulation(net, zone):
@@ -153,44 +229,10 @@ def triangulation(net, zone):
     locations = net['locations'][v]
     delaunay = spatial.Delaunay(locations, qhull_options="QJ Pp")
 
-    # Initialize the graph
-    g = igraph.Graph()
-    g.add_vertices(len(v))
+    indptr, indices = delaunay.vertex_neighbor_vertices
+    data = np.ones_like(indices)
+    delaunay_adj_mat = csr_matrix((data, indices, indptr), shape=(len(v), len(v)))
 
-    for t in range(delaunay.nsimplex):
-        edge = sorted([delaunay.simplices[t, 0], delaunay.simplices[t, 1]])
-        g.add_edge(edge[0], edge[1], weight=dist_mat[v[edge[0]], v[edge[1]]])
-
-        edge = sorted([delaunay.simplices[t, 0], delaunay.simplices[t, 2]])
-        g.add_edge(edge[0], edge[1], weight=dist_mat[v[edge[0]], v[edge[1]]])
-
-        edge = sorted([delaunay.simplices[t, 1], delaunay.simplices[t, 2]])
-        g.add_edge(edge[0], edge[1], weight=dist_mat[v[edge[0]], v[edge[1]]])
+    g = delaunay_adj_mat * dist_mat[v][:, v]
 
     return g
-
-
-# edges.append(coords)
-#
-# edge = sorted([delaunay.simplices[t, 0], delaunay.simplices[t, 2]])
-# coords = {'A': tuple(locations[edge[0]]),
-#           'B': tuple(locations[edge[1]]),
-#           'length': dist_mat[v[edge[0]], v[edge[1]]]}
-# edges.append(coords)
-#
-# edge = sorted([delaunay.simplices[t, 1], delaunay.simplices[t, 2]])
-# coords = {'A': tuple(locations[edge[0]]),
-#           'B': tuple(locations[edge[1]]),
-#           'length': dist_mat[v[edge[0]], v[edge[1]]]}
-# edges.append(coords)
-#
-# locations = net['locations'][v]
-# sub_g = net['graph'].subgraph(v, implementation="create_from_scratch")
-# mst = sub_g.spanning_tree(weights=sub_g.es["weight"])
-#
-# for e in sub_g.es:
-#     coords = {'A': tuple(locations[e.tuple[0]]),
-#               'B': tuple(locations[e.tuple[1]]),
-#               'length': e['weight']}
-#
-#     edges.append(coords)
