@@ -126,7 +126,10 @@ def plot_zones(zones, net):
     bg = ax.scatter(*all_sites.T, s=size, color=col['zones']['background_nodes'])
     zo = []
 
-    for z in zones:
+    if isinstance(zones, dict):
+        zones = list(zones.values())
+
+    for z, zone in enumerate(zones):
         zo.append(ax.scatter(*all_sites[zones[z]].T, s=size * 6, color=col['zones']['in_zones'][int(z)]))
 
     # Remove axes
