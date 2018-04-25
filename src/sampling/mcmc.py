@@ -98,7 +98,7 @@ class MCMC(metaclass=_abc.ABCMeta):
         ll_ratio = ll_new - ll_prev
         log_q_ratio = _math.log(q / q_back)
 
-        return (ll_ratio ** temperature) - log_q_ratio
+        return (ll_ratio * temperature) - log_q_ratio
 
     def generate_samples(self, n_samples):
         """Run the MCMC sampling procedure with Metropolis Hastings rejection
@@ -208,6 +208,7 @@ class ComponentMCMC(MCMC, metaclass=_abc.ABCMeta):
         self.n_components = n_components
 
         self._lls = _np.full(n_components, -_np.inf)
+        self._ll_rest = - _np.inf
 
         self._current_zone = 0
 
@@ -222,20 +223,37 @@ class ComponentMCMC(MCMC, metaclass=_abc.ABCMeta):
 
             # Get a candidate
             candidate_i, q, q_back = self.propose_step(self._sample)
+            candidate = self._sample.copy()
+            candidate[i_component] = candidate_i
 
             # Compute the log-likelihood and Metropolis-Hastings ratio
             ll_candidate = self.log_likelihood(candidate_i)
-            mh_ratio = self.metropolis_hastings_ratio(ll_candidate, self._lls[i_component],
+            ll_rest = self.log_likelihood_rest(candidate)
+            mh_ratio = self.metropolis_hastings_ratio(ll_candidate + ll_rest,
+                                                      self._lls[i_component] + self._ll_rest,
                                                       q, q_back, temperature=self.temperature)
 
             # Accept/reject according to MH-ratio
             if _math.log(_random.random()) < mh_ratio:
                 self._sample[i_component] = candidate_i
                 self._lls[i_component] = ll_candidate
-                self._ll = _np.sum(self._lls)
+                self._ll_rest = ll_rest
+                self._ll = _np.sum(self._lls) + ll_rest
 
                 self.statistics['accepted'] += 1
 
             self.log_step_statistics()
 
         return self._sample
+
+    @_abc.abstractmethod
+    def log_likelihood_rest(self, x):
+        """
+
+        Args:
+            x (SampleType): The current posterior sample.
+
+        Returns:
+            float: Likelihood of the not-assigned samples
+        """
+        pass

@@ -58,25 +58,27 @@ class ZoneMCMC(ComponentMCMC):
         if np.ndim(zone) == 2:
             return sum([self.log_likelihood(z) for z in zone])
 
-        if self.feature_ll_mode == 'generative':
-            ll_feature = compute_likelihood_generative(zone, self.features)
-            # rest = ~np.any(self._sample + zone, axis=0)
-            # ll_feature += compute_likelihood_generative(rest, self.features)
-        else:
-            ll_feature = compute_feature_likelihood(zone, self.features, self.lh_lookup)
+        # Compute the feature likelihood
 
-        if self.geo_ll_mode == 'gaussian':
+        if self.feature_ll_mode == 'generative':
+            # Compute the feature-likelihood based on a binomial distribution.
+            ll_feature = compute_likelihood_generative(zone, self.features)
+        elif self.feature_ll_mode == 'particularity':
+            ll_feature = compute_feature_likelihood(zone, self.features, self.lh_lookup)
+        else:
+            raise ValueError('Unknown feature_ll_mode: %s' % self.feature_ll_mode)
+
+        # Compute the geographic likelihood
+
+        if self.geo_ll_mode == 'generative':
             # Compute the geo-likelihood based on a gaussian distribution.
             ll_geo = compute_geo_likelihood(zone, self.network, self.geo_std)
-
-        elif self.geo_ll_mode == 'empirical':
+        elif self.geo_ll_mode == 'particularity':
             # Compute the empirical geo-likelihood of a zone
             ll_geo = compute_empirical_geo_likelihood(zone, self.network, self.ecdf_geo,
                                                       lh_type=self.ecdf_type)
-
         elif self.geo_ll_mode == 'none':
             ll_geo = 0
-
         else:
             raise ValueError('Unknown geo_ll_mode: %s' % self.geo_ll_mode)
 
@@ -84,6 +86,28 @@ class ZoneMCMC(ComponentMCMC):
         ll_geo *= self.geo_weight
 
         return ll_feature + ll_geo
+
+    def log_likelihood_rest(self, x):
+        if self.feature_ll_mode == 'particularity':
+            return 0.
+
+        elif self.feature_ll_mode == 'generative':
+            occupied = np.any(x, axis=0)
+
+            features_free = self.features[~occupied, :]
+            n, n_features = features_free.shape
+            k = features_free.sum(axis=0)
+
+            n_all = self.features.shape[0]
+            k_all = self.features.sum(axis=0)
+            p_all = (k_all / n_all)  # TODO pre-compute
+
+            ll = np.sum(k * np.log(p_all) + (n - k) * np.log(1 - p_all))
+
+            return ll
+
+        else:
+            raise ValueError
 
     def swap_step(self, x_prev, n_swaps=1):
         """Propose a transition by removing a vertex and adding another one from the
