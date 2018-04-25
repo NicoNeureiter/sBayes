@@ -11,8 +11,6 @@ from scipy.stats import binom_test, binom, norm as gaussian, gamma
 from scipy.sparse.csgraph import minimum_spanning_tree
 
 from src.util import triangulation, timeit, cache_arg, hash_bool_array
-from src.config import FEATURE_LL_MODE
-
 
 EPS = np.finfo(float).eps
 # EPS = 1e-10
@@ -50,7 +48,6 @@ def compute_likelihood_generative(zone, features, *args):
     """
 
     features_zone = features[zone, :]
-
     ll_zone = binom_ll(features_zone)
 
     return ll_zone
@@ -96,22 +93,19 @@ def lookup_log_likelihood(min_size, max_size, feat_prob):
         dict: the lookup table of likelihoods for a specific feature,
             sample size and observed presence.
     """
-    if FEATURE_LL_MODE == 'binom_test_2':
-        # The binomial test computes the p-value of having k or more (!) successes out of n trials,
-        # given a specific probability of success
-        # For a two-sided binomial test, simply remove "greater"
-        def ll(p_zone, s, p_global):
-            return math.log(1 - binom_test(p_zone, s, p_global, 'greater') + EPS)
 
-    else:
-        # This version of the ll is more sensitive to exceptional observations.
-        def ll(p_zone, s, p_global):
-            p = binom_test(p_zone, s, p_global, 'greater')
-            try:
-                return - math.log(p)
-            except Exception as e:
-                print(p_zone, s, p_global, p)
-                raise e
+    # The binomial test computes the p-value of having k or more (!) successes out of n trials,
+    # given a specific probability of success
+    # For a two-sided binomial test, simply remove "greater".
+    # The function returns -log (p_value), which is more sensitive to exceptional observations.
+
+    def ll(p_zone, s, p_global):
+        p = binom_test(p_zone, s, p_global, 'greater')
+        try:
+            return - math.log(p)
+        except Exception as e:
+            print(p_zone, s, p_global, p)
+            raise e
 
     lookup_dict = {}
     for i_feat, p_global in enumerate(feat_prob):

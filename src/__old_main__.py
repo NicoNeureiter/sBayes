@@ -325,7 +325,8 @@ if __name__ == "__main__":
         dump(network, NETWORK_PATH)
 
         # Retrieve the contact zones
-        contact_zones = get_contact_zones()
+        all_zones = [1,2,3,4,5,6,7,8,9,10]
+        contact_zones = get_contact_zones(all_zones)
         dump(contact_zones, CONTACT_ZONES_PATH)
 
         # Simulate distribution of features
