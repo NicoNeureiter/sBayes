@@ -13,6 +13,7 @@ import scipy.sparse as sps
 from scipy.sparse.csgraph import minimum_spanning_tree
 import psycopg2
 import igraph
+import math
 
 from src.util import compute_distance, grow_zone, triangulation
 from src.config import *
@@ -130,40 +131,63 @@ def get_network():
     return net
 
 
-def get_contact_zones():
-    """This function retrieves all contact zones from the DB
-
+def get_contact_zones(zone_id):
+    """This function retrieves contact zones from the DB
+    Args:
+        zone_id(int or tuple of ints) : the id(s) of the zone(s) in the DB
     Returns:
         dict: the contact zones
         """
-    with psql_connection(commit=True) as connection:
-        query_cz = "SELECT cz, array_agg(id) " \
-                   "FROM cz_sim.contact_zones_raw " \
-                   "WHERE cz != 0 " \
-                   "GROUP BY cz"
+    # For single zones
+    if isinstance(zone_id, int):
+        with psql_connection(commit=True) as connection:
+            query_cz = "SELECT cz, array_agg(id) " \
+                       "FROM cz_sim.contact_zones_raw " \
+                       "WHERE cz = {list_id}" \
+                       "GROUP BY cz".format(list_id=zone_id)
+            cursor = connection.cursor()
+            cursor.execute(query_cz)
+            rows_cz = cursor.fetchall()
+            contact_zones = {}
+            for cz in rows_cz:
+                contact_zones[cz[0]] = cz[1]
+        return contact_zones
 
-        cursor = connection.cursor()
-        cursor.execute(query_cz)
-        rows_cz = cursor.fetchall()
-        contact_zones = {}
-        for cz in rows_cz:
-            contact_zones[cz[0]] = cz[1]
-    return contact_zones
+    # For parallel zones
+    elif isinstance(zone_id, tuple):
+        if all(isinstance(x, int) for x in zone_id):
+            with psql_connection(commit=True) as connection:
+                query_cz = "SELECT cz, array_agg(id) " \
+                           "FROM cz_sim.contact_zones_raw " \
+                           "WHERE cz IN {list_id}" \
+                           "GROUP BY cz".format(list_id=zone_id)
+                cursor = connection.cursor()
+                cursor.execute(query_cz)
+                rows_cz = cursor.fetchall()
+                contact_zones = {}
+                for cz in rows_cz:
+                    contact_zones[cz[0]] = cz[1]
+            return contact_zones
+        else:
+            raise ValueError('zone_id must be int or a list of ints')
+    else:
+        raise ValueError('zone_id must be int or a list of ints')
 
 
-def simulate_background_distribution(m_feat, n_sites):
+def simulate_background_distribution(m_feat, n_sites, p_min, p_max):
     """This function draws <n_sites> samples from a Binomial distribution for <m_feat> binary features, where
-    1 implies the presence of the feature, and 0 the absence. For ech feature the probability of success is drawn from
-    a uniform distribution between 0.05 and 0.95. Thus, some feature are balanced and some are skewed towards 0 or 1.
+    1 implies the presence of the feature, and 0 the absence.
 
     Args:
         m_feat (int): number of features
         n_sites (int): number of sites for which feature are simulated
+        p_min (float): the minimum probability that a feature is 1
+        p_max (float): the maximum probability that a feature is 1
 
     Returns:
         dict: the simulated features
         """
-    successes = np.random.uniform(0.05, 0.95, m_feat)
+    successes = np.random.uniform(p_min, p_max, m_feat)
     it = np.nditer(successes, flags=['f_index'])
     features = {}
 
@@ -175,12 +199,12 @@ def simulate_background_distribution(m_feat, n_sites):
     return features
 
 
-def simulate_contact(n_feat, features, p, contact_zones):
+def simulate_contact(r_feat, features, p, contact_zones):
     """This function simulates language contact. For each contact zone the function randomly chooses <n_feat> features,
     for which the similarity is increased.
 
     Args:
-        n_feat (int): the number of features for which the function simulates contact
+        r_feat (float: the ratio of all features for which the function simulates contact
         features (dict): features for which contact is simulated
         p (float): probability of success, defines the degree of similarity in the contact zone
         contact_zones (dict): a region of sites for which contact is simulated
@@ -189,6 +213,7 @@ def simulate_contact(n_feat, features, p, contact_zones):
         np.ndarray: the adjusted features
         """
     features_adjusted = copy.deepcopy(features)
+    n_feat = math.ceil(r_feat * TOTAL_N_FEATURES)
 
     # Iterate over all contact zones
     for cz in contact_zones:

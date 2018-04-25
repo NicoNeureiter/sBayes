@@ -3,16 +3,19 @@
 from __future__ import absolute_import, division, print_function, \
     unicode_literals
 
-# Simulate contact zones
+# Simulate contact zones and background distribution
 TOTAL_N_FEATURES = 30
 """The total number of simulated features"""
 
-N_CONTACT_FEATURES = 20
-"""The number of features for which the algorithm simulates contact"""
+R_CONTACT_FEATURES = 2/3
+"""The ratio of features for which the algorithm simulates contact"""
 
 P_CONTACT = 0.8
-"""The probability of 0/1 in the contact zones"""
+"""The probability of 1 in the contact zones"""
 
+P_SUCCESS_MIN = 0.05
+P_SUCCESS_MAX = 0.95
+"""The minimum and maximum probability of 1 in the background distribution"""
 
 # Sampling parameters
 N_STEPS = 3000
@@ -54,7 +57,7 @@ SIMULATED_ANNEALING = False
 """bool: Slowly increase a temperature parameter to smoothly blend from sampling from a
 uniform distribution to the actual likelihood. Should help with separated modes."""
 
-RELOAD_DATA = True
+RELOAD_DATA = False
 """bool: Reload the data from the DB, pre-process it and dump it."""
 
 NUMBER_PARALLEL_ZONES = 3
@@ -81,7 +84,7 @@ GEO_ECDF_TYPE = GEO_ECDF_TYPES[1]
 GEO_LIKELIHOOD_WEIGHT = 1
 """float: The weight of the geo-likelihood as compared to the feature likelihood."""
 
-SAMPLES_PER_ZONE_SIZE = 1000
+SAMPLES_PER_ZONE_SIZE = 10000
 """int: The number of samples for generating the empirical geo-likelihood."""
 
 
@@ -99,7 +102,7 @@ CONTACT_ZONES_PATH = 'data/processed/contact_zones.pkl'
 ECDF_GEO_PATH = 'data/processed/ecdf_geo.pkl'
 
 # Path for results
-PATH_MCMC_RESULTS = 'data/results/mcmc_results.csv'
-
+MCMC_RESULTS_PATH = 'data/results/mcmc_results.pkl'
+TEST_RESULTS_PATH = 'data/results/test'
 
 

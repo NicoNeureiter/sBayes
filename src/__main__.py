@@ -1,7 +1,7 @@
 # In this document we test an algorithm to identify linguistic contact zones in simulated data.
 # We import the data from a PostgreSQL database.
 import numpy as np
-
+import os
 from src.sampling.zone_sampling import ZoneMCMC
 from src.preprocessing import (get_network,
                                compute_feature_prob,
@@ -24,15 +24,17 @@ if __name__ == "__main__":
         dump(network, NETWORK_PATH)
 
         # Retrieve the contact zones
-        contact_zones = get_contact_zones()
+        all_zones = (1, 2, 3, 4, 5, 6, 7, 8, 9, 10)
+        contact_zones = get_contact_zones(all_zones)
         dump(contact_zones, CONTACT_ZONES_PATH)
 
         # Simulate distribution of features
-        features_bg = simulate_background_distribution(TOTAL_N_FEATURES, len(network['vertices']))
+        features_bg = simulate_background_distribution(TOTAL_N_FEATURES, len(network['vertices']),
+                                                       p_min=P_SUCCESS_MIN, p_max=P_SUCCESS_MAX)
         dump(features_bg, FEATURES_BG_PATH)
 
         # Simulate contact zones
-        features = simulate_contact(N_CONTACT_FEATURES, features_bg, P_CONTACT, contact_zones)
+        features = simulate_contact(R_CONTACT_FEATURES, features_bg, P_CONTACT, contact_zones)
         dump(features, FEATURES_PATH)
 
         # Compute the probability of a feature to be present or absent
@@ -68,8 +70,16 @@ if __name__ == "__main__":
     # Run the sampler
     samples = zone_sampler.generate_samples(N_SAMPLES)
 
-    # Print statistics
-    stats = zone_sampler.statistics
-    print('Acceptance Ratio:     %.2f' % stats['acceptance_ratio'])
-    print('Log-Likelihood:       %.2f' % stats['sample_likelihoods'][-1])
-    print('Size:                 %r' % np.count_nonzero(samples[-1], axis=-1))
+    # Export statistics
+    mcmc_results = {'stats': zone_sampler.statistics,
+                    'samples': samples,
+                    'n_features': np.size(zone_sampler.features, 1),
+                    'n_zones': zone_sampler.n_zones}
+
+    # Dump the results
+    dump(mcmc_results, MCMC_RESULTS_PATH)
+    print('Acceptance Ratio:     %.2f' % mcmc_results['stats']['acceptance_ratio'])
+    print('Log-Likelihood:       %.2f' % mcmc_results['stats']['sample_likelihoods'][-1])
+    print('Size:                 %r' % mcmc_results['n_zones'])
+
+

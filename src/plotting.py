@@ -4,13 +4,12 @@ from __future__ import absolute_import, division, print_function, \
     unicode_literals
 
 import matplotlib.pyplot as plt
-
+import os
 plt.style.use('ggplot')
 import numpy as np
 from scipy.stats import gamma
 from matplotlib.collections import LineCollection
 from src.util import bounding_box
-from matplotlib import cm
 
 
 def get_colors():
@@ -231,9 +230,11 @@ def plot_histogram_empirical_geo_likelihood(e_gl, zone_size, gl_type):
 
 
 if __name__ == '__main__':
-    from src.model import compute_likelihood
     from src.util import load_from
     from src.config import NETWORK_PATH, FEATURES_PATH, LOOKUP_TABLE_PATH,ECDF_GEO_PATH
+
+    k = os.getcwd()
+    print(k)
 
     # Load data
     network = load_from(NETWORK_PATH)
@@ -244,7 +245,7 @@ if __name__ == '__main__':
     ecdf = load_from(ECDF_GEO_PATH)
 
     # Plot the empirical distribution of the geo-likelihood
-    plot_histogram_empirical_geo_likelihood(ecdf, 50, gl_type="mst")
+    plot_histogram_empirical_geo_likelihood(ecdf, 70, gl_type="mst")
 
     ecdf_geo = load_from(ECDF_GEO_PATH)
     x_1 = ecdf_geo[20]["mst"]['fitted_gamma']

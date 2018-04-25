@@ -29,6 +29,7 @@ class ZoneMCMC(ComponentMCMC):
         self.locations = network['locations']
         self.graph = network['graph']
 
+        # Sampling
         self.n_zones = n_zones
         self.n = self.adj_mat.shape[0]
 
