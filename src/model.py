@@ -15,6 +15,7 @@ from src.config import FEATURE_LL_MODE
 
 
 EPS = np.finfo(float).eps
+# EPS = 1e-10
 
 
 def binom_ll(features):
@@ -28,9 +29,10 @@ def binom_ll(features):
     """
     k = features.sum(axis=0)
     n = features.shape[0]
-    p = k / n
+    p = (k / n).clip(EPS, 1-EPS)
 
-    ll = binom.logpmf(k, n, p)
+    # ll = binom.logpmf(k, n, p)
+    ll = k * np.log(p) + (n - k) * np.log(1 - p)
 
     return np.sum(ll)
 
