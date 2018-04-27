@@ -21,6 +21,7 @@ if __name__ == '__main__':
     TEST_RESULTS_SAMPLING_DIRECTORY = 'data/results/test/{experiment}/'.format(experiment=now)
     TEST_RESULTS_SAMPLING_PATH = TEST_RESULTS_SAMPLING_DIRECTORY + 'sampling_e{e}_a{a}_m{m}_{run}.pkl'
 
+    # TODO mkdir
 
     MIN_SIZE = 5
     MAX_SIZE = 100
