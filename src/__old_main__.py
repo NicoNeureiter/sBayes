@@ -11,10 +11,9 @@ from src.preprocessing import (get_network,
                                get_contact_zones,
                                simulate_background_distribution,
                                simulate_contact,
-                               generate_ecdf_geo_likelihood)
-from src.model import (lookup_log_likelihood,
-                       compute_feature_likelihood,
-                       compute_empirical_geo_likelihood)
+                               generate_ecdf_geo_likelihood, precompute_feature_likelihood)
+from src.model import (compute_feature_likelihood,
+                       compute_geo_likelihood_particularity)
 from src.plotting import plot_zones, plot_posterior
 from src.util import timeit, dump, load_from, get_neighbours, grow_zone
 from src.config import *
@@ -255,8 +254,8 @@ def run_metropolis_hastings(net, n_samples, n_steps, feat, lh_lookup, plot_sampl
 
     for z in zones:
         lh[z] = compute_feature_likelihood(zones[z], feat, lh_lookup)
-        lh[z] += geo_weight * compute_empirical_geo_likelihood(zones[z], net, ecdf_geo,
-                                                               lh_type="delaunay")
+        lh[z] += geo_weight * compute_geo_likelihood_particularity(zones[z], net, ecdf_geo,
+                                                                   subgraph_type="delaunay")
 
     for i_sample in range(n_samples):
 
@@ -266,9 +265,9 @@ def run_metropolis_hastings(net, n_samples, n_steps, feat, lh_lookup, plot_sampl
 
             for z in zones:
                 lh[z] = compute_feature_likelihood(zones[z], feat, lh_lookup)
-                lh[z] += geo_weight * compute_empirical_geo_likelihood(zones[z], net,
-                                                                       ecdf_geo,
-                                                                       lh_type="delaunay")
+                lh[z] += geo_weight * compute_geo_likelihood_particularity(zones[z], net,
+                                                                           ecdf_geo,
+                                                                           subgraph_type="delaunay")
 
         for k in range(n_steps):
             for z in zones:
@@ -279,8 +278,8 @@ def run_metropolis_hastings(net, n_samples, n_steps, feat, lh_lookup, plot_sampl
 
                 # Compute the likelihood of the candidate zone
                 lh_cand = compute_feature_likelihood(candidate_zone, feat, lh_lookup)
-                lh_geo = geo_weight * compute_empirical_geo_likelihood(
-                    candidate_zone, net, ecdf_geo, lh_type="delaunay")
+                lh_geo = geo_weight * compute_geo_likelihood_particularity(
+                    candidate_zone, net, ecdf_geo, subgraph_type="delaunay")
 
                 lh_cand += lh_geo
 
@@ -343,7 +342,7 @@ if __name__ == "__main__":
 
         # Compute a lookup table for likelihood
         # this speeds up the processing time of the algorithm
-        lh_lookup = lookup_log_likelihood(1, MAX_SIZE, feature_prob)
+        lh_lookup = precompute_feature_likelihood(1, MAX_SIZE, feature_prob)
         dump(lh_lookup, LOOKUP_TABLE_PATH)
 
         # Generate an empirical distribution for estimating the geo-likelihood

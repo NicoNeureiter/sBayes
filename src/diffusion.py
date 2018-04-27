@@ -7,7 +7,7 @@ from itertools import chain
 from src.config import *
 from src.preprocessing import get_network
 from src.plotting import get_colors
-from src.model import compute_feature_likelihood, compute_empirical_geo_likelihood
+from src.model import compute_feature_likelihood, compute_geo_likelihood_particularity
 
 
 def get_neighbours(zone, already_in_zone, adj_mat):
@@ -352,7 +352,7 @@ def run_metropolis_hastings(net, n_samples, n_steps, feat, lh_lookup, plot_sampl
 
     for z in zones:
         lh[z] = compute_feature_likelihood(zones[z], feat, lh_lookup)
-        lh[z] += geo_weight * compute_empirical_geo_likelihood(zones[z], net, ecdf_geo, lh_type="mst")
+        lh[z] += geo_weight * compute_geo_likelihood_particularity(zones[z], net, ecdf_geo, subgraph_type="mst")
 
     for i_sample in range(n_samples):
 
@@ -362,7 +362,7 @@ def run_metropolis_hastings(net, n_samples, n_steps, feat, lh_lookup, plot_sampl
 
             for z in zones:
                 lh[z] = compute_feature_likelihood(zones[z], feat, lh_lookup)
-                lh[z] += geo_weight * compute_empirical_geo_likelihood(zones[z], net, ecdf_geo, lh_type="mst")
+                lh[z] += geo_weight * compute_geo_likelihood_particularity(zones[z], net, ecdf_geo, subgraph_type="mst")
 
         for k in range(n_steps):
             for z in zones:
@@ -373,7 +373,7 @@ def run_metropolis_hastings(net, n_samples, n_steps, feat, lh_lookup, plot_sampl
 
                 # Compute the likelihood of the candidate zone
                 lh_cand = compute_feature_likelihood(candidate_zone, feat, lh_lookup)
-                lh_cand += geo_weight * compute_empirical_geo_likelihood(candidate_zone, net, ecdf_geo, lh_type="mst")
+                lh_cand += geo_weight * compute_geo_likelihood_particularity(candidate_zone, net, ecdf_geo, subgraph_type="mst")
 
                 # This is the core of the MCMC: We compare the candidate to the current zone
                 # Usually, we go for the better of the two zones,

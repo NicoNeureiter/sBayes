@@ -6,6 +6,7 @@ from __future__ import absolute_import, division, print_function, \
 import matplotlib.pyplot as plt
 import os
 plt.style.use('ggplot')
+# plt.xkcd()
 import numpy as np
 from scipy.stats import gamma
 from matplotlib.collections import LineCollection
@@ -286,7 +287,7 @@ if __name__ == '__main__':
     # plt.tight_layout(True)
     # plt.show()
 
-from src.model import lookup_log_likelihood
+from src.preprocessing import precompute_feature_likelihood
 
 #a = binom_test(9, 10, 0.5, "two-sided")
 #b = binom_test(8, 10, 0.5, "greater")

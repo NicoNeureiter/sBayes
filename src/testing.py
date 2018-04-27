@@ -3,8 +3,8 @@ from src.preprocessing import (get_network,
                                generate_ecdf_geo_likelihood,
                                get_contact_zones,
                                simulate_background_distribution,
-                               simulate_contact, compute_feature_prob)
-from src.model import lookup_log_likelihood
+                               simulate_contact, compute_feature_prob,
+                               precompute_feature_likelihood)
 from src.sampling.zone_sampling import ZoneMCMC
 
 
@@ -82,7 +82,7 @@ if __name__ == "__main__":
                                                                    p_min=P_SUCCESS_MIN, p_max=P_SUCCESS_MAX)
                     features = simulate_contact(r_feat=f[e], features=features_bg, p=i[e], contact_zones=get_contact_zones(z))
                     feature_prob = compute_feature_prob(features)
-                    lh_lookup = lookup_log_likelihood(1, MAX_SIZE, feature_prob)
+                    lh_lookup = precompute_feature_likelihood(1, MAX_SIZE, feature_prob)
 
                     zone_sampler = ZoneMCMC(network=network, features=features, n_steps=N_STEPS, min_size=MIN_SIZE,
                                             max_size=MAX_SIZE, p_transition_mode=P_TRANSITION_MODE,
@@ -140,7 +140,7 @@ if __name__ == "__main__":
 
                     features = simulate_contact(r_feat=f, features=features_bg, p=i, contact_zones=get_contact_zones(z))
                     feature_prob = compute_feature_prob(features)
-                    lh_lookup = lookup_log_likelihood(1, MAX_SIZE, feature_prob)
+                    lh_lookup = precompute_feature_likelihood(1, MAX_SIZE, feature_prob)
 
                     # Test different model (PM, GM)
                     for m in test_models:
@@ -194,7 +194,7 @@ if __name__ == "__main__":
 
                 features = simulate_contact(r_feat=f[e], features=features_bg, p=i[e], contact_zones=get_contact_zones(z))
                 feature_prob = compute_feature_prob(features)
-                lh_lookup = lookup_log_likelihood(1, MAX_SIZE, feature_prob)
+                lh_lookup = precompute_feature_likelihood(1, MAX_SIZE, feature_prob)
 
                 # Test different models
                 for m in test_models:
