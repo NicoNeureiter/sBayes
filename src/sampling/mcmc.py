@@ -17,7 +17,6 @@ class MCMC(metaclass=_abc.ABCMeta):
     restarting of the markov chain after every sample.
 
     Attributes:
-        n_steps (int): The number of steps, the sampler shoud make before every sample.
         restart_chain (bool): Re-initialize the markov chain afer every sample.
         simulated_annealing (bool): Use simulated annealing to avoid getting
             stuck in local optima [1].
@@ -32,10 +31,8 @@ class MCMC(metaclass=_abc.ABCMeta):
     [1] https://en.wikipedia.org/wiki/Simulated_annealing
     """
 
-    def __init__(self, n_steps, restart_chain=False, simulated_annealing=False,
+    def __init__(self, restart_chain=False, simulated_annealing=False,
                  alpha_annealing=1., plot_samples=True):
-
-        self.n_steps = n_steps
 
         self.restart_chain = restart_chain
         self.simulated_annealing = simulated_annealing
@@ -52,9 +49,7 @@ class MCMC(metaclass=_abc.ABCMeta):
         }
 
         # State attributes
-        self._sample = None
         self._ll = -float('inf')
-
 
     @_abc.abstractmethod
     def log_likelihood(self, x):
@@ -100,13 +95,16 @@ class MCMC(metaclass=_abc.ABCMeta):
 
         return (ll_ratio * temperature) - log_q_ratio
 
-    def generate_samples(self, n_samples):
+    def generate_samples(self, n_samples, n_steps, burn_in_steps):
         """Run the MCMC sampling procedure with Metropolis Hastings rejection
         step and options for simulated annealing, restarting. Samples are
         returned, statistics saved in self.statistics.
 
         Args:
             n_samples (int):The number of samples to generate.
+            n_steps (int): The number of steps, the sampler should make before every sample.
+            burn_in_steps (int): The number of burn in steps performed before the first sample.
+                NB: If self.restart is active, a burn-in is needed after every sample
 
         Returns:
             list: The generated samples.
@@ -119,39 +117,44 @@ class MCMC(metaclass=_abc.ABCMeta):
             'accepted': 0}
         samples = []
 
-        self._sample = self.generate_initial_sample()
-        self._ll = self.log_likelihood(self._sample)
+        sample = self.generate_initial_sample()
+        self._ll = self.log_likelihood(sample)
+
+        for i_step in range(burn_in_steps):
+            sample = self.step(sample)
 
         # Generate samples...
         for i_sample in range(n_samples):
 
             # Mode for restarting from an initial position for every sample
             if self.restart_chain:
-                self._sample = self.generate_initial_sample()
-                self._ll = self.log_likelihood(self._sample)
+                sample = self.generate_initial_sample()
+                self._ll = self.log_likelihood(sample)
+
+                for i_step in range(burn_in_steps):
+                    sample = self.step(sample)
 
             # Run the chain to generate a sample
-            for i_step in range(self.n_steps):
+            for i_step in range(n_steps):
                 # Set SA temperature
                 if self.simulated_annealing:
-                    self.temperature = ((i_step + 1) / self.n_steps) ** self.alpha_annealing
+                    self.temperature = ((i_step + 1) / n_steps) ** self.alpha_annealing
 
-                self._sample = self.step()
+                sample = self.step(sample)
 
-            samples.append(self._sample)
-            self.log_sample_statistics()
+            samples.append(sample)
+            self.log_sample_statistics(sample)
 
             if self.plot_samples:
-                self.plot_sample(self._sample)
+                self.plot_sample(sample)
 
-        self.statistics['acceptance_ratio'] = (self.statistics['accepted'] /
-                                               (self.n_steps * n_samples))
+        self.statistics['acceptance_ratio'] = (self.statistics['accepted'] / (n_steps * n_samples))
 
         return samples
 
-    def step(self):
+    def step(self, sample):
         # Get a candidate
-        candidate, q, q_back = self.propose_step(self._sample)
+        candidate, q, q_back = self.propose_step(sample)
 
         # Compute the log-likelihood and Metropolis-Hastings ratio
         ll_candidate = self.log_likelihood(candidate)
@@ -160,19 +163,19 @@ class MCMC(metaclass=_abc.ABCMeta):
 
         # Accept/reject according to MH-ratio
         if _math.log(_random.random()) < mh_ratio:
-            self._sample = candidate
+            sample = candidate
             self._ll = ll_candidate
 
             self.statistics['accepted'] += 1
 
-        self.log_step_statistics()
+        self.log_step_statistics(sample)
 
-        return self._sample
+        return sample
 
-    def log_sample_statistics(self):
+    def log_sample_statistics(self, sample):
         self.statistics['sample_likelihoods'].append(self._ll)
 
-    def log_step_statistics(self):
+    def log_step_statistics(self, sample):
         self.statistics['step_likelihoods'].append(self._ll)
 
     @_abc.abstractmethod
@@ -202,8 +205,8 @@ class ComponentMCMC(MCMC, metaclass=_abc.ABCMeta):
          (now in generate_initial_sample)
     """
 
-    def __init__(self, n_components, n_steps, **kwargs):
-        super(ComponentMCMC, self).__init__(n_steps, **kwargs)
+    def __init__(self, n_components, **kwargs):
+        super(ComponentMCMC, self).__init__(**kwargs)
 
         self.n_components = n_components
 
@@ -212,7 +215,7 @@ class ComponentMCMC(MCMC, metaclass=_abc.ABCMeta):
 
         self._current_zone = 0
 
-    def step(self):
+    def step(self, sample):
         """Perform one MCMC step. Here, in one step every component is updated.
 
         Returns:
@@ -222,8 +225,8 @@ class ComponentMCMC(MCMC, metaclass=_abc.ABCMeta):
             self._current_zone = i_component
 
             # Get a candidate
-            candidate_i, q, q_back = self.propose_step(self._sample)
-            candidate = self._sample.copy()
+            candidate_i, q, q_back = self.propose_step(sample)
+            candidate = sample.copy()
             candidate[i_component] = candidate_i
 
             # Compute the log-likelihood and Metropolis-Hastings ratio
@@ -235,16 +238,16 @@ class ComponentMCMC(MCMC, metaclass=_abc.ABCMeta):
 
             # Accept/reject according to MH-ratio
             if _math.log(_random.random()) < mh_ratio:
-                self._sample[i_component] = candidate_i
+                sample[i_component] = candidate_i
                 self._lls[i_component] = ll_candidate
                 self._ll_rest = ll_rest
                 self._ll = _np.sum(self._lls) + ll_rest
 
                 self.statistics['accepted'] += 1
 
-            self.log_step_statistics()
+            self.log_step_statistics(sample)
 
-        return self._sample
+        return sample
 
     @_abc.abstractmethod
     def log_likelihood_rest(self, x):

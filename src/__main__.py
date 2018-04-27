@@ -59,14 +59,14 @@ if __name__ == "__main__":
     logging.info('\nPreprocessing completed...\n')
 
     # Initialize the sampler. All parameters should be set through the config.py file.
-    zone_sampler = ZoneMCMC(network, features, N_STEPS, MIN_SIZE, MAX_SIZE, P_TRANSITION_MODE,
+    zone_sampler = ZoneMCMC(network, features, MIN_SIZE, MAX_SIZE, P_TRANSITION_MODE,
                             GEO_LIKELIHOOD_WEIGHT, lh_lookup, n_zones=NUMBER_PARALLEL_ZONES,
                             ecdf_geo=ecdf_geo, random_walk_cov=random_walk_cov,
                             restart_chain=RESTART_CHAIN, simulated_annealing=SIMULATED_ANNEALING,
                             plot_samples=PLOT_SAMPLES)
 
     # Run the sampler
-    samples = zone_sampler.generate_samples(N_SAMPLES)
+    samples = zone_sampler.generate_samples(N_SAMPLES, N_STEPS, BURN_IN_STEPS)
 
     # Export statistics
     mcmc_results = {'stats': zone_sampler.statistics,

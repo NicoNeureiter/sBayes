@@ -16,13 +16,13 @@ from src.config import *
 
 class ZoneMCMC(ComponentMCMC):
 
-    def __init__(self, network, features, n_steps, min_size, max_size, p_transition_mode,
+    def __init__(self, network, features, min_size, max_size, p_transition_mode,
                  geo_weight, lh_lookup, n_zones=1, ecdf_geo=None,
                  feature_ll_mode=FEATURE_LL_MODE, geo_ll_mode=GEO_LL_MODE,
                  ecdf_type=GEO_ECDF_TYPE, random_walk_cov=None, connected_only=False,
                  print_logs=True, **kwargs):
 
-        super(ZoneMCMC, self).__init__(n_zones, n_steps, **kwargs)
+        super(ZoneMCMC, self).__init__(n_zones, **kwargs)
 
         # Data
         self.network = network
@@ -309,13 +309,13 @@ class ZoneMCMC(ComponentMCMC):
 
             return [v for v in zone_idx if v not in cut_vertices]
 
-    def plot_sample(self, x):
-        plot_zones(x, self.network)
+    def plot_sample(self, sample):
+        plot_zones(sample, self.network)
 
-    def log_sample_statistics(self):
-        super(ZoneMCMC, self).log_sample_statistics()
+    def log_sample_statistics(self, sample):
+        super(ZoneMCMC, self).log_sample_statistics(sample)
         if self.print_logs:
             logging.info('Current zones log-likelihood: %s' % self._lls)
             logging.info('Current total log-likelihood: %s' % self._ll)
             logging.info('Current zone sizes:           %s' %
-                         np.count_nonzero(self._sample, axis=-1))
+                         np.count_nonzero(sample, axis=-1))

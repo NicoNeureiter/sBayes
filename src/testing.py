@@ -33,21 +33,11 @@ if __name__ == "__main__":
         'grow': 0.75,
         'shrink': 1.}
 
-    if RELOAD_DATA:
-        # Get all necessary data
-        # Retrieve the network from the DB
-        network = get_network()
-        dump(network, NETWORK_PATH)
-
-        # Generate an empirical distribution for estimating the geo-likelihood
-        ecdf_geo = generate_ecdf_geo_likelihood(net=network, min_n=MIN_SIZE, max_n=MAX_SIZE,
-                                                nr_samples=SAMPLES_PER_ZONE_SIZE, plot=False)
-        dump(ecdf_geo, ECDF_GEO_PATH)
-
-    else:
-        # Load preprocessed data from dump files
-        network = load_from(NETWORK_PATH)
-        ecdf_geo = load_from(ECDF_GEO_PATH)
+    # Retrieve the network from the DB
+    network = get_network()
+    # Generate an empirical distribution for estimating the geo-likelihood
+    ecdf_geo = generate_ecdf_geo_likelihood(net=network, min_n=MIN_SIZE, max_n=MAX_SIZE,
+                                            nr_samples=SAMPLES_PER_ZONE_SIZE, plot=False)
 
     # TODO: IS it possible to run the MCMC in a specific mode?
 
@@ -84,14 +74,14 @@ if __name__ == "__main__":
                     feature_prob = compute_feature_prob(features)
                     lh_lookup = precompute_feature_likelihood(1, MAX_SIZE, feature_prob)
 
-                    zone_sampler = ZoneMCMC(network=network, features=features, n_steps=N_STEPS, min_size=MIN_SIZE,
+                    zone_sampler = ZoneMCMC(network=network, features=features, min_size=MIN_SIZE,
                                             max_size=MAX_SIZE, p_transition_mode=P_TRANSITION_MODE,
                                             geo_weight=GEO_LIKELIHOOD_WEIGHT, lh_lookup=lh_lookup, n_zones=1,
                                             ecdf_geo=ecdf_geo, restart_chain=r, ecdf_type="mst",
                                             geo_ll_mode=m, feature_ll_mode=m, simulated_annealing=a,
                                             plot_samples=False)
 
-                    samples = zone_sampler.generate_samples(N_SAMPLES+BURN_IN)
+                    samples = zone_sampler.generate_samples(N_SAMPLES, N_STEPS, BURN_IN)
 
                     # Discard the burn-in
                     samples = samples[BURN_IN:]
@@ -145,7 +135,7 @@ if __name__ == "__main__":
                     # Test different model (PM, GM)
                     for m in test_models:
 
-                        zone_sampler = ZoneMCMC(network=network, features=features, n_steps=N_STEPS, min_size=MIN_SIZE,
+                        zone_sampler = ZoneMCMC(network=network, features=features, min_size=MIN_SIZE,
                                                 max_size=MAX_SIZE, p_transition_mode=P_TRANSITION_MODE,
                                                 geo_weight=GEO_LIKELIHOOD_WEIGHT, lh_lookup=lh_lookup, n_zones=1,
                                                 ecdf_geo=ecdf_geo, restart_chain=RESTART_CHAIN, ecdf_type="mst",
@@ -155,7 +145,7 @@ if __name__ == "__main__":
                         # Repeatedly run the MCMC
                         samples = []
                         for r in range(0, REPEAT):
-                            samples.append(zone_sampler.generate_samples(N_SAMPLES+BURN_IN))
+                            samples.append(zone_sampler.generate_samples(N_SAMPLES, N_STEPS, BURN_IN))
 
                         path = TEST_RESULTS_ZONES_PATH + '_z' + str(z)
                         path += '_i' + str(i-int(i))[2:]
@@ -203,7 +193,7 @@ if __name__ == "__main__":
                     # Run the MCMC for different nr. of zones
                     for n in test_n_zones:
 
-                        zone_sampler = ZoneMCMC(network=network, features=features, n_steps=N_STEPS, min_size=MIN_SIZE,
+                        zone_sampler = ZoneMCMC(network=network, features=features, min_size=MIN_SIZE,
                                                 max_size=MAX_SIZE, p_transition_mode=P_TRANSITION_MODE,
                                                 geo_weight=GEO_LIKELIHOOD_WEIGHT, lh_lookup=lh_lookup, n_zones=n,
                                                 ecdf_geo=ecdf_geo, restart_chain=RESTART_CHAIN, ecdf_type="mst",
@@ -211,7 +201,7 @@ if __name__ == "__main__":
                                                 simulated_annealing=SIMULATED_ANNEALING,
                                                 plot_samples=False)
 
-                        samples[n] = zone_sampler.generate_samples(N_SAMPLES + BURN_IN)
+                        samples[n] = zone_sampler.generate_samples(N_SAMPLES, N_STEPS, BURN_IN)
 
                     path = TEST_RESULTS_PARALLEL_PATH + 'size_z' + str(len(z))
                     path += '_e' + str(e)
@@ -222,8 +212,5 @@ if __name__ == "__main__":
     else:
         print("choose a valid test type")
 
-
     # TODO: Define Statistics to evaluate the performance
-    # TODO: Generative likelihood
     # TODO: posterior mit unterschiedlicher Temperatur
-    # TODO: vorlautes log_sample_statistics stumm schalten
