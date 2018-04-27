@@ -17,7 +17,7 @@ class MCMC(metaclass=_abc.ABCMeta):
     restarting of the markov chain after every sample.
 
     Attributes:
-        restart_chain (bool): Re-initialize the markov chain afer every sample.
+        restart_interval (int): Number of samples after which the markov chain is re-initialized.
         simulated_annealing (bool): Use simulated annealing to avoid getting
             stuck in local optima [1].
         alpha_annealing (float): The alpha parameter, controlling the cooling schedule
@@ -31,10 +31,10 @@ class MCMC(metaclass=_abc.ABCMeta):
     [1] https://en.wikipedia.org/wiki/Simulated_annealing
     """
 
-    def __init__(self, restart_chain=False, simulated_annealing=False,
+    def __init__(self, restart_interval=_np.inf, simulated_annealing=False,
                  alpha_annealing=1., plot_samples=True):
 
-        self.restart_chain = restart_chain
+        self.restart_interval = restart_interval
         self.simulated_annealing = simulated_annealing
         self.alpha_annealing = alpha_annealing
         self.temperature = 1.
@@ -117,17 +117,12 @@ class MCMC(metaclass=_abc.ABCMeta):
             'accepted': 0}
         samples = []
 
-        sample = self.generate_initial_sample()
-        self._ll = self.log_likelihood(sample)
-
-        for i_step in range(burn_in_steps):
-            sample = self.step(sample)
-
         # Generate samples...
+
         for i_sample in range(n_samples):
 
             # Mode for restarting from an initial position for every sample
-            if self.restart_chain:
+            if i_sample % self.restart_interval == 0:
                 sample = self.generate_initial_sample()
                 self._ll = self.log_likelihood(sample)
 

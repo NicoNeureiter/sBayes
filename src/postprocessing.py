@@ -60,7 +60,7 @@ def compute_marginal_likelihood(model, samples, mode, n_temp=100):
                            min_size=model['min_size'], max_size=model['max_size'], p_transition_mode=['p_transition_mode'],
                            geo_weight=model['geo_weight']/model['features'].shape[1],
                            lh_lookup=model['lh_lookup'], n_zones=model['n_zones'],
-                           ecdf_geo=model['ecdf_geo'], restart_chain=model['restart_chain'],
+                           ecdf_geo=model['ecdf_geo'], restart_interval=model['restart_interval'],
                            simulated_annealing=False, plot_samples=False)
 
         sampler.generate_samples(samples)

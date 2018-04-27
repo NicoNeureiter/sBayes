@@ -62,7 +62,7 @@ if __name__ == "__main__":
     zone_sampler = ZoneMCMC(network, features, MIN_SIZE, MAX_SIZE, P_TRANSITION_MODE,
                             GEO_LIKELIHOOD_WEIGHT, lh_lookup, n_zones=NUMBER_PARALLEL_ZONES,
                             ecdf_geo=ecdf_geo, random_walk_cov=random_walk_cov,
-                            restart_chain=RESTART_CHAIN, simulated_annealing=SIMULATED_ANNEALING,
+                            restart_interval=RESTART_INTERVAL, simulated_annealing=SIMULATED_ANNEALING,
                             plot_samples=PLOT_SAMPLES)
 
     # Run the sampler

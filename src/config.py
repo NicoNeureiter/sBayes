@@ -50,8 +50,9 @@ to sum up to 1)."""
 
 # Config flags
 
-RESTART_CHAIN = True
-"""bool: Restart the chain from a random point after every sample."""
+RESTART_INTERVAL = 2
+"""bool: Restart the chain from a random point after RESTART_INTERVAL sample.
+To deactivate restarting completely, set it to float('inf')"""
 
 SIMULATED_ANNEALING = False
 """bool: Slowly increase a temperature parameter to smoothly blend from sampling from a
@@ -63,7 +64,7 @@ RELOAD_DATA = False
 NUMBER_PARALLEL_ZONES = 4
 """int: Number of parallel contact zones."""
 
-PLOT_SAMPLES = False
+PLOT_SAMPLES = True
 """bool: Plot the every sample during MCMC run."""
 
 

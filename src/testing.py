@@ -77,7 +77,7 @@ if __name__ == "__main__":
                     zone_sampler = ZoneMCMC(network=network, features=features, min_size=MIN_SIZE,
                                             max_size=MAX_SIZE, p_transition_mode=P_TRANSITION_MODE,
                                             geo_weight=GEO_LIKELIHOOD_WEIGHT, lh_lookup=lh_lookup, n_zones=1,
-                                            ecdf_geo=ecdf_geo, restart_chain=r, ecdf_type="mst",
+                                            ecdf_geo=ecdf_geo, restart_interval=r, ecdf_type="mst",
                                             geo_ll_mode=m, feature_ll_mode=m, simulated_annealing=a,
                                             plot_samples=False)
 
@@ -99,7 +99,7 @@ if __name__ == "__main__":
         N_STEPS = 100
         N_SAMPLES = 10000
         SIMULATED_ANNEALING = True
-        RESTART_CHAIN = True
+        RESTART_INTERVAL = True
         REPEAT = 10
 
         # Zones
@@ -138,7 +138,7 @@ if __name__ == "__main__":
                         zone_sampler = ZoneMCMC(network=network, features=features, min_size=MIN_SIZE,
                                                 max_size=MAX_SIZE, p_transition_mode=P_TRANSITION_MODE,
                                                 geo_weight=GEO_LIKELIHOOD_WEIGHT, lh_lookup=lh_lookup, n_zones=1,
-                                                ecdf_geo=ecdf_geo, restart_chain=RESTART_CHAIN, ecdf_type="mst",
+                                                ecdf_geo=ecdf_geo, restart_interval=RESTART_INTERVAL, ecdf_type="mst",
                                                 geo_ll_mode=m, feature_ll_mode=m, simulated_annealing=SIMULATED_ANNEALING,
                                                 plot_samples=False)
 
@@ -161,7 +161,7 @@ if __name__ == "__main__":
         N_STEPS = 100
         N_SAMPLES = 10000
         SIMULATED_ANNEALING = True
-        RESTART_CHAIN = True
+        RESTART_INTERVAL = True
 
         i = [0.9, 0.6]
         f = [0.9, 0.4]
@@ -196,7 +196,7 @@ if __name__ == "__main__":
                         zone_sampler = ZoneMCMC(network=network, features=features, min_size=MIN_SIZE,
                                                 max_size=MAX_SIZE, p_transition_mode=P_TRANSITION_MODE,
                                                 geo_weight=GEO_LIKELIHOOD_WEIGHT, lh_lookup=lh_lookup, n_zones=n,
-                                                ecdf_geo=ecdf_geo, restart_chain=RESTART_CHAIN, ecdf_type="mst",
+                                                ecdf_geo=ecdf_geo, restart_interval=RESTART_INTERVAL, ecdf_type="mst",
                                                 geo_ll_mode=m, feature_ll_mode=m,
                                                 simulated_annealing=SIMULATED_ANNEALING,
                                                 plot_samples=False)
