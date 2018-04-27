@@ -2,12 +2,13 @@
 # -*- coding: utf-8 -*-
 from __future__ import absolute_import, division, print_function, unicode_literals
 import random as _random
+import logging
 
 import numpy as np
 
 from src.sampling.mcmc import ComponentMCMC
-from src.model import compute_feature_likelihood, compute_geo_likelihood,\
-    compute_empirical_geo_likelihood, compute_likelihood_generative
+from src.model import compute_feature_likelihood, compute_geo_likelihood_generative,\
+    compute_geo_likelihood_particularity, compute_likelihood_generative
 from src.util import grow_zone, get_neighbours
 from src.plotting import plot_zones
 from src.config import *
@@ -18,7 +19,8 @@ class ZoneMCMC(ComponentMCMC):
     def __init__(self, network, features, n_steps, min_size, max_size, p_transition_mode,
                  geo_weight, lh_lookup, n_zones=1, ecdf_geo=None,
                  feature_ll_mode=FEATURE_LL_MODE, geo_ll_mode=GEO_LL_MODE,
-                 ecdf_type=GEO_ECDF_TYPE, geo_std=None, connected_only=False, **kwargs):
+                 ecdf_type=GEO_ECDF_TYPE, random_walk_cov=None, connected_only=False,
+                 print_logs=True, **kwargs):
 
         super(ZoneMCMC, self).__init__(n_zones, n_steps, **kwargs)
 
@@ -46,14 +48,13 @@ class ZoneMCMC(ComponentMCMC):
         self.feature_ll_mode = feature_ll_mode
         self.geo_ll_mode = geo_ll_mode
         self.ecdf_type = ecdf_type
-        if geo_std:
-            self.geo_std = geo_std
-        else:
-            self.geo_std = 0.1 * np.std(self.locations, axis=0)
+        self.random_walk_cov = random_walk_cov
 
         # Look-up tables
         self.lh_lookup = lh_lookup
         self.ecdf_geo = ecdf_geo
+
+        self.print_logs = print_logs
 
     def log_likelihood(self, zone):
         if np.ndim(zone) == 2:
@@ -73,11 +74,11 @@ class ZoneMCMC(ComponentMCMC):
 
         if self.geo_ll_mode == 'generative':
             # Compute the geo-likelihood based on a gaussian distribution.
-            ll_geo = compute_geo_likelihood(zone, self.network, self.geo_std)
+            ll_geo = compute_geo_likelihood_generative(zone, self.network, self.random_walk_cov)
         elif self.geo_ll_mode == 'particularity':
             # Compute the empirical geo-likelihood of a zone
-            ll_geo = compute_empirical_geo_likelihood(zone, self.network, self.ecdf_geo,
-                                                      lh_type=self.ecdf_type)
+            ll_geo = compute_geo_likelihood_particularity(zone, self.network, self.ecdf_geo,
+                                                          subgraph_type=self.ecdf_type)
         elif self.geo_ll_mode == 'none':
             ll_geo = 0
         else:
@@ -313,8 +314,8 @@ class ZoneMCMC(ComponentMCMC):
 
     def log_sample_statistics(self):
         super(ZoneMCMC, self).log_sample_statistics()
-
-        print()
-        print('Current zones log-likelihood: ', self._lls)
-        print('Current total log-likelihood: ', self._ll)
-        print('Current zone sizes:           ', np.count_nonzero(self._sample, axis=-1))
+        if self.print_logs:
+            logging.info('Current zones log-likelihood: %s' % self._lls)
+            logging.info('Current total log-likelihood: %s' % self._ll)
+            logging.info('Current zone sizes:           %s' %
+                         np.count_nonzero(self._sample, axis=-1))

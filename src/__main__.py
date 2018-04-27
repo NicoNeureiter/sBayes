@@ -1,5 +1,7 @@
 # In this document we test an algorithm to identify linguistic contact zones in simulated data.
 # We import the data from a PostgreSQL database.
+import logging
+
 import numpy as np
 import os
 from src.sampling.zone_sampling import ZoneMCMC
@@ -8,64 +10,60 @@ from src.preprocessing import (get_network,
                                get_contact_zones,
                                simulate_background_distribution,
                                simulate_contact,
-                               generate_ecdf_geo_likelihood)
-from src.model import lookup_log_likelihood
+                               generate_ecdf_geo_likelihood,
+                               estimate_random_walk_covariance, precompute_feature_likelihood)
 from src.util import dump, load_from
 from src.config import *
 
 
+logging.basicConfig(filename='contact_zones.log',level=logging.DEBUG)
+logging.getLogger().addHandler(logging.StreamHandler())
+
 if __name__ == "__main__":
+    logging.info('\n============================   NEW RUN   ============================')
 
-    if RELOAD_DATA:
-        # Get all necessary data
+    # Retrieve the network from the DB
+    network = get_network()
+    logging.info('Loaded Network...')
 
-        # Retrieve the network from the DB
-        network = get_network()
-        dump(network, NETWORK_PATH)
+    # Retrieve the contact zones
+    all_zones = (1, 2, 3, 4, 5, 6, 7, 8, 9, 10)
+    contact_zones = get_contact_zones(all_zones)
+    logging.info('Loaded Contact zones...')
 
-        # Retrieve the contact zones
-        all_zones = (1, 2, 3, 4, 5, 6, 7, 8, 9, 10)
-        contact_zones = get_contact_zones(all_zones)
-        dump(contact_zones, CONTACT_ZONES_PATH)
+    # Simulate distribution of features
+    features_bg = simulate_background_distribution(TOTAL_N_FEATURES, len(network['vertices']),
+                                                   p_min=P_SUCCESS_MIN, p_max=P_SUCCESS_MAX)
+    logging.info('Simulated background features...')
 
-        # Simulate distribution of features
-        features_bg = simulate_background_distribution(TOTAL_N_FEATURES, len(network['vertices']),
-                                                       p_min=P_SUCCESS_MIN, p_max=P_SUCCESS_MAX)
-        dump(features_bg, FEATURES_BG_PATH)
+    # Simulate contact zones
+    features = simulate_contact(R_CONTACT_FEATURES, features_bg, P_CONTACT, contact_zones)
+    logging.info('Simulated features...')
 
-        # Simulate contact zones
-        features = simulate_contact(R_CONTACT_FEATURES, features_bg, P_CONTACT, contact_zones)
-        dump(features, FEATURES_PATH)
+    # Compute the probability of a feature to be present or absent
+    feature_prob = compute_feature_prob(features)
+    logging.info('Computed feature probability...')
 
-        # Compute the probability of a feature to be present or absent
-        feature_prob = compute_feature_prob(features)
-        dump(feature_prob, FEATURE_PROB_PATH)
+    # Compute a lookup table for the likelihood
+    lh_lookup = precompute_feature_likelihood(1, MAX_SIZE, feature_prob)
+    logging.info('Built ll lookup table...')
 
-        # Compute a lookup table for likelihood
-        # this speeds up the processing time of the algorithm
-        lh_lookup = lookup_log_likelihood(1, MAX_SIZE, feature_prob)
-        dump(lh_lookup, LOOKUP_TABLE_PATH)
+    # Generate an empirical distribution for estimating the geo-likelihood
+    ecdf_geo = generate_ecdf_geo_likelihood(network, min_n=MIN_SIZE, max_n=MAX_SIZE,
+                                            nr_samples=SAMPLES_PER_ZONE_SIZE, plot=False)
+    logging.info('Computed empirical CDF...')
 
-        # Generate an empirical distribution for estimating the geo-likelihood
-        ecdf_geo = generate_ecdf_geo_likelihood(network, min_n=MIN_SIZE, max_n=MAX_SIZE,
-                                                nr_samples=SAMPLES_PER_ZONE_SIZE, plot=False)
-        dump(ecdf_geo, ECDF_GEO_PATH)
+    random_walk_cov = estimate_random_walk_covariance(network)
+    logging.info('Estimated random walk covariance...')
 
-    else:
-        # Load preprocessed data from dump files
-        network = load_from(NETWORK_PATH)
-        contact_zones = load_from(CONTACT_ZONES_PATH)
-        features_bg = load_from(FEATURES_BG_PATH)
-        features = load_from(FEATURES_PATH)
-        features_prob = load_from(FEATURE_PROB_PATH)
-        lh_lookup = load_from(LOOKUP_TABLE_PATH)
-        ecdf_geo = load_from(ECDF_GEO_PATH)
+    logging.info('\nPreprocessing completed...\n')
 
     # Initialize the sampler. All parameters should be set through the config.py file.
     zone_sampler = ZoneMCMC(network, features, N_STEPS, MIN_SIZE, MAX_SIZE, P_TRANSITION_MODE,
                             GEO_LIKELIHOOD_WEIGHT, lh_lookup, n_zones=NUMBER_PARALLEL_ZONES,
-                            ecdf_geo=ecdf_geo, restart_chain=RESTART_CHAIN,
-                            simulated_annealing=SIMULATED_ANNEALING, plot_samples=PLOT_SAMPLES)
+                            ecdf_geo=ecdf_geo, random_walk_cov=random_walk_cov,
+                            restart_chain=RESTART_CHAIN, simulated_annealing=SIMULATED_ANNEALING,
+                            plot_samples=PLOT_SAMPLES)
 
     # Run the sampler
     samples = zone_sampler.generate_samples(N_SAMPLES)
