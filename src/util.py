@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 from __future__ import absolute_import, division, print_function, \
     unicode_literals
-
+import os
 import pickle
 import random
 import time as _time
@@ -212,6 +212,15 @@ def grow_zone(size, net, already_in_zone=None):
     return zone, already_in_zone
 
 
+def compute_delaunay(locations):
+    n, _ = locations.shape
+    delaunay = spatial.Delaunay(locations, qhull_options="QJ Pp")
+
+    indptr, indices = delaunay.vertex_neighbor_vertices
+    data = np.ones_like(indices)
+    return csr_matrix((data, indices, indptr), shape=(n, n))
+
+
 def triangulation(net, zone):
     """ This function computes a delaunay triangulation for a set of input locations in a zone
     Args:
@@ -223,16 +232,35 @@ def triangulation(net, zone):
     """
 
     dist_mat = net['dist_mat']
+    locations = net['locations']
     v = zone.nonzero()[0]
 
     # Perform the triangulation
-    locations = net['locations'][v]
-    delaunay = spatial.Delaunay(locations, qhull_options="QJ Pp")
+    delaunay_adj_mat = compute_delaunay(locations[v])
 
-    indptr, indices = delaunay.vertex_neighbor_vertices
-    data = np.ones_like(indices)
-    delaunay_adj_mat = csr_matrix((data, indices, indptr), shape=(len(v), len(v)))
-
+    # Multiply with weights (distances)
     g = delaunay_adj_mat * dist_mat[v][:, v]
 
     return g
+
+
+def dump_results(path, reevaluate=False):
+
+    def dump_decorator(fn):
+
+        def fn_dumpified(*args, **kwargs):
+            if (not reevaluate) and os.path.exists(path):
+                with open(path, 'rb') as f:
+                    res = pickle.load(f)
+
+            else:
+                res = fn(*args, **kwargs)
+
+                with open(path, 'wb') as f:
+                    pickle.dump(res, f)
+
+            return res
+
+        return fn_dumpified
+
+    return dump_decorator
