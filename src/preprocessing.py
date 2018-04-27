@@ -4,18 +4,20 @@ from __future__ import absolute_import, division, print_function, \
     unicode_literals
 import sys
 import copy
+from multiprocessing import Pool
 
 from contextlib import contextmanager
-from scipy.stats import gamma
 
 import numpy as np
-import scipy.sparse as sps
+from scipy import stats
+from scipy import sparse
 from scipy.sparse.csgraph import minimum_spanning_tree
 import psycopg2
 import igraph
 import math
 
-from src.util import compute_distance, grow_zone, triangulation
+from src.util import compute_distance, grow_zone, triangulation, \
+    compute_delaunay, dump_results
 from src.config import *
 from src.plotting import plot_proximity_graph
 
@@ -48,6 +50,7 @@ def psql_connection(commit=False):
         conn.close()
 
 
+@dump_results(NETWORK_PATH, RELOAD_DATA)
 def get_network():
     """ This function retrieves the edge list and the coordinates of the simulated languages
     from the DB and then converts these into a spatial network.
@@ -96,7 +99,7 @@ def get_network():
 
     # Adjacency list and matrix
     adj_list = [[] for _ in range(n_v)]
-    adj_mat = sps.lil_matrix((n_v, n_v))
+    adj_mat = sparse.lil_matrix((n_v, n_v))
 
     for v1, v2 in edges:
         adj_list[v1].append(v2)
@@ -131,6 +134,7 @@ def get_network():
     return net
 
 
+@dump_results(CONTACT_ZONES_PATH, RELOAD_DATA)
 def get_contact_zones(zone_id):
     """This function retrieves contact zones from the DB
     Args:
@@ -174,6 +178,7 @@ def get_contact_zones(zone_id):
         raise ValueError('zone_id must be int or a list of ints')
 
 
+@dump_results(FEATURES_BG_PATH, RELOAD_DATA)
 def simulate_background_distribution(m_feat, n_sites, p_min, p_max):
     """This function draws <n_sites> samples from a Binomial distribution for <m_feat> binary features, where
     1 implies the presence of the feature, and 0 the absence.
@@ -199,6 +204,7 @@ def simulate_background_distribution(m_feat, n_sites, p_min, p_max):
     return features
 
 
+@dump_results(FEATURES_PATH, RELOAD_DATA)
 def simulate_contact(r_feat, features, p, contact_zones):
     """This function simulates language contact. For each contact zone the function randomly chooses <n_feat> features,
     for which the similarity is increased.
@@ -234,6 +240,7 @@ def simulate_contact(r_feat, features, p, contact_zones):
     return features_adjusted_mat
 
 
+@dump_results(FEATURE_PROB_PATH, RELOAD_DATA)
 def compute_feature_prob(feat):
     """This function computes the base-line probabilities for a feature to be present in the data.
 
@@ -250,6 +257,55 @@ def compute_feature_prob(feat):
     return p_present
 
 
+def estimate_ecdf_n(n, nr_samples, net, plot=False):
+    dist_mat = net['dist_mat']
+    locations = net['locations']
+
+    complete_sum = []
+    delaunay_sum = []
+    mst_sum = []
+
+    for _ in range(nr_samples):
+
+        # a)
+        zone, _ = grow_zone(n, net)
+
+        # b
+        # Complete graph
+        complete_sum.append(dist_mat[zone][:, zone].sum())
+
+        # Delaunay graph
+        triang = triangulation(net, zone)
+        delaunay_sum.append(triang.sum())
+
+        # Minimum spanning tree
+        mst = minimum_spanning_tree(triang)
+        mst_sum.append(mst.sum())
+
+        # # Travel distance
+        # i1, i2 = mst.nonzero()
+        # diffs = locations[i1] - locations[i2]
+
+        if plot and n == 15:
+            # Plot graphs
+            plot_proximity_graph(net, zone, triang, "delaunay")
+
+            # Minimum spanning tree
+            plot_proximity_graph(net, zone, mst, "mst")
+
+    #  c) generate an ecdf for each size n
+    #  the ecdf comprises an empirical distribution and a fitted gamma distribution for each type of graph
+
+    return {'complete': {'empirical': np.sort(complete_sum),
+                         'fitted_gamma': stats.gamma.fit(complete_sum, floc=0)},
+            'delaunay': {'empirical': np.sort(delaunay_sum),
+                         'fitted_gamma': stats.gamma.fit(delaunay_sum, floc=0)},
+            'mst': {'empirical': np.sort(mst_sum),
+                    'fitted_gamma': stats.gamma.fit(mst_sum, floc=0)},
+            }
+
+
+@dump_results(ECDF_GEO_PATH, RELOAD_DATA)
 def generate_ecdf_geo_likelihood(net, min_n, max_n, nr_samples, plot=False):
     """ This function generates an empirical cumulative density function (ecdf), which is then used to compute the
     geo-likelihood of a contact zone. The function
@@ -270,53 +326,71 @@ def generate_ecdf_geo_likelihood(net, min_n, max_n, nr_samples, plot=False):
         dict: a dictionary comprising the empirical and fitted ecdf for all types of graphs and all sizes n
         """
 
+    n_values = range(min_n, max_n+1)
+
+    from functools import partial
+    estimate_ecdf_n_ = partial(estimate_ecdf_n,
+                              nr_samples=nr_samples, net=net, plot=False)
+
+    with Pool(4) as pool:
+        ecdf = pool.map(estimate_ecdf_n_, n_values)
+
+    return {n: e for n, e in zip(n_values, ecdf)}
+
+
+@dump_results(RANDOM_WALK_COV_PATH, RELOAD_DATA)
+def estimate_random_walk_covariance(net):
     dist_mat = net['dist_mat']
-    ecdf = {}
-    for n in range(min_n, max_n+1):
-        complete_sum = []
-        delaunay_sum = []
-        mst_sum = []
+    locations = net['locations']
 
-        for _ in range(nr_samples):
+    delaunay = compute_delaunay(locations)
+    mst = minimum_spanning_tree(delaunay * dist_mat)
+    # mst += mst.T  # Could be used as data augmentation? (enforces 0 mean)
 
-            # a)
-            zone, _ = grow_zone(n, net)
+    # Compute difference vectors along mst
+    i1, i2 = mst.nonzero()
+    diffs = locations[i1] - locations[i2]
 
-            # b
-            # Complete graph
-            complete_sum.append(dist_mat[zone][:, zone].sum())
+    # Center at (0, 0)
+    diffs -= np.mean(diffs, axis=0)[None, :]
 
-            # Delaunay graph
-            triang = triangulation(net, zone)
-            delaunay_sum.append(triang.sum())
+    return np.cov(diffs.T)
 
-            # Minimum spanning tree
-            mst = minimum_spanning_tree(triang)
-            mst_sum.append(mst.sum())
 
-            if plot and n == 15:
-                # Plot graphs
-                plot_proximity_graph(net, zone, triang, "delaunay")
+@dump_results(LOOKUP_TABLE_PATH, RELOAD_DATA)
+def precompute_feature_likelihood(min_size, max_size, feat_prob):
+    """This function generates a lookup table of likelihoods
+    Args:
+        min_size (int): the minimum number of languages in a zone.
+        max_size (int): the maximum number of languages in a zone.
+        feat_prob (np.array): the probability of a feature to be present.
+    Returns:
+        dict: the lookup table of likelihoods for a specific feature,
+            sample size and observed presence.
+    """
 
-                # Minimum spanning tree
-                plot_proximity_graph(net, zone, mst, "mst")
+    # The binomial test computes the p-value of having k or more (!) successes out of n trials,
+    # given a specific probability of success
+    # For a two-sided binomial test, simply remove "greater".
+    # The function returns -log (p_value), which is more sensitive to exceptional observations.
 
-        #  c) generate an ecdf for each size n
-        #  the ecdf comprises an empirical distribution and a fitted gamma distribution for each type of graph
+    def ll(p_zone, s, p_global):
+        p = stats.binom_test(p_zone, s, p_global, 'greater')
+        try:
+            return - math.log(p)
+        except Exception as e:
+            print(p_zone, s, p_global, p)
+            raise e
 
-        ecdf[n] = {'complete': {'empirical': np.sort(complete_sum),
-                                'fitted_gamma': gamma.fit(complete_sum, floc=0)},
-                   'delaunay': {'empirical': np.sort(delaunay_sum),
-                                'fitted_gamma': gamma.fit(delaunay_sum, floc=0)},
-                   'mst': {'empirical': np.sort(mst_sum),
-                           'fitted_gamma': gamma.fit(mst_sum, floc=0)}}
-    return ecdf
+    lookup_dict = {}
+    for i_feat, p_global in enumerate(feat_prob):
+        lookup_dict[i_feat] = {}
+        for s in range(min_size, max_size + 1):
+            lookup_dict[i_feat][s] = {}
+            for p_zone in range(s + 1):
+                lookup_dict[i_feat][s][p_zone] = ll(p_zone, s, p_global)
+
+    return lookup_dict
+
 
 # TODO Nico: pickle files laden oder nicht Problem
-
-
-
-
-
-
-
