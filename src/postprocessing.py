@@ -69,6 +69,7 @@ def compute_marginal_likelihood(model, samples, mode, n_temp=100):
 
     # Perform Stepping stone sampling
     if mode == 'stepping stones':
+        raise NotImplementedError
 
     # Perform Power Posterior Sampling
     elif mode == "power posterior":

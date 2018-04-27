@@ -31,7 +31,7 @@ BURN_IN_STEPS = 100
 MIN_SIZE = 5
 """int: The minimum size for the contact zones."""
 
-MAX_SIZE = 80
+MAX_SIZE = 100
 """int: The maximum size for the contact zones."""
 
 ALPHA_ANNEALING = 1.
@@ -85,7 +85,7 @@ GEO_ECDF_TYPE = GEO_ECDF_TYPES[0]
 GEO_LIKELIHOOD_WEIGHT = 1.
 """float: The weight of the geo-likelihood as compared to the feature likelihood."""
 
-SAMPLES_PER_ZONE_SIZE = 10000
+SAMPLES_PER_ZONE_SIZE = 5000
 """int: The number of samples for generating the empirical geo-likelihood."""
 
 

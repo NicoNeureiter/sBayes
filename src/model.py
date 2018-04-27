@@ -145,7 +145,7 @@ def compute_geo_likelihood_particularity(zone: np.array, net: dict, ecdf_geo: di
     # Compute likelihood
     x = ecdf_geo[len(v)][subgraph_type]['fitted_gamma']
 
-    geo_lh = -np.log(spstats.gamma.cdf(d, *x))
+    geo_lh = -spstats.gamma.logcdf(d, *x)
 
     return geo_lh
 

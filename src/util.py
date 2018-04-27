@@ -249,7 +249,10 @@ def dump_results(path, reevaluate=False):
     def dump_decorator(fn):
 
         def fn_dumpified(*args, **kwargs):
-            if (not reevaluate) and os.path.exists(path):
+
+            load_from_dump = kwargs.pop('load_from_dump', (not reevaluate))
+
+            if load_from_dump and os.path.exists(path):
                 with open(path, 'rb') as f:
                     res = pickle.load(f)
 

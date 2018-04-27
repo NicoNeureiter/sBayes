@@ -259,7 +259,6 @@ def compute_feature_prob(feat):
 
 def estimate_ecdf_n(n, nr_samples, net, plot=False):
     dist_mat = net['dist_mat']
-    locations = net['locations']
 
     complete_sum = []
     delaunay_sum = []
@@ -282,10 +281,6 @@ def estimate_ecdf_n(n, nr_samples, net, plot=False):
         mst = minimum_spanning_tree(triang)
         mst_sum.append(mst.sum())
 
-        # # Travel distance
-        # i1, i2 = mst.nonzero()
-        # diffs = locations[i1] - locations[i2]
-
         if plot and n == 15:
             # Plot graphs
             plot_proximity_graph(net, zone, triang, "delaunay")
@@ -296,13 +291,17 @@ def estimate_ecdf_n(n, nr_samples, net, plot=False):
     #  c) generate an ecdf for each size n
     #  the ecdf comprises an empirical distribution and a fitted gamma distribution for each type of graph
 
-    return {'complete': {'empirical': np.sort(complete_sum),
-                         'fitted_gamma': stats.gamma.fit(complete_sum, floc=0)},
-            'delaunay': {'empirical': np.sort(delaunay_sum),
-                         'fitted_gamma': stats.gamma.fit(delaunay_sum, floc=0)},
-            'mst': {'empirical': np.sort(mst_sum),
-                    'fitted_gamma': stats.gamma.fit(mst_sum, floc=0)},
-            }
+    return {
+        'complete': {
+            # 'empirical': np.sort(complete_sum),
+            'fitted_gamma': stats.gamma.fit(complete_sum, floc=0)},
+        'delaunay': {
+            # 'empirical': np.sort(delaunay_sum),
+            'fitted_gamma': stats.gamma.fit(delaunay_sum, floc=0)},
+        'mst': {
+            # 'empirical': np.sort(mst_sum),
+            'fitted_gamma': stats.gamma.fit(mst_sum, floc=0)},
+    }
 
 
 @dump_results(ECDF_GEO_PATH, RELOAD_DATA)

@@ -97,8 +97,8 @@ def plot_zone(zone, net):
     all_sites = net['locations']
 
     size = 4
-    bg = ax.scatter(*all_sites.T, s=size, color=col['zones']['background_nodes'])
-    zo = ax.scatter(*all_sites[zone].T, s=size*3, color=col['zones']['triangulation'])
+    bg = ax.scatter(*all_sites.T, s=size, color=col['zone']['background_nodes'])
+    zo = ax.scatter(*all_sites[zone].T, s=size*3, color=col['zone']['triangulation'])
 
     # Remove axes
     ax.grid(False)
@@ -286,21 +286,3 @@ if __name__ == '__main__':
     # plt.axes().set_yticks([])
     # plt.tight_layout(True)
     # plt.show()
-
-from src.preprocessing import precompute_feature_likelihood
-
-#a = binom_test(9, 10, 0.5, "two-sided")
-#b = binom_test(8, 10, 0.5, "greater")
-#c = binom_test(9, 10, 0.5, "less")
-#d = np.log(b)
-#e = -np.log(a)
-# print('two-sided:', a, "\n",
-#       'greater:', b, "\n",
-#       'less:', c, "\n",
-#       'complement of two-sided:', 1-a, "\n",
-#       'complement of greater:', 1-b, "\n",
-#       'complement of less:', 1-c)
-# #
-# #
-#
-#
