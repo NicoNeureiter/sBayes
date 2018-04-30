@@ -228,7 +228,7 @@ def triangulation(net, zone):
         zone (np.array): The current zone (boolean array).
 
     Returns:
-        (graph): the delaunay triangulation as a weighted graph
+        (np.array): the Delaunay triangulation as a weighted adjacency matrix.
     """
 
     dist_mat = net['dist_mat']
@@ -239,7 +239,7 @@ def triangulation(net, zone):
     delaunay_adj_mat = compute_delaunay(locations[v])
 
     # Multiply with weights (distances)
-    g = delaunay_adj_mat * dist_mat[v][:, v]
+    g = delaunay_adj_mat.multiply(dist_mat[v][:, v])
 
     return g
 
@@ -250,9 +250,9 @@ def dump_results(path, reevaluate=False):
 
         def fn_dumpified(*args, **kwargs):
 
-            load_from_dump = kwargs.pop('load_from_dump', (not reevaluate))
+            reeval = kwargs.pop('reevaluate', reevaluate)
 
-            if load_from_dump and os.path.exists(path):
+            if not reeval and os.path.exists(path):
                 with open(path, 'rb') as f:
                     res = pickle.load(f)
 
