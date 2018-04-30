@@ -300,10 +300,6 @@ def estimate_ecdf_n(n, nr_samples, net, plot=False):
             'delaunay': {'fitted_gamma': stats.gamma.fit(delaunay_sum, floc=0)},
             'mst': {'fitted_gamma': stats.gamma.fit(mst_sum, floc=0)}}
 
-    del complete_sum
-    del delaunay_sum
-    del mst_sum
-
     return ecdf
 
 
@@ -333,18 +329,8 @@ def generate_ecdf_geo_likelihood(net, min_n, max_n, nr_samples, plot=False):
     estimate_ecdf_n_ = partial(estimate_ecdf_n,
                               nr_samples=nr_samples, net=net, plot=False)
 
-    def pool_init():
-        import gc
-        gc.collect()
-
-    with Pool(4) as pool:
-        ecdf = pool.map(estimate_ecdf_n_, n_values, initializer=pool_init,
-                        maxtasksperchild=1)
-
-    # ecdf = []
-    # for n in n_values:
-    #     ecdf.append(estimate_ecdf_n(n, nr_samples, net))
-    #     print(sys.getsizeof(ecdf) / 1000.)
+    with Pool(7, maxtasksperchild=1) as pool:
+        ecdf = pool.map(estimate_ecdf_n_, n_values)
 
     return {n: e for n, e in zip(n_values, ecdf)}
 
