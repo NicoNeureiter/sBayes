@@ -40,13 +40,13 @@ if __name__ == '__main__':
 
     MIN_SIZE = 5
     MAX_SIZE = 100
-    SAMPLES_PER_ZONE_SIZE = 100
+    SAMPLES_PER_ZONE_SIZE = 5000
 
     TOTAL_N_FEATURES = 30
 
     P_SUCCESS_MIN = 0.05
     P_SUCCESS_MAX = 0.7
-    GEO_LIKELIHOOD_WEIGHT = 2.
+    GEO_LIKELIHOOD_WEIGHT = 1.
 
     P_TRANSITION_MODE = {
         'swap': 0.5,
@@ -61,7 +61,7 @@ if __name__ == '__main__':
 
     # MCMC Parameters
     BURN_IN = 0
-    N_STEPS = 500
+    N_STEPS = 2000
     N_SAMPLES = 3
     N_RUNS = 4
 
@@ -69,6 +69,12 @@ if __name__ == '__main__':
     i = [0.9, 0.6]
     f = [0.9, 0.4]
     r = float('inf')
+
+    # Two settings: [1] Easy: Favourable zones  with high intensity and many features affected by contact
+    #               [2] Hard: Unfavourable zones with low intensity and few features affected by contact
+    test_ease = [0, 1]
+    test_annealing = [0, 1]
+    test_model = ['particularity', 'generative']
 
     def evaluate_sampling_parameters(params):
         m, e, a = params
@@ -123,37 +129,28 @@ if __name__ == '__main__':
 
         return stats
 
-    # Two settings: [1] Easy: Favourable zones  with high intensity and many features affected by contact
-    #               [2] Hard: Unfavourable zones with low intensity and few features affected by contact
-    test_ease = [0]  #, 1]
-    test_annealing = [0, 1]
-    test_model = ['particularity', 'generative']
 
     sampling_param_grid = list(itertools.product(test_model,
                                                  test_ease,
                                                  test_annealing))
 
     # Test ease, annealing and likelihood modes
-    with Pool(2) as pool:
+    with Pool(8) as pool:
         all_stats = pool.map(evaluate_sampling_parameters, sampling_param_grid)
 
     for params, param_stats in zip(sampling_param_grid, all_stats):
-        e, a, m = params
-        print(e, a, m)
+        m, e, a = params
+        print(m, e, a)
 
         for run_stats in param_stats:
 
             true_zones_ll = run_stats['true_zones_ll']
             lls = run_stats['step_likelihoods']
-            if m == 'generative':
-                true_zones_ll = np.exp(true_zones_ll)
-                lls = np.exp(lls)
 
-            plt.plot(lls, c='darkred', alpha=0.5)
+            plt.plot(lls, c='darkred', alpha=0.7)
 
-        plt.axhline(true_zones_ll, color='grey', linestyle='-')
+        plt.axhline(true_zones_ll, color='grey', linestyle='--')
 
         plot_path = TEST_SAMPLING_PLOT_PATH.format(e=e, a=a, m=m)
-        print(plot_path)
         plt.savefig(plot_path, format='pdf')
         plt.show()
