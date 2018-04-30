@@ -117,7 +117,6 @@ class MCMC(metaclass=_abc.ABCMeta):
             'acceptance_ratio': _math.nan,
             'accepted': 0}
         samples = []
-        steps = []
 
         t_start = _time.time()
 
@@ -142,9 +141,12 @@ class MCMC(metaclass=_abc.ABCMeta):
                 sample = self.step(sample)
 
                 if return_steps:
-                    steps.append(sample)
+                    samples.append(sample)
 
-            samples.append(sample)
+                self.log_step_statistics(sample)
+
+            if not return_steps:
+                samples.append(sample)
             self.log_sample_statistics(sample)
 
             if self.plot_samples:
@@ -156,10 +158,7 @@ class MCMC(metaclass=_abc.ABCMeta):
         self.statistics['time_per_sample'] = (t_end - t_start) / n_samples
         self.statistics['acceptance_ratio'] = (self.statistics['accepted'] / (n_steps * n_samples))
 
-        if return_steps:
-            return samples, steps
-        else:
-            return samples
+        return samples
 
     def step(self, sample):
         # Get a candidate
