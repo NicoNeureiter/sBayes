@@ -4,7 +4,9 @@ from __future__ import absolute_import, division, print_function, \
     unicode_literals
 import sys
 import copy
+import logging
 from multiprocessing import Pool
+from functools import partial
 
 from contextlib import contextmanager
 
@@ -20,6 +22,7 @@ from src.util import compute_distance, grow_zone, triangulation, \
     compute_delaunay, dump_results
 from src.config import *
 from src.plotting import plot_proximity_graph
+
 
 
 @contextmanager
@@ -258,6 +261,8 @@ def compute_feature_prob(feat):
 
 
 def estimate_ecdf_n(n, nr_samples, net, plot=False):
+    logging.info('Estimating empirical CDF for n = %i' % n)
+
     dist_mat = net['dist_mat']
 
     complete_sum = []
@@ -291,17 +296,15 @@ def estimate_ecdf_n(n, nr_samples, net, plot=False):
     #  c) generate an ecdf for each size n
     #  the ecdf comprises an empirical distribution and a fitted gamma distribution for each type of graph
 
-    return {
-        'complete': {
-            # 'empirical': np.sort(complete_sum),
-            'fitted_gamma': stats.gamma.fit(complete_sum, floc=0)},
-        'delaunay': {
-            # 'empirical': np.sort(delaunay_sum),
-            'fitted_gamma': stats.gamma.fit(delaunay_sum, floc=0)},
-        'mst': {
-            # 'empirical': np.sort(mst_sum),
-            'fitted_gamma': stats.gamma.fit(mst_sum, floc=0)},
-    }
+    ecdf = {'complete': {'fitted_gamma': stats.gamma.fit(complete_sum, floc=0)},
+            'delaunay': {'fitted_gamma': stats.gamma.fit(delaunay_sum, floc=0)},
+            'mst': {'fitted_gamma': stats.gamma.fit(mst_sum, floc=0)}}
+
+    del complete_sum
+    del delaunay_sum
+    del mst_sum
+
+    return ecdf
 
 
 @dump_results(ECDF_GEO_PATH, RELOAD_DATA)
@@ -327,12 +330,21 @@ def generate_ecdf_geo_likelihood(net, min_n, max_n, nr_samples, plot=False):
 
     n_values = range(min_n, max_n+1)
 
-    from functools import partial
     estimate_ecdf_n_ = partial(estimate_ecdf_n,
                               nr_samples=nr_samples, net=net, plot=False)
 
+    def pool_init():
+        import gc
+        gc.collect()
+
     with Pool(4) as pool:
-        ecdf = pool.map(estimate_ecdf_n_, n_values)
+        ecdf = pool.map(estimate_ecdf_n_, n_values, initializer=pool_init,
+                        maxtasksperchild=1)
+
+    # ecdf = []
+    # for n in n_values:
+    #     ecdf.append(estimate_ecdf_n(n, nr_samples, net))
+    #     print(sys.getsizeof(ecdf) / 1000.)
 
     return {n: e for n, e in zip(n_values, ecdf)}
 
@@ -343,7 +355,7 @@ def estimate_random_walk_covariance(net):
     locations = net['locations']
 
     delaunay = compute_delaunay(locations)
-    mst = minimum_spanning_tree(delaunay * dist_mat)
+    mst = minimum_spanning_tree(delaunay.multiply(dist_mat))
     # mst += mst.T  # Could be used as data augmentation? (enforces 0 mean)
 
     # Compute difference vectors along mst
