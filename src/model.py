@@ -97,7 +97,8 @@ def compute_geo_likelihood_generative(zone: np.array, network: dict, cov: np.arr
     locations = network['locations'][zone]
 
     delaunay = compute_delaunay(locations)
-    mst = minimum_spanning_tree(delaunay.multiply(dist_mat))
+    mst = delaunay
+    # mst = minimum_spanning_tree(delaunay.multiply(dist_mat))
 
     i1, i2 = mst.nonzero()
     diffs = locations[i1] - locations[i2]

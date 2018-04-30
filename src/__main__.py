@@ -23,29 +23,23 @@ if __name__ == "__main__":
 
     # Retrieve the network from the DB
     network = get_network()
-    logging.info('Loaded Network...')
 
     # Retrieve the contact zones
     all_zones = (1, 2, 3, 4, 5, 6, 7, 8, 9, 10)
     contact_zones = get_contact_zones(all_zones)
-    logging.info('Loaded Contact zones...')
 
     # Simulate distribution of features
     features_bg = simulate_background_distribution(TOTAL_N_FEATURES, len(network['vertices']),
                                                    p_min=P_SUCCESS_MIN, p_max=P_SUCCESS_MAX)
-    logging.info('Simulated background features...')
 
     # Simulate contact zones
     features = simulate_contact(R_CONTACT_FEATURES, features_bg, P_CONTACT, contact_zones)
-    logging.info('Simulated features...')
 
     # Compute the probability of a feature to be present or absent
     feature_prob = compute_feature_prob(features)
-    logging.info('Computed feature probability...')
 
     # Compute a lookup table for the likelihood
     lh_lookup = precompute_feature_likelihood(1, MAX_SIZE, feature_prob)
-    logging.info('Built ll lookup table...')
 
     # Generate an empirical distribution for estimating the geo-likelihood
     ecdf_geo = generate_ecdf_geo_likelihood(network, min_n=MIN_SIZE, max_n=MAX_SIZE,
@@ -53,7 +47,6 @@ if __name__ == "__main__":
     logging.info('Computed empirical CDF...')
 
     random_walk_cov = estimate_random_walk_covariance(network)
-    logging.info('Estimated random walk covariance...')
 
     logging.info('\nPreprocessing completed...\n')
 
@@ -75,12 +68,13 @@ if __name__ == "__main__":
 
     # Dump the results
     dump(mcmc_results, MCMC_RESULTS_PATH)
+
     stats = zone_sampler.statistics
-    print()
-    print('Number of zones:      %r' % zone_sampler.n_zones)
-    print('Acceptance Ratio:     %.2f' % stats['acceptance_ratio'])
-    print('Log-Likelihood:       %.2f' % stats['sample_likelihoods'][-1])
-    print('Zone sizes:           %r' % [np.sum(x) for x in samples[-1]])
-    print('Time per sample:      %.3f s' % stats['time_per_sample'])
+    logging.info('')
+    logging.info('Number of zones:      %r' % zone_sampler.n_zones)
+    logging.info('Acceptance Ratio:     %.2f' % stats['acceptance_ratio'])
+    logging.info('Log-Likelihood:       %.2f' % stats['sample_likelihoods'][-1])
+    logging.info('Zone sizes:           %r' % [np.sum(x) for x in samples[-1]])
+    logging.info('Time per sample:      %.3f s' % stats['time_per_sample'])
 
 
