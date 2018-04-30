@@ -3,7 +3,6 @@
 import logging
 
 import numpy as np
-import os
 from src.sampling.zone_sampling import ZoneMCMC
 from src.preprocessing import (get_network,
                                compute_feature_prob,
@@ -12,7 +11,7 @@ from src.preprocessing import (get_network,
                                simulate_contact,
                                generate_ecdf_geo_likelihood,
                                estimate_random_walk_covariance, precompute_feature_likelihood)
-from src.util import dump, load_from
+from src.util import dump
 from src.config import *
 
 
@@ -76,8 +75,12 @@ if __name__ == "__main__":
 
     # Dump the results
     dump(mcmc_results, MCMC_RESULTS_PATH)
-    print('Acceptance Ratio:     %.2f' % mcmc_results['stats']['acceptance_ratio'])
-    print('Log-Likelihood:       %.2f' % mcmc_results['stats']['sample_likelihoods'][-1])
-    print('Size:                 %r' % mcmc_results['n_zones'])
+    stats = zone_sampler.statistics
+    print()
+    print('Number of zones:      %r' % zone_sampler.n_zones)
+    print('Acceptance Ratio:     %.2f' % stats['acceptance_ratio'])
+    print('Log-Likelihood:       %.2f' % stats['sample_likelihoods'][-1])
+    print('Zone sizes:           %r' % [np.sum(x) for x in samples[-1]])
+    print('Time per sample:      %.3f s' % stats['time_per_sample'])
 
 
