@@ -5,6 +5,7 @@ from __future__ import absolute_import, division, print_function, \
 import math as _math
 import abc as _abc
 import random as _random
+import time as _time
 
 import numpy as _np
 
@@ -45,7 +46,7 @@ class MCMC(metaclass=_abc.ABCMeta):
             'sample_likelihoods': [],
             'step_likelihoods': [],
             'accepted': 0,
-            'acceptance_ratio': 0.
+            'acceptance_ratio': _math.nan
         }
 
         # State attributes
@@ -95,7 +96,7 @@ class MCMC(metaclass=_abc.ABCMeta):
 
         return (ll_ratio * temperature) - log_q_ratio
 
-    def generate_samples(self, n_samples, n_steps, burn_in_steps):
+    def generate_samples(self, n_samples, n_steps, burn_in_steps, return_steps=False):
         """Run the MCMC sampling procedure with Metropolis Hastings rejection
         step and options for simulated annealing, restarting. Samples are
         returned, statistics saved in self.statistics.
@@ -116,6 +117,9 @@ class MCMC(metaclass=_abc.ABCMeta):
             'acceptance_ratio': _math.nan,
             'accepted': 0}
         samples = []
+        steps = []
+
+        t_start = _time.time()
 
         # Generate samples...
 
@@ -137,15 +141,25 @@ class MCMC(metaclass=_abc.ABCMeta):
 
                 sample = self.step(sample)
 
+                if return_steps:
+                    steps.append(sample)
+
             samples.append(sample)
             self.log_sample_statistics(sample)
 
             if self.plot_samples:
                 self.plot_sample(sample)
 
+        t_end = _time.time()
+
+        self.statistics['sampling_time'] = t_end - t_start
+        self.statistics['time_per_sample'] = (t_end - t_start) / n_samples
         self.statistics['acceptance_ratio'] = (self.statistics['accepted'] / (n_steps * n_samples))
 
-        return samples
+        if return_steps:
+            return samples, steps
+        else:
+            return samples
 
     def step(self, sample):
         # Get a candidate
