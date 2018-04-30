@@ -252,7 +252,7 @@ def dump_results(path, reevaluate=False):
 
             reeval = kwargs.pop('reevaluate', reevaluate)
 
-            if not reeval and os.path.exists(path):
+            if (not reeval) and os.path.exists(path):
                 with open(path, 'rb') as f:
                     res = pickle.load(f)
 
