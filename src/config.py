@@ -54,11 +54,11 @@ RESTART_INTERVAL = 2
 """bool: Restart the chain from a random point after RESTART_INTERVAL sample.
 To deactivate restarting completely, set it to float('inf')"""
 
-SIMULATED_ANNEALING = False
+SIMULATED_ANNEALING = 1
 """bool: Slowly increase a temperature parameter to smoothly blend from sampling from a
 uniform distribution to the actual likelihood. Should help with separated modes."""
 
-RELOAD_DATA = False
+RELOAD_DATA = 0
 """bool: Reload the data from the DB, pre-process it and dump it."""
 
 NUMBER_PARALLEL_ZONES = 4
@@ -69,13 +69,14 @@ PLOT_SAMPLES = True
 
 
 # Parameters for likelihood
+m = 0
 
 FEATURE_LIKELIHOOD_MODES = ['generative', 'particularity']
-FEATURE_LL_MODE = FEATURE_LIKELIHOOD_MODES[0]
+FEATURE_LL_MODE = FEATURE_LIKELIHOOD_MODES[m]
 """str: Switch for which feature-likelihood to use."""
 
 GEO_LIKELIHOOD_MODES = ['generative', 'particularity', 'none']
-GEO_LL_MODE = GEO_LIKELIHOOD_MODES[0]
+GEO_LL_MODE = GEO_LIKELIHOOD_MODES[m]
 """str: Switch for the geo-likelihood to use."""
 
 GEO_ECDF_TYPES = ['mst', 'delaunay', 'complete']
