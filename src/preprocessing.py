@@ -335,13 +335,14 @@ def generate_ecdf_geo_likelihood(net, min_n, max_n, nr_samples, plot=False):
     return {n: e for n, e in zip(n_values, ecdf)}
 
 
-@dump_results(RANDOM_WALK_COV_PATH, RELOAD_DATA)
+@dump_results(RANDOM_WALK_COV_PATH, True)  #RELOAD_DATA)
 def estimate_random_walk_covariance(net):
     dist_mat = net['dist_mat']
     locations = net['locations']
 
     delaunay = compute_delaunay(locations)
-    mst = minimum_spanning_tree(delaunay.multiply(dist_mat))
+    mst = delaunay.multiply(dist_mat)
+    # mst = minimum_spanning_tree(delaunay.multiply(dist_mat))
     # mst += mst.T  # Could be used as data augmentation? (enforces 0 mean)
 
     # Compute difference vectors along mst
@@ -351,7 +352,7 @@ def estimate_random_walk_covariance(net):
     # Center at (0, 0)
     diffs -= np.mean(diffs, axis=0)[None, :]
 
-    return np.cov(diffs.T)
+    return 1.3 * np.cov(diffs.T)
 
 
 @dump_results(LOOKUP_TABLE_PATH, RELOAD_DATA)

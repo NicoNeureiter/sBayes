@@ -7,6 +7,7 @@ import matplotlib.pyplot as plt
 import os
 plt.style.use('ggplot')
 # plt.xkcd()
+plt.tight_layout()
 import numpy as np
 from scipy.stats import gamma
 from matplotlib.collections import LineCollection
@@ -110,7 +111,7 @@ def plot_zone(zone, net):
     plt.show()
 
 
-def plot_zones(zones, net):
+def plot_zones(zones, net, ax=None):
     """ This function plots the contact zones proposed by the MCMC
 
     Args:
@@ -119,7 +120,12 @@ def plot_zones(zones, net):
     """
 
     # Initialize plot
-    fig, ax = plt.subplots()
+    if ax is None:
+        return_ax = False
+        _, ax = plt.subplots()
+    else:
+        return_ax = True
+
     col = get_colors()
     all_sites = net['locations']
     size = 4
@@ -139,7 +145,11 @@ def plot_zones(zones, net):
 
     # Add legend
     ax.legend([bg, zo[0]], ['All sites', 'Sites in proposed contact zones'], frameon=False, fontsize=10)
-    plt.show()
+
+    if return_ax:
+        return ax
+    else:
+        plt.show()
 
 
 def plot_proximity_graph(net, zone, graph, triang_type):

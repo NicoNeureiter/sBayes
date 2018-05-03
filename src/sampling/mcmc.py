@@ -147,6 +147,7 @@ class MCMC(metaclass=_abc.ABCMeta):
 
             if not return_steps:
                 samples.append(sample)
+
             self.log_sample_statistics(sample)
 
             if self.plot_samples:
@@ -253,7 +254,7 @@ class ComponentMCMC(MCMC, metaclass=_abc.ABCMeta):
 
                 self.statistics['accepted'] += 1
 
-            self.log_step_statistics(sample)
+        self.log_step_statistics(sample)
 
         return sample
 
