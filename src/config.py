@@ -22,7 +22,7 @@ P_SUCCESS_MAX = 0.95
 N_SAMPLES = 10
 """int: Number of generated samples."""
 
-N_STEPS = 3000
+N_STEPS = 4000
 """int: Number of MCMC steps."""
 
 BURN_IN_STEPS = 100
@@ -54,11 +54,11 @@ RESTART_INTERVAL = 2
 """bool: Restart the chain from a random point after RESTART_INTERVAL sample.
 To deactivate restarting completely, set it to float('inf')"""
 
-SIMULATED_ANNEALING = False
+SIMULATED_ANNEALING = 1
 """bool: Slowly increase a temperature parameter to smoothly blend from sampling from a
 uniform distribution to the actual likelihood. Should help with separated modes."""
 
-RELOAD_DATA = False
+RELOAD_DATA = 0
 """bool: Reload the data from the DB, pre-process it and dump it."""
 
 NUMBER_PARALLEL_ZONES = 4
@@ -82,10 +82,10 @@ GEO_ECDF_TYPES = ['mst', 'delaunay', 'complete']
 GEO_ECDF_TYPE = GEO_ECDF_TYPES[0]
 """str: Switch for the type of sub-graph to use for the empirical geo-likelihood."""
 
-GEO_LIKELIHOOD_WEIGHT = 1.
+GEO_LIKELIHOOD_WEIGHT = 8.
 """float: The weight of the geo-likelihood as compared to the feature likelihood."""
 
-SAMPLES_PER_ZONE_SIZE = 5000
+SAMPLES_PER_ZONE_SIZE = 8000
 """int: The number of samples for generating the empirical geo-likelihood."""
 
 

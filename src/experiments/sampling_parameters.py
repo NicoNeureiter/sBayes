@@ -28,7 +28,8 @@ if __name__ == '__main__':
 
     TEST_SAMPLING_DIRECTORY = 'data/results/test/{experiment}/'.format(experiment=now)
     TEST_SAMPLING_RESULTS_PATH = TEST_SAMPLING_DIRECTORY + 'sampling_e{e}_a{a}_m{m}_{run}.pkl'
-    TEST_SAMPLING_PLOT_PATH = TEST_SAMPLING_DIRECTORY + 'sampling_e{e}_a{a}_m{m}.pdf'
+    TEST_SAMPLING_LL_PLOT_PATH = TEST_SAMPLING_DIRECTORY + 'sampling_ll_e{e}_a{a}_m{m}.pdf'
+    TEST_SAMPLING_ZONE_PLOT_PATH = TEST_SAMPLING_DIRECTORY + 'sampling_zone_e{e}_a{a}_m{m}_{run}.pdf'
     TEST_SAMPLING_LOG_PATH = TEST_SAMPLING_DIRECTORY + 'sampling.log'
 
     # Make result directory if it doesn't exist yet
@@ -61,9 +62,9 @@ if __name__ == '__main__':
 
     # MCMC Parameters
     BURN_IN = 0
-    N_STEPS = 2000
-    N_SAMPLES = 3
-    N_RUNS = 4
+    N_STEPS = 1000
+    N_SAMPLES = 2
+    N_RUNS = 2
 
     z = 6  # That's the flamingo zone
     i = [0.9, 0.6]
@@ -74,7 +75,9 @@ if __name__ == '__main__':
     #               [2] Hard: Unfavourable zones with low intensity and few features affected by contact
     test_ease = [0, 1]
     test_annealing = [0, 1]
-    test_model = ['particularity', 'generative']
+    # test_model = ['particularity', 'generative']
+    # test_model = ['particularity']
+    test_model = ['generative']
 
     def evaluate_sampling_parameters(params):
         m, e, a = params
@@ -87,6 +90,7 @@ if __name__ == '__main__':
                                                 reevaluate=False)
 
         stats = []
+        samples = []
 
         contact_zones_idxs = get_contact_zones(z)
         n_zones = len(contact_zones_idxs)
@@ -117,17 +121,26 @@ if __name__ == '__main__':
                                     geo_ll_mode=m, feature_ll_mode=m, simulated_annealing=a,
                                     plot_samples=False, print_logs=False)
 
-            samples = zone_sampler.generate_samples(N_SAMPLES, N_STEPS, BURN_IN, return_steps=True)
+            run_samples = zone_sampler.generate_samples(N_SAMPLES, N_STEPS, BURN_IN, return_steps=True)
+
+            # Collect statistics
 
             run_stats = zone_sampler.statistics
             run_stats['true_zones_ll'] = [zone_sampler.log_likelihood(cz) for cz in contact_zones]
+
+            # Add plot
+            fig, axes = plt.subplots(1, N_SAMPLES)
+            axes = [zone_sampler.plot_sample(z, ax=ax) for z, ax in zip(run_samples, axes)]
+            run_stats['plot'] = fig
+
             stats.append(run_stats)
+            samples.append(run_samples)
 
             # Store the results
             path = TEST_SAMPLING_RESULTS_PATH.format(e=e, a=a, m=m, run=run)
-            dump((samples, run_stats), path)
+            dump((run_samples, run_stats), path)
 
-        return stats
+        return samples, stats
 
 
     sampling_param_grid = list(itertools.product(test_model,
@@ -135,22 +148,35 @@ if __name__ == '__main__':
                                                  test_annealing))
 
     # Test ease, annealing and likelihood modes
-    with Pool(8) as pool:
+    with Pool(4) as pool:
         all_stats = pool.map(evaluate_sampling_parameters, sampling_param_grid)
 
-    for params, param_stats in zip(sampling_param_grid, all_stats):
+    for params, param_results in zip(sampling_param_grid, all_stats):
+        param_samples, param_stats = param_results
         m, e, a = params
         print(m, e, a)
 
-        for run_stats in param_stats:
+        plt.close()
 
-            true_zones_ll = run_stats['true_zones_ll']
+        fig_ll, ax_ll = plt.subplots()
+
+        for i_run, run_stats in enumerate(param_stats):
             lls = run_stats['step_likelihoods']
+            if m == 'generative':
+                lls = - (abs(np.asarray(lls)) ** 0.01)
 
-            plt.plot(lls, c='darkred', alpha=0.7)
+            ax_ll.plot(lls, c='darkred', alpha=0.8)
 
+            plot_path_zone = TEST_SAMPLING_ZONE_PLOT_PATH.format(e=e, a=a, m=m, run=i_run)
+            fig_zone = run_stats['plot']
+            fig_zone.show()
+            fig_zone.savefig(plot_path_zone, format='pdf')
+
+
+        true_zones_ll = run_stats['true_zones_ll']
+        true_zones_ll = - abs(np.asarray(true_zones_ll)) ** 0.01
         plt.axhline(true_zones_ll, color='grey', linestyle='--')
 
-        plot_path = TEST_SAMPLING_PLOT_PATH.format(e=e, a=a, m=m)
-        plt.savefig(plot_path, format='pdf')
-        plt.show()
+        plot_path_ll = TEST_SAMPLING_LL_PLOT_PATH.format(e=e, a=a, m=m)
+        fig_ll.savefig(plot_path_ll, format='pdf')
+        fig_ll.show()

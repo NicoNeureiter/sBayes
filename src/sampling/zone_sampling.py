@@ -309,8 +309,8 @@ class ZoneMCMC(ComponentMCMC):
 
             return [v for v in zone_idx if v not in cut_vertices]
 
-    def plot_sample(self, sample):
-        plot_zones(sample, self.network)
+    def plot_sample(self, sample, ax=None):
+        return plot_zones(sample, self.network, ax=ax)
 
     def log_sample_statistics(self, sample):
         super(ZoneMCMC, self).log_sample_statistics(sample)
