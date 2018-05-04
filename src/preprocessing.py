@@ -352,7 +352,7 @@ def estimate_random_walk_covariance(net):
     # Center at (0, 0)
     diffs -= np.mean(diffs, axis=0)[None, :]
 
-    return 1.3 * np.cov(diffs.T)
+    return np.cov(diffs.T)
 
 
 @dump_results(LOOKUP_TABLE_PATH, RELOAD_DATA)

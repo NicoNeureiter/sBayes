@@ -16,7 +16,8 @@ from src.preprocessing import (get_network,
                                get_contact_zones,
                                simulate_background_distribution,
                                simulate_contact, compute_feature_prob,
-                               precompute_feature_likelihood)
+                               precompute_feature_likelihood,
+                               estimate_random_walk_covariance)
 from src.sampling.zone_sampling import ZoneMCMC
 
 
@@ -59,12 +60,13 @@ if __name__ == '__main__':
     # Generate an empirical distribution for estimating the geo-likelihood
     ecdf_geo = generate_ecdf_geo_likelihood(net=network, min_n=MIN_SIZE, max_n=MAX_SIZE,
                                             nr_samples=SAMPLES_PER_ZONE_SIZE, plot=False)
+    random_walk_cov = estimate_random_walk_covariance(network)
 
     # MCMC Parameters
     BURN_IN = 0
-    N_STEPS = 1000
-    N_SAMPLES = 2
-    N_RUNS = 2
+    N_STEPS = 5000
+    N_SAMPLES = 4
+    N_RUNS = 3
 
     z = 6  # That's the flamingo zone
     i = [0.9, 0.6]
@@ -119,6 +121,7 @@ if __name__ == '__main__':
                                     geo_weight=GEO_LIKELIHOOD_WEIGHT, lh_lookup=lh_lookup, n_zones=1,
                                     ecdf_geo=ecdf_geo, restart_interval=r, ecdf_type="mst",
                                     geo_ll_mode=m, feature_ll_mode=m, simulated_annealing=a,
+                                    random_walk_cov=random_walk_cov,
                                     plot_samples=False, print_logs=False)
 
             run_samples = zone_sampler.generate_samples(N_SAMPLES, N_STEPS, BURN_IN, return_steps=True)
@@ -129,7 +132,8 @@ if __name__ == '__main__':
             run_stats['true_zones_ll'] = [zone_sampler.log_likelihood(cz) for cz in contact_zones]
 
             # Add plot
-            fig, axes = plt.subplots(1, N_SAMPLES)
+            fig, axes = plt.subplots(2, (N_SAMPLES+1)//2)
+            axes = axes.flatten()
             axes = [zone_sampler.plot_sample(z, ax=ax) for z, ax in zip(run_samples, axes)]
             run_stats['plot'] = fig
 
@@ -156,7 +160,7 @@ if __name__ == '__main__':
         m, e, a = params
         print(m, e, a)
 
-        plt.close()
+        # plt.close()
 
         fig_ll, ax_ll = plt.subplots()
 
@@ -169,7 +173,7 @@ if __name__ == '__main__':
 
             plot_path_zone = TEST_SAMPLING_ZONE_PLOT_PATH.format(e=e, a=a, m=m, run=i_run)
             fig_zone = run_stats['plot']
-            fig_zone.show()
+            # fig_zone.show()
             fig_zone.savefig(plot_path_zone, format='pdf')
 
 
@@ -179,4 +183,4 @@ if __name__ == '__main__':
 
         plot_path_ll = TEST_SAMPLING_LL_PLOT_PATH.format(e=e, a=a, m=m)
         fig_ll.savefig(plot_path_ll, format='pdf')
-        fig_ll.show()
+        # fig_ll.show()
