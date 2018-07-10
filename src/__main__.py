@@ -9,7 +9,7 @@ from src.preprocessing import (get_network,
                                get_contact_zones,
                                simulate_background_distribution,
                                simulate_contact,
-                               generate_ecdf_geo_likelihood,
+                               generate_ecdf_geo_prior,
                                estimate_random_walk_covariance, precompute_feature_likelihood)
 from src.util import dump
 from src.config import *
@@ -41,9 +41,9 @@ if __name__ == "__main__":
     # Compute a lookup table for the likelihood
     lh_lookup = precompute_feature_likelihood(1, MAX_SIZE, feature_prob)
 
-    # Generate an empirical distribution for estimating the geo-likelihood
-    ecdf_geo = generate_ecdf_geo_likelihood(network, min_n=MIN_SIZE, max_n=MAX_SIZE,
-                                            nr_samples=SAMPLES_PER_ZONE_SIZE, plot=False)
+    # Generate an empirical distribution for estimating the geo-prior
+    ecdf_geo = generate_ecdf_geo_prior(network, min_n=MIN_SIZE, max_n=MAX_SIZE,
+                                       nr_samples=SAMPLES_PER_ZONE_SIZE, plot=False)
     logging.info('Computed empirical CDF...')
 
     random_walk_cov = estimate_random_walk_covariance(network)
@@ -52,7 +52,7 @@ if __name__ == "__main__":
 
     # Initialize the sampler. All parameters should be set through the config.py file.
     zone_sampler = ZoneMCMC(network, features, MIN_SIZE, MAX_SIZE, P_TRANSITION_MODE,
-                            GEO_LIKELIHOOD_WEIGHT, lh_lookup, n_zones=NUMBER_PARALLEL_ZONES,
+                            GEO_PRIOR_WEIGHT, lh_lookup, n_zones=NUMBER_PARALLEL_ZONES,
                             ecdf_geo=ecdf_geo, random_walk_cov=random_walk_cov,
                             restart_interval=RESTART_INTERVAL, simulated_annealing=SIMULATED_ANNEALING,
                             plot_samples=PLOT_SAMPLES)

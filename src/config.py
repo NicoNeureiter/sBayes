@@ -58,7 +58,7 @@ SIMULATED_ANNEALING = 1
 """bool: Slowly increase a temperature parameter to smoothly blend from sampling from a
 uniform distribution to the actual likelihood. Should help with separated modes."""
 
-RELOAD_DATA = 0
+RELOAD_DATA = 1
 """bool: Reload the data from the DB, pre-process it and dump it."""
 
 NUMBER_PARALLEL_ZONES = 4
@@ -75,19 +75,19 @@ FEATURE_LIKELIHOOD_MODES = ['generative', 'particularity']
 FEATURE_LL_MODE = FEATURE_LIKELIHOOD_MODES[m]
 """str: Switch for which feature-likelihood to use."""
 
-GEO_LIKELIHOOD_MODES = ['generative', 'particularity', 'none']
-GEO_LL_MODE = GEO_LIKELIHOOD_MODES[m]
-"""str: Switch for the geo-likelihood to use."""
+GEO_PRIOR_MODES = ['generative', 'particularity', 'none']
+GEO_PRIOR_MODE = GEO_PRIOR_MODES[m]
+"""str: Switch for the geo-prior to use."""
 
 GEO_ECDF_TYPES = ['mst', 'delaunay', 'complete']
 GEO_ECDF_TYPE = GEO_ECDF_TYPES[0]
-"""str: Switch for the type of sub-graph to use for the empirical geo-likelihood."""
+"""str: Switch for the type of sub-graph to use for the empirical geo-prior."""
 
-GEO_LIKELIHOOD_WEIGHT = 8.
-"""float: The weight of the geo-likelihood as compared to the feature likelihood."""
+GEO_PRIOR_WEIGHT = 8.
+"""float: The weight of the geo-prior as compared to the feature likelihood."""
 
 SAMPLES_PER_ZONE_SIZE = 8000
-"""int: The number of samples for generating the empirical geo-likelihood."""
+"""int: The number of samples for generating the empirical geo-prior."""
 
 
 # Names of DB tables

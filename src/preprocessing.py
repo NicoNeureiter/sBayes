@@ -11,8 +11,7 @@ from functools import partial
 from contextlib import contextmanager
 
 import numpy as np
-from scipy import stats
-from scipy import sparse
+from scipy import stats, sparse
 from scipy.sparse.csgraph import minimum_spanning_tree
 import psycopg2
 import igraph
@@ -21,7 +20,7 @@ import math
 from src.util import compute_distance, grow_zone, triangulation, \
     compute_delaunay, dump_results
 from src.config import *
-from src.plotting import plot_proximity_graph
+
 
 
 
@@ -181,40 +180,72 @@ def get_contact_zones(zone_id):
         raise ValueError('zone_id must be int or a list of ints')
 
 
-@dump_results(FEATURES_BG_PATH, RELOAD_DATA)
-def simulate_background_distribution(m_feat, n_sites, p_min, p_max):
-    """This function draws <n_sites> samples from a Binomial distribution for <m_feat> binary features, where
-    1 implies the presence of the feature, and 0 the absence.
-
+def define_contact_features(n_feat, r_contact_feat, contact_zones):
+    """ This function returns all features and those features for which contact is simulated
     Args:
-        m_feat (int): number of features
-        n_sites (int): number of sites for which feature are simulated
-        p_min (float): the minimum probability that a feature is 1
-        p_max (float): the maximum probability that a feature is 1
+        n_feat (int): number of features
+        r_contact_feat (float): percentage of features for which contact is simulated
+        contact_zones (dict): a region of sites for which contact is simulated
 
     Returns:
-        dict: the simulated features
+        list, dict: all features, the features for which contact is simulated (per contact zone)
+    """
+
+    n_contact_feat = int(math.ceil(r_contact_feat * n_feat))
+    features = []
+    for f in range(n_feat):
+        features.append('f' + str(f + 1))
+
+    contact_features = {}
+    for cz in contact_zones:
+
+        contact_features[cz] = np.random.choice(features, n_contact_feat, replace=False)
+
+    return features, contact_features
+
+
+@dump_results(FEATURES_BG_PATH, RELOAD_DATA)
+def simulate_background_distribution(features, contact_features, n_sites, p_min, p_max, p_max_contact):
+    """This function draws <n_sites> samples from a random Binomial distribution to simulate a background distribution
+    for <all_features>, where 1 implies the presence of the feature, and 0 the absence.
+    For those features that are in <contact_features> the probability of success is limited to [0, p_max_contact]
+
+    Args:
+        features (list): names of all features
+        contact_features (dict): names of all contact features
+        n_sites (int): number of sites for which feature are simulated
+        p_min (float): the minimum probability
+        p_max (float): the maximum probability
+        p_max_contact: (float): the maximum probability of a feature for which contact is simulated
+
+    Returns:
+        dict: the background distribution
         """
-    successes = np.random.uniform(p_min, p_max, m_feat)
-    it = np.nditer(successes, flags=['f_index'])
-    features = {}
+    contact = set({x for v in contact_features.values() for x in v})
 
-    for s in it:
-        f = np.random.binomial(n=1, p=s, size=n_sites)
-        f_idx = 'f' + str(it.index + 1)
-        features[f_idx] = f
+    features_bg = {}
+    for f in features:
 
-    return features
+        if f in contact:
+            success = np.random.uniform(p_min, p_max_contact-0.2, 1)
+
+        else:
+            success = np.random.uniform(p_min, p_max, 1)
+
+        bg = np.random.binomial(n=1, p=success, size=n_sites)
+        features_bg[f] = bg
+
+    return features_bg
 
 
 @dump_results(FEATURES_PATH, RELOAD_DATA)
-def simulate_contact(r_feat, features, p, contact_zones):
+def simulate_contact(features, contact_features, p, contact_zones):
     """This function simulates language contact. For each contact zone the function randomly chooses <n_feat> features,
     for which the similarity is increased.
 
     Args:
-        r_feat (float: the ratio of all features for which the function simulates contact
-        features (dict): features for which contact is simulated
+        features (dict): all features
+        contact_features(list): features for which contact is simulated
         p (float): probability of success, defines the degree of similarity in the contact zone
         contact_zones (dict): a region of sites for which contact is simulated
 
@@ -222,17 +253,16 @@ def simulate_contact(r_feat, features, p, contact_zones):
         np.ndarray: the adjusted features
         """
     features_adjusted = copy.deepcopy(features)
-    n_feat = math.ceil(r_feat * TOTAL_N_FEATURES)
 
     # Iterate over all contact zones
     for cz in contact_zones:
 
         # Choose <n_feat> features for which the similarity is increased
-        f_to_adjust = np.random.choice(list(features.keys()), n_feat, replace=False)
 
-        for f in f_to_adjust:
-            # increase similarity either towards presence (1) or absence (0)
-            # p = np.random.choice([p, 1-p])
+        for f in contact_features[cz]:
+
+            # increase similarity
+
             f_adjusted = np.random.binomial(n=1, p=p, size=len(contact_zones[cz]))
             for a, _ in enumerate(f_adjusted):
                 idx = contact_zones[cz][a]
@@ -260,53 +290,65 @@ def compute_feature_prob(feat):
     return p_present
 
 
-def estimate_ecdf_n(n, nr_samples, net, plot=False):
+def estimate_ecdf_n(n, nr_samples, net):
+
     logging.info('Estimating empirical CDF for n = %i' % n)
 
     dist_mat = net['dist_mat']
 
-    complete_sum = []
-    delaunay_sum = []
-    mst_sum = []
+    complete_stat = []
+    delaunay_stat = []
+    mst_stat = []
 
     for _ in range(nr_samples):
 
-        # a)
         zone, _ = grow_zone(n, net)
 
-        # b
+        # Mean distance / Mean squared distance
+
         # Complete graph
-        complete_sum.append(dist_mat[zone][:, zone].sum())
+        complete = sparse.triu(dist_mat[zone][:, zone])
+        n_complete = complete.nnz
+        # complete_stat.append(complete.sum()/n_complete)   # Mean
+        # complete_stat.append(np.sum(complete.toarray() **2.) / n_complete)  # Mean squared
 
         # Delaunay graph
         triang = triangulation(net, zone)
-        delaunay_sum.append(triang.sum())
+        delaunay = sparse.triu(triang)
+        n_delaunay = delaunay.nnz
+        # delaunay_stat.append(delaunay.sum()/n_delaunay)   # Mean
+        # delaunay_stat.append(np.sum(delaunay.toarray() **2.) / n_delaunay)  # Mean squared
 
-        # Minimum spanning tree
+        # Minimum spanning tree (MST)
         mst = minimum_spanning_tree(triang)
-        mst_sum.append(mst.sum())
+        n_mst = mst.nnz
+        # mst_stat.append(mst.sum()/n_mst)     # Mean
+        # mst_stat.append(np.sum(mst.toarray() **2) / n_mst)  # Mean squared
 
-        if plot and n == 15:
-            # Plot graphs
-            plot_proximity_graph(net, zone, triang, "delaunay")
+        # Max distance
+        # # Complete graph
+        complete_max = dist_mat[zone][:, zone].max(axis=None)
+        complete_stat.append(complete_max)
 
-            # Minimum spanning tree
-            plot_proximity_graph(net, zone, mst, "mst")
+        # Delaunay graph
+        #triang = triangulation(net, zone)
+        delaunay_max = triang.max(axis=None)
+        delaunay_stat.append(delaunay_max)
 
-    #  c) generate an ecdf for each size n
-    #  the ecdf comprises an empirical distribution and a fitted gamma distribution for each type of graph
+        # MST
+        #mst = minimum_spanning_tree(triang)
+        mst_max = mst.max(axis=None)
+        mst_stat.append(mst_max)
 
-    ecdf = {'complete': {'fitted_gamma': stats.gamma.fit(complete_sum, floc=0)},
-            'delaunay': {'fitted_gamma': stats.gamma.fit(delaunay_sum, floc=0)},
-            'mst': {'fitted_gamma': stats.gamma.fit(mst_sum, floc=0)}}
+    distances = {'complete': complete_stat, 'delaunay': delaunay_stat, 'mst': mst_stat}
 
-    return ecdf
+    return distances
 
 
 @dump_results(ECDF_GEO_PATH, RELOAD_DATA)
-def generate_ecdf_geo_likelihood(net, min_n, max_n, nr_samples, plot=False):
+def generate_ecdf_geo_prior(net, min_n, max_n, nr_samples):
     """ This function generates an empirical cumulative density function (ecdf), which is then used to compute the
-    geo-likelihood of a contact zone. The function
+    geo-prior of a contact zone. The function
     a) grows <nr samples> contact zones of size n, where n is between <min_n> and <max_n>,
     b) for each contact zone: generates a complete graph, delaunay graph and a minimum spanning tree
     and computes the summed length of each graph's edges
@@ -317,23 +359,35 @@ def generate_ecdf_geo_likelihood(net, min_n, max_n, nr_samples, plot=False):
         net (dict): network containing the graph, location,...
         min_n (int): the minimum number of languages in a zone
         max_n (int): the maximum number of languages in a zone
-        nr_samples (int): the number of samples in the ecdf
-        plot(boolean): Plot the triangulation?
+        nr_samples (int): the number of samples in the ecdf per zone size
 
     Returns:
-        dict: a dictionary comprising the empirical and fitted ecdf for all types of graphs and all sizes n
+        dict: a dictionary comprising the empirical and fitted ecdf for all types of graphs
         """
 
     n_values = range(min_n, max_n+1)
 
-    estimate_ecdf_n_ = partial(estimate_ecdf_n,
-                              nr_samples=nr_samples, net=net, plot=False)
+    estimate_ecdf_n_ = partial(estimate_ecdf_n, nr_samples=nr_samples, net=net)
 
     with Pool(7, maxtasksperchild=1) as pool:
-        ecdf = pool.map(estimate_ecdf_n_, n_values)
+        distances = pool.map(estimate_ecdf_n_, n_values)
 
-    return {n: e for n, e in zip(n_values, ecdf)}
+    complete = []
+    delaunay = []
+    mst = []
 
+    for d in distances:
+
+        complete.extend(d['complete'])
+        delaunay.extend(d['delaunay'])
+        mst.extend(d['mst'])
+
+    # Fit a gamma distribution distribution to each type of graph
+    ecdf = {'complete': {'fitted_gamma': stats.gamma.fit(complete, floc=0), 'empirical': complete},
+            'delaunay': {'fitted_gamma': stats.gamma.fit(delaunay, floc=0), 'empirical': delaunay},
+            'mst': {'fitted_gamma': stats.gamma.fit(mst, floc=0), 'empirical': mst}}
+
+    return ecdf
 
 @dump_results(RANDOM_WALK_COV_PATH, True)  #RELOAD_DATA)
 def estimate_random_walk_covariance(net):

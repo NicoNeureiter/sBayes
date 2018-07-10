@@ -5,7 +5,7 @@ from __future__ import absolute_import, division, print_function, \
     unicode_literals
 
 import numpy as np
-
+from scipy import sparse
 import scipy.stats as spstats
 from scipy.sparse.csgraph import minimum_spanning_tree
 
@@ -82,7 +82,7 @@ def compute_feature_likelihood(zone, features, ll_lookup):
 
 
 @cache_arg(0, hash_bool_array)
-def compute_geo_likelihood_generative(zone: np.array, network: dict, cov: np.array):
+def compute_geo_prior_generative(zone: np.array, network: dict, cov: np.array):
     """
 
     Args:
@@ -91,7 +91,7 @@ def compute_geo_likelihood_generative(zone: np.array, network: dict, cov: np.arr
         cov (np.array): Covariance matrix of the multivariate gaussian.
 
     Returns:
-        float: geographical likelihood
+        float: geographical prior
     """
     dist_mat = network['dist_mat'][zone][:, zone]
     locations = network['locations'][zone]
@@ -109,44 +109,72 @@ def compute_geo_likelihood_generative(zone: np.array, network: dict, cov: np.arr
 
 
 @cache_arg(0, hash_bool_array)
-def compute_geo_likelihood_particularity(zone: np.array, net: dict, ecdf_geo: dict, subgraph_type: str):
+def compute_geo_prior_particularity(zone: np.array, net: dict, ecdf_geo: dict, subgraph_type: str):
 
-    """ This function computes the empirical geo-likelihood of a zone.
+    """ This function computes the empirical geo-prior of a zone.
     Args:
         zone (np.array): The current zone (boolean array)
         net (dict):  The full network containing all sites.
-        ecdf_geo (dict): The empirically generated geo-likelihood functions
-        subgraph_type (str): Defines which subgraph is used to compute the geo-likelihood, either
+        ecdf_geo (dict): The empirically generated geo-prior functions
+        subgraph_type (str): Defines which subgraph is used to compute the geo-prior, either
                     "complete", "delaunay" or "mst" (short for "minimum spanning tree")
     Returns:
-        geo_lh(float): The geo-likelihood of the zone
+        geo_prior(float): The geo-prior of the zone
     """
-
-    v = zone.nonzero()[0]
 
     if subgraph_type == "complete":
 
         dist_mat = net['dist_mat']
-        dist_mat_zone = dist_mat[zone][:, zone]
-        d = dist_mat_zone.sum()
+
+        dist_mat_zone = sparse.triu(dist_mat[zone][:, zone])
+        n_dist = dist_mat_zone.nnz
+
+        # Mean
+        # d = dist_mat_zone.sum()/n_dist
+        # Mean squared
+
+        #d = np.sum(dist_mat_zone.toarray() **2.) / n_dist
+        # Max
+        d = dist_mat[zone][:, zone].max(axis=None)
 
     else:
         triang = triangulation(net, zone)
 
         if subgraph_type == "delaunay":
-            d = triang.sum()
+            # Mean
+            dist_mat_zone = sparse.triu(triang)
+            n_dist = dist_mat_zone.nnz
+
+            # Mean
+            # d = dist_mat_zone.sum()/n_dist
+
+            # Mean squared
+            #d = np.sum(dist_mat_zone.toarray() ** 2.) / n_dist
+
+            # Max
+            d = triang.max(axis=None)
 
         elif subgraph_type == "mst":
-            mst = minimum_spanning_tree(triang)
-            d = mst.sum()
+
+            dist_mat_zone = minimum_spanning_tree(triang)
+            n_dist = dist_mat_zone.nnz
+
+            # Mean
+            # d = dist_mat_zone.sum()/n_dist
+
+            # Mean squared
+            # d = np.sum(dist_mat_zone.toarray() ** 2.) / n_dist
+
+            # Max
+            d = dist_mat_zone.max(axis=None)
 
         else:
             raise ValueError('Unknown lh_type: %s' % subgraph_type)
 
     # Compute likelihood
-    x = ecdf_geo[len(v)][subgraph_type]['fitted_gamma']
+    x = ecdf_geo[subgraph_type]['fitted_gamma']
 
-    geo_lh = -spstats.gamma.logcdf(d, *x)
+    geo_prior = np.log(1-spstats.gamma.cdf(d, *x))
 
-    return geo_lh
+    return geo_prior
 

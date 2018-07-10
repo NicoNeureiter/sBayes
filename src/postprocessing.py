@@ -78,6 +78,7 @@ def compute_marginal_likelihood(model, samples, mode, n_temp=100):
     else:
         raise ValueError("mode must be `power posterior` or `stepping stones`")
 
+
 def power_posterior (lh, temp):
     """ This function estimates the marginal likelihood of a model using the
     power posterior method
@@ -96,6 +97,7 @@ def power_posterior (lh, temp):
         h_tz = (np.mean(lh[i+1]) + np.mean(lh[i])) / 2
         res += w_tz * h_tz
     return res
+
 
 def stepping_stone_sampler(lh, temp):
     """ This function estimates the marginal likelihood of a model using the stepping stone sampler
@@ -117,6 +119,7 @@ def stepping_stone_sampler(lh, temp):
         res += temp_diff*max_ll
         res += np.log((1 / len(old_ll)) * sum(np.exp(temp_diff * (old_ll - max_ll))))
     return res
+
 
 def compute_bayes_factor(m_lh_1, m_lh_2):
     """ This function computes the Bayes' factor between two models.

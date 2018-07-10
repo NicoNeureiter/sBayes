@@ -267,3 +267,22 @@ def dump_results(path, reevaluate=False):
         return fn_dumpified
 
     return dump_decorator
+
+
+def zones_autosimilarity(zones, t):
+    """
+    This function computes the similarity of consecutive zones in a chain
+    Args:
+        zones (list): zones
+        t (integer): lag between consecutive zones in the chain
+
+    Returns:
+    (float) : mean similarity between zones in the chain with lag t
+    """
+    z = np.asarray(zones)
+    z = z[:, 0, :]
+    unions = np.maximum(z[t:], z[:-t])
+    intersections = np.minimum(z[t:], z[:-t])
+    sim_norm = np.sum(intersections, axis=1) / np.sum(unions, axis=1)
+
+    return np.mean(sim_norm)
