@@ -109,7 +109,7 @@ LH_WEIGHT = 1
 # Markov chain coupled MC (mc3)
 N_MC3_CHAINS = 10           # Number of independent chains
 MC3_EXCHANGE_PERIOD = 100
-MC3_DELTA_T = 0.5
+MC3_DELTA_T = 0.
 test_mc3 = [1]
 NR_SWAPS = 4   # Attempted inter-chain swaps after each MC3_EXCHANGE_PERIOD
 
