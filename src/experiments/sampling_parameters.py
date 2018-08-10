@@ -36,7 +36,6 @@ class NoDaemonProcess(multiprocessing.Process):
 
     daemon = property(_get_daemon, _set_daemon)
 
-
 class MyPool(multiprocessing.pool.Pool):
     Process = NoDaemonProcess
 
@@ -70,7 +69,8 @@ logging.getLogger().addHandler(logging.StreamHandler())
 z = 6  # That's the flamingo zone
 i = [0.9, 0.6]
 f = [0.9, 0.4]
-test_ease = [1]
+test_ease = [0]
+
 # [1] Easy: Favourable zones  with high intensity and many features affected by contact
 # [2] Hard: Unfavourable zones with low intensity and few features affected by contact
 
@@ -88,29 +88,30 @@ SAMPLES_PER_ZONE_SIZE = 1000
 
 # General
 BURN_IN = 0
-N_STEPS = 100000
-N_SAMPLES = 10000
+N_STEPS = 10000
+N_SAMPLES = 100
 N_RUNS = 5
 
 
 # Zone sampling
 MIN_SIZE = 5
 MAX_SIZE = 200
-CONNECTED_ONLY = True
+CONNECTED_ONLY = False
 
 P_TRANSITION_MODE = {
     'swap': 0.5,
-    'grow': 0.74,
+    'grow': 0.75,
     'shrink': 1.}
 
 # Steepness of the likelihood function
 LH_WEIGHT = 1
 
 # Markov chain coupled MC (mc3)
-N_MC3_CHAINS = 8
-MC3_EXCHANGE_PERIOD = 1000
+N_MC3_CHAINS = 10           # Number of independent chains
+MC3_EXCHANGE_PERIOD = 100
 MC3_DELTA_T = 0.5
 test_mc3 = [1]
+NR_SWAPS = 4   # Attempted inter-chain swaps after each MC3_EXCHANGE_PERIOD
 
 # At the moment not tested and set to default
 ALPHA_ANNEALING = 1.
@@ -172,7 +173,8 @@ def evaluate_sampling_parameters(params):
                                 simulated_annealing=a, alpha_annealing=ALPHA_ANNEALING,
                                 mc3=c, mc3_delta_t=MC3_DELTA_T, n_mc3_chains=N_MC3_CHAINS,
                                 mc3_exchange_period=MC3_EXCHANGE_PERIOD,
-                                plot_samples=False, print_logs=False)
+                                mc3_swaps=NR_SWAPS,
+                                plot_samples=False, print_logs=True)
 
         run_samples = zone_sampler.generate_samples(N_STEPS, N_SAMPLES, BURN_IN, return_steps=True)
 
