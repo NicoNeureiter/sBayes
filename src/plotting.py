@@ -626,7 +626,7 @@ if __name__ == '__main__':
     from src.util import bounding_box
     from src.preprocessing import get_contact_zones
 
-    TEST_SAMPLING_DIRECTORY = 'data/results/test/sampling/2018-07-09_16-49-27/'
+    TEST_SAMPLING_DIRECTORY = 'data/results/test/sampling/2018-08-09_22-25-46/'
 
     # Annealing, easy zones
     annealing = 1
@@ -651,9 +651,8 @@ if __name__ == '__main__':
         mcmc_res['feat_lh'].append(samples[1]['feat_ll'])
         mcmc_res['geo_prior'].append(samples[1]['geo_prior'])
 
-
         # Compute the normalized likelihood
-        #lh_norm = samples[1]['step_likelihoods'][::2]/samples[1]['true_zones_ll'][0]
+        lh_norm = np.asarray(samples[1]['step_likelihoods'])/samples[1]['true_zones_ll'][0]
 
         # Compute recall and precision
         true_z = samples[1]['true_zones'][0]
@@ -668,7 +667,7 @@ if __name__ == '__main__':
         precision = np.sum(intersections, axis=1)/np.sum(zones, axis=1)
 
         # Store to dict
-        #mcmc_res['lh'].append(lh_norm)
+        mcmc_res['lh'].append(lh_norm)
         mcmc_res['recall'].append(total_recall)
         mcmc_res['precision'].append(precision)
 
@@ -681,7 +680,7 @@ if __name__ == '__main__':
     #all_zones = []
 
     for u in range(len(mcmc_res['zones'])):
-            plot_posterior_frequency(mcmc_res['zones'][u][70000:], network)
+            plot_posterior_frequency(mcmc_res['zones'][u][30000:], network)
     plot_geo_prior_vs_feature_lh(mcmc_res, 100)
     plot_trace_mcmc(mcmc_res, 100)
     plot_zone_size_over_time(mcmc_res)
