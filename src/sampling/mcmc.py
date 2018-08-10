@@ -36,7 +36,8 @@ class MCMC(metaclass=_abc.ABCMeta):
     """
 
     def __init__(self, simulated_annealing=False, alpha_annealing=1.,
-                 mc3=False, n_mc3_chains=4, mc3_exchange_period=1000, mc3_delta_t=0.5, plot_samples=True):
+                 mc3=False, n_mc3_chains=4, mc3_exchange_period=1000, mc3_delta_t=0.5, mc3_swaps=1,
+                 plot_samples=True):
 
         self.simulated_annealing = simulated_annealing
         self.alpha_annealing = alpha_annealing
@@ -44,6 +45,7 @@ class MCMC(metaclass=_abc.ABCMeta):
         self.n_mc3_chains = n_mc3_chains
         self.mc3_exchange_period = mc3_exchange_period
         self.mc3_delta_t = mc3_delta_t
+        self.mc3_swaps = mc3_swaps
         self.plot_samples = plot_samples
 
         self.statistics = {
@@ -149,6 +151,7 @@ class MCMC(metaclass=_abc.ABCMeta):
         if self.mc3:
 
             self.statistics['accepted_exchanges'] = 0
+            self.statistics['attempted_exchanges'] = 0
             self.statistics['exchange_ratio'] = []
 
             # We only store statistics for the chain with temperature = 1
@@ -240,27 +243,31 @@ class MCMC(metaclass=_abc.ABCMeta):
 
         if self.mc3:
             self.statistics['exchange_ratio'] = (self.statistics['accepted_exchanges'] /
-                                                 _np.floor(n_steps/self.mc3_exchange_period))
+                                                 self.statistics['attempted_exchanges'])
 
         return samples
 
     def exchange_temperature(self, sample):
 
-        ex_from, ex_to = _np.random.choice(range(len(self.temperature)), 2, replace=False)
+        for _ in range(self.mc3_swaps):
 
-        ll_from = self.log_likelihood(sample[ex_from])
-        temperature_from = self.temperature[ex_from]
+            self.statistics['attempted_exchanges'] += 1
 
-        ll_to = self.log_likelihood(sample[ex_to])
-        temperature_to = self.temperature[ex_to]
+            ex_from, ex_to = _np.random.choice(range(len(self.temperature)), 2, replace=False)
 
-        ex_ratio = ll_from**temperature_to * ll_to**temperature_from /\
-                   (ll_to**temperature_to * ll_from**temperature_from)
+            ll_from = self.log_likelihood(sample[ex_from])
+            temperature_from = self.temperature[ex_from]
 
-        if _random.random() < ex_ratio:
-            self.temperature[ex_from] = temperature_to
-            self.temperature[ex_to] = temperature_from
-            self.statistics['accepted_exchanges'] =+ 1
+            ll_to = self.log_likelihood(sample[ex_to])
+            temperature_to = self.temperature[ex_to]
+
+            ex_ratio = ll_from**temperature_to * ll_to**temperature_from /\
+                       (ll_to**temperature_to * ll_from**temperature_from)
+
+            if _random.random() < ex_ratio:
+                self.temperature[ex_from] = temperature_to
+                self.temperature[ex_to] = temperature_from
+                self.statistics['accepted_exchanges'] += 1
 
     def step(self, sample, c=None):
         # Get a candidate
@@ -415,29 +422,30 @@ class ComponentMCMC(MCMC, metaclass=_abc.ABCMeta):
         return sample
 
     def exchange_temperature(self, sample):
+        for _ in range(self.mc3_swaps):
 
-        ex_from, ex_to = _np.random.choice(range(len(self.temperature)), 2, replace=False)
+            self.statistics['attempted_exchanges'] += 1
 
-        ll_from = self.log_likelihood(sample[ex_from])
-        temperature_from = self.temperature[ex_from]
+            ex_from, ex_to = _np.random.choice(range(len(self.temperature)), 2, replace=False)
 
-        ll_to = self.log_likelihood(sample[ex_to])
-        temperature_to = self.temperature[ex_to]
+            ll_from = self.log_likelihood(sample[ex_from])
+            temperature_from = self.temperature[ex_from]
 
-        ex_ratio = ll_from ** temperature_to * ll_to ** temperature_from / \
-                   (ll_to ** temperature_to * ll_from ** temperature_from)
+            ll_to = self.log_likelihood(sample[ex_to])
+            temperature_to = self.temperature[ex_to]
 
-        print(ex_ratio)
-        if _random.random() < ex_ratio:
+            ex_ratio = ll_from ** temperature_to * ll_to ** temperature_from / \
+                       (ll_to ** temperature_to * ll_from ** temperature_from)
 
-            print('Exchange accepted')
-            self.temperature[ex_from] = temperature_to
-            self.temperature[ex_to] = temperature_from
+            if _random.random() < ex_ratio:
 
-            self.statistics['accepted_exchanges'] = + 1
+                print('Exchange accepted')
+                self.temperature[ex_from] = temperature_to
+                self.temperature[ex_to] = temperature_from
+                self.statistics['accepted_exchanges'] += 1
 
-        else:
-            print('Exchange rejected')
+            else:
+                print('Exchange rejected')
 
     @_abc.abstractmethod
     def log_likelihood_rest(self, x):
