@@ -9,19 +9,20 @@ import numpy as np
 from src.sampling.mcmc import ComponentMCMC
 from src.model import compute_feature_likelihood, compute_geo_prior_generative,\
     compute_geo_prior_particularity, compute_likelihood_generative
-from src.util import grow_zone, get_neighbours
+from src.util import grow_zone, get_neighbours, ZoneError
 from src.plotting import plot_zones
 from src.config import *
 
 
 class ZoneMCMC(ComponentMCMC):
 
-    def __init__(self, network, features, min_size, max_size,
+    def __init__(self, network, features, min_size, max_size, start_size,
                  p_transition_mode, lh_lookup, ecdf_type,
-                 feature_ll_mode, geo_prior_mode, lh_weight=1, random_walk_cov=None, connected_only=False,
-                 print_logs=True, n_zones=1, ecdf_geo=None, **kwargs):
+                 feature_ll_mode, geo_prior_mode, initial_zones, lh_weight=1, n_zones=1,
+                 random_walk_cov=None, connected_only=False,
+                 print_logs=True, ecdf_geo=None, **kwargs):
 
-        super(ZoneMCMC, self).__init__(n_zones, **kwargs)
+        super(ZoneMCMC, self).__init__(n_components=n_zones, **kwargs)
 
         # Data
         self.network = network
@@ -31,13 +32,14 @@ class ZoneMCMC(ComponentMCMC):
         self.graph = network['graph']
 
         # Sampling
-        self.n_zones = n_zones
         self.n = self.adj_mat.shape[0]
 
-        # Prior assumptions about zone size / connectedness
+        # Prior assumptions about zone size / connectedness /initial sample
         self.min_size = min_size
         self.max_size = max_size
+        self.start_size = start_size
         self.connected_only = connected_only
+        self.initial_zones = initial_zones
 
         # Mode frequency / weight
         self.p_transition_mode = p_transition_mode
@@ -96,24 +98,6 @@ class ZoneMCMC(ComponentMCMC):
         else:
             raise ValueError('Unknown feature_ll_mode: %s' % self.feature_ll_mode)
 
-        # # Compute the geographic prior
-        #
-        # if self.geo_prior_mode == 'generative':
-        #     # Compute the geo-prior based on a gaussian distribution.
-        #     prior_geo = compute_geo_prior_generative(zone, self.network, self.random_walk_cov)
-        # elif self.geo_prior_mode == 'particularity':
-        #     # Compute the empirical geo-prior of a zone
-        #     prior_geo = compute_geo_prior_particularity(zone, self.network, self.ecdf_geo,
-        #                                                 subgraph_type=self.ecdf_type)
-        # elif self.geo_prior_mode == 'none':
-        #     prior_geo = 0
-        # else:
-        #     raise ValueError('Unknown geo_prior_mode: %s' % self.geo_prior_mode)
-
-        # Normalize geo-prior
-        # prior_geo *= self.nr_features
-
-        # return self.lh_weight* (ll_feature + prior_geo)
         return self.lh_weight * ll_feature
 
     def log_likelihood_rest(self, x):
@@ -161,15 +145,13 @@ class ZoneMCMC(ComponentMCMC):
 
         # Compute the neighbourhood
         neighbours = get_neighbours(zone_prev, occupied, self.adj_mat)
+
+        if not np.any(neighbours):
+            # When stuck, stay in zone and do not accept
+            return zone_prev, 1, 0
+
         neighbours_idx = neighbours.nonzero()[0]
-
-        # Add a neighbour to the zone
-        try:
-            i_new = _random.choice(neighbours_idx)
-        except IndexError as e:
-            print(zone_new.nonzero(), neighbours_idx)
-            raise e
-
+        i_new = _random.choice(neighbours_idx)
         zone_new[i_new] = occupied[i_new] = 1
 
         # Remove a vertex from the zone.
@@ -197,6 +179,10 @@ class ZoneMCMC(ComponentMCMC):
 
         # Add a neighbour to the zone
         neighbours = get_neighbours(zone_prev, occupied, self.adj_mat)
+        if not np.any(neighbours):
+            # When stuck, stay in zone and do not accept
+            return zone_prev, 1, 0
+
         i_new = _random.choice(neighbours.nonzero()[0])
         zone_new[i_new] = occupied[i_new] = 1
 
@@ -288,24 +274,43 @@ class ZoneMCMC(ComponentMCMC):
                     # No way to shrink while keeping the zone connected
                     return x_prev[self._current_zone], 1., 1.
 
-    def generate_initial_sample(self):
-        """Generate initial sample zones by growing a zone through random
-        grow-steps up to self.min_size.
+    def generate_initial_sample(self, c):
+        """Generate initial sample zones by A) growing a zone through random
+        grow-steps up to self.min_size, B) using the last sample of a previous run of the MCMC
 
         Returns:
             np.array: The generated initial zones.
         """
-        #self._lls = np.full(self.n_components, -np.inf)
 
         occupied = np.zeros(self.n, bool)
-        init_zones = np.zeros((self.n_zones, self.n), bool)
+        init_zones = np.zeros((self.n_components, self.n), bool)
+        zones_generated = 0
 
-        for i in range(self.n_zones):
-            g = grow_zone(self.min_size*5, self.network, occupied)
-            init_zones[i, :] = g[0]
-            occupied = g[1]
+        for i in range(len(self.initial_zones)):
 
-        return init_zones
+            # Test if initial samples exist
+            if self.initial_zones[i][c] is not None:
+
+                init_zones[i, :] = self.initial_zones[i][c]
+                occupied += self.initial_zones[i][c]
+                zones_generated += 1
+
+        components_with_iz = zones_generated
+
+        # For the rest: create all zones from scratch
+        while True:
+            for i in range(components_with_iz, self.n_components):
+                try:
+                    g = grow_zone(self.start_size, self.network, occupied)
+                    zones_generated += 1
+                except ZoneError:
+                    break
+
+                init_zones[i, :] = g[0]
+                occupied = g[1]
+
+            if zones_generated == self.n_components:
+                return init_zones
 
     def get_removal_candidates(self, zone):
         """Nodes which can be removed from the given zone. If connectedness is
@@ -336,9 +341,6 @@ class ZoneMCMC(ComponentMCMC):
             cut_vertices = G_zone.vs[cut_vs_idx]['name']
 
             return [v for v in zone_idx if v not in cut_vertices]
-
-    def plot_sample(self, sample, ax=None):
-        return plot_zones(sample, self.network, ax=ax)
 
     def log_sample_statistics(self, c=None):
         super(ZoneMCMC, self).log_sample_statistics(c)

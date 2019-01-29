@@ -1,98 +1,198 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+
 from __future__ import absolute_import, division, print_function, unicode_literals
+import os
+import logging
 import itertools
+import datetime
+import multiprocessing.pool
+
+import numpy as np
 
 from src.util import dump, load_from
 from src.preprocessing import (get_network,
-                               generate_ecdf_geo_likelihood,
+                               generate_ecdf_geo_prior,
                                get_contact_zones,
                                simulate_background_distribution,
                                simulate_contact, compute_feature_prob,
-                               precompute_feature_likelihood)
+                               precompute_feature_likelihood,
+                               define_contact_features,
+                               estimate_random_walk_covariance)
 from src.sampling.zone_sampling import ZoneMCMC
+
+
+class NoDaemonProcess(multiprocessing.Process):
+    # make 'daemon' attribute always return False
+    def _get_daemon(self):
+        return False
+
+    def _set_daemon(self, value):
+        pass
+
+    daemon = property(_get_daemon, _set_daemon)
+
+
+class MyPool(multiprocessing.pool.Pool):
+    Process = NoDaemonProcess
+
+now = datetime.datetime.now().__str__().rsplit('.')[0]
+now = now.replace(':', '-')
+now = now.replace(' ', '_')
+
+
+TEST_SAMPLING_DIRECTORY = 'data/results/test/zones/{experiment}/'.format(experiment=now)
+TEST_SAMPLING_RESULTS_PATH = TEST_SAMPLING_DIRECTORY + 'zone_z{z}_e{e}_{run}.pkl'
+TEST_SAMPLING_LOG_PATH = TEST_SAMPLING_DIRECTORY + 'zone.log'
+
+
+# Make directory if it doesn't exist yet
+if not os.path.exists(TEST_SAMPLING_DIRECTORY):
+    os.mkdir(TEST_SAMPLING_DIRECTORY)
+
+
+logging.basicConfig(filename=TEST_SAMPLING_LOG_PATH, level=logging.DEBUG)
+logging.getLogger().addHandler(logging.StreamHandler())
+
+
+################################
+# Simulation
+################################
+
+# Zones
+test_zone = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+
+# Intensity: proportion of sites, which are indicative of contact
+i = [0.4, 0.5, 0.6, 0.7, 0.8, 0.9]
+
+# Features: proportion of features affected by contact
+f = [0.4, 0.5, 0.6, 0.7, 0.8, 0.9]
+
+test_ease = range(0, len(f))
+
+# [0] Hard: Unfavourable zones with low intensity and few features affected by contact
+# [5] Easy: Favourable zones  with high intensity and many features affected by contact
+
+# Feature probabilities
+TOTAL_N_FEATURES = 30
+P_SUCCESS_MIN = 0.05
+P_SUCCESS_MAX = 0.95
+
+# Geo-prior
+GEO_PRIOR_NR_SAMPLES = 1000
+
+#################################
+# MCMC
+#################################
+
+# General
+BURN_IN = 0
+N_STEPS = 50000
+N_SAMPLES = 1000
+N_RUNS = 5
+
+
+# Zone sampling
+MIN_SIZE = 5
+MAX_SIZE = 200
+START_SIZE = 25
+CONNECTED_ONLY = False
+
+P_TRANSITION_MODE = {
+    'swap': 0.5,
+    'grow': 0.75,
+    'shrink': 1.}
+
+# Steepness of the likelihood function
+LH_WEIGHT = 1
+
+# Markov chain coupled MC (mc3)
+N_CHAINS = 5                  # Number of independent chains
+SWAP_PERIOD = 200
+N_SWAPS = 1   # Attempted inter-chain swaps after each SWAP_PERIOD
+
+# At the moment not needed and set to default
+MODEL = 'particularity'
+N_ZONES = 1
+
+
+sampling_param_grid = list(itertools.product(test_ease, test_zone))
+print(sampling_param_grid)
+
+
+def evaluate_sampling_parameters(params):
+    e, z = params
+
+    # Retrieve the network from the DB
+    network = get_network(reevaluate=True)
+
+    # Generate an empirical distribution for estimating the geo-likelihood
+    ecdf_geo = generate_ecdf_geo_prior(net=network, min_n=MIN_SIZE, max_n=MAX_SIZE,
+                                       nr_samples=GEO_PRIOR_NR_SAMPLES,
+                                       reevaluate=False)
+
+    stats = []
+    samples = []
+
+    contact_zones_idxs = get_contact_zones(z)
+    n_zones = len(contact_zones_idxs)
+    contact_zones = np.zeros((n_zones, network['n']), bool)
+
+    for k, cz_idxs in enumerate(contact_zones_idxs.values()):
+        contact_zones[k, cz_idxs] = True
+
+    for run in range(N_RUNS):
+
+        # Single zones, hence there are no initial zones
+        initial_zones = [[None] * N_CHAINS] * N_ZONES
+
+        # Simulation
+        f_names, contact_f_names = define_contact_features(n_feat=TOTAL_N_FEATURES, r_contact_feat=f[e],
+                                                           contact_zones=contact_zones_idxs)
+
+        features_bg = simulate_background_distribution(features=f_names,
+                                                       n_sites=len(network['vertices']),
+                                                       contact_features=contact_f_names,
+                                                       p_min=P_SUCCESS_MIN, p_max=P_SUCCESS_MAX,
+                                                       p_max_contact=i[e],
+                                                       reevaluate=True)
+
+        features = simulate_contact(features=features_bg, contact_features=contact_f_names,
+                                    p=i[e], contact_zones=contact_zones_idxs, reevaluate=True)
+        feature_prob = compute_feature_prob(features, reevaluate=True)
+        lh_lookup = precompute_feature_likelihood(MIN_SIZE, MAX_SIZE, feature_prob,
+                                                  reevaluate=True)
+
+        # Sampling
+        zone_sampler = ZoneMCMC(network=network, features=features,
+                                min_size=MIN_SIZE, max_size=MAX_SIZE, start_size=START_SIZE,
+                                p_transition_mode=P_TRANSITION_MODE, n_zones=N_ZONES, connected_only=CONNECTED_ONLY,
+                                feature_ll_mode=MODEL, geo_prior_mode=MODEL,
+                                lh_lookup=lh_lookup, lh_weight=LH_WEIGHT, ecdf_geo=ecdf_geo, ecdf_type="mst",
+                                n_chains=N_CHAINS, initial_zones=initial_zones,
+                                swap_period=SWAP_PERIOD,
+                                chain_swaps=N_SWAPS, print_logs=False)
+
+        zone_sampler.generate_samples(N_STEPS, N_SAMPLES, BURN_IN, return_steps=False)
+
+        # Collect statistics
+        run_stats = zone_sampler.statistics
+        run_stats['true_zones_lls'] = [zone_sampler.log_likelihood(cz) for cz in contact_zones]
+        run_stats['true_zones_priors'] = [zone_sampler.prior_zone(cz) for cz in contact_zones]
+        run_stats['true_zones'] = contact_zones
+
+        stats.append(run_stats)
+
+        # Store the results
+        path = TEST_SAMPLING_RESULTS_PATH.format(z=z, e=e, run=run)
+        dump(run_stats, path)
+
+    return samples, stats
 
 
 if __name__ == '__main__':
 
-    # Configuration (see config file)
-    TEST_RESULTS_ZONES_PATH = 'data/results/test/zones/'
+    # Test ease
+    with MyPool(4) as pool:
+        all_stats = pool.map(evaluate_sampling_parameters, sampling_param_grid)
 
-    MIN_SIZE = 5
-    MAX_SIZE = 100
-    SAMPLES_PER_ZONE_SIZE = 10000
-
-    TOTAL_N_FEATURES = 30
-    P_SUCCESS_MIN = 0.05
-    P_SUCCESS_MAX = 0.7
-    GEO_LIKELIHOOD_WEIGHT = 1
-    P_TRANSITION_MODE = {
-        'swap': 0.5,
-        'grow': 0.75,
-        'shrink': 1.}
-
-    # Retrieve the network from the DB
-    network = get_network()
-    # Generate an empirical distribution for estimating the geo-likelihood
-    ecdf_geo = generate_ecdf_geo_likelihood(net=network, min_n=MIN_SIZE, max_n=MAX_SIZE,
-                                            nr_samples=SAMPLES_PER_ZONE_SIZE, plot=False)
-
-    # MCMC Parameters
-    BURN_IN = 0
-    N_STEPS = 100
-    N_SAMPLES = 10000
-    SIMULATED_ANNEALING = True
-    RESTART_INTERVAL = True
-    REPEAT = 10
-
-    # Zones
-    # 6 ... flamingo, 10 ... banana, 8 ... small, 3 ... medium, 5 ... large
-    test_zones = [6, 10, 8, 3, 5]
-
-    # Intensity: proportion of sites, which are indicative of contact
-    test_intensity = [0.6, 0.75, 0.9]
-
-    # Features: proportion of features affected by contact
-    test_feature_ratio = [0.4, 0.65, 0.9]
-
-    # Models: either GM or PM
-    test_models = ["generative", "particularity"]
-
-    # Test different zones
-    for z in test_zones:
-
-        # Test different intensity
-        for i in test_intensity:
-
-            # Test different proportion of features
-            for f in test_feature_ratio:
-
-                features_bg = simulate_background_distribution(m_feat=TOTAL_N_FEATURES,
-                                                               n_sites=len(network['vertices']),
-                                                               p_min=P_SUCCESS_MIN, p_max=P_SUCCESS_MAX)
-
-                features = simulate_contact(r_feat=f, features=features_bg, p=i, contact_zones=get_contact_zones(z))
-                feature_prob = compute_feature_prob(features)
-                lh_lookup = precompute_feature_likelihood(1, MAX_SIZE, feature_prob)
-
-                # Test different model (PM, GM)
-                for m in test_models:
-
-                    zone_sampler = ZoneMCMC(network=network, features=features, min_size=MIN_SIZE,
-                                            max_size=MAX_SIZE, p_transition_mode=P_TRANSITION_MODE,
-                                            geo_weight=GEO_LIKELIHOOD_WEIGHT, lh_lookup=lh_lookup, n_zones=1,
-                                            ecdf_geo=ecdf_geo, restart_interval=RESTART_INTERVAL, ecdf_type="mst",
-                                            geo_ll_mode=m, feature_ll_mode=m, simulated_annealing=SIMULATED_ANNEALING,
-                                            plot_samples=False)
-
-                    # Repeatedly run the MCMC
-                    samples = []
-                    for r in range(0, REPEAT):
-                        samples.append(zone_sampler.generate_samples(N_SAMPLES, N_STEPS, BURN_IN))
-
-                    path = TEST_RESULTS_ZONES_PATH + '_z' + str(z)
-                    path += '_i' + str(i - int(i))[2:]
-                    path += '_f' + str(f - int(f))[2:]
-                    path += '_m' + str(m)
-                    path += '.pkl'
-                    dump(samples, path)

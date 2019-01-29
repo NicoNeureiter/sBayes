@@ -5,15 +5,14 @@ from __future__ import absolute_import, division, print_function, \
 
 import matplotlib.pyplot as plt
 import seaborn as sns
-plt.style.use('ggplot')
+plt.style.use('seaborn-paper')
 plt.tight_layout()
 
 import numpy as np
 import math
 
 from src.util import zones_autosimilarity
-from src.preprocessing import estimate_ecdf_n, generate_ecdf_geo_prior
-from src.model import compute_geo_prior_particularity
+from src.util import bounding_box
 from scipy.stats import gamma
 from scipy.spatial import Delaunay
 from matplotlib.collections import LineCollection
@@ -37,6 +36,9 @@ def get_colors():
                              'maximum': (1.000, 0.549, 0.000),              # darkorange
                              'precision': (0.216, 0.494, 0.722),            # blue
                              'recall': (1.000, 0.549, 0.000)},              # darkorange
+                   'boxplot': {'median': (1.000, 0.549, 0.000),             # darkorange
+                               'whiskers': (0.502, 0.502, 0.502),           # grey
+                               'box': (1.000, 0.549, 0.000, 0.2)},          # darkorange (transparent)
                    'zones': {'background_nodes': (0.502, 0.502, 0.502),
                              'in_zones': [(0.894, 0.102, 0.11),             # red
                                           (0.216, 0.494, 0.722),            # blue
@@ -195,22 +197,42 @@ def plot_posterior_density(zones, net):
     plt.show()
 
 
-def plot_posterior_frequency(zones, net):
+def plot_posterior_frequency(zones, net, pz=-1, r=0, burn_in=0.2):
     """ This function creates a scatter plot of all sites in the posterior distribution. The color of a site reflects
     its frequency in the posterior
 
     Args:
         zones (np.array): the posterior of all zones
         net (dict): The full network containing all sites.
+        r (int): Plot which run?
+        pz(int): For parallel zones: which parallel zone should be plotted? If -1, plot all.
     """
 
     fig, ax = plt.subplots()
     all_sites = net['locations']
     size = 4
-    n = len(zones)
+    fig.set_figheight(10)
+    fig.set_figwidth(15)
 
-    density = (np.sum(zones, axis=0, dtype=np.int32)/n)[0]
-    sc = ax.scatter(*all_sites.T, c=density, s=size + size*2*density, cmap='plasma')
+    # Find index of first sample after burn-in
+
+    if pz == -1:
+        n = len(zones[r][0])
+        zones = [sum(k) for k in zip(*zones[r])]
+
+        # Exclude burn-in
+        end_bi = math.ceil(len(zones) * burn_in)
+        density = (np.sum(zones[end_bi:], axis=0, dtype=np.int32) / n)
+        sc = ax.scatter(*all_sites.T, c=density, s=size + size * 2 * density, cmap='plasma')
+
+    else:
+        n = len(zones[r][pz])
+        zone = zones[r][pz]
+
+        # Exclude burn-in
+        end_bi = math.ceil(len(zone) * burn_in)
+        density = (np.sum(zone[end_bi:], axis=0, dtype=np.int32) / n)
+        sc = ax.scatter(*all_sites.T, c=density, s=size + size * 2 * density, cmap='plasma')
 
     # Customize plotting layout
     ax.grid(False)
@@ -225,6 +247,8 @@ def plot_posterior_frequency(zones, net):
     cbar = plt.colorbar(sc, shrink=0.3, orientation="horizontal")
     cbar.ax.get_xaxis().labelpad = -45
     cbar.ax.set_xlabel('Frequency of point in posterior')
+
+    fig.savefig('posterior_frequency.png', dpi=400)
     plt.show()
 
 
@@ -340,37 +364,63 @@ def plot_alpha_shapes(zone, net, alpha):
     plt.show()
 
 
-def plot_trace_mcmc(mcmc_res, sample_interval):
+def plot_trace_mcmc(mcmc_res, r=0, burn_in=0.2, recall=True, precision=True, normalized=True):
     """
     Function to plot the trace of the MCMC chains both in terms of likelihood and recall
     Args:
         mcmc_res (dict): the output from the MCMC neatly collected in a dict
-        sample_interval (int): the interval at which samples should be taken from the chains
-
+        r (int): which run?
+        burn_in: (float): First n% of samples are burn-in
     """
 
     fig, ax = plt.subplots()
     col = get_colors()
+    n_zones = len(mcmc_res['posterior'][r])
 
-    for l in mcmc_res['lh']:
-        y = l[::sample_interval]
+    if n_zones == 1:
+        label = "(log)-Posterior true zone"
+    else:
+        label = "(log)-Posterior true zones"
+
+    print(n_zones)
+    # Posterior (normalized by posterior of true zone)
+    if normalized:
+        y = [sum(k) for k in zip(*mcmc_res['posterior_norm'][r])]
         x = range(len(y))
-        ax.plot(x, y, lw=0.75, color=col['trace']['lh'])
+        ax.plot(x, y, lw=0.75, color=col['trace']['lh'], label='Normalized (log)-Posterior')
+        ax.axhline(y=1, xmin=x[0], xmax=x[-1], lw=2, color="red", label=label)
 
-    for r in mcmc_res['recall']:
-        y = r[::sample_interval]
+    else:
+
+        y = [sum(k) for k in zip(*mcmc_res['posterior'][r])]
         x = range(len(y))
-        ax.plot(x, y, lw=0.75, color=col['trace']['recall'])
+        ax.plot(x, y, lw=0.75, color=col['trace']['lh'], label='(log)-Posterior')
 
-    for p in mcmc_res['precision']:
-        y = p[::sample_interval]
+    # Recall
+    if recall:
+        y = [sum(k) for k in zip(*mcmc_res['recall'][r])]
         x = range(len(y))
-        ax.plot(x, y, lw=0.75, color=col['trace']['precision'])
+        ax.plot(x, y, lw=0.75, color=col['trace']['recall'], label='Recall')
 
-    ax.axhline(y=1, xmin=x[0], xmax=x[-1], lw=2, color="red")
+    # Precision
+    if precision:
+        y = [sum(k) for k in zip(*mcmc_res['precision'][r])]
+        x = range(len(y))
+        ax.plot(x, y, lw=0.75, color=col['trace']['precision'], label='Precision')
+
+    # Find index of first sample after burn-in
+    end_bi = math.ceil(len(y) * burn_in)
+    end_bi_label = math.ceil(len(y) * (burn_in - 0.03))
+
+
+
+    ax.axvline(x=end_bi, lw=1, color="grey", linestyle='--')
+    plt.text(end_bi_label, 0.5, 'Burn-in', rotation=90, size=8)
     ax.set_xlabel('Sample')
-    ax.set_ylabel('log LH')
     ax.set_title('Trace plot')
+    ax.set_ylim(bottom=0)
+    ax.set_xlim(left=0)
+    ax.legend(loc=4)
     plt.show()
 
 
@@ -397,10 +447,6 @@ def plot_auto_sim(mcmc_res):
     ax.set_title('Autosimilarity plot')
     plt.show()
 
-
-#concave_hull, edge_points = plot_alpha_shapes(points, alpha=1.87)
-#_ = plot_polygon(concave_hull)
-#_ = pl.plot(x, y, 'o', color='#f16824')
 
 def plot_proximity_graph(net, zone, graph, triang_type):
     """ This function generates a plot of the entire network, the current zone and its proximity graph
@@ -489,25 +535,49 @@ def plot_histogram_empirical_geo_prior(e_g_prior, g_prior_type):
     plt.show()
 
 
-def plot_geo_prior_vs_feature_lh(mcmc_res, sample_interval):
-    print(mcmc_res['feat_lh'])
+def plot_geo_prior_vs_feature_lh(mcmc_res, r=0, burn_in=0.2):
+    """
+        Function to plot the Likelihood and the prior for each chain in the MCMC
+        Args:
+            mcmc_res (dict): the output from the MCMC neatly collected in a dict
+            r (int): which run?
+            burn_in: (float): First n% of samples are burn-in
+        """
+    colors = get_colors()['zones']['in_zones']
     fig, ax = plt.subplots()
 
-    for c in mcmc_res['feat_lh'][::sample_interval]:
-        y = c[::sample_interval]
-        x = range(len(y))
-        ax.plot(x, y, lw=0.75, color="red")
+    # Where to put the label
+    x_mid = []
+    n_zones = len(mcmc_res['lh'][r])
 
-    for c in mcmc_res['geo_prior'][::sample_interval]:
-        y = c[::sample_interval]
-        #yg = []
-        #for i in y:
-        #    g = i
-        #    yg.append(g)
+    for c in range(n_zones):
+
+        if n_zones == 1:
+            label_lh = 'Likelihood'
+            label_prior = 'Prior'
+
+        else:
+            label_lh = 'Likelihood (zone' + str(c) + ')'
+            label_prior = 'Prior (zone' + str(c) + ')'
+
+        y = mcmc_res['lh'][r][c]
         x = range(len(y))
-        ax.plot(x, y, lw=0.75, color="blue")
+        ax.plot(x, y, lw=0.75, color=colors[c], label=label_lh)
+
+        y = mcmc_res['prior'][r][c]
+        x = range(len(y))
+        ax.plot(x, y, lw=0.75, color=colors[c], linestyle='--', label=label_prior)
+        x_mid.append(max(y) - min(y))  # Where to put the label?
+
+    # Find index of first sample after burn-in
+    end_bi = math.ceil(len(y) * burn_in)
+    end_bi_label = math.ceil(len(y) * (burn_in - 0.03))
+
+    ax.axvline(x=end_bi, lw=1, color="grey", linestyle='--')
+    ax.text(end_bi_label, max(x_mid), 'Burn-in', rotation=90, size=8)
 
     ax.set_xlabel('Sample')
+    ax.legend(loc=4)
     plt.show()
 
 
@@ -577,21 +647,51 @@ def plot_zone_size_vs_ll(mcmc_res, lh_type, mode, individual=False):
     plt.show()
 
 
-def plot_zone_size_over_time(mcmc_res):
+def plot_zone_size_over_time(mcmc_res, r=0, burn_in=0.2):
+    """
+         Function to plot the zone size in the posterior
+         Args:
+             mcmc_res (dict): the output from the MCMC neatly collected in a dict
+             r (int): which run?
+             burn_in: (float): First n% of samples are burn-in
+         """
 
     colors = get_colors()['zones']['in_zones']
     figure, ax = plt.subplots()
 
-    for c in range(len(mcmc_res['zones'])):
+    # Where to put the label?
+    x_mid = []
+    n_zones = len(mcmc_res['zones'][r])
 
-        pt_in_zone = []
-        for z in mcmc_res['zones'][c]:
-            pt_in_zone.append(np.sum(z))
+    for c in range(n_zones):
+        size = []
 
-        x = range(len(pt_in_zone))
-        ax.plot(x, pt_in_zone, lw=0.75, color=colors[c])
+        if n_zones == 1:
+            label = 'Size of true zone'
+        else:
+            label = 'Size of true zone ' + str(c)
 
+        for z in mcmc_res['zones'][r][c]:
+            size.append(np.sum(z))
+
+        x = range(len(size))
+        true_size = np.sum(mcmc_res['true_zones'][r][c])
+
+        ax.plot(x, size, lw=0.75, color=colors[c], label="Size of zone")
+        ax.axhline(y=true_size, xmin=x[0], xmax=x[-1], lw=1, color=colors[c], linestyle='--',
+                   label=label)
+
+        x_mid.append(max(size) - min(size))
+
+    # Find index of first sample after burn-in
+    end_bi = math.ceil(len(x) * burn_in)
+    end_bi_label = math.ceil(len(x) * (burn_in - 0.03))
+
+    ax.axvline(x=end_bi, lw=1, color="grey", linestyle='--')
+    ax.text(end_bi_label, max(x_mid), 'Burn-in', rotation=90, size=8)
+    ax.legend(loc=4)
     plt.show()
+
 
 def plot_gamma_parameters(ecdf):
 
@@ -620,77 +720,125 @@ def plot_gamma_parameters(ecdf):
 
     plt.show()
 
+
+def plot_parallel_posterior(post):
+    """ This function first sorts the posterior of parallel zones in mcmc_res, such that the first list comprises
+    the posterior of the largest zone, the second the posterior of the second largest zone, ... , and then
+    creates a boxplot of the resulting sorted posteriors of each zone
+    Args:
+        post (np.ndarray): the posterior of all parallel zones
+    """
+    # Get color palette
+    colors = get_colors()
+
+    # Sort the array
+    z_array = np.vstack(post)
+    z_array[::-1].sort(axis=0)
+
+
+    # make boxplot
+    fig, ax = plt.subplots()
+    ax.set_title('(log)-Posterior of parallel zones')
+    ax.set_xlabel('Parallel zone')
+    ax.set_ylabel('(log)-Posterior')
+
+    ax.boxplot(z_array.tolist(), showcaps=False, showmeans=False, patch_artist=True,
+               widths=0.2,  medianprops=dict(color=colors['boxplot']['median']),
+               whiskerprops=dict(color=colors['boxplot']['whiskers']),
+               boxprops=dict(facecolor=colors['boxplot']['box'], linewidth=0.1,
+                             color=colors['boxplot']['box']))
+
+    plt.show()
+
+
 if __name__ == '__main__':
     from src.util import load_from
     from src.config import NETWORK_PATH, FEATURES_PATH, LOOKUP_TABLE_PATH,ECDF_GEO_PATH
-    from src.util import bounding_box
     from src.preprocessing import get_contact_zones
 
-    TEST_SAMPLING_DIRECTORY = 'data/results/test/sampling/2018-08-09_22-25-46/'
+    TEST_SAMPLING_DIRECTORY = 'data/results/test/zones/2018-10-02_10-03-13/'
 
-    # Annealing, easy zones
-    annealing = 1
+    # Zone, ease and number of runs
+    zone = 6
     ease = 1
+    n_runs = 1
 
-    mcmc_res = {'lh': [],
-                'recall': [],
-                'precision': [],
-                'zones': [],
-                'feat_lh': [],
-                'geo_prior': []}
+    mcmc_res = {'lh': [[] for _ in range(n_runs)],
+                'prior': [[] for _ in range(n_runs)],
+                'recall': [[] for _ in range(n_runs)],
+                'precision': [[] for _ in range(n_runs)],
+                'zones': [[] for _ in range(n_runs)],
+                'posterior': [[] for _ in range(n_runs)],
+                'lh_norm': [[] for _ in range(n_runs)],
+                'posterior_norm': [[] for _ in range(n_runs)],
+                'true_zones':[[] for _ in range(n_runs)]}
 
-    for r in range(5):
+    for r in range(n_runs):
 
         # Load the MCMC results
-        sample_path = TEST_SAMPLING_DIRECTORY + 'sampling_e' + str(ease) + '_a' + \
-                      str(annealing) + '_mparticularity_' + str(r) +'.pkl'
+        sample_path = TEST_SAMPLING_DIRECTORY + 'zone_z' + str(zone) + '_e' + \
+                      str(ease) + '_' + str(r) + '.pkl'
 
         samples = load_from(sample_path)
-        mcmc_res['zones'].append(samples[0])
+        # Todo:  Handle parallel zones
+        # Todo: Run with burn-in
+        for t in range(len(samples['sample_zones'])):
 
-        mcmc_res['feat_lh'].append(samples[1]['feat_ll'])
-        mcmc_res['geo_prior'].append(samples[1]['geo_prior'])
+            # Zones, likelihoods and priors
+            zones = np.asarray(samples['sample_zones'][t])
 
-        # Compute the normalized likelihood
-        lh_norm = np.asarray(samples[1]['step_likelihoods'])/samples[1]['true_zones_ll'][0]
+            mcmc_res['zones'][r].append(zones)
+            mcmc_res['lh'][r].append(samples['sample_likelihoods'][t])
+            mcmc_res['prior'][r].append(samples['sample_priors'][t])
 
-        # Compute recall and precision
-        true_z = samples[1]['true_zones'][0]
-        n_true = np.sum(true_z)
+            # Normalized likelihood and posterior
 
-        zones = np.asarray(samples[0])
+            posterior = [x + y for x, y in zip(samples['sample_likelihoods'][t], samples['sample_priors'][t])]
+            true_posterior = samples['true_zones_lls'][t] + samples['true_zones_priors'][t]
+            mcmc_res['posterior'][r].append(posterior)
+            lh_norm = np.asarray(samples['sample_likelihoods'][t]) / samples['true_zones_lls'][t]
+            posterior_norm = np.asarray(posterior) / true_posterior
 
-        zones = zones[:, 0, :]
+            # Recall and precision
+            true_z = samples['true_zones'][t]
+            n_true = np.sum(true_z)
 
-        intersections = np.minimum(zones, true_z)
-        total_recall = np.sum(intersections, axis=1)/n_true
-        precision = np.sum(intersections, axis=1)/np.sum(zones, axis=1)
+            # zones = zones[:, 0, :]
+            intersections = np.minimum(zones, true_z)
+            total_recall = np.sum(intersections, axis=1)/n_true
+            precision = np.sum(intersections, axis=1)/np.sum(zones, axis=1)
 
-        # Store to dict
-        mcmc_res['lh'].append(lh_norm)
-        mcmc_res['recall'].append(total_recall)
-        mcmc_res['precision'].append(precision)
+            # Store to dict
+            mcmc_res['lh_norm'][r].append(lh_norm)
+            mcmc_res['posterior_norm'][r].append(posterior_norm)
+            mcmc_res['recall'][r].append(total_recall)
+            mcmc_res['precision'][r].append(precision)
+            mcmc_res['true_zones'][r].append(true_z)
 
     network = load_from(NETWORK_PATH)
-    #estimate_ecdf_n(10, 2, network)
-    #ecdf = generate_ecdf_geo_prior(network, 5, 90, 500)
-    #plot_histogram_empirical_geo_prior(ecdf, gl_type="mst")
-    #plot_histogram_empirical_geo_prior(ecdf, gl_type="delaunay")
-    #plot_histogram_empirical_geo_prior(ecdf, gl_type="complete")
-    #all_zones = []
 
-    for u in range(len(mcmc_res['zones'])):
-            plot_posterior_frequency(mcmc_res['zones'][u][30000:], network)
-    plot_geo_prior_vs_feature_lh(mcmc_res, 100)
-    plot_trace_mcmc(mcmc_res, 100)
-    plot_zone_size_over_time(mcmc_res)
+    #print(mcmc_res['posterior'])
+    #for u in mcmc_res['posterior']:
+    #     plot_parallel_posterior(u)
+    # print(mcmc_res['zones'][0])
+    #print(mcmc_res['zones'][0][0][0])
+    #print(len(mcmc_res['zones'][0][0]))
+    #
+
+    plot_posterior_frequency(mcmc_res['zones'], network, pz=0, r=0, burn_in=0.2)
+
+    # plot_geo_prior_vs_feature_lh(mcmc_res, r=0, burn_in=0.2 )
+    plot_trace_mcmc(mcmc_res, r=0, burn_in=0.2)
+    # plot_zone_size_over_time(mcmc_res, r=0, burn_in=0.2)
+    #
+
     #plot_zone_size_vs_ll(mcmc_res, 'geo_prior', mode='mean', individual=True)
 
     #ecdf = load_from(ECDF_GEO_PATH)
     #plot_gamma_parameters(ecdf)
     #print(np.sum(mcmc_res['zones'][1][-1][0]))
-    for u in range(len(mcmc_res['zones'])):
-        plot_zone(mcmc_res['zones'][u][-1][0], network)
+    #for u in range(len(mcmc_res['zones'])):
+    #    plot_zone(mcmc_res['zones'][u][-1][0], network)
 
 
 

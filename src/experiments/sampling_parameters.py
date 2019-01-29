@@ -36,6 +36,7 @@ class NoDaemonProcess(multiprocessing.Process):
 
     daemon = property(_get_daemon, _set_daemon)
 
+
 class MyPool(multiprocessing.pool.Pool):
     Process = NoDaemonProcess
 
@@ -43,11 +44,8 @@ now = datetime.datetime.now().__str__().rsplit('.')[0]
 now = now.replace(':', '-')
 now = now.replace(' ', '_')
 
-
 TEST_SAMPLING_DIRECTORY = 'data/results/test/sampling/{experiment}/'.format(experiment=now)
-TEST_SAMPLING_RESULTS_PATH = TEST_SAMPLING_DIRECTORY + 'sampling_e{e}_a{a}_m{m}_{run}.pkl'
-TEST_SAMPLING_LL_PLOT_PATH = TEST_SAMPLING_DIRECTORY + 'sampling_ll_e{e}_a{a}_m{m}.pdf'
-TEST_SAMPLING_ZONE_PLOT_PATH = TEST_SAMPLING_DIRECTORY + 'sampling_zone_e{e}_a{a}_m{m}_{run}.pdf'
+TEST_SAMPLING_RESULTS_PATH = TEST_SAMPLING_DIRECTORY + 'sampling_z{z}_e{e}_{run}.pkl'
 TEST_SAMPLING_LOG_PATH = TEST_SAMPLING_DIRECTORY + 'sampling.log'
 
 
@@ -67,19 +65,21 @@ logging.getLogger().addHandler(logging.StreamHandler())
 # Zones
 
 z = 6  # That's the flamingo zone
-i = [0.9, 0.6]
-f = [0.9, 0.4]
-test_ease = [0]
+i = [0.6, 0.9]
+f = [0.4, 0.9]
+test_ease = [0, 1]
+test_zone = [6]
 
+# [0] Hard: Unfavourable zones with low intensity and few features affected by contact
 # [1] Easy: Favourable zones  with high intensity and many features affected by contact
-# [2] Hard: Unfavourable zones with low intensity and few features affected by contact
+
 
 # Feature probabilities
 TOTAL_N_FEATURES = 30
 P_SUCCESS_MIN = 0.05
 P_SUCCESS_MAX = 0.95
 
-# Geo-likelihood
+# Geo-prior
 SAMPLES_PER_ZONE_SIZE = 1000
 
 #################################
@@ -88,7 +88,7 @@ SAMPLES_PER_ZONE_SIZE = 1000
 
 # General
 BURN_IN = 0
-N_STEPS = 10000
+N_STEPS = 20000
 N_SAMPLES = 100
 N_RUNS = 5
 
@@ -108,25 +108,23 @@ LH_WEIGHT = 1
 
 # Markov chain coupled MC (mc3)
 N_MC3_CHAINS = 10           # Number of independent chains
-MC3_EXCHANGE_PERIOD = 100
-MC3_DELTA_T = 0.
-test_mc3 = [1]
+MC3_EXCHANGE_PERIOD = 500
+MC3_DELTA_T = 0.001
 NR_SWAPS = 4   # Attempted inter-chain swaps after each MC3_EXCHANGE_PERIOD
 
 # At the moment not tested and set to default
 ALPHA_ANNEALING = 1.
-annealing = [1]
-model = ['particularity']
+ANNEALING = 1
+MODEL = 'particularity'
+MC3 = 1
 NR_ZONES = 1
 
-sampling_param_grid = list(itertools.product(test_ease,
-                                             test_mc3,
-                                             model,
-                                             annealing))
+sampling_param_grid = list(itertools.product(test_ease, test_zone))
+print(sampling_param_grid)
 
 
 def evaluate_sampling_parameters(params):
-    e, c, m, a = params
+    e, z = params
 
     # Retrieve the network from the DB
     network = get_network(reevaluate=False)
@@ -168,82 +166,32 @@ def evaluate_sampling_parameters(params):
         zone_sampler = ZoneMCMC(network=network, features=features,
                                 min_size=MIN_SIZE, max_size=MAX_SIZE, p_transition_mode=P_TRANSITION_MODE,
                                 n_zones=NR_ZONES, connected_only=CONNECTED_ONLY,
-                                feature_ll_mode=m, geo_prior_mode=m,
+                                feature_ll_mode=MODEL, geo_prior_mode=MODEL,
                                 lh_lookup=lh_lookup, lh_weight=LH_WEIGHT, ecdf_geo=ecdf_geo, ecdf_type="mst",
-                                simulated_annealing=a, alpha_annealing=ALPHA_ANNEALING,
-                                mc3=c, mc3_delta_t=MC3_DELTA_T, n_mc3_chains=N_MC3_CHAINS,
+                                simulated_annealing=ANNEALING, mc3=MC3, mc3_delta_t=MC3_DELTA_T, n_mc3_chains=N_MC3_CHAINS,
                                 mc3_exchange_period=MC3_EXCHANGE_PERIOD,
-                                mc3_swaps=NR_SWAPS,
-                                plot_samples=False, print_logs=True)
+                                mc3_swaps=NR_SWAPS, print_logs=False)
 
-        run_samples = zone_sampler.generate_samples(N_STEPS, N_SAMPLES, BURN_IN, return_steps=True)
+        zone_sampler.generate_samples(N_STEPS, N_SAMPLES, BURN_IN, return_steps=True)
 
         # Collect statistics
         run_stats = zone_sampler.statistics
         run_stats['true_zones_ll'] = [zone_sampler.log_likelihood(cz) for cz in contact_zones]
         run_stats['true_zones'] = contact_zones
 
-        # # Add plot
-        # fig, axes = plt.subplots(2, (N_SAMPLES + 1) // 2)
-        # axes = axes.flatten()
-        # axes = [zone_sampler.plot_sample(z, ax=ax) for z, ax in zip(run_samples, axes)]
-        # run_stats['plot'] = fig
-
-        # Compute feature likelihood and geo prior separately
-        # Comment out from here
-        feat_ll = []
-        geo_prior = []
-        for zo in run_samples:
-            feat = compute_feature_likelihood(zo[0], features, lh_lookup)
-            feat_ll.append(LH_WEIGHT * feat)
-            geo = compute_geo_prior_particularity(zo[0], network, ecdf_geo, subgraph_type='mst')
-            geo_prior.append(LH_WEIGHT * geo * TOTAL_N_FEATURES)
-
-        run_stats['feat_ll'] = feat_ll
-        run_stats['geo_prior'] = geo_prior
-        # till here
-
         stats.append(run_stats)
-        samples.append(run_samples)
+        #samples.append(run_samples)
 
         # Store the results
-        path = TEST_SAMPLING_RESULTS_PATH.format(e=e, a=a, m=m, run=run)
-        dump((run_samples, run_stats), path)
+        path = TEST_SAMPLING_RESULTS_PATH.format(z=z, e=e, run=run)
+        dump(run_stats, path)
 
     return samples, stats
 
 
 if __name__ == '__main__':
 
-    # Test ease, annealing and likelihood modes
-    with MyPool(1) as pool:
+    # Test ease
+    with MyPool(4) as pool:
         all_stats = pool.map(evaluate_sampling_parameters, sampling_param_grid)
 
-    # for params, param_results in zip(sampling_param_grid, all_stats):
-    #     param_samples, param_stats = param_results
-    #     m, e, a = params
-    #     print(m, e, a)
-    #
-    #     # plt.close()
-    #
-    #     fig_ll, ax_ll = plt.subplots()
-    #
-    #     for i_run, run_stats in enumerate(param_stats):
-    #         lls = run_stats['step_likelihoods']
-    #         if m == 'generative':
-    #             lls = - (abs(np.asarray(lls)) ** 0.01)
-    #
-    #         ax_ll.plot(lls, c='darkred', alpha=0.8)
-    #
-    #         plot_path_zone = TEST_SAMPLING_ZONE_PLOT_PATH.format(e=e, a=a, m=m, run=i_run)
-    #         fig_zone = run_stats['plot']
-    #         # fig_zone.show()
-    #         fig_zone.savefig(plot_path_zone, format='pdf')
-    #
-    #     true_zones_ll = run_stats['true_zones_ll']
-    #     true_zones_ll = - abs(np.asarray(true_zones_ll)) ** 0.01
-    #     plt.axhline(true_zones_ll, color='grey', linestyle='--')
-    #
-    #     plot_path_ll = TEST_SAMPLING_LL_PLOT_PATH.format(e=e, a=a, m=m)
-    #     fig_ll.savefig(plot_path_ll, format='pdf')
-# fig_ll.show()

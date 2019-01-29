@@ -65,7 +65,8 @@ def get_network():
     # Get vertices from PostgreSQL
     with psql_connection(commit=True) as connection:
         query_v = "SELECT id, mx AS x, my AS y " \
-                  "FROM {table};".format(table=DB_ZONE_TABLE)
+                  "FROM {table} " \
+                  "ORDER BY id;".format(table=DB_ZONE_TABLE)
         cursor = connection.cursor()
         cursor.execute(query_v)
         rows_v = cursor.fetchall()
@@ -84,33 +85,13 @@ def get_network():
         locations[i, 0] = x
         locations[i, 1] = y
 
-    # Get edges from PostgreSQL
-    with psql_connection(commit=True) as connection:
-        query_e = "SELECT v1, v2 " \
-                  "FROM {table};".format(table=DB_EDGE_TABLE)
+    # Edges
+    delaunay = compute_delaunay(locations)
+    v1, v2 = delaunay.toarray().nonzero()
+    edges = np.column_stack((v1, v2))
 
-        cursor = connection.cursor()
-        cursor.execute(query_e)
-        rows_e = cursor.fetchall()
-
-    n_e = len(rows_e)
-    edges = np.zeros((n_e, 2)).astype(int)
-    for i, e in enumerate(rows_e):
-        edges[i, 0] = gid_to_idx[e[0]]
-        edges[i, 1] = gid_to_idx[e[1]]
-
-    # Adjacency list and matrix
-    adj_list = [[] for _ in range(n_v)]
-    adj_mat = sparse.lil_matrix((n_v, n_v))
-
-    for v1, v2 in edges:
-        adj_list[v1].append(v2)
-        adj_list[v2].append(v1)
-        adj_mat[v1, v2] = 1
-        adj_mat[v2, v1] = 1
-
-    adj_list = np.array(adj_list)
-    adj_mat = adj_mat.tocsr()
+    # Adjacency Matrix
+    adj_mat = delaunay.tocsr()
 
     # Graph
     g = igraph.Graph()
@@ -127,14 +108,80 @@ def get_network():
     net = {'vertices': vertices,
            'edges': edges,
            'locations': locations,
-           'adj_list': adj_list,
            'adj_mat': adj_mat,
            'n': n_v,
-           'm': n_e,
+           'm': edges.shape[0],
            'graph': g,
            'dist_mat': dist_mat}
+
     return net
 
+
+def get_network_subset(areal_subset):
+    """ This function is similar to get_network(), with the main difference that it retrieves a subset of the network
+        from the DB, rather than the full network. Moreover, the returned subset is not pickled.
+
+        Args:
+            areal_subset (int): id of the subset. If None the complete network is retrieved.
+        Returns:
+            dict: a dictionary containing the network, its vertices and edges, an adjacency list and matrix
+            and a distance matrix
+        """
+
+    # Get only those vertices which belong to a specific subset of the network
+    with psql_connection(commit=True) as connection:
+        query_v = "SELECT id, mx AS x, my AS y " \
+                  "FROM {table} " \
+                  "WHERE cz = {id} " \
+                  "ORDER BY id;".format(table=DB_ZONE_TABLE, id=areal_subset)
+        cursor = connection.cursor()
+        cursor.execute(query_v)
+        rows_v = cursor.fetchall()
+
+    n_v = len(rows_v)
+    vertices = list(range(n_v))
+    locations = np.zeros((n_v, 2))
+    gid_to_idx = {}
+    idx_to_gid = {}
+    for i, v in enumerate(rows_v):
+        gid, x, y = v
+
+        gid_to_idx[gid] = i
+        idx_to_gid[i] = gid
+
+        locations[i, 0] = x
+        locations[i, 1] = y
+
+    # Edges
+    delaunay = compute_delaunay(locations)
+    v1, v2 = delaunay.toarray().nonzero()
+    edges = np.column_stack((v1, v2))
+
+    # Adjacency Matrix
+    adj_mat = delaunay.tocsr()
+
+    # Graph
+    g = igraph.Graph()
+    g.add_vertices(vertices)
+
+    for e in edges:
+        dist = compute_distance(edges[e[0]], edges[e[1]])
+        g.add_edge(e[0], e[1], weight=dist)
+
+    # Distance matrix
+    diff = locations[:, None] - locations
+    dist_mat = np.linalg.norm(diff, axis=-1)
+
+    net = {'vertices': vertices,
+           'edges': edges,
+           'locations': locations,
+           'adj_mat': adj_mat,
+           'n': n_v,
+           'm': edges.shape[0],
+           'graph': g,
+           'dist_mat': dist_mat}
+
+    return net
 
 @dump_results(CONTACT_ZONES_PATH, RELOAD_DATA)
 def get_contact_zones(zone_id):
@@ -148,9 +195,9 @@ def get_contact_zones(zone_id):
     if isinstance(zone_id, int):
         with psql_connection(commit=True) as connection:
             query_cz = "SELECT cz, array_agg(id) " \
-                       "FROM cz_sim.contact_zones_raw " \
-                       "WHERE cz = {list_id}" \
-                       "GROUP BY cz".format(list_id=zone_id)
+                       "FROM {table} " \
+                       "WHERE cz = {list_id} " \
+                       "GROUP BY cz".format(table=DB_ZONE_TABLE, list_id=zone_id)
             cursor = connection.cursor()
             cursor.execute(query_cz)
             rows_cz = cursor.fetchall()
@@ -164,9 +211,9 @@ def get_contact_zones(zone_id):
         if all(isinstance(x, int) for x in zone_id):
             with psql_connection(commit=True) as connection:
                 query_cz = "SELECT cz, array_agg(id) " \
-                           "FROM cz_sim.contact_zones_raw " \
-                           "WHERE cz IN {list_id}" \
-                           "GROUP BY cz".format(list_id=zone_id)
+                           "FROM {table} " \
+                           "WHERE cz IN {list_id} " \
+                           "GROUP BY cz".format(table=DB_ZONE_TABLE, list_id=zone_id)
                 cursor = connection.cursor()
                 cursor.execute(query_cz)
                 rows_cz = cursor.fetchall()
@@ -410,12 +457,13 @@ def estimate_random_walk_covariance(net):
 
 
 @dump_results(LOOKUP_TABLE_PATH, RELOAD_DATA)
-def precompute_feature_likelihood(min_size, max_size, feat_prob):
+def precompute_feature_likelihood(min_size, max_size, feat_prob, log_surprise=True):
     """This function generates a lookup table of likelihoods
     Args:
         min_size (int): the minimum number of languages in a zone.
         max_size (int): the maximum number of languages in a zone.
         feat_prob (np.array): the probability of a feature to be present.
+        log_surprise: define surprise with logarithm (see below)
     Returns:
         dict: the lookup table of likelihoods for a specific feature,
             sample size and observed presence.
@@ -424,15 +472,32 @@ def precompute_feature_likelihood(min_size, max_size, feat_prob):
     # The binomial test computes the p-value of having k or more (!) successes out of n trials,
     # given a specific probability of success
     # For a two-sided binomial test, simply remove "greater".
-    # The function returns -log (p_value), which is more sensitive to exceptional observations.
+    # The p-value is then used to compute surprise either as
+    # a) -log(p-value)
+    # b) 1/p-value,
+    # the latter being more sensitive to exceptional observations.
+    # and then returns the log likelihood.
 
-    def ll(p_zone, s, p_global):
+    def ll(p_zone, s, p_global, log_surprise):
         p = stats.binom_test(p_zone, s, p_global, 'greater')
+
+        if log_surprise:
+            try:
+                lh = -math.log(p)
+            except Exception as e:
+                print(p_zone, s, p_global, p)
+                raise e
+        else:
+            try:
+                lh = 1/p
+            except ZeroDivisionError:
+                lh = math.inf
+
+        # Log-Likelihood
         try:
-            return - math.log(p)
-        except Exception as e:
-            print(p_zone, s, p_global, p)
-            raise e
+            return math.log(lh)
+        except ValueError:
+            return -math.inf
 
     lookup_dict = {}
     for i_feat, p_global in enumerate(feat_prob):
@@ -440,7 +505,7 @@ def precompute_feature_likelihood(min_size, max_size, feat_prob):
         for s in range(min_size, max_size + 1):
             lookup_dict[i_feat][s] = {}
             for p_zone in range(s + 1):
-                lookup_dict[i_feat][s][p_zone] = ll(p_zone, s, p_global)
+                lookup_dict[i_feat][s][p_zone] = ll(p_zone, s, p_global, log_surprise)
 
     return lookup_dict
 

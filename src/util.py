@@ -14,6 +14,8 @@ from scipy.sparse import csr_matrix
 
 from math import sqrt
 
+class ZoneError(Exception):
+    pass
 
 def hash_array(a):
     """Hash function for numpy arrays.
@@ -205,6 +207,9 @@ def grow_zone(size, net, already_in_zone=None):
     for _ in range(size-1):
 
         neighbours = get_neighbours(zone, already_in_zone, net['adj_mat'])
+        if not np.any(neighbours):
+            raise ZoneError
+
         # Add a neighbour to the zone
         i_new = random.choice(neighbours.nonzero()[0])
         zone[i_new] = already_in_zone[i_new] = 1

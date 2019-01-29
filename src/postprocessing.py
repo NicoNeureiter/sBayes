@@ -1,6 +1,7 @@
 from src.util import load_from
 from src.config import *
 from src.sampling.zone_sampling import ZoneMCMC
+from itertools import permutations
 import numpy as np
 import math
 
@@ -52,9 +53,6 @@ def compute_marginal_likelihood(model, samples, mode, n_temp=100):
 
     # Iterate over temperatures
     for t in np.nditer(np.linspace(0, 1, n_temp)):
-
-        # MISSING: Perform zone sampling at a fixed temperature (ask Nico)
-        # MISSING ASSIGN NUMBER OF SAMPLES TO MCMC and MODE (PM or GM)
 
         sampler = ZoneMCMC(network=model['network'], features=model['features'], n_steps=model['n_steps'],
                            min_size=model['min_size'], max_size=model['max_size'], p_transition_mode=['p_transition_mode'],
@@ -114,7 +112,7 @@ def stepping_stone_sampler(lh, temp):
     for i in range(n-1):
         temp_diff = temp[i+1] - temp[i]
         max_ll = np.max(lh[i+1])
-        old_ll =  lh[i]
+        old_ll = lh[i]
 
         res += temp_diff*max_ll
         res += np.log((1 / len(old_ll)) * sum(np.exp(temp_diff * (old_ll - max_ll))))
@@ -135,10 +133,135 @@ def compute_bayes_factor(m_lh_1, m_lh_2):
     return np.exp(log_bf)
 
 
-mcmc_res = load_from(MCMC_RESULTS_PATH)
+def chains_to_samples(chains_in, in_match_chains=False):
+    """ Helper function to change the data structure from chains to samples
 
-aic = compute_model_quality(mcmc_res, 'AIC')
-bic = compute_model_quality(mcmc_res, 'BIC')
-mle = compute_model_quality(mcmc_res, 'MLE')
+    Args:
+        chains_in (list): chains, as returned by the MCMC
+        in_match_chains(bool): when used in the match_chains function, the output structure differs
 
-print(aic, bic, mle)
+    Returns
+        samples_out (ndaray): samples, as needed for matching
+         """
+
+    np_chains = np.array([np.array(c) for c in chains_in])
+
+    # Swap axes
+    samples_out = np.swapaxes(np_chains, 0, 1)
+
+    # Swap twice, if output is to be used in the match_chains function
+    if in_match_chains:
+        samples_out = np.swapaxes(samples_out, 1, 2)
+
+    return samples_out
+
+
+def samples_to_chains(samples_in):
+    """ Helper function to change the data structure from samples to chains
+
+    Args:
+        samples_in (list): Samples, as returned by the matching function
+
+    Returns
+        chains_out (ndaray): Chains with samples
+         """
+
+    samples_np = np.array([np.array(s) for s in samples_in])
+
+    # Swap axes
+    chains_out = np.swapaxes(samples_np, 1, 0)
+
+    return chains_out
+
+
+def match_chains(samples_in):
+    """Align zones in different chains to maximize matching site-alignements
+
+    Args:
+        samples_in (list): All chains returned by the MCMC.
+            Each chain is a boolean assignment from sites to a zone
+
+    Returns:
+        perm_list(list): Resulting matching.
+
+    """
+    # The input data are stored in a nested list
+    # Change structure
+    samples = chains_to_samples(samples_in, in_match_chains=True)
+
+    n_samples, n_sites, n_chains = samples.shape
+    c_sum = np.zeros((n_sites, n_chains))
+    #c_last = np.zeros((n_sites, n_chains))
+    # All potential permutations of cluster labels
+    perm = list(permutations(range(n_chains)))
+
+    i = 1
+    perm_list = []
+    for c in samples:
+        i += 1
+        print(i)
+
+        def clustering_agreement(p):
+
+            """In how many sites does the permutation 'p' of chain 'c'
+            match the previous chains?
+            """
+            return np.sum(c_sum * c[:, p])
+            #return np.sum(c_last * c[:, p])
+
+        best_perm = max(perm, key=clustering_agreement)
+        perm_list.append(list(best_perm))
+        c_sum += c[:, best_perm]
+        #c_last = c[:, best_perm]
+
+    #return z_sum / n_samples
+    return perm_list
+
+
+def apply_matching(samples_in, matching):
+    """iterates through a list of samples and reorders the chains in each sample according to the matching schema
+
+        Args:
+            samples_in (list): samples that need to be reordered
+            matching (list): matching according to which the samples are ordered
+        Returns:
+            list: samples, reordered according to matching
+
+        """
+
+    # Change data structure to perform the reordering
+    samples = chains_to_samples(samples_in)
+    print('After chains_to_samples', samples.shape)
+    # Reorder chains according to matching
+    reordered = []
+    for s in range(len(samples)):
+
+        if not len(samples) == len(matching):
+            raise ValueError("number of samples and number of matches differ")
+
+        reordered.append(samples[s][matching[s]])
+
+    return samples_to_chains(reordered)
+
+
+def unnest_marginal_lh(samples_in):
+    """Un-nest marginal likelihood samples
+
+    Args:
+        samples_in: samples to un-nest
+
+    Returns:
+        list: un-nested samples
+    """
+    # Some un-nesting is necessary
+    samples_out = []
+
+    for s in samples_in:
+        if len(s) == 1:
+
+            samples_out.append(s[0])
+
+        else:
+            raise ValueError("Parallel zones detected! Rerun without parallel zones.")
+
+    return samples_out
