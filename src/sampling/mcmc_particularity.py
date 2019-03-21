@@ -6,22 +6,16 @@ import math as _math
 import abc as _abc
 import random as _random
 import time as _time
-
 import numpy as _np
 
 
-class MCMC(metaclass=_abc.ABCMeta):
+class MCMC_part(metaclass=_abc.ABCMeta):
 
-    """Base-class for MCMC samplers. Instantiable sub-classes have to implement
+    """Base-class for MCMC samplers inpaticularity mode. Instantiable sub-classes have to implement
     some methods, like propose_step() and log_likelihood().
-    The base-class provides options for simulated annealing [1], for Markov coupled MCMC (MC3)[2].
+    The base-class provides options for Markov coupled MCMC (MC3)[2].
 
     Attributes:
-        simulated_annealing (bool): Use simulated annealing to avoid getting
-            stuck in local optima [1].
-        alpha_annealing (float): The alpha parameter, controlling the cooling schedule
-            for simulated annealing (ignored when simulated_annealing is False).
-        mc3 (bool): Use MC3 to explore the features space with several coupled chains
         mc3_chains (int): Number of coupled chains for MC3 (ignored when MC 3 is False)
         mc3_delta_t (float):
         mc3_swap_period (int):
@@ -30,16 +24,16 @@ class MCMC(metaclass=_abc.ABCMeta):
             schedule when simulated_annealing is True, is constant (1) otherwise.
         statistics (dict): Container for a set of statistics about the sampling run.
 
-    [1] https://en.wikipedia.org/wiki/Simulated_annealing
-    [2] Altekar, Gautam, et al. "Parallel metropolis coupled Markov chain Monte Carlo for Bayesian phylogenetic inference." Bioinformatics 20.3 (2004): 407-415.
+    [1]  Altekar, Gautam, et al. "Parallel metropolis coupled Markov chain Monte Carlo for Bayesian phylogenetic inference." Bioinformatics 20.3 (2004): 407-415.
     """
 
     def __init__(self, n_chains=4, swap_period=1000, chain_swaps=1, temperature=1.):
 
+        # Sampling attributes
         self.n_chains = n_chains
         self.swap_period = swap_period
         self.chain_swaps = chain_swaps
-        self.zone = []
+        self.chain_idx = list(range(self.n_chains))
         self.temperature = temperature
 
         # Initialize statistics
@@ -47,8 +41,9 @@ class MCMC(metaclass=_abc.ABCMeta):
 
         # State attributes
         self._ll = _np.full(self.n_chains, -_np.inf)
+        # self._ll_rest = _np.full(self.n_chains, -_np.inf)
         self._prior = _np.full(self.n_chains, -_np.inf)
-        self.chain_idx = list(range(self.n_chains))
+        self.zone = []
 
     def init_statistics(self):
         return {'sample_likelihoods': [],
@@ -72,11 +67,12 @@ class MCMC(metaclass=_abc.ABCMeta):
         pass
 
     @_abc.abstractmethod
-    def log_likelihood(self, x):
+    def log_likelihood(self, x, lh_mode):
         """Compute the log-likelihood of the given sample.
 
         Args:
             x (SampleType): Sample.
+            lh_mode(string): the likelihood mode
 
         Returns:
             float: Log-likelihood of x
@@ -84,10 +80,24 @@ class MCMC(metaclass=_abc.ABCMeta):
         pass
 
     @_abc.abstractmethod
-    def generate_initial_sample(self):
+    def log_likelihood_rest(self, x, lh_mode):
+        """Compute the log-likelihood of the complement of the sample (i.e the rest, not assigned to a zone).
+
+        Args:
+            x (SampleType): The current posterior sample.
+            lh_mode(string): The likelihood mode
+
+        Returns:
+            float: log-likelihood of the not-assigned samples
+        """
+        pass
+
+    @_abc.abstractmethod
+    def generate_initial_sample(self, c):
         """Generate an initial sample from which the run should be started.
         Preferably in high density areas.
-
+        Args:
+            c(int): number of chains
         Returns:
             SampleType: Initial zone.
         """
@@ -120,15 +130,15 @@ class MCMC(metaclass=_abc.ABCMeta):
         return (ll_ratio * temperature) - log_q_ratio + prior_ratio
 
     def generate_samples(self, n_steps, n_samples, burn_in_steps, return_steps=False):
-        """Run the MCMC sampling procedure with Metropolis Hastings rejection
-        step and options for simulated annealing and multiple chains. Samples are
+        """Run the MCMC sampling procedure for the particularity model with Metropolis Hastings rejection
+        step and options for multiple chains. Samples are
         returned, statistics saved in self.statistics.
 
         Args:
             n_steps (int): The number of steps the sampler should make in total.
             n_samples (int): The number of samples the sampler should take.
             burn_in_steps (int): The number of burn in steps performed before the first sample.
-
+            return_steps (boolean): Return only samples or each step?
         Returns:
             list: The generated samples.
         """
@@ -136,20 +146,24 @@ class MCMC(metaclass=_abc.ABCMeta):
         steps_per_sample = int(_np.ceil(n_steps / n_samples))
         t_start = _time.time()
 
-        # Generate samples using MCMC with several chains
-
+        # Initialize stats
         self.statistics['accepted_exchanges'] = 0
         self.statistics['attempted_exchanges'] = 0
         self.statistics['exchange_ratio'] = []
 
+        # Generate samples using MCMC with several chains
         sample = [None] * self.n_chains
 
         # Generate initial samples for each chain
         for c in self.chain_idx:
-            print(c)
             sample[c] = self.generate_initial_sample(c)
+
+            # Compute the (log)-likelihood for the sample
             self._ll[c] = self.log_likelihood(sample[c])
             self._prior[c] = self.prior_zone(sample[c])
+
+            # Likelihood for rest is only evaluated for mode ='generative' otherwise set to 0
+            # self._ll_rest[c] = self.log_likelihood_rest(sample[c])
 
         # Generate burn-in samples for each chain
         for c in self.chain_idx:
@@ -164,7 +178,7 @@ class MCMC(metaclass=_abc.ABCMeta):
 
                     sample[c] = self.step(sample[c], c)
 
-                    # We only take samples of the first chain
+                    # Only take samples from the first chain
                     if self.chain_idx[c] == 0:
                         self.zone = sample[c]
 
@@ -202,10 +216,11 @@ class MCMC(metaclass=_abc.ABCMeta):
 
             self.statistics['attempted_exchanges'] += 1
 
-            # ex_from, ex_to = _np.random.choice(range(len(self.temperature)), 2, replace=False)
+            # Chose random chains and try to swap them
             ex_from = 0
             ex_to, = _np.random.choice(range(1, self.n_chains), 1)
 
+            # Compute lh and prior ratio for both chains
             ll_from = self.log_likelihood(sample[ex_from])
             prior_from = self.prior_zone(sample[ex_from])
 
@@ -217,36 +232,45 @@ class MCMC(metaclass=_abc.ABCMeta):
 
             ex_ratio = ll_ratio + prior_ratio
 
+            # Swap in Metropolis Hastings step
             if _math.log(_random.random()) < ex_ratio:
                 self.chain_idx[ex_from] = ex_to
                 self.chain_idx[ex_to] = ex_from
                 self.statistics['accepted_exchanges'] += 1
 
     def step(self, sample, c=None):
+
         # Get a candidate
         candidate, q, q_back = self.propose_step(sample)
 
-        # Compute the log-likelihood and Metropolis-Hastings ratio
+        # Compute the log-likelihood of the candidate
         ll_candidate = self.log_likelihood(candidate)
+        # Likelihood for rest is only evaluated for mode ='generative' otherwise set to 0
+        # ll_rest_candidate = self.log_likelihood_rest(candidate)
+
+        # Compute the prior for the candidate
         prior_candidate = self.prior_zone(candidate)
 
         if c is None:
-            # Regular sampling
-            mh_ratio = self.metropolis_hastings_ratio(ll_new=ll_candidate, ll_prev=self._ll,
+            # Single chain sampling
+            mh_ratio = self.metropolis_hastings_ratio(ll_new=ll_candidate,  # + ll_rest_candidate,
+                                                      ll_prev=self._ll,  # + self._ll_rest,
                                                       prior_new=prior_candidate, prior_prev=self._prior,
                                                       q=q, q_back=q_back,
                                                       temperature=self.temperature)
 
-            # Accept/reject according to MH-ratio
+            # Accept/reject according to MH-ratio and update
             if _math.log(_random.random()) < mh_ratio:
                 sample = candidate
                 self._ll = ll_candidate
+                #self._ll_rest = ll_rest_candidate
                 self._prior = prior_candidate
                 self.statistics['accepted'] += 1
 
         else:
             # Multi chain sampling
-            mh_ratio = self.metropolis_hastings_ratio(ll_new=ll_candidate, ll_prev=self._ll[c],
+            mh_ratio = self.metropolis_hastings_ratio(ll_new=ll_candidate,  # + ll_rest_candidate,
+                                                      ll_prev=self._ll[c],  # + self._ll_rest,
                                                       prior_new=prior_candidate, prior_prev=self._prior[c],
                                                       q=q, q_back=q_back,
                                                       temperature=self.temperature)
@@ -255,6 +279,7 @@ class MCMC(metaclass=_abc.ABCMeta):
             if _math.log(_random.random()) < mh_ratio:
                 sample = candidate
                 self._ll[c] = ll_candidate
+                # self._ll_rest[c] = ll_rest_candidate
                 self._prior[c] = prior_candidate
                 self.statistics['accepted'] += 1
 
@@ -276,7 +301,7 @@ class MCMC(metaclass=_abc.ABCMeta):
         self.statistics['last_sample'].append(sample)
 
 
-class ComponentMCMC(MCMC, metaclass=_abc.ABCMeta):
+class ComponentMCMC_part(MCMC_part, metaclass=_abc.ABCMeta):
 
     """Extends the default MCMC sampler to problems with multiple components.
     Every component is updated separately conditioned on the others (like Gibbs
@@ -291,9 +316,10 @@ class ComponentMCMC(MCMC, metaclass=_abc.ABCMeta):
 
     def __init__(self, n_components, **kwargs):
         self.n_components = n_components
-        super(ComponentMCMC, self).__init__(**kwargs)
+        super(ComponentMCMC_part, self).__init__(**kwargs)
 
         self._lls = _np.full((self.n_chains, self.n_components), -_np.inf)
+        # self._ll_rest = _np.full(self.n_chains, -_np.inf)
         self._priors = _np.full((self.n_chains, self.n_components), -_np.inf)
         self._current_zone = 0
 
@@ -315,26 +341,39 @@ class ComponentMCMC(MCMC, metaclass=_abc.ABCMeta):
             candidate = sample.copy()
             candidate[i_component] = candidate_i
 
-            # Compute the log-likelihood and Metropolis-Hastings ratio
+            # Compute the log-likelihood
             ll_candidate = self.log_likelihood(candidate_i)
+
+            # Likelihood for rest is only evaluated for mode ='generative' otherwise set to 0
+            # ll_rest_candidate = self.log_likelihood_rest(candidate)
+
+            # Evaluate the prior probability
             prior_candidate = self.prior_zone(candidate_i)
 
+            # One chain
             if c is None:
-                mh_ratio = self.metropolis_hastings_ratio(ll_new=ll_candidate, ll_prev=self._lls[i_component],
-                                                          prior_new=prior_candidate, prior_prev=self._priors[i_component],
+                mh_ratio = self.metropolis_hastings_ratio(ll_new=ll_candidate,  # + ll_rest_candidate,
+                                                          ll_prev=self._lls[i_component],  # + self._ll_rest,
+                                                          prior_new=prior_candidate,
+                                                          prior_prev=self._priors[i_component],
                                                           q=q, q_back=q_back,
                                                           temperature=self.temperature)
                 if _math.log(_random.random()) < mh_ratio:
                     sample[i_component] = candidate_i
                     self._lls[i_component] = ll_candidate
                     self._priors[i_component] = prior_candidate
+
                     self._ll = _np.sum(self._lls)
+                    # self._ll_rest = ll_rest_candidate
                     self._prior = _np.sum(self._priors)
                     self.statistics['accepted'] += 1
 
+            # Multiple chains
             else:
-                mh_ratio = self.metropolis_hastings_ratio(ll_new=ll_candidate, ll_prev=self._lls[c][i_component],
-                                                          prior_new=prior_candidate, prior_prev=self._priors[c][i_component],
+                mh_ratio = self.metropolis_hastings_ratio(ll_new=ll_candidate,  # + ll_rest_candidate,
+                                                          ll_prev=self._lls[c][i_component],  # + self._ll_rest[c],
+                                                          prior_new=prior_candidate,
+                                                          prior_prev=self._priors[c][i_component],
                                                           q=q, q_back=q_back,
                                                           temperature=self.temperature)
 
@@ -343,7 +382,9 @@ class ComponentMCMC(MCMC, metaclass=_abc.ABCMeta):
                     sample[i_component] = candidate_i
                     self._lls[c][i_component] = ll_candidate
                     self._priors[c][i_component] = prior_candidate
+
                     self._ll[c] = _np.sum(self._lls[c])
+                    # self._ll_rest[c] = ll_rest_candidate
                     self._prior[c] = _np.sum(self._priors[c])
                     self.statistics['accepted'] += 1
 
@@ -365,53 +406,36 @@ class ComponentMCMC(MCMC, metaclass=_abc.ABCMeta):
 
             self.statistics['attempted_exchanges'] += 1
 
-            # ex_from, ex_to = _np.random.choice(range(len(self.temperature)), 2, replace=False)
-            # Find chain with chain_idx=0
-            # print(self.chain_idx)
-
+            # Chose random chains and try to swap them
             swap_from = [i for i in range(len(self.chain_idx)) if self.chain_idx[i] == 0][0]
             rest = [i for i in range(len(self.chain_idx)) if self.chain_idx[i] != 0]
             swap_to, = _np.random.choice(rest, 1)
 
+            # Compute lh and prior ratio for both chains
             ll_from = self.log_likelihood(sample[swap_from])
+            # Likelihood for rest is only evaluated for mode ='generative' otherwise set to 0
+            # ll_rest_from = self.log_likelihood_rest(sample[swap_from])
             prior_from = self.prior_zone(sample[swap_from])
-            # temperature_from = self.temperature[ex_from]
 
             ll_to = self.log_likelihood(sample[swap_to])
+            # Likelihood for rest is only evaluated for mode ='generative' otherwise set to 0
+            # ll_rest_to = self.log_likelihood_rest(sample[swap_to])
             prior_to = self.prior_zone(sample[swap_to])
-            # temperature_to = self.temperature[ex_to]
 
             ll_ratio = (ll_to - ll_from) * temperature
+            # ll_ratio = ((ll_to + ll_rest_to) - (ll_from + ll_rest_from)) * temperature
             prior_ratio = prior_to - prior_from
 
-            # ex_ratio = (ll_from - ll_to) * temperature_to + (ll_to - ll_from) * temperature_from
             ex_ratio = ll_ratio + prior_ratio
 
-            #print('Simple ratio:', ll_to/ll_from)
-            #print('From: ', ll_from, ' to: ', ll_to)
-            #print('Temperature (from - to): ', temperature_from, temperature_to)
-            #print('Ratio:', ex_ratio)
-
+            # Swap in Metropolis Hastings step
             if _math.log(_random.random()) < ex_ratio:
                 self.chain_idx[swap_from] = self.chain_idx[swap_to]
                 self.chain_idx[swap_to] = 0
                 self.statistics['accepted_exchanges'] += 1
-                print('Exchange accepted')
 
             else:
-                print('Exchange rejected')
-
-    @_abc.abstractmethod
-    def log_likelihood_rest(self, x):
-        """
-
-        Args:
-            x (SampleType): The current posterior sample.
-
-        Returns:
-            float: Likelihood of the not-assigned samples
-        """
-        pass
+                pass
 
     def log_sample_statistics(self, c=None):
 

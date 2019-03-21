@@ -6,27 +6,32 @@ import logging
 
 import numpy as np
 
-from src.sampling.mcmc import ComponentMCMC
-from src.model import compute_feature_likelihood, compute_geo_prior_generative,\
-    compute_geo_prior_particularity, compute_likelihood_generative
-from src.util import grow_zone, get_neighbours, ZoneError
+from src.sampling.mcmc_particularity import ComponentMCMC_particularity
+from src.model import compute_feature_likelihood, compute_feature_likelihood_old, compute_geo_prior_gaussian,\
+    compute_geo_prior_distance, compute_likelihood_generative
+from src.util import grow_zone, get_neighbours, ZoneError, categories_from_features, swap_step
 from src.plotting import plot_zones
 from src.config import *
 
 
-class ZoneMCMC(ComponentMCMC):
+class ZoneMCMC_particularity(ComponentMCMC_particularity):
 
     def __init__(self, network, features, min_size, max_size, start_size,
                  p_transition_mode, lh_lookup, ecdf_type,
-                 feature_ll_mode, geo_prior_mode, initial_zones, lh_weight=1, n_zones=1,
-                 random_walk_cov=None, connected_only=False,
+                 # feature_ll_mode,
+                 geo_prior_mode, initial_zones, lh_weight=1, n_zones=1,
+                 # random_walk_cov=None,
+                 connected_only=False,
                  print_logs=True, ecdf_geo=None, **kwargs):
 
-        super(ZoneMCMC, self).__init__(n_components=n_zones, **kwargs)
+        super(ZoneMCMC_particularity, self).__init__(n_components=n_zones, **kwargs)
 
         # Data
-        self.network = network
         self.features = features
+        self.features_cat = categories_from_features(features)
+
+        # Network
+        self.network = network
         self.adj_mat = network['adj_mat']
         self.locations = network['locations']
         self.graph = network['graph']
@@ -47,10 +52,10 @@ class ZoneMCMC(ComponentMCMC):
         self.lh_weight = lh_weight
 
         # Likelihood modes
-        self.feature_ll_mode = feature_ll_mode
+        # self.feature_ll_mode = feature_ll_mode
         self.geo_prior_mode = geo_prior_mode
         self.ecdf_type = ecdf_type
-        self.random_walk_cov = random_walk_cov
+        # self.random_walk_cov = random_walk_cov
 
         # Look-up tables
         self.lh_lookup = lh_lookup
@@ -65,14 +70,14 @@ class ZoneMCMC(ComponentMCMC):
 
         # Compute the geographic prior
 
-        if self.geo_prior_mode == 'generative':
-            # Compute the geo-prior based on a gaussian distribution.
-            prior_geo = compute_geo_prior_generative(zone, self.network, self.random_walk_cov)
+        # if self.geo_prior_mode == 'gaussian':
+        #     # Compute the geo-prior based on a gaussian distribution.
+        #     prior_geo = compute_geo_prior_gaussian(zone, self.network, self.random_walk_cov)
 
-        elif self.geo_prior_mode == 'particularity':
+        elif self.geo_prior_mode == 'distance':
             # Compute the empirical geo-prior of a zone
-            prior_geo = compute_geo_prior_particularity(zone, self.network, self.ecdf_geo,
-                                                        subgraph_type=self.ecdf_type)
+            prior_geo = compute_geo_prior_distance(zone, self.network, self.ecdf_geo,
+                                                   subgraph_type=self.ecdf_type)
 
         elif self.geo_prior_mode == 'none':
             prior_geo = 0
@@ -90,52 +95,56 @@ class ZoneMCMC(ComponentMCMC):
             return sum([self.log_likelihood(z) for z in zone])
 
         # Compute the feature likelihood
-        if self.feature_ll_mode == 'generative':
-            # Compute the feature-likelihood based on a binomial distribution.
-            ll_feature = compute_likelihood_generative(zone, self.features)
-        elif self.feature_ll_mode == 'particularity':
-            ll_feature = compute_feature_likelihood(zone, self.features, self.lh_lookup)
-        else:
-            raise ValueError('Unknown feature_ll_mode: %s' % self.feature_ll_mode)
+        # if lh_mode in ('generative', 'generative_no_bg'):
+        #     ll_feature = compute_likelihood_generative(zone, self.features, self.features_cat)
+
+        ll_feature = compute_feature_likelihood(zone, self.features, self.lh_lookup)
+
+        # else:
+        #     raise ValueError('Unknown feature_ll_mode: %s' % lh_mode)
 
         return self.lh_weight * ll_feature
 
-    def log_likelihood_rest(self, x):
-        if self.feature_ll_mode == 'particularity':
+    def log_likelihood_rest(self, x, lh_mode):
+        if lh_mode in ('particularity', 'generative_no_bg'):
             return 0.
 
-        elif self.feature_ll_mode == 'generative':
-            occupied = np.any(x, axis=0)
-
-            features_free = self.features[~occupied, :]
-            n, n_features = features_free.shape
-            k = features_free.sum(axis=0)
-
-            n_all = self.features.shape[0]
-            k_all = self.features.sum(axis=0)
-            p_all = (k_all / n_all)  # TODO pre-compute
-
-            ll = np.sum(k * np.log(p_all) + (n - k) * np.log(1 - p_all))
-
+        elif lh_mode == 'generative':
+            if np.ndim(x) == 2:
+                occupied = np.any(x, axis=0)
+            else:
+                occupied = x
+            ll = compute_likelihood_generative(~occupied, self.features, self.features_cat)
             return ll
+
+            # features_free = self.features[~occupied, :]
+            # n, n_features = features_free.shape
+            # k = features_free.sum(axis=0)
+
+            # n_all = self.features.shape[0]
+            # k_all = self.features.sum(axis=0)
+            # p_all = (k_all / n_all)  # TODO pre-compute
+
+            # ll = np.sum(k * np.log(p_all) + (n - k) * np.log(1 - p_all))
+
+            # return ll
 
         else:
             raise ValueError
 
-    def swap_step(self, x_prev, n_swaps=1):
+    def swap_step(self, x_prev):
+
         """Propose a transition by removing a vertex and adding another one from the
         neighbourhood.
 
         Args:
             x_prev (np.ndarray): Current zone given as a boolean array.
-            n_swaps (int): The maximum number of swaps to perform in this step.
 
         Returns:
             np.array: The proposed new contact zone.
             float: The proposal probability.
             float: The probability to transition back (new_zone -> prev_zone)
         """
-
 
         # Select current zone
         i_zone = self._current_zone
@@ -331,19 +340,19 @@ class ZoneMCMC(ComponentMCMC):
 
         else:
             # Compute non cut-vertices (can be removed while keeping zone connected).
-            G_zone = self.graph.induced_subgraph(zone_idx)
-            assert G_zone.is_connected()
+            g_zone = self.graph.induced_subgraph(zone_idx)
+            assert g_zone.is_connected()
 
-            cut_vs_idx = G_zone.cut_vertices()
+            cut_vs_idx = g_zone.cut_vertices()
             if len(cut_vs_idx) == size:
                 return []
 
-            cut_vertices = G_zone.vs[cut_vs_idx]['name']
+            cut_vertices = g_zone.vs[cut_vs_idx]['name']
 
             return [v for v in zone_idx if v not in cut_vertices]
 
     def log_sample_statistics(self, c=None):
-        super(ZoneMCMC, self).log_sample_statistics(c)
+        super(ZoneMCMC_particularity, self).log_sample_statistics(c)
         if self.print_logs:
             logging.info('Current zones log-likelihood: %s' % self._lls)
             logging.info('Current total log-likelihood: %s' % self._ll)

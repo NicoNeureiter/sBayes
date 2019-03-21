@@ -19,7 +19,7 @@ from src.preprocessing import (get_network,
                                precompute_feature_likelihood,
                                define_contact_features,
                                estimate_random_walk_covariance)
-from src.sampling.zone_sampling import ZoneMCMC
+from src.sampling.zone_sampling_particularity import ZoneMCMC_particularity
 
 
 class NoDaemonProcess(multiprocessing.Process):
@@ -63,10 +63,10 @@ logging.getLogger().addHandler(logging.StreamHandler())
 test_zone = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
 
 # Intensity: proportion of sites, which are indicative of contact
-i = [0.4, 0.5, 0.6, 0.7, 0.8, 0.9]
+i = [0.5, 0.6, 0.7, 0.8, 0.9]
 
 # Features: proportion of features affected by contact
-f = [0.4, 0.5, 0.6, 0.7, 0.8, 0.9]
+f = [0.5, 0.6, 0.7, 0.8, 0.9]
 
 test_ease = range(0, len(f))
 
@@ -75,11 +75,9 @@ test_ease = range(0, len(f))
 
 # Feature probabilities
 TOTAL_N_FEATURES = 30
-P_SUCCESS_MIN = 0.05
-P_SUCCESS_MAX = 0.95
+P_SUCCESS_MIN = 0.2
+P_SUCCESS_MAX = 0.8
 
-# Geo-prior
-GEO_PRIOR_NR_SAMPLES = 1000
 
 #################################
 # MCMC
@@ -89,7 +87,7 @@ GEO_PRIOR_NR_SAMPLES = 1000
 BURN_IN = 0
 N_STEPS = 50000
 N_SAMPLES = 1000
-N_RUNS = 5
+N_RUNS = 1
 
 
 # Zone sampling
@@ -103,17 +101,19 @@ P_TRANSITION_MODE = {
     'grow': 0.75,
     'shrink': 1.}
 
-# Steepness of the likelihood function
-LH_WEIGHT = 1
-
 # Markov chain coupled MC (mc3)
-N_CHAINS = 5                  # Number of independent chains
+N_CHAINS = 6                  # Number of independent chains
 SWAP_PERIOD = 200
 N_SWAPS = 1   # Attempted inter-chain swaps after each SWAP_PERIOD
 
-# At the moment not needed and set to default
-MODEL = 'particularity'
+# Steepness of the likelihood function (for particularity model only)
+LH_WEIGHT = 1
 N_ZONES = 1
+
+# Geo-prior (distance or gaussian)
+GEO_PRIOR = 'none'
+# If 'distance' set number of samples to generate empirical distribution
+GEO_PRIOR_NR_SAMPLES = 1000
 
 
 sampling_param_grid = list(itertools.product(test_ease, test_zone))
@@ -127,9 +127,13 @@ def evaluate_sampling_parameters(params):
     network = get_network(reevaluate=True)
 
     # Generate an empirical distribution for estimating the geo-likelihood
-    ecdf_geo = generate_ecdf_geo_prior(net=network, min_n=MIN_SIZE, max_n=MAX_SIZE,
-                                       nr_samples=GEO_PRIOR_NR_SAMPLES,
-                                       reevaluate=False)
+    if GEO_PRIOR == 'distance':
+
+        ecdf_geo = generate_ecdf_geo_prior(net=network, min_n=MIN_SIZE, max_n=MAX_SIZE,
+                                           nr_samples=GEO_PRIOR_NR_SAMPLES,
+                                           reevaluate=False)
+    else:
+        ecdf_geo = 0
 
     stats = []
     samples = []
@@ -159,19 +163,26 @@ def evaluate_sampling_parameters(params):
 
         features = simulate_contact(features=features_bg, contact_features=contact_f_names,
                                     p=i[e], contact_zones=contact_zones_idxs, reevaluate=True)
+
         feature_prob = compute_feature_prob(features, reevaluate=True)
-        lh_lookup = precompute_feature_likelihood(MIN_SIZE, MAX_SIZE, feature_prob,
-                                                  reevaluate=True)
+
+        if MODEL == "particularity":
+            lh_lookup = precompute_feature_likelihood(MIN_SIZE, MAX_SIZE, feature_prob, log_surprise=False,
+                                                      reevaluate=True)
+
+        else:
+            lh_lookup = 0
 
         # Sampling
-        zone_sampler = ZoneMCMC(network=network, features=features,
-                                min_size=MIN_SIZE, max_size=MAX_SIZE, start_size=START_SIZE,
-                                p_transition_mode=P_TRANSITION_MODE, n_zones=N_ZONES, connected_only=CONNECTED_ONLY,
-                                feature_ll_mode=MODEL, geo_prior_mode=MODEL,
-                                lh_lookup=lh_lookup, lh_weight=LH_WEIGHT, ecdf_geo=ecdf_geo, ecdf_type="mst",
-                                n_chains=N_CHAINS, initial_zones=initial_zones,
-                                swap_period=SWAP_PERIOD,
-                                chain_swaps=N_SWAPS, print_logs=False)
+        zone_sampler = ZoneMCMC_particularity(network=network, features=features,
+                                              min_size=MIN_SIZE, max_size=MAX_SIZE, start_size=START_SIZE,
+                                              p_transition_mode=P_TRANSITION_MODE, n_zones=N_ZONES,
+                                              connected_only=CONNECTED_ONLY, geo_prior_mode=GEO_PRIOR,
+                                              lh_lookup=lh_lookup,
+                                              lh_weight=LH_WEIGHT, ecdf_geo=ecdf_geo, ecdf_type="mst",
+                                              n_chains=N_CHAINS, initial_zones=initial_zones,
+                                              swap_period=SWAP_PERIOD,
+                                              chain_swaps=N_SWAPS, print_logs=False)
 
         zone_sampler.generate_samples(N_STEPS, N_SAMPLES, BURN_IN, return_steps=False)
 
