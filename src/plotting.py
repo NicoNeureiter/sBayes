@@ -19,6 +19,9 @@ from matplotlib.collections import LineCollection
 from shapely.ops import cascaded_union, polygonize
 from shapely import geometry
 from descartes import PolygonPatch
+import geopandas as gpd
+import os
+os.environ["PROJ_LIB"] = "C:/Users/ranacher/Anaconda3/Library/share"
 
 
 def get_colors():
@@ -197,7 +200,8 @@ def plot_posterior_density(zones, net):
     plt.show()
 
 
-def plot_posterior_frequency(zones, net, pz=-1, r=0, burn_in=0.2):
+def plot_posterior_frequency(zones, net, pz=-1, r=0, burn_in=0.2, map=False, proj4=None, geojson_map=None,
+                             geo_json_river=None, offset_factor=0.03):
     """ This function creates a scatter plot of all sites in the posterior distribution. The color of a site reflects
     its frequency in the posterior
 
@@ -207,14 +211,25 @@ def plot_posterior_frequency(zones, net, pz=-1, r=0, burn_in=0.2):
         r (int): Plot which run?
         pz(int): For parallel zones: which parallel zone should be plotted? If -1, plot all.
     """
-
-    fig, ax = plt.subplots()
+    #plt.rcParams['axes.facecolor'] = '#00000000'
+    fig, ax = plt.subplots(figsize=(20, 40))
     all_sites = net['locations']
     size = 4
-    fig.set_figheight(10)
-    fig.set_figwidth(15)
+
+    #fig.set_figwidth(25)
 
     # Find index of first sample after burn-in
+    if map:
+        if proj4 is None and geojson_map is None:
+            raise Exception('If you want to use a map provide a geojson and and a crs')
+
+        world = gpd.read_file(geojson_map)
+        world = world.to_crs(proj4)
+        world.plot(ax=ax, color='white', edgecolor='black')
+        if geo_json_river is not None:
+            rivers = gpd.read_file(geo_json_river)
+            rivers = rivers.to_crs(proj4)
+            rivers.plot(ax=ax, color=None, edgecolor="skyblue")
 
     if pz == -1:
         n = len(zones[r][0])
@@ -240,13 +255,15 @@ def plot_posterior_frequency(zones, net, pz=-1, r=0, burn_in=0.2):
     ax.set_yticks([])
 
     bbox = bounding_box(all_sites)
-    offset_x = (bbox['x_max'] - bbox['x_min']) * 0.03
-    offset_y = (bbox['y_max'] - bbox['y_min']) * 0.03
+    offset_x = (bbox['x_max'] - bbox['x_min']) * offset_factor
+    offset_y = (bbox['y_max'] - bbox['y_min']) * offset_factor
     plt.xlim(bbox['x_min'] - offset_x, bbox['x_max'] + offset_x)
     plt.ylim(bbox['y_min'] - offset_y, bbox['y_max'] + offset_y)
     cbar = plt.colorbar(sc, shrink=0.3, orientation="horizontal")
     cbar.ax.get_xaxis().labelpad = -45
     cbar.ax.set_xlabel('Frequency of point in posterior')
+
+    fig.subplots_adjust(left=0.01, right=0.99, top=0.99, bottom=0.01)
 
     fig.savefig('posterior_frequency.png', dpi=400)
     plt.show()
@@ -647,7 +664,7 @@ def plot_zone_size_vs_ll(mcmc_res, lh_type, mode, individual=False):
     plt.show()
 
 
-def plot_zone_size_over_time(mcmc_res, r=0, burn_in=0.2):
+def plot_zone_size_over_time(mcmc_res, r=0, burn_in=0.2, true_zone=True):
     """
          Function to plot the zone size in the posterior
          Args:
@@ -675,11 +692,12 @@ def plot_zone_size_over_time(mcmc_res, r=0, burn_in=0.2):
             size.append(np.sum(z))
 
         x = range(len(size))
-        true_size = np.sum(mcmc_res['true_zones'][r][c])
+        if true_zone:
+            true_size = np.sum(mcmc_res['true_zones'][r][c])
+            ax.axhline(y=true_size, xmin=x[0], xmax=x[-1], lw=1, color=colors[c], linestyle='--',
+                       label=label)
 
         ax.plot(x, size, lw=0.75, color=colors[c], label="Size of zone")
-        ax.axhline(y=true_size, xmin=x[0], xmax=x[-1], lw=1, color=colors[c], linestyle='--',
-                   label=label)
 
         x_mid.append(max(size) - min(size))
 

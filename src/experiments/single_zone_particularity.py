@@ -165,13 +165,7 @@ def evaluate_sampling_parameters(params):
                                     p=i[e], contact_zones=contact_zones_idxs, reevaluate=True)
 
         feature_prob = compute_feature_prob(features, reevaluate=True)
-
-        if MODEL == "particularity":
-            lh_lookup = precompute_feature_likelihood(MIN_SIZE, MAX_SIZE, feature_prob, log_surprise=False,
-                                                      reevaluate=True)
-
-        else:
-            lh_lookup = 0
+        lh_lookup = precompute_feature_likelihood(MIN_SIZE, MAX_SIZE, feature_prob, log_surprise=False, reevaluate=True)
 
         # Sampling
         zone_sampler = ZoneMCMC_particularity(network=network, features=features,

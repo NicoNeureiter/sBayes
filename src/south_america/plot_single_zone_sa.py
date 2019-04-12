@@ -10,6 +10,11 @@ if __name__ == '__main__':
     TABLE = 'sbayes_south_america.languages'
     TEST_ZONE_DIRECTORY = 'src/south_america/2019-02-26_14-41-59/'
 
+    # MAP
+    PROJ4_STRING = '+proj=eqdc +lat_0=-32 +lon_0=-60 +lat_1=-5 +lat_2=-42 +x_0=0 +y_0=0 +ellps=aust_SA +units=m +no_defs '
+    GEOJSON_MAP_PATH = 'src/south_america/map/ne_50m_land.geojson'
+    GEOJSON_RIVER_PATH = 'src/south_america/map/ne_50m_rivers_lake_centerlines_scale_rank.geojson'
+
     # Zone, ease and number of runs
     n_runs = 5
     z = 1
@@ -44,11 +49,12 @@ if __name__ == '__main__':
 
 
     # Posterior frequency
-    plot_posterior_frequency(mcmc_res['zones'], net=network, pz=-1, r=0, burn_in=0)
+    plot_posterior_frequency(mcmc_res['zones'], net=network, pz=-1, r=0, burn_in=0, map=True, proj4=PROJ4_STRING,
+                             geojson_map=GEOJSON_MAP_PATH, geo_json_river=GEOJSON_RIVER_PATH, offset_factor=0.4)
 
 
     # Trace, precision and recall
-    plot_trace_mcmc(mcmc_res, r=0, burn_in=0.2)
+    plot_trace_mcmc(mcmc_res, r=0, burn_in=0.2, recall=False, precision=False, normalized=False)
 
     # Zone size over time
-    plot_zone_size_over_time(mcmc_res, r=0, burn_in=0.2)
+    plot_zone_size_over_time(mcmc_res, r=0, burn_in=0.2, true_zone=False)

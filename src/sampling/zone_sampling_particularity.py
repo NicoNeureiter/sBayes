@@ -7,9 +7,9 @@ import logging
 import numpy as np
 
 from src.sampling.mcmc_particularity import ComponentMCMC_particularity
-from src.model import compute_feature_likelihood, compute_feature_likelihood_old, compute_geo_prior_gaussian,\
+from src.model import compute_likelihood_particularity, \
     compute_geo_prior_distance, compute_likelihood_generative
-from src.util import grow_zone, get_neighbours, ZoneError, categories_from_features, swap_step
+from src.util import grow_zone, get_neighbours, ZoneError, categories_from_features
 from src.plotting import plot_zones
 from src.config import *
 
@@ -18,9 +18,7 @@ class ZoneMCMC_particularity(ComponentMCMC_particularity):
 
     def __init__(self, network, features, min_size, max_size, start_size,
                  p_transition_mode, lh_lookup, ecdf_type,
-                 # feature_ll_mode,
                  geo_prior_mode, initial_zones, lh_weight=1, n_zones=1,
-                 # random_walk_cov=None,
                  connected_only=False,
                  print_logs=True, ecdf_geo=None, **kwargs):
 
@@ -52,10 +50,8 @@ class ZoneMCMC_particularity(ComponentMCMC_particularity):
         self.lh_weight = lh_weight
 
         # Likelihood modes
-        # self.feature_ll_mode = feature_ll_mode
         self.geo_prior_mode = geo_prior_mode
         self.ecdf_type = ecdf_type
-        # self.random_walk_cov = random_walk_cov
 
         # Look-up tables
         self.lh_lookup = lh_lookup
@@ -69,10 +65,6 @@ class ZoneMCMC_particularity(ComponentMCMC_particularity):
             return sum([self.prior_zone(z) for z in zone])
 
         # Compute the geographic prior
-
-        # if self.geo_prior_mode == 'gaussian':
-        #     # Compute the geo-prior based on a gaussian distribution.
-        #     prior_geo = compute_geo_prior_gaussian(zone, self.network, self.random_walk_cov)
 
         elif self.geo_prior_mode == 'distance':
             # Compute the empirical geo-prior of a zone
@@ -94,43 +86,9 @@ class ZoneMCMC_particularity(ComponentMCMC_particularity):
         if np.ndim(zone) == 2:
             return sum([self.log_likelihood(z) for z in zone])
 
-        # Compute the feature likelihood
-        # if lh_mode in ('generative', 'generative_no_bg'):
-        #     ll_feature = compute_likelihood_generative(zone, self.features, self.features_cat)
-
-        ll_feature = compute_feature_likelihood(zone, self.features, self.lh_lookup)
-
-        # else:
-        #     raise ValueError('Unknown feature_ll_mode: %s' % lh_mode)
+        ll_feature = compute_likelihood_particularity(zone, self.features, self.lh_lookup)
 
         return self.lh_weight * ll_feature
-
-    def log_likelihood_rest(self, x, lh_mode):
-        if lh_mode in ('particularity', 'generative_no_bg'):
-            return 0.
-
-        elif lh_mode == 'generative':
-            if np.ndim(x) == 2:
-                occupied = np.any(x, axis=0)
-            else:
-                occupied = x
-            ll = compute_likelihood_generative(~occupied, self.features, self.features_cat)
-            return ll
-
-            # features_free = self.features[~occupied, :]
-            # n, n_features = features_free.shape
-            # k = features_free.sum(axis=0)
-
-            # n_all = self.features.shape[0]
-            # k_all = self.features.sum(axis=0)
-            # p_all = (k_all / n_all)  # TODO pre-compute
-
-            # ll = np.sum(k * np.log(p_all) + (n - k) * np.log(1 - p_all))
-
-            # return ll
-
-        else:
-            raise ValueError
 
     def swap_step(self, x_prev):
 
@@ -183,9 +141,6 @@ class ZoneMCMC_particularity(ComponentMCMC_particularity):
         zone_new = zone_prev.copy()
         occupied = np.any(x_prev, axis=0)
 
-        size_prev = np.count_nonzero(zone_prev)
-        size_new = size_prev + 1
-
         # Add a neighbour to the zone
         neighbours = get_neighbours(zone_prev, occupied, self.adj_mat)
         if not np.any(neighbours):
@@ -194,6 +149,9 @@ class ZoneMCMC_particularity(ComponentMCMC_particularity):
 
         i_new = _random.choice(neighbours.nonzero()[0])
         zone_new[i_new] = occupied[i_new] = 1
+
+        # size_prev = np.count_nonzero(zone_prev)
+        # size_new = size_prev + 1
 
         # # Transition probability when growing
         # q = 1 / np.count_nonzero(neighbours)
@@ -215,13 +173,13 @@ class ZoneMCMC_particularity(ComponentMCMC_particularity):
         zone_new = zone_prev.copy()
         occupied = np.any(x_prev, axis=0)
 
-        size_prev = np.count_nonzero(zone_prev)
-        size_new = size_prev - 1
-
         # Remove a vertex from the zone.
         removal_candidates = self.get_removal_candidates(zone_prev)
         i_out = _random.choice(removal_candidates)
         zone_new[i_out] = occupied[i_out] = 0
+
+        # size_prev = np.count_nonzero(zone_prev)
+        # size_new = size_prev - 1
 
         # # Transition probability when shrinking.
         # q = 1 / len(removal_candidates)

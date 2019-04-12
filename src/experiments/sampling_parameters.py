@@ -21,9 +21,9 @@ from src.preprocessing import (get_network,
                                precompute_feature_likelihood,
                                define_contact_features,
                                estimate_random_walk_covariance)
-from src.sampling.zone_sampling import ZoneMCMC
+from src.sampling.zone_sampling_particularity import ZoneMCMC
 from src.config import ECDF_GEO_PATH
-from src.sampling.zone_sampling import compute_feature_likelihood, compute_geo_prior_particularity
+from src.sampling.zone_sampling_particularity import compute_feature_likelihood, compute_geo_prior_particularity
 
 
 class NoDaemonProcess(multiprocessing.Process):

@@ -257,14 +257,21 @@ def dump_results(path, reevaluate=False):
 
             reeval = kwargs.pop('reevaluate', reevaluate)
 
-            if (not reeval) and os.path.exists(path):
-                with open(path, 'rb') as f:
+            if 'path' in kwargs:
+                file_path = kwargs.pop('path')
+
+            else:
+                file_path = path
+
+            if (not reeval) and os.path.exists(file_path):
+                with open(file_path, 'rb') as f:
                     res = pickle.load(f)
 
             else:
+
                 res = fn(*args, **kwargs)
 
-                with open(path, 'wb') as f:
+                with open(file_path, 'wb') as f:
                     pickle.dump(res, f)
 
             return res
@@ -291,3 +298,22 @@ def zones_autosimilarity(zones, t):
     sim_norm = np.sum(intersections, axis=1) / np.sum(unions, axis=1)
 
     return np.mean(sim_norm)
+
+
+def categories_from_features(features):
+    """
+        This function returns the number of categories per feature f
+        Args:
+            features(np.ndarray): features
+
+        Returns:
+        (dict) : categories per feature, number of categories per feature
+        """
+    features_t = np.transpose(features, (1, 2, 0))
+
+    features_cat = []
+    for f in features_t:
+
+        features_cat.append(np.count_nonzero(np.sum(f, axis=1)))
+
+    return features_cat

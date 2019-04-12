@@ -23,6 +23,7 @@ from src.config import *
 
 
 
+EPS = np.finfo(float).eps
 
 @contextmanager
 def psql_connection(commit=False):
@@ -53,7 +54,7 @@ def psql_connection(commit=False):
 
 
 @dump_results(NETWORK_PATH, RELOAD_DATA)
-def get_network():
+def get_network(table=None):
     """ This function retrieves the edge list and the coordinates of the simulated languages
     from the DB and then converts these into a spatial network.
 
@@ -61,12 +62,14 @@ def get_network():
         dict: a dictionary containing the network, its vertices and edges, an adjacency list and matrix
         and a distance matrix
     """
-
+    if table is None:
+        table = DB_ZONE_TABLE
     # Get vertices from PostgreSQL
     with psql_connection(commit=True) as connection:
-        query_v = "SELECT id, mx AS x, my AS y " \
+        query_v = "SELECT gid, mx AS x, my AS y " \
                   "FROM {table} " \
-                  "ORDER BY id;".format(table=DB_ZONE_TABLE)
+                  "ORDER BY gid;".format(table=table)
+
         cursor = connection.cursor()
         cursor.execute(query_v)
         rows_v = cursor.fetchall()
@@ -112,28 +115,32 @@ def get_network():
            'n': n_v,
            'm': edges.shape[0],
            'graph': g,
-           'dist_mat': dist_mat}
+           'dist_mat': dist_mat,
+           'gid_to_idx': gid_to_idx,
+           'idx_to_gid': idx_to_gid}
 
     return net
 
 
-def get_network_subset(areal_subset):
-    """ This function is similar to get_network(), with the main difference that it retrieves a subset of the network
-        from the DB, rather than the full network. Moreover, the returned subset is not pickled.
+def get_network_subset(areal_subset, table=None):
+    """ This function retrieves a subset of the network
+        from the DB. Moreover it returns a matching between the full network and the subset.
 
         Args:
-            areal_subset (int): id of the subset. If None the complete network is retrieved.
+            areal_subset (int): id of the subset.
+            full_network (np.ndarray): the full network
         Returns:
             dict: a dictionary containing the network, its vertices and edges, an adjacency list and matrix
             and a distance matrix
         """
-
+    if table is None:
+        table = DB_ZONE_TABLE
     # Get only those vertices which belong to a specific subset of the network
     with psql_connection(commit=True) as connection:
-        query_v = "SELECT id, mx AS x, my AS y " \
+        query_v = "SELECT gid, mx AS x, my AS y " \
                   "FROM {table} " \
                   "WHERE cz = {id} " \
-                  "ORDER BY id;".format(table=DB_ZONE_TABLE, id=areal_subset)
+                  "ORDER BY gid;".format(table=table, id=areal_subset)
         cursor = connection.cursor()
         cursor.execute(query_v)
         rows_v = cursor.fetchall()
@@ -179,25 +186,31 @@ def get_network_subset(areal_subset):
            'n': n_v,
            'm': edges.shape[0],
            'graph': g,
-           'dist_mat': dist_mat}
+           'dist_mat': dist_mat,
+           'gid_to_idx': gid_to_idx,
+           'idx_to_gid': idx_to_gid}
 
     return net
 
+
 @dump_results(CONTACT_ZONES_PATH, RELOAD_DATA)
-def get_contact_zones(zone_id):
+def get_contact_zones(zone_id, table=None):
     """This function retrieves contact zones from the DB
     Args:
         zone_id(int or tuple of ints) : the id(s) of the zone(s) in the DB
+        table(string): the name of the table in the DB
     Returns:
         dict: the contact zones
         """
+    if table is None:
+        table = DB_ZONE_TABLE
     # For single zones
     if isinstance(zone_id, int):
         with psql_connection(commit=True) as connection:
-            query_cz = "SELECT cz, array_agg(id) " \
+            query_cz = "SELECT cz, array_agg(gid) " \
                        "FROM {table} " \
                        "WHERE cz = {list_id} " \
-                       "GROUP BY cz".format(table=DB_ZONE_TABLE, list_id=zone_id)
+                       "GROUP BY cz".format(table=table, list_id=zone_id)
             cursor = connection.cursor()
             cursor.execute(query_cz)
             rows_cz = cursor.fetchall()
@@ -210,10 +223,10 @@ def get_contact_zones(zone_id):
     elif isinstance(zone_id, tuple):
         if all(isinstance(x, int) for x in zone_id):
             with psql_connection(commit=True) as connection:
-                query_cz = "SELECT cz, array_agg(id) " \
+                query_cz = "SELECT cz, array_agg(gid) " \
                            "FROM {table} " \
                            "WHERE cz IN {list_id} " \
-                           "GROUP BY cz".format(table=DB_ZONE_TABLE, list_id=zone_id)
+                           "GROUP BY cz".format(table=table, list_id=zone_id)
                 cursor = connection.cursor()
                 cursor.execute(query_cz)
                 rows_cz = cursor.fetchall()
@@ -227,8 +240,26 @@ def get_contact_zones(zone_id):
         raise ValueError('zone_id must be int or a list of ints')
 
 
+def assign_na(features, n_na):
+    """ Randomly assign NAs to features. Makes the simulated data more realistic.
+    Args:
+        features(np.ndarray): binary feature array, with shape = (sites, features, categories)
+        n_na: number of NAs added
+    returns: features(np.ndarray): binary feature array, with shape = (sites, features, categories)
+    """
+
+    features = features.astype(float)
+    # Choose a random site and feature and set to None
+    for _ in range(n_na):
+
+        na_site = np.random.choice(a=features.shape[0], size=1)
+        na_feature = np.random.choice(a=features.shape[1], size=1)
+        features[na_site, na_feature, :] = None
+
+
+# Deprecated
 def define_contact_features(n_feat, r_contact_feat, contact_zones):
-    """ This function returns all features and those features for which contact is simulated
+    """ This function returns a list of features and those features for which contact is simulated
     Args:
         n_feat (int): number of features
         r_contact_feat (float): percentage of features for which contact is simulated
@@ -251,51 +282,186 @@ def define_contact_features(n_feat, r_contact_feat, contact_zones):
     return features, contact_features
 
 
+# Deprecated
 @dump_results(FEATURES_BG_PATH, RELOAD_DATA)
-def simulate_background_distribution(features, contact_features, n_sites, p_min, p_max, p_max_contact):
-    """This function draws <n_sites> samples from a random Binomial distribution to simulate a background distribution
-    for <all_features>, where 1 implies the presence of the feature, and 0 the absence.
-    For those features that are in <contact_features> the probability of success is limited to [0, p_max_contact]
+def simulate_background_distribution(n_features, n_sites,
+                                     return_as="np.array", cat_axis=True):
+    """This function randomly draws <n_sites> samples from a Categorical distribution
+    for <all_features>. Features can have up to four categories, most features are binary, though.
 
     Args:
-        features (list): names of all features
-        contact_features (dict): names of all contact features
+        n_features (int): number of simulated features
         n_sites (int): number of sites for which feature are simulated
-        p_min (float): the minimum probability
-        p_max (float): the maximum probability
-        p_max_contact: (float): the maximum probability of a feature for which contact is simulated
+        return_as: (string): the data type of the returned background and probabilities, either "dict" or "np.array"
+        cat_axis (boolean): return categories as separate axis? only evaluated when <return_as> is "np.array"
 
     Returns:
-        dict: the background distribution
+        (dict, dict) or (np.ndarray, dict): the background distribution and the probabilities to simulate them
         """
-    contact = set({x for v in contact_features.values() for x in v})
+    # Define features
+
+    features = []
+    for f in range(n_features):
+        features.append('f' + str(f + 1))
 
     features_bg = {}
+    prob_bg = {}
+
     for f in features:
 
-        if f in contact:
-            success = np.random.uniform(p_min, p_max_contact-0.2, 1)
+        # Define the number of categories per feature (i.e. how many categories can the feature take)
+        nr_cats = np.random.choice(a=[2, 3, 4], size=1, p=[0.7, 0.2, 0.1])[0]
+        cats = list(range(0, nr_cats))
 
-        else:
-            success = np.random.uniform(p_min, p_max, 1)
+        # Randomly define a probability for each category from a Dirichlet (3, ..., 3) distribution
+        # The mass is in the center of the simplex, extreme values are less likely
+        p_cats = np.random.dirichlet(np.repeat(3, len(cats)), 1)[0]
 
-        bg = np.random.binomial(n=1, p=success, size=n_sites)
+        # Assign each site to one of the categories according to p_cats
+        bg = np.random.choice(a=cats, p=p_cats, size=n_sites)
+
         features_bg[f] = bg
+        prob_bg[f] = p_cats
 
-    return features_bg
+    if return_as == "dict":
+        return features_bg, prob_bg
+
+    elif return_as == "np.array":
+
+        # Sort by key (-f) ...
+        keys = [f[1:] for f in features_bg.keys()]
+        keys_sorted = ['f' + str(s) for s in sorted(list(map(int, keys)))]
+
+        # ... and store to np.ndarray
+        features_bg_array = np.ndarray.transpose(np.array([features_bg[i] for i in keys_sorted]))
+
+        # Leave the dimensions as is
+        if not cat_axis:
+            return features_bg_array, prob_bg
+
+        # Add categories as dimension
+        else:
+            cats = np.unique(features_bg_array)
+            features_bg_cat = []
+
+            for cat in cats:
+                cat_axis = np.expand_dims(np.where(features_bg_array == cat, 1, 0), axis=2)
+                features_bg_cat.append(cat_axis)
+            features_bg_cat_array = np.concatenate(features_bg_cat, axis=2)
+
+            return features_bg_cat_array, prob_bg
+    else:
+        raise ValueError('return_as must be either "dict" or np.array:')
+
+
+def sample_categorical(p):
+    """Sample from a (multidimensional) categorical distribution. The
+    probabilities for every category are given by `p`
+
+    Args:
+        p (np.array): Array defining the probabilities of every category at
+            every site of the output array. The last axis defines the categories
+            and should sum up to 1.
+            shape: (*output_dims, n_categories)
+    Returns
+        np.array: Samples of the categorical distribution.
+            shape: output_dims
+    """
+    *output_dims, n_categories = p.shape
+
+    cdf = np.cumsum(p, axis=-1)
+    z = np.expand_dims(np.random.random(output_dims), axis=-1)
+
+    return np.argmax(z < cdf, axis=-1)
+
+
+def sample_from_likelihood(zones, families, p_zones, p_global, p_families, weights, cat_axis=True):
+    """Compute the likelihood of all sites in `zone`. The likelihood is
+    defined as a mixture of the global distribution `p_global` and the maximum
+    likelihood distribution of the zone itself.
+
+    Args:
+        zones (np.array[bool]): Binary array indicating the assignment of sites to zones.
+            shape: (n_sites, n_zones)
+        families (np.array): Binary array indicating the assignment of a site to
+            a language family.
+            shape: (n_sites, n_families)
+        p_zones (np.array[float]): The categorical probabilities of every
+            category in every features in every zones.
+            shape: (n_zones, n_features, n_categories)
+        p_global (np.array[float]): The global categorical probabilities of
+            every category in every feature.
+            shape: (n_features, n_categories)
+        p_families (np.array): The probabilities of every category in every
+            language family.
+            shape: (n_families, n_features, n_categories)
+        weights (np.array[float]): The mixture coefficient controlling how much
+            each feature is explained by the zone, global distribution and
+            language families distribution.
+            shape: (n_features, 3)
+        cat_axis (boolean): return categories as separate axis? only evaluated when <return_as> is "np.array"
+
+    Returns:
+        np.array: The sampled categories for all sites and features (and categories if cat_axis=True)
+        shape: either (n_sites, n_features) or (n_sites, n_features, n_categories)
+    """
+    n_sites, n_zones = zones.shape
+    n_features, n_categories = p_global.shape
+
+    # Are the weights fine?
+    if families is None:
+
+        assert np.allclose(a=np.sum(weights[:, [0, 1]], axis=-1), b=1., rtol=EPS)
+
+    else:
+        assert np.allclose(a=np.sum(weights, axis=-1), b=1., rtol=EPS)
+
+    features = np.zeros((n_sites, n_features), dtype=int)
+    for i_feat in range(n_features):
+            # Compute the feature likelihood matrix (for all sites and all categories)
+            lh_zone = zones.dot(p_zones[:, i_feat, :])
+            lh_global = p_global[np.newaxis, i_feat, :]
+
+            lh_feature = weights[i_feat, 0] * lh_zone \
+                       + weights[i_feat, 1] * lh_global \
+
+            # Simulate family
+            if families is not None:
+
+                lh_family = families.dot(p_families[:, i_feat, :])
+                lh_feature += weights[i_feat, 2] * lh_family
+
+            # Sample from the categorical distribution defined by lh_feature
+            features[:, i_feat] = sample_categorical(lh_feature)
+
+    # # Todo Remove once we are sure both lh return the same results
+    # # Export old_features for testing
+    # features_dict = {}
+    # for f in range(features.shape[-1]):
+    #     f_name = 'f' + str(f+1)
+    #     features_dict[f_name] = features[:, f]
+
+    # Add categories as dimension
+    if cat_axis:
+        cats = np.unique(features)
+        features_cat = np.zeros((n_sites, n_features, len(cats)), dtype=int)
+
+        for cat in cats:
+            features_cat[:, :, cat] = np.where(features == cat, 1, 0)
+        return features_cat, features
+    else:
+        return features
 
 
 @dump_results(FEATURES_PATH, RELOAD_DATA)
 def simulate_contact(features, contact_features, p, contact_zones):
     """This function simulates language contact. For each contact zone the function randomly chooses <n_feat> features,
     for which the similarity is increased.
-
     Args:
         features (dict): all features
         contact_features(list): features for which contact is simulated
         p (float): probability of success, defines the degree of similarity in the contact zone
         contact_zones (dict): a region of sites for which contact is simulated
-
     Returns:
         np.ndarray: the adjusted features
         """
@@ -321,20 +487,20 @@ def simulate_contact(features, contact_features, p, contact_zones):
 
 
 @dump_results(FEATURE_PROB_PATH, RELOAD_DATA)
-def compute_feature_prob(feat):
-    """This function computes the base-line probabilities for a feature to be present in the data.
+def compute_p_global(feat):
+    """This function computes the global probabilities for a feature f to belongs to category cat;
 
     Args:
         feat (np.ndarray): a matrix of all features
 
     Returns:
-        array: the probability of each feature to be present """
+        array: the empirical probability that feature f belongs to category cat"""
+    n_sites, n_features, n_categories = feat.shape
+    p = np.zeros((n_features, n_categories), dtype=float)
 
-    n = len(feat)
-    present = np.count_nonzero(feat, axis=0)
-    p_present = present/n
-
-    return p_present
+    for f in range(n_features):
+        p[f] = np.sum(feat[:, f, :], axis=0) / n_sites
+    return p
 
 
 def estimate_ecdf_n(n, nr_samples, net):
@@ -457,7 +623,7 @@ def estimate_random_walk_covariance(net):
 
 
 @dump_results(LOOKUP_TABLE_PATH, RELOAD_DATA)
-def precompute_feature_likelihood(min_size, max_size, feat_prob, log_surprise=True):
+def precompute_feature_likelihood_old(min_size, max_size, feat_prob, log_surprise=True):
     """This function generates a lookup table of likelihoods
     Args:
         min_size (int): the minimum number of languages in a zone.
@@ -505,9 +671,100 @@ def precompute_feature_likelihood(min_size, max_size, feat_prob, log_surprise=Tr
         for s in range(min_size, max_size + 1):
             lookup_dict[i_feat][s] = {}
             for p_zone in range(s + 1):
+
                 lookup_dict[i_feat][s][p_zone] = ll(p_zone, s, p_global, log_surprise)
 
     return lookup_dict
 
+@dump_results(LOOKUP_TABLE_PATH, RELOAD_DATA)
+def precompute_feature_likelihood(min_size, max_size, feat_prob, log_surprise=True):
+    """This function generates a lookup table of likelihoods
+    Args:
+        min_size (int): the minimum number of languages in a zone.
+        max_size (int): the maximum number of languages in a zone.
+        feat_prob (np.array): the probability of a feature to be present.
+        log_surprise: define surprise with logarithm (see below)
+    Returns:
+        dict: the lookup table of likelihoods for a specific feature,
+            sample size and observed presence.
+    """
 
-# TODO Nico: pickle files laden oder nicht Problem
+    # The binomial test computes the p-value of having k or more (!) successes out of n trials,
+    # given a specific probability of success
+    # For a two-sided binomial test, simply remove "greater".
+    # The p-value is then used to compute surprise either as
+    # a) -log(p-value)
+    # b) 1/p-value,
+    # the latter being more sensitive to exceptional observations.
+    # and then returns the log likelihood.
+
+    def ll(s_zone, n_zone, p_global, log_surprise):
+        p_value = stats.binom_test(s_zone, n_zone, p_global, 'greater')
+
+        if log_surprise:
+            try:
+                lh = -math.log(p_value)
+            except Exception as e:
+                print(s_zone, n_zone, p_global, p_value)
+                raise e
+        else:
+            try:
+                lh = 1/p_value
+            except ZeroDivisionError:
+                lh = math.inf
+
+        # Log-Likelihood
+        try:
+            return math.log(lh)
+        except ValueError:
+            return -math.inf
+
+    lookup_dict = {}
+
+    for features, categories in feat_prob.items():
+        lookup_dict[features] = {}
+        for cat, p_global in categories.items():
+            # -1 denotes missing values
+            if cat != -1:
+                lookup_dict[features][cat] = {}
+                for n_zone in range(min_size, max_size + 1):
+                    lookup_dict[features][cat][n_zone] = {}
+                    for s_zone in range(n_zone + 1):
+                        lookup_dict[features][cat][n_zone][s_zone] = \
+                            ll(s_zone, n_zone, p_global, log_surprise)
+
+    return lookup_dict
+
+
+@dump_results(FEATURES_PATH, RELOAD_DATA)
+def get_features(table=None, feature_names=None):
+    """ This function retrieves features from the geodatabase
+    Args:
+        table(string): the name of the table
+    Returns:
+        dict: an np.ndarray of all features
+    """
+
+    feature_columns = ','.join(feature_names)
+
+    if table is None:
+        table = DB_ZONE_TABLE
+    # Get vertices from PostgreSQL
+    with psql_connection(commit=True) as connection:
+        query_v = "SELECT {feature_columns} " \
+                  "FROM {table} " \
+                  "ORDER BY gid;".format(feature_columns=feature_columns, table=table)
+
+        cursor = connection.cursor()
+        cursor.execute(query_v)
+        rows_v = cursor.fetchall()
+
+        features = []
+        for f in rows_v:
+            f_db = list(f)
+
+            # Replace None with -1
+            features.append([-1 if x is None else x for x in f_db])
+
+        return np.array(features)
+

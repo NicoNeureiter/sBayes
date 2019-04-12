@@ -1,6 +1,6 @@
 from src.util import load_from
 from src.config import *
-from src.sampling.zone_sampling import ZoneMCMC
+from src.sampling.zone_sampling_particularity import ZoneMCMC
 from itertools import permutations
 import numpy as np
 import math
@@ -97,17 +97,22 @@ def power_posterior (lh, temp):
     return res
 
 
-def stepping_stone_sampler(lh, temp):
+def stepping_stone_sampler(samples):
     """ This function estimates the marginal likelihood of a model using the stepping stone sampler
 
     Args:
-        lh (list): a list of all the likelihood values for a specific temperature
-        temp (): a list of all temperature values
+        samples(dict): samples returned from the marginal lh sampler
 
     Returns:
         float: the marginal likelihood of the model
     """
-    n = len(temp)
+    n = len(samples)
+    temp = []
+    lh = []
+    for t in sorted(samples):
+        temp.append(t)
+        lh.append(samples[t][0]['sample_likelihoods'][0])
+
     res = 0
     for i in range(n-1):
         temp_diff = temp[i+1] - temp[i]
@@ -123,13 +128,18 @@ def compute_bayes_factor(m_lh_1, m_lh_2):
     """ This function computes the Bayes' factor between two models.
 
     Args:
-        m_lh_1 (float): the marginal likelihood of model 1
-        m_lh_2 (float): the marginal likelihood of model 2
+        m_lh_1 (list): the marginal likelihood of model 1 (for different zone sizes)
+        m_lh_2 (list): the marginal likelihood of model 2 (for different zone sizes)
 
     Returns:
         float: the Bayes' factor of model 2 compared to model 1
     """
-    log_bf = m_lh_2 - m_lh_1
+    # Compute geometric mean
+    m1 = sum(m_lh_1) / len(m_lh_1)
+    m2 = sum(m_lh_2) / len(m_lh_2)
+
+    print('m1:',  m1, 'm2:', m2)
+    log_bf = m1 - m2
     return np.exp(log_bf)
 
 

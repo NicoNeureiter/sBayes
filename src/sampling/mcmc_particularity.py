@@ -9,7 +9,7 @@ import time as _time
 import numpy as _np
 
 
-class MCMC_part(metaclass=_abc.ABCMeta):
+class MCMC_particularity(metaclass=_abc.ABCMeta):
 
     """Base-class for MCMC samplers inpaticularity mode. Instantiable sub-classes have to implement
     some methods, like propose_step() and log_likelihood().
@@ -41,7 +41,6 @@ class MCMC_part(metaclass=_abc.ABCMeta):
 
         # State attributes
         self._ll = _np.full(self.n_chains, -_np.inf)
-        # self._ll_rest = _np.full(self.n_chains, -_np.inf)
         self._prior = _np.full(self.n_chains, -_np.inf)
         self.zone = []
 
@@ -67,28 +66,14 @@ class MCMC_part(metaclass=_abc.ABCMeta):
         pass
 
     @_abc.abstractmethod
-    def log_likelihood(self, x, lh_mode):
+    def log_likelihood(self, x):
         """Compute the log-likelihood of the given sample.
 
         Args:
             x (SampleType): Sample.
-            lh_mode(string): the likelihood mode
 
         Returns:
             float: Log-likelihood of x
-        """
-        pass
-
-    @_abc.abstractmethod
-    def log_likelihood_rest(self, x, lh_mode):
-        """Compute the log-likelihood of the complement of the sample (i.e the rest, not assigned to a zone).
-
-        Args:
-            x (SampleType): The current posterior sample.
-            lh_mode(string): The likelihood mode
-
-        Returns:
-            float: log-likelihood of the not-assigned samples
         """
         pass
 
@@ -162,9 +147,6 @@ class MCMC_part(metaclass=_abc.ABCMeta):
             self._ll[c] = self.log_likelihood(sample[c])
             self._prior[c] = self.prior_zone(sample[c])
 
-            # Likelihood for rest is only evaluated for mode ='generative' otherwise set to 0
-            # self._ll_rest[c] = self.log_likelihood_rest(sample[c])
-
         # Generate burn-in samples for each chain
         for c in self.chain_idx:
             for i_step in range(burn_in_steps):
@@ -217,15 +199,15 @@ class MCMC_part(metaclass=_abc.ABCMeta):
             self.statistics['attempted_exchanges'] += 1
 
             # Chose random chains and try to swap them
-            ex_from = 0
-            ex_to, = _np.random.choice(range(1, self.n_chains), 1)
+            swap_from = 0
+            swap_to, = _np.random.choice(range(1, self.n_chains), 1)
 
             # Compute lh and prior ratio for both chains
-            ll_from = self.log_likelihood(sample[ex_from])
-            prior_from = self.prior_zone(sample[ex_from])
+            ll_from = self.log_likelihood(sample[swap_from])
+            prior_from = self.prior_zone(sample[swap_from])
 
-            ll_to = self.log_likelihood(sample[ex_to])
-            prior_to = self.prior_zone(sample[ex_to])
+            ll_to = self.log_likelihood(sample[swap_to])
+            prior_to = self.prior_zone(sample[swap_to])
 
             ll_ratio = (ll_to - ll_from) * temperature
             prior_ratio = prior_to - prior_from
@@ -234,8 +216,8 @@ class MCMC_part(metaclass=_abc.ABCMeta):
 
             # Swap in Metropolis Hastings step
             if _math.log(_random.random()) < ex_ratio:
-                self.chain_idx[ex_from] = ex_to
-                self.chain_idx[ex_to] = ex_from
+                self.chain_idx[swap_from] = swap_to
+                self.chain_idx[swap_to] = swap_from
                 self.statistics['accepted_exchanges'] += 1
 
     def step(self, sample, c=None):
@@ -245,16 +227,14 @@ class MCMC_part(metaclass=_abc.ABCMeta):
 
         # Compute the log-likelihood of the candidate
         ll_candidate = self.log_likelihood(candidate)
-        # Likelihood for rest is only evaluated for mode ='generative' otherwise set to 0
-        # ll_rest_candidate = self.log_likelihood_rest(candidate)
 
         # Compute the prior for the candidate
         prior_candidate = self.prior_zone(candidate)
 
         if c is None:
             # Single chain sampling
-            mh_ratio = self.metropolis_hastings_ratio(ll_new=ll_candidate,  # + ll_rest_candidate,
-                                                      ll_prev=self._ll,  # + self._ll_rest,
+            mh_ratio = self.metropolis_hastings_ratio(ll_new=ll_candidate,
+                                                      ll_prev=self._ll,
                                                       prior_new=prior_candidate, prior_prev=self._prior,
                                                       q=q, q_back=q_back,
                                                       temperature=self.temperature)
@@ -263,14 +243,13 @@ class MCMC_part(metaclass=_abc.ABCMeta):
             if _math.log(_random.random()) < mh_ratio:
                 sample = candidate
                 self._ll = ll_candidate
-                #self._ll_rest = ll_rest_candidate
                 self._prior = prior_candidate
                 self.statistics['accepted'] += 1
 
         else:
             # Multi chain sampling
-            mh_ratio = self.metropolis_hastings_ratio(ll_new=ll_candidate,  # + ll_rest_candidate,
-                                                      ll_prev=self._ll[c],  # + self._ll_rest,
+            mh_ratio = self.metropolis_hastings_ratio(ll_new=ll_candidate,
+                                                      ll_prev=self._ll[c],
                                                       prior_new=prior_candidate, prior_prev=self._prior[c],
                                                       q=q, q_back=q_back,
                                                       temperature=self.temperature)
@@ -279,7 +258,6 @@ class MCMC_part(metaclass=_abc.ABCMeta):
             if _math.log(_random.random()) < mh_ratio:
                 sample = candidate
                 self._ll[c] = ll_candidate
-                # self._ll_rest[c] = ll_rest_candidate
                 self._prior[c] = prior_candidate
                 self.statistics['accepted'] += 1
 
@@ -301,7 +279,7 @@ class MCMC_part(metaclass=_abc.ABCMeta):
         self.statistics['last_sample'].append(sample)
 
 
-class ComponentMCMC_part(MCMC_part, metaclass=_abc.ABCMeta):
+class ComponentMCMC_particularity(MCMC_particularity, metaclass=_abc.ABCMeta):
 
     """Extends the default MCMC sampler to problems with multiple components.
     Every component is updated separately conditioned on the others (like Gibbs
@@ -316,10 +294,9 @@ class ComponentMCMC_part(MCMC_part, metaclass=_abc.ABCMeta):
 
     def __init__(self, n_components, **kwargs):
         self.n_components = n_components
-        super(ComponentMCMC_part, self).__init__(**kwargs)
+        super(ComponentMCMC_particularity, self).__init__(**kwargs)
 
         self._lls = _np.full((self.n_chains, self.n_components), -_np.inf)
-        # self._ll_rest = _np.full(self.n_chains, -_np.inf)
         self._priors = _np.full((self.n_chains, self.n_components), -_np.inf)
         self._current_zone = 0
 
@@ -344,16 +321,13 @@ class ComponentMCMC_part(MCMC_part, metaclass=_abc.ABCMeta):
             # Compute the log-likelihood
             ll_candidate = self.log_likelihood(candidate_i)
 
-            # Likelihood for rest is only evaluated for mode ='generative' otherwise set to 0
-            # ll_rest_candidate = self.log_likelihood_rest(candidate)
-
             # Evaluate the prior probability
             prior_candidate = self.prior_zone(candidate_i)
 
             # One chain
             if c is None:
-                mh_ratio = self.metropolis_hastings_ratio(ll_new=ll_candidate,  # + ll_rest_candidate,
-                                                          ll_prev=self._lls[i_component],  # + self._ll_rest,
+                mh_ratio = self.metropolis_hastings_ratio(ll_new=ll_candidate,
+                                                          ll_prev=self._lls[i_component],  #
                                                           prior_new=prior_candidate,
                                                           prior_prev=self._priors[i_component],
                                                           q=q, q_back=q_back,
@@ -364,14 +338,13 @@ class ComponentMCMC_part(MCMC_part, metaclass=_abc.ABCMeta):
                     self._priors[i_component] = prior_candidate
 
                     self._ll = _np.sum(self._lls)
-                    # self._ll_rest = ll_rest_candidate
                     self._prior = _np.sum(self._priors)
                     self.statistics['accepted'] += 1
 
             # Multiple chains
             else:
-                mh_ratio = self.metropolis_hastings_ratio(ll_new=ll_candidate,  # + ll_rest_candidate,
-                                                          ll_prev=self._lls[c][i_component],  # + self._ll_rest[c],
+                mh_ratio = self.metropolis_hastings_ratio(ll_new=ll_candidate,
+                                                          ll_prev=self._lls[c][i_component],
                                                           prior_new=prior_candidate,
                                                           prior_prev=self._priors[c][i_component],
                                                           q=q, q_back=q_back,
@@ -384,7 +357,6 @@ class ComponentMCMC_part(MCMC_part, metaclass=_abc.ABCMeta):
                     self._priors[c][i_component] = prior_candidate
 
                     self._ll[c] = _np.sum(self._lls[c])
-                    # self._ll_rest[c] = ll_rest_candidate
                     self._prior[c] = _np.sum(self._priors[c])
                     self.statistics['accepted'] += 1
 
@@ -413,17 +385,12 @@ class ComponentMCMC_part(MCMC_part, metaclass=_abc.ABCMeta):
 
             # Compute lh and prior ratio for both chains
             ll_from = self.log_likelihood(sample[swap_from])
-            # Likelihood for rest is only evaluated for mode ='generative' otherwise set to 0
-            # ll_rest_from = self.log_likelihood_rest(sample[swap_from])
             prior_from = self.prior_zone(sample[swap_from])
 
             ll_to = self.log_likelihood(sample[swap_to])
-            # Likelihood for rest is only evaluated for mode ='generative' otherwise set to 0
-            # ll_rest_to = self.log_likelihood_rest(sample[swap_to])
             prior_to = self.prior_zone(sample[swap_to])
 
             ll_ratio = (ll_to - ll_from) * temperature
-            # ll_ratio = ((ll_to + ll_rest_to) - (ll_from + ll_rest_from)) * temperature
             prior_ratio = prior_to - prior_from
 
             ex_ratio = ll_ratio + prior_ratio

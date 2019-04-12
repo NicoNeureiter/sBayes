@@ -3,7 +3,7 @@
 import logging
 
 import numpy as np
-from src.sampling.zone_sampling import ZoneMCMC
+from src.sampling.zone_sampling_particularity import ZoneMCMC
 from src.preprocessing import (get_network,
                                compute_feature_prob,
                                get_contact_zones,

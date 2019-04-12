@@ -6,12 +6,12 @@ if __name__ == '__main__':
 
     import numpy as np
 
-    TEST_ZONE_DIRECTORY = 'data/results/test/zones/2018-12-14_11-46-18/'
+    TEST_ZONE_DIRECTORY = 'data/results/test/zones/2019-02-23_23-04-50/'
 
     # Zone, ease and number of runs
-    zone = 3
-    ease = 1
-    n_runs = 4
+    zone = 2
+    ease = 3
+    n_runs = 1
 
     mcmc_res = {'lh': [[] for _ in range(n_runs)],
                 'prior': [[] for _ in range(n_runs)],
@@ -30,7 +30,7 @@ if __name__ == '__main__':
                       str(ease) + '_' + str(r) + '.pkl'
 
         samples = load_from(sample_path)
-
+        #print(samples['sample_likelihoods'])
         for t in range(len(samples['sample_zones'])):
 
             # Zones, likelihoods and priors
@@ -64,11 +64,14 @@ if __name__ == '__main__':
 
     network = get_network(reevaluate=False)
 
+    print(len(mcmc_res['zones'][0]))
+
     # Posterior frequency
-    plot_posterior_frequency(mcmc_res['zones'], net=network, pz=-1, r=2, burn_in=0.2)
+    plot_posterior_frequency(mcmc_res['zones'], net=network, pz=-1, r=0, burn_in=0.2)
+
 
     # Trace, precision and recall
-    plot_trace_mcmc(mcmc_res, r=2, burn_in=0.2)
+    plot_trace_mcmc(mcmc_res, r=0, burn_in=0.2)
 
     # Zone size over time
-    plot_zone_size_over_time(mcmc_res, r=2, burn_in=0.2)
+    plot_zone_size_over_time(mcmc_res, r=0, burn_in=0.2)
