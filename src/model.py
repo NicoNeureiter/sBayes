@@ -9,124 +9,189 @@ from scipy import sparse
 import scipy.stats as spstats
 from scipy.sparse.csgraph import minimum_spanning_tree
 
-from src.util import triangulation, cache_arg, hash_bool_array, compute_delaunay
+from src.util import triangulation, cache_arg, hash_bool_array, compute_delaunay, cache_decorator
 
 EPS = np.finfo(float).eps
 
 
-def generalized_bernoulli_ll(features, features_cat):
-    """Compute the maximum log-likelihood of a generalized Bernoulli distribution (categorical distribution)
+@cache_decorator
+def compute_global_likelihood(features, p_global):
+    """Computes the global likelihood, that is the likelihood per site and features
+    without knowledge about family or zones.
 
     Args:
-        features (np.array): n*m array containing m features of n samples.
-        features_cat (list): all categories that the feature f can belong to
+        features(np.array or 'SparseMatrix'): The feature values for all sites and features.
+                shape: (n_sites, n_features, n_categories)
+        p_global (np.array): The global frequencies of every feature and every value.
+                shape: (n_features, n_categories)
+
     Returns:
-        float: Log-likelihood of MLE Bernoulli distribution.
+        (ndarray): the global probabilities per site and feature
+        shape: (n_features, n_sites)
     """
+    # Todo: NAs
+    n_sites, n_features, n_categories = features.shape
+    lh_global = np.full((n_features, n_sites), np.nan)
 
-    n = features.shape[0]
+    for i_f in range(n_features):
 
-    ll = []
-    # NAs are assigned to all available categories in equal shares
-    # If there are only NAs in the zone, there is no evidence for shared evolution
-    # the same is true if there is an equal share of features per category
+        f = features[:, i_f, :]
+        # f.shape = (zone_size, n_categories)
 
-    # Count all NAs
-    k_na = (features == -1).sum(axis=0)
-    na_per_cat = k_na/features_cat
+        # Compute global likelihood per site and feature
+        lh_global[i_f] = f.dot(p_global[i_f, :])
 
-    # Assign in equal shares to all categories
-    for cat in np.unique(features):
-        # - 1 denotes missing data
-        if cat != -1:
-            k = (features == cat).sum(axis=0) + na_per_cat
-
-            p = (k / n).clip(EPS, 1 - EPS)
-
-            ll.append(k * np.log(p))
-
-    # Old
-    # k = features.sum(axis=0)
-    # ll = k * np.log(p) + (n - k) * np.log(1 - p)
-    return np.sum(ll)
+    return lh_global
 
 
-# todo: Remove features_old once everything works, change p_global, alpha
-def compute_likelihood_generative(zone, features, features_old, features_cat_old, weight, p_global=1,  *args):
-        """Compute the likelihood of all sites in `zone`. The likelihood is
-        defined as a mixture of the global distribution `p_global` and the maximum
-        likelihood distribution of the zone itself.
+def compute_zone_likelihood(features, zones):
+    """Computes the zone likelihood that is the likelihood per site and feature given zones z1, ... zn
+    Args:
+        features(np.array or 'SparseMatrix'): The feature values for all sites and features.
+            shape: (n_sites, n_features, n_categories)
+        zones(np.array): Binary arrays indicating the assignment of a site to the current zones.
+                shape: (n_zones, n_sites)
+
+    Returns:
+        (np.array): the zone likelihood per site and feature
+            shape: (n_features, n_sites)
+    """
+    n_sites, n_features, n_categories = features.shape
+    lh_zone = np.full((n_features, n_sites), np.nan)
+
+    for z in zones:
+
+        idx = z.nonzero()[0]
+        zone_size = len(idx)
+
+        # Compute the probability to find a feature in the zone
+        features_zone = features[z, :, :]
+        p_zone = np.sum(features_zone, axis=0) / zone_size
+        # p_zone.shape = (n_features, n_categories)
+
+        # Division by zero could cause troubles
+        p_zone = p_zone.clip(EPS, 1 - EPS)
+
+        for i_f in range(n_features):
+
+            f = features_zone[:, i_f, :]
+            # f.shape = (zone_size, n_categories)
+
+            # Compute the feature likelihood vector (for all sites in zone)
+            lh_zone[i_f, z] = f.dot(p_zone[i_f, :])
+
+    return lh_zone
+
+
+@cache_decorator
+def compute_family_likelihood(features, families=1):
+    """Computes the family likelihood, that is the likelihood per site and feature given family f1, ... fn
+
+    Args:
+        features(np.array or 'SparseMatrix'): The feature values for all sites and features.
+            shape: (n_sites, n_features, n_categories)
+        families(np.array): Binary arrays indicating the assignment of a site to a family.
+                shape: (n_families, n_sites)
+
+    Returns:
+        (np.array): the zone likelihood per site and feature
+            shape: (n_features, n_sites)
+    """
+    n_sites, n_features, n_categories = features.shape
+    lh_families = np.full((n_features, n_sites), np.nan)
+
+    return lh_families
+
+
+def assign_weights_per_site(lh, weight):
+    """This function assigns each site a weight if it has a likelihood and zero otherwise
 
         Args:
+            lh(np.array): likelihood value per site
+                shape(n_sites)
+            weight (double): the weight to normalize
+
+        Return:
+            np.array: the weight_per site
+            shape(n_sites)
+    """
+
+    lh = -np.isnan(lh)
+    weights_per_site = weight * lh
+    return weights_per_site
+
+
+# todo: change p_global
+def compute_likelihood_generative(zones, features,  weights, p_global=1,  *args):
+        """Compute the likelihood of all sites. The likelihood is defined as a mixture of the global distribution and
+        the likelihood distribution of the family and the zone.
+
+        Args:
+            zones(np.array): Binary arrays indicating the assignment of a site to the current zones.
+                shape: (n_zones, n_sites)
             features (np.array or 'SparseMatrix'): The feature values for all sites and features.
                 shape: (n_sites, n_features, n_categories)
-            zone (np.array): Binary array indicating the assignment of a site to the
-                current zone.
-                shape: (n_sites, )
-            p_global (np.array): The global frequencies of every feature and every
-                value.
-                shape: (n_features, n_categories)
-            weight (np.array): The mixture coefficient controlling how much each
-                feature is explained by the zone, global distribution and
-                language families distribution.
+            weights (np.array): The mixture coefficient controlling how much each feature is explained by each lh
                 shape: (n_features, 3)
+            p_global (np.array): The global frequencies of every feature and every value.
+                shape: (n_features, n_categories)
 
         TODO:
-            p_family (np.array): The probabilities of every category in every
-                language family.
+            p_family (np.array): The probabilities of every feature in every language family.
                 shape: (n_sites, n_features, n_categories)
-            families (np.array): Binary array indicating the assignment of a site to
-                a language family.
+            families (np.array): Binary array indicating the assignment of a site to a language family.
                 shape: (n_sites, n_families)
     
         Returns:
             float: The joint likelihood of all sites in the zone.
         """
 
-        # Old likelihood
-        features_old_zone = features_old[zone, :]
-        ll_zone = generalized_bernoulli_ll(features_old_zone, features_cat_old)
-
-        print('Old likelihood:', ll_zone)
-
         # New likelihood
         n_sites, n_features, n_categories = features.shape
 
-        assert np.all(np.sum(weight, axis=-1) == 1.)
+        # Weights must sum to one
+        assert np.allclose(a=np.sum(weights, axis=-1), b=1., rtol=EPS)
 
-        idx = zone.nonzero()[0]
-        zone_size = len(idx)
+        # Compute likelihood per site # Todo finish family lh
+        global_lh = compute_global_likelihood(features, p_global)
+        zone_lh = compute_zone_likelihood(features, zones)
+        family_lh = compute_family_likelihood(features)
 
-        features_zone = features[zone, :, :]
-        p_zone = np.sum(features_zone, axis=0) / zone_size
-        # p_zone.shape = (n_features, n_categories)
-
-        # Division by zero could cause troubles
-        p_zone = p_zone.clip(EPS, 1 - EPS)
+        # Define weights for each site depending on whether the likelihood is available
+        # (none, global, global and family, global and zone, global, family and zone)
+        weights = np.repeat(weights, n_sites, axis=0)
         ll = 0.
-        for i_f in range(n_features):
 
-            # Get current features vector
-            f = features_zone[:, i_f, :]
-            # f.shape = (zone_size, n_categories)
+        # Todo: Make this part faster, much faster
+        for f in range(n_features):
 
-            # Compute the feature likelihood vector (for all sites in zone)
-            lh_zone = f.dot(p_zone[i_f, :])
-            lh_global = f.dot(p_global[i_f, :])
-            # lh_family = np.sum(f * p_family([:, i_f, :], axis=-1))
-            # lh_family = lh_global            # TODO use real p_family
+            weights_per_site = np.array((assign_weights_per_site(global_lh[f], weights[f, 0]),\
+                                         assign_weights_per_site(zone_lh[f], weights[f, 1]),\
+                                         assign_weights_per_site(family_lh[f], weights[f, 2])))
 
-            # Todo add family
-            lh_feature = weight[i_f, 0] * lh_zone\
-                         + weight[i_f, 1] * lh_global \
-                         # + weight[i_f, 2] * lh_family
+            norm_weights = weights_per_site/weights_per_site.sum(axis=0, keepdims=True)
 
-            # take log, sum over sites and add to log-likelihood
-            ll += np.sum(np.log(lh_feature))
-        print('New likelihood:', ll)
-        print(llk)
+            lh = np.nanprod(np.array([norm_weights[0], global_lh[f]]), axis=0) \
+                + np.nanprod(np.array([norm_weights[1], zone_lh[f]]), axis=0) \
+                + np.nanprod(np.array([norm_weights[2], family_lh[f]]), axis=0)
+
+            ll += np.sum(np.log(lh))
 
         return ll
+
+def compute_prior_zones(zones, zone_prior_type):
+    """Evaluates the prior of a given set of zones.
+
+    Args:
+        zones(np.array): Boolean arrays of the current zones.
+            shape(n_zones, n_sites)
+        zone_prior_type(string): The type of prior (either uniform, geo_empirical, geo_gaussian)
+
+    Returns:
+        float: The prior probability of the zone
+    """
+    if zone_prior_type == 'uniform':
+        return 0.
 
 
 @cache_arg(0, hash_bool_array)

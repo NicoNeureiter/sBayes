@@ -17,7 +17,7 @@ import psycopg2
 import igraph
 import math
 
-from src.util import compute_distance, grow_zone, triangulation, \
+from src.util import compute_distance, triangulation, \
     compute_delaunay, dump_results
 from src.config import *
 

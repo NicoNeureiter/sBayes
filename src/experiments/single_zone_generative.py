@@ -92,24 +92,24 @@ N_RUNS = 1
 # Zone sampling
 MIN_SIZE = 5
 MAX_SIZE = 200
-START_SIZE = 25
+INITIAL_SIZE = 25
 CONNECTED_ONLY = False
-
-P_TRANSITION_MODE = {
-    'swap': 0.5,
-    'grow': 0.75,
-    'shrink': 1.}
+OPERATORS = {'shrink_zone': 0.05,
+             'grow_zone': 0.05,
+             'swap_zone': 0.05,
+             'alter_weights': 0.85}
 
 # Markov chain coupled MC (mc3)
-N_CHAINS = 1                  # Number of independent chains
+N_CHAINS = 5     # Number of independent chains
 SWAP_PERIOD = 200
-N_SWAPS = 1   # Attempted inter-chain swaps after each SWAP_PERIOD
+N_SWAPS = 1      # Attempted inter-chain swaps after each SWAP_PERIOD
 
 # Number of zones
 N_ZONES = 1
+# Todo background in LH?
 BACKGROUND = True
 
-# Geo-prior (distance or gaussian)
+# Geo-prior (none, distance or gaussian)
 GEO_PRIOR = 'none'
 
 
@@ -180,22 +180,21 @@ def evaluate_sampling_parameters(params):
         # Sample features
         # Todo: There is a bias for category 1! Remove!
         features, features_old = sample_from_likelihood(zones=np.transpose(contact_zones), families=families,
-                                          p_zones=p_zones, p_global=p_global, p_families=p_families,
-                                          weights=weights, cat_axis=True)
+                                                        p_zones=p_zones, p_global=p_global, p_families=p_families,
+                                                        weights=weights, cat_axis=True)
 
         # Todo: Fix!
         # Assign some features to NA (makes testing more realistic)
         #features = assign_na(features=features, n_na=20)
 
-        zone_sampler = ZoneMCMC_generative(network=network, features=features, features_old=features_old,
-                                           min_size=MIN_SIZE, max_size=MAX_SIZE, start_size=START_SIZE,
-                                           p_transition_mode=P_TRANSITION_MODE, n_zones=N_ZONES,
-                                           connected_only=CONNECTED_ONLY, background=BACKGROUND,
-                                           n_chains=N_CHAINS, initial_zones=initial_zones,
-                                           swap_period=SWAP_PERIOD,
-                                           chain_swaps=N_SWAPS, print_logs=False)
+        zone_sampler = ZoneMCMC_generative(network=network, features=features,
+                                           min_size=MIN_SIZE, max_size=MAX_SIZE, initial_size=INITIAL_SIZE,
+                                           n_zones=N_ZONES, connected_only=CONNECTED_ONLY, background=BACKGROUND,
+                                           n_chains=N_CHAINS, zones_previous_run=initial_zones,
+                                           swap_period=SWAP_PERIOD, operators=OPERATORS,
+                                           chain_swaps=N_SWAPS)
 
-        zone_sampler.generate_samples(N_STEPS, N_SAMPLES, BURN_IN, return_steps=False)
+        zone_sampler.generate_samples(N_STEPS, N_SAMPLES, BURN_IN)
 
         # Collect statistics
         run_stats = zone_sampler.statistics

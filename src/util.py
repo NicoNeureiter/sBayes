@@ -14,8 +14,6 @@ from scipy.sparse import csr_matrix
 
 from math import sqrt
 
-class ZoneError(Exception):
-    pass
 
 def hash_array(a):
     """Hash function for numpy arrays.
@@ -76,6 +74,28 @@ def cache_kwarg(kwarg_key, hash_function=hash):
         return fn_cached
 
     return decorator
+
+
+def cache_decorator(fn):
+    """Decorator to cache functions.
+
+    Args:
+        fn(callable): The function to cache
+
+    Returns:
+        (callable): The cached function
+    """
+
+    global result
+    result = None
+
+    def cached_fn(*args, **kwargs):
+        global result
+        if result is None:
+            result = fn(*args, **kwargs)
+        return result
+
+    return cached_fn
 
 
 def cache_arg(arg_id, hash_function=hash):
@@ -178,45 +198,6 @@ def get_neighbours(zone, already_in_zone, adj_mat):
     return neighbours
 
 
-def grow_zone(size, net, already_in_zone=None):
-    """ This function grows a zone of size <size> excluding any of the nodes in <already_in_zone>.
-    Args:
-        size (int): The number of nodes in the zone.
-        net (dict): A dictionary comprising all sites of the network.
-        already_in_zone (np.array): All nodes in the network already assigned to a zone (boolean array)
-
-    Returns:
-        np.array: The new zone (boolean).
-        np.array: all nodes in the network already assigned to a zone (boolean).
-
-    """
-    n = net['adj_mat'].shape[0]
-
-    if already_in_zone is None:
-        already_in_zone = np.zeros(n, bool)
-
-    # Initialize the zone
-    zone = np.zeros(n, bool)
-
-    # Get all vertices that already belong to a zone (occupied_n) and all free vertices (free_n)
-    occupied_n = np.nonzero(already_in_zone)[0]
-    free_n = set(range(n)) - set(occupied_n)
-    i = random.sample(free_n, 1)[0]
-    zone[i] = already_in_zone[i] = 1
-
-    for _ in range(size-1):
-
-        neighbours = get_neighbours(zone, already_in_zone, net['adj_mat'])
-        if not np.any(neighbours):
-            raise ZoneError
-
-        # Add a neighbour to the zone
-        i_new = random.choice(neighbours.nonzero()[0])
-        zone[i_new] = already_in_zone[i_new] = 1
-
-    return zone, already_in_zone
-
-
 def compute_delaunay(locations):
     n, _ = locations.shape
     delaunay = spatial.Delaunay(locations, qhull_options="QJ Pp")
@@ -317,3 +298,4 @@ def categories_from_features(features):
         features_cat.append(np.count_nonzero(np.sum(f, axis=1)))
 
     return features_cat
+
