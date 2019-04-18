@@ -83,10 +83,13 @@ class ZoneMCMC_generative(MCMC_generative):
         prior = prior_zones + prior_weights
         return prior
 
-    def likelihood(self, sample):
+    def likelihood(self, sample, step_type='nüt'):
         """Compute the (log) likelihood of a sample.
         Args:
             sample(Sample): A Sample object consisting of zones and weights
+
+        Kwargs:
+            step_type (str): What operator was used in the current step?
 
         Returns:
             float: The (log) likelihood of the sample"""
@@ -94,9 +97,10 @@ class ZoneMCMC_generative(MCMC_generative):
         weights_norm = self.normalize_weights(sample.weights)
 
         # Compute the likelihood
+        is_zone_update = not (step_type == 'alter_weights')
         ll_feature = compute_likelihood_generative(zones=sample.zones, features=self.features,
-                                                   p_global=self.p_global,
-                                                   weights=weights_norm)
+                                                   p_global=self.p_global, weights=weights_norm,
+                                                   is_zone_update=is_zone_update)
 
         return ll_feature
 

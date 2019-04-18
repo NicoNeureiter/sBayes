@@ -4,7 +4,7 @@ from __future__ import absolute_import, division, print_function, \
     unicode_literals
 
 import matplotlib.pyplot as plt
-import seaborn as sns
+# import seaborn as sns
 plt.style.use('seaborn-paper')
 plt.tight_layout()
 
@@ -169,35 +169,35 @@ def plot_zones(zones, net, ax=None):
         plt.show()
 
 
-def plot_posterior_density(zones, net):
-    # TODO: Labels, Color palette
-
-    """ This function creates a kernel density plot of all sites in the posterior distribution
-
-    Args:
-        zones (np.array): the posterior of all zones
-        net (dict): The full network containing all sites.
-    """
-
-    all_sites = net['locations']
-    points_in_post = []
-
-    for z in zones:
-        try:
-            points_in_post += all_sites[z[0]]
-
-        except ValueError:
-            points_in_post = all_sites[z[0]]
-
-    points_in_post = np.array(points_in_post)
-    ax = sns.kdeplot(points_in_post, cmap="Reds", shade=True, shade_lowest=False)
-
-    # Remove axes
-    ax.grid(False)
-    ax.set_xticks([])
-    ax.set_yticks([])
-
-    plt.show()
+# def plot_posterior_density(zones, net):
+#     # TODO: Labels, Color palette
+#
+#     """ This function creates a kernel density plot of all sites in the posterior distribution
+#
+#     Args:
+#         zones (np.array): the posterior of all zones
+#         net (dict): The full network containing all sites.
+#     """
+#
+#     all_sites = net['locations']
+#     points_in_post = []
+#
+#     for z in zones:
+#         try:
+#             points_in_post += all_sites[z[0]]
+#
+#         except ValueError:
+#             points_in_post = all_sites[z[0]]
+#
+#     points_in_post = np.array(points_in_post)
+#     ax = sns.kdeplot(points_in_post, cmap="Reds", shade=True, shade_lowest=False)
+#
+#     # Remove axes
+#     ax.grid(False)
+#     ax.set_xticks([])
+#     ax.set_yticks([])
+#
+#     plt.show()
 
 
 def plot_posterior_frequency(zones, net, pz=-1, r=0, burn_in=0.2, map=False, proj4=None, geojson_map=None,

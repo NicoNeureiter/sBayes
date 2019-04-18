@@ -155,18 +155,30 @@ def evaluate_sampling_parameters(params):
 
             # Todo Change to intensity value for family
             # Sample zone probabilities
-            alpha_p_zones = [i[e]] * n_categories + [0] * (max_categories - n_categories)
+            # alpha_p_zones = [i[e]] * n_categories + [0] * (max_categories - n_categories)
+            # for z in range(n_zones):
+            #     p_zones[z, feat, :] = np.random.dirichlet(alpha_p_zones, size=1)
             for z in range(n_zones):
-                p_zones[z, feat, :] = np.random.dirichlet(alpha_p_zones, size=1)
+                a = np.random.beta(i[e], i[e], size=max_categories)
+                a[n_categories:] = 0.
+                p_zones[z, feat, :] = a / np.sum(a)
+
 
             # Sample global probabilities
-            alpha_p_global = [1.5] * n_categories + [0] * (max_categories - n_categories)
-            p_global[feat, :] = np.random.dirichlet(alpha_p_global, size=1)
+            # alpha_p_global = [1.5] * n_categories + [0] * (max_categories - n_categories)
+            # p_global[feat, :] = np.random.dirichlet(alpha_p_global, size=1)
+            a = np.random.beta(1.5, 1.5, size=max_categories)
+            a[n_categories:] = 0.
+            p_global[feat, :] = a / np.sum(a)
 
             # Sample family probabilities
-            alpha_p_families = [1] * n_categories + [0] * (max_categories - n_categories)
+            # alpha_p_families = [1] * n_categories + [0] * (max_categories - n_categories)
+            # for fam in range(n_families):
+            #     p_families[fam, feat, :] = np.random.dirichlet(alpha_p_families, size=1)
             for fam in range(n_families):
-                p_families[fam, feat, :] = np.random.dirichlet(alpha_p_families, size=1)
+                a = np.random.beta(1., 1., size=max_categories)
+                a[n_categories:] = 0.
+                p_families[fam, feat, :] = a / np.sum(a)
 
         # Random family sites
         n_sites = network['n']
@@ -214,6 +226,8 @@ def evaluate_sampling_parameters(params):
 if __name__ == '__main__':
 
     # Test ease
-    with MyPool(1) as pool:
-        all_stats = pool.map(evaluate_sampling_parameters, sampling_param_grid)
+    # with MyPool(1) as pool:
+    #     all_stats = pool.map(evaluate_sampling_parameters, sampling_param_grid)
+    for params in sampling_param_grid:
+        evaluate_sampling_parameters(params)
 
