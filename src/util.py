@@ -93,9 +93,16 @@ def cache_decorator(fn):
         global result
         if result is None:
             result = fn(*args, **kwargs)
+        else:
+            if kwargs.pop('recompute', False):
+                result = fn(*args, **kwargs)
+
         return result
 
     return cached_fn
+
+dct = {}
+dct.pop('from_cache', False)
 
 
 def cache_arg(arg_id, hash_function=hash):

@@ -209,7 +209,7 @@ class MCMC_generative(metaclass=_abc.ABCMeta):
         candidate, q, q_back = propose_step(sample)
 
         # Compute the log-likelihood of the candidate
-        ll_candidate = self.likelihood(candidate)
+        ll_candidate = self.likelihood(candidate, step_type=propose_step.__name__)
 
         # Compute the prior of the candidate
         prior_candidate = self.prior(candidate)
@@ -234,7 +234,7 @@ class MCMC_generative(metaclass=_abc.ABCMeta):
             ll_new(float): the likelihood of the candidate
             ll_prev(float): the likelihood of the current sample
             prior_new(float): the prior of the candidate
-            prior_prev(float): the prior of the current sample
+            prior_prev(float): tself.fn_operatorshe prior of the current sample
             q (float): the transition probability
             q (float): the back-probability
             temperature(float): the temperature of the MCMC
