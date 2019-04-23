@@ -180,8 +180,7 @@ def compute_likelihood_generative(zones, features,  weights, p_global=1,  *args)
         return ll
 
 def compute_prior_zones(zones, zone_prior_type):
-    """Evaluates the prior of a given set of zones.
-
+    """Evaluates the prior of a given array of zones.
     Args:
         zones(np.array): Boolean arrays of the current zones.
             shape(n_zones, n_sites)

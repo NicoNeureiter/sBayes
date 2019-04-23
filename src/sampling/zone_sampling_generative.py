@@ -79,7 +79,7 @@ class ZoneMCMC_generative(MCMC_generative):
 
         #Todo: Define and compute prior_zone and prior_weights
         prior_zones = compute_prior_zones(sample.zones, 'uniform')
-        prior_weights = 0. #compute_prior_weights(sample.weights)
+        prior_weights = compute_prior_weights(sample.weights, 'uniform)
         prior = prior_zones + prior_weights
         return prior
 
