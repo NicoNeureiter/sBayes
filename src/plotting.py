@@ -200,7 +200,7 @@ def plot_zones(zones, net, ax=None):
 #     plt.show()
 
 
-def plot_posterior_frequency(zones, net, pz=-1, r=0, burn_in=0.2, map=False, proj4=None, geojson_map=None,
+def plot_posterior_frequency(zones, net, pz=-1, burn_in=0.2, map=False, proj4=None, geojson_map=None,
                              geo_json_river=None, offset_factor=0.03):
     """ This function creates a scatter plot of all sites in the posterior distribution. The color of a site reflects
     its frequency in the posterior
@@ -208,7 +208,6 @@ def plot_posterior_frequency(zones, net, pz=-1, r=0, burn_in=0.2, map=False, pro
     Args:
         zones (np.array): the posterior of all zones
         net (dict): The full network containing all sites.
-        r (int): Plot which run?
         pz(int): For parallel zones: which parallel zone should be plotted? If -1, plot all.
     """
     #plt.rcParams['axes.facecolor'] = '#00000000'
@@ -221,7 +220,7 @@ def plot_posterior_frequency(zones, net, pz=-1, r=0, burn_in=0.2, map=False, pro
     # Find index of first sample after burn-in
     if map:
         if proj4 is None and geojson_map is None:
-            raise Exception('If you want to use a map provide a geojson and and a crs')
+            raise Exception('If you want to use a map provide a geojson and a crs')
 
         world = gpd.read_file(geojson_map)
         world = world.to_crs(proj4)
@@ -232,21 +231,21 @@ def plot_posterior_frequency(zones, net, pz=-1, r=0, burn_in=0.2, map=False, pro
             rivers.plot(ax=ax, color=None, edgecolor="skyblue")
 
     if pz == -1:
-        n = len(zones[r][0])
-        zones = [sum(k) for k in zip(*zones[r])]
+        n = len(zones[0])
+        zones = [sum(k) for k in zip(*zones)]
 
         # Exclude burn-in
         end_bi = math.ceil(len(zones) * burn_in)
-        density = (np.sum(zones[end_bi:], axis=0, dtype=np.int32) / n)
+        density = (np.sum(zones[end_bi:], axis=0, dtype=np.int32) / (n - end_bi))
         sc = ax.scatter(*all_sites.T, c=density, s=size + size * 2 * density, cmap='plasma')
 
     else:
-        n = len(zones[r][pz])
-        zone = zones[r][pz]
-
+        zone = zones[pz]
+        n = len(zone)
         # Exclude burn-in
-        end_bi = math.ceil(len(zone) * burn_in)
-        density = (np.sum(zone[end_bi:], axis=0, dtype=np.int32) / n)
+        end_bi = math.ceil(len(zone[pz]) * burn_in)
+
+        density = (np.sum(zone[end_bi:], axis=0, dtype=np.int32) / (n - end_bi))
         sc = ax.scatter(*all_sites.T, c=density, s=size + size * 2 * density, cmap='plasma')
 
     # Customize plotting layout
@@ -381,47 +380,28 @@ def plot_alpha_shapes(zone, net, alpha):
     plt.show()
 
 
-def plot_trace_mcmc(mcmc_res, r=0, burn_in=0.2, recall=True, precision=True, normalized=True):
+def plot_trace_recall_precision(mcmc_res, burn_in=0.2, recall=True, precision=True):
     """
     Function to plot the trace of the MCMC chains both in terms of likelihood and recall
     Args:
         mcmc_res (dict): the output from the MCMC neatly collected in a dict
-        r (int): which run?
         burn_in: (float): First n% of samples are burn-in
+        recall: (boolean): plot recall?
+        precision: (boolean): plot precision?
     """
 
     fig, ax = plt.subplots()
     col = get_colors()
-    n_zones = len(mcmc_res['posterior'][r])
-
-    if n_zones == 1:
-        label = "(log)-Posterior true zone"
-    else:
-        label = "(log)-Posterior true zones"
-
-    print(n_zones)
-    # Posterior (normalized by posterior of true zone)
-    if normalized:
-        y = [sum(k) for k in zip(*mcmc_res['posterior_norm'][r])]
-        x = range(len(y))
-        ax.plot(x, y, lw=0.75, color=col['trace']['lh'], label='Normalized (log)-Posterior')
-        ax.axhline(y=1, xmin=x[0], xmax=x[-1], lw=2, color="red", label=label)
-
-    else:
-
-        y = [sum(k) for k in zip(*mcmc_res['posterior'][r])]
-        x = range(len(y))
-        ax.plot(x, y, lw=0.75, color=col['trace']['lh'], label='(log)-Posterior')
 
     # Recall
     if recall:
-        y = [sum(k) for k in zip(*mcmc_res['recall'][r])]
+        y = mcmc_res['recall']
         x = range(len(y))
         ax.plot(x, y, lw=0.75, color=col['trace']['recall'], label='Recall')
 
     # Precision
     if precision:
-        y = [sum(k) for k in zip(*mcmc_res['precision'][r])]
+        y = mcmc_res['precision']
         x = range(len(y))
         ax.plot(x, y, lw=0.75, color=col['trace']['precision'], label='Precision')
 
@@ -429,15 +409,72 @@ def plot_trace_mcmc(mcmc_res, r=0, burn_in=0.2, recall=True, precision=True, nor
     end_bi = math.ceil(len(y) * burn_in)
     end_bi_label = math.ceil(len(y) * (burn_in - 0.03))
 
-
-
     ax.axvline(x=end_bi, lw=1, color="grey", linestyle='--')
     plt.text(end_bi_label, 0.5, 'Burn-in', rotation=90, size=8)
     ax.set_xlabel('Sample')
     ax.set_title('Trace plot')
-    ax.set_ylim(bottom=0)
-    ax.set_xlim(left=0)
     ax.legend(loc=4)
+    plt.show()
+
+
+def plot_trace_lh(mcmc_res, burn_in=0.2, true_lh=True):
+    """
+    Function to plot the trace of the MCMC chains both in terms of likelihood and recall
+    Args:
+        mcmc_res (dict): the output from the MCMC neatly collected in a dict
+        burn_in: (float): First n% of samples are burn-in
+        true_lh (boolean): Visualize the true likelihood
+    """
+
+    fig, ax = plt.subplots()
+    col = get_colors()
+    n_zones = len(mcmc_res['zones'])
+
+    if n_zones == 1:
+        label = "true (log)-Posterior of simulated area"
+    else:
+        label = "true (log)-Posterior of simulated areas"
+
+    y = mcmc_res['lh']
+    x = range(len(y))
+    ax.plot(x, y, lw=0.75, color=col['trace']['lh'], label='(log)-likelihood')
+
+    if true_lh:
+        ax.axhline(y=mcmc_res['true_lh'], xmin=x[0], xmax=x[-1], lw=2, color="red", label=label)
+
+    # Find index of first sample after burn-in
+    end_bi = math.ceil(len(y) * burn_in)
+    end_bi_label = math.ceil(len(y) * (burn_in - 0.03))
+
+    ax.axvline(x=end_bi, lw=1, color="grey", linestyle='--')
+    plt.text(end_bi_label, 0.5, 'Burn-in', rotation=90, size=8)
+    ax.set_xlabel('Sample')
+    ax.set_title('Trace of the likelihood')
+    ax.legend(loc=4)
+    plt.show()
+
+
+def plot_histogram_weights(mcmc_res, feature):
+    """
+        Plots the trace for weight samples
+        Args:
+            mcmc_res (dict): the output from the MCMC neatly collected in a dict
+            feature (int): plot weight for which feature?
+        """
+    fig, ax = plt.subplots()
+    col = get_colors()
+    n_weights = len(mcmc_res['weights'])
+
+    # Global weight
+    weights = []
+    for w in mcmc_res['weights']:
+        weights.append(w[feature][1])
+
+    y = weights
+    x = range(len(y))
+    ax.hist(y, bins=None, range=None)
+    #ax.plot(x, y, lw=0.75, color=col['trace']['recall'], label='Weights')
+
     plt.show()
 
 
@@ -678,7 +715,7 @@ def plot_zone_size_over_time(mcmc_res, r=0, burn_in=0.2, true_zone=True):
 
     # Where to put the label?
     x_mid = []
-    n_zones = len(mcmc_res['zones'][r])
+    n_zones = len(mcmc_res['zones'])
 
     for c in range(n_zones):
         size = []
@@ -688,12 +725,12 @@ def plot_zone_size_over_time(mcmc_res, r=0, burn_in=0.2, true_zone=True):
         else:
             label = 'Size of true zone ' + str(c)
 
-        for z in mcmc_res['zones'][r][c]:
+        for z in mcmc_res['zones'][c]:
             size.append(np.sum(z))
 
         x = range(len(size))
         if true_zone:
-            true_size = np.sum(mcmc_res['true_zones'][r][c])
+            true_size = np.sum(mcmc_res['true_zones'][c])
             ax.axhline(y=true_size, xmin=x[0], xmax=x[-1], lw=1, color=colors[c], linestyle='--',
                        label=label)
 
@@ -735,6 +772,37 @@ def plot_gamma_parameters(ecdf):
     x = range(len(norm_loc))
     ax.plot(x, norm_loc, lw=0.75, color="red")
     ax.plot(x, norm_scale, lw=0.75, color="blue")
+
+    plt.show()
+
+
+def plot_correlation_weights(mcmc_res,  burn_in=0.2, which_weight=1,):
+    """This function plots the correlation between the mean of the estimated weights and the true weights
+    Args:
+        mcmc_res(dict):  the output from the MCMC, neatly collected in a dict
+        burn_in (float): ratio of initial samples that are discarded as burn-in
+        which_weight(int): compute correlation for which weight:
+        w_global = 0, w_contact = 1, w_inherited = 2 (if available)
+    """
+
+    fig, ax = plt.subplots()
+
+    # Find index of first sample after burn-in
+
+    end_bi = math.ceil(len(mcmc_res['weights']) * burn_in)
+
+    weights = np.asarray(mcmc_res['weights'][end_bi:])
+    w_est = weights[:, :, which_weight]
+    w_mean_est = w_est.mean(axis=0)
+    w_true = mcmc_res['true_weights'][:, which_weight]
+
+    ax.set_aspect('equal')
+    ax.scatter(w_true, w_mean_est)
+    ax.set_xlabel('True weights')
+    ax.set_ylabel('Mean estimated weights')
+
+    ax.set_xlim([0, 1])
+    ax.set_ylim([0, 1])
 
     plt.show()
 

@@ -16,11 +16,10 @@ from scipy.sparse.csgraph import minimum_spanning_tree
 import psycopg2
 import igraph
 import math
-
+from src.model import normalize_weights
 from src.util import compute_distance, triangulation, \
     compute_delaunay, dump_results
 from src.config import *
-
 
 
 EPS = np.finfo(float).eps
@@ -375,82 +374,78 @@ def sample_categorical(p):
     return np.argmax(z < cdf, axis=-1)
 
 
-def sample_from_likelihood(zones, families, p_zones, p_global, p_families, weights, cat_axis=True):
-    """Compute the likelihood of all sites in `zone`. The likelihood is
-    defined as a mixture of the global distribution `p_global` and the maximum
-    likelihood distribution of the zone itself.
+def sample_from_likelihood(zones, families, p_global, p_contact, p_inheritance, weights, inheritance):
+    """Simulate features for of all sites from the likelihood.
 
     Args:
-        zones (np.array[bool]): Binary array indicating the assignment of sites to zones.
-            shape: (n_sites, n_zones)
-        families (np.array): Binary array indicating the assignment of a site to
-            a language family.
-            shape: (n_sites, n_families)
-        p_zones (np.array[float]): The categorical probabilities of every
-            category in every features in every zones.
-            shape: (n_zones, n_features, n_categories)
-        p_global (np.array[float]): The global categorical probabilities of
-            every category in every feature.
+        zones (np.array): Binary array indicating the assignment of sites to zones.
+            shape: (n_zones, n_sites)
+        families (np.array): Binary array indicating the assignment of a site to a language family.
+            shape: (n_families, n_sites)
+        p_global (np.array[float]): The global categorical probabilities of every category in every feature.
             shape: (n_features, n_categories)
-        p_families (np.array): The probabilities of every category in every
-            language family.
+        p_contact (np.array[float]): The categorical probabilities of every category in every features in every zones.
+            shape: (n_zones, n_features, n_categories)
+        p_inheritance (np.array): The probabilities of every category in every language family.
             shape: (n_families, n_features, n_categories)
-        weights (np.array[float]): The mixture coefficient controlling how much
-            each feature is explained by the zone, global distribution and
-            language families distribution.
+        weights (np.array): The mixture coefficient controlling how much each feature is explained by contact,
+            global distribution and inheritance.
             shape: (n_features, 3)
-        cat_axis (boolean): return categories as separate axis? only evaluated when <return_as> is "np.array"
+        inheritance(bool): Is inheritance (family membership) considered when simulating features?
 
     Returns:
-        np.array: The sampled categories for all sites and features (and categories if cat_axis=True)
-        shape: either (n_sites, n_features) or (n_sites, n_features, n_categories)
+        np.array: The sampled categories for all sites and features and categories
+        shape:  n_sites, n_features, n_categories
     """
-    n_sites, n_zones = zones.shape
+    n_zones, n_sites = zones.shape
     n_features, n_categories = p_global.shape
 
     # Are the weights fine?
-    if families is None:
+    assert np.allclose(a=np.sum(weights, axis=-1), b=1., rtol=EPS)
 
-        assert np.allclose(a=np.sum(weights[:, [0, 1]], axis=-1), b=1., rtol=EPS)
+    # Compute the global assignment and the assignment of sites to zones and families
+    global_assignment = np.ones(n_sites)
+    zone_assignment = np.any(zones, axis=0)
+
+    if not inheritance:
+        assignment = np.array([global_assignment, zone_assignment]).T
 
     else:
-        assert np.allclose(a=np.sum(weights, axis=-1), b=1., rtol=EPS)
+        family_assignment = np.any(families, axis=0)
+        assignment = np.array([global_assignment, zone_assignment, family_assignment]).T
+
+    # Normalize the weights for each site depending on whether zones or families are relevant for that site
+    # Order of columns in weights: global, contact, (inheritance if available)
+    weights = np.repeat(weights[np.newaxis, :, :], n_sites, axis=0)
+    normed_weights = normalize_weights(weights, assignment)
+    normed_weights = np.transpose(normed_weights, (1, 0, 2))
 
     features = np.zeros((n_sites, n_features), dtype=int)
+
     for i_feat in range(n_features):
+
             # Compute the feature likelihood matrix (for all sites and all categories)
-            lh_zone = zones.dot(p_zones[:, i_feat, :])
-            lh_global = p_global[np.newaxis, i_feat, :]
+            lh_global = p_global[np.newaxis, i_feat, :].T
+            lh_zone = zones.T.dot(p_contact[:, i_feat, :]).T
 
-            lh_feature = weights[i_feat, 0] * lh_zone \
-                       + weights[i_feat, 1] * lh_global \
+            lh_feature = normed_weights[i_feat, :, 0] * lh_global + normed_weights[i_feat, :, 1] * lh_zone
 
-            # Simulate family
-            if families is not None:
+            # Families
+            if inheritance:
 
-                lh_family = families.dot(p_families[:, i_feat, :])
-                lh_feature += weights[i_feat, 2] * lh_family
+                lh_family = families.dot(p_inheritance[:, i_feat, :]).T
+                lh_feature += normed_weights[i_feat, 2] * lh_family
 
             # Sample from the categorical distribution defined by lh_feature
-            features[:, i_feat] = sample_categorical(lh_feature)
+            features[:, i_feat] = sample_categorical(lh_feature.T)
 
-    # # Todo Remove once we are sure both lh return the same results
-    # # Export old_features for testing
-    # features_dict = {}
-    # for f in range(features.shape[-1]):
-    #     f_name = 'f' + str(f+1)
-    #     features_dict[f_name] = features[:, f]
-
-    # Add categories as dimension
-    if cat_axis:
-        cats = np.unique(features)
-        features_cat = np.zeros((n_sites, n_features, len(cats)), dtype=int)
-
-        for cat in cats:
+    # Return per category
+    cats = np.unique(features)
+    features_cat = np.zeros((n_sites, n_features, len(cats)), dtype=int)
+    for cat in cats:
             features_cat[:, :, cat] = np.where(features == cat, 1, 0)
-        return features_cat, features
-    else:
-        return features
+
+    return features_cat
 
 
 @dump_results(FEATURES_PATH, RELOAD_DATA)
@@ -569,7 +564,7 @@ def generate_ecdf_geo_prior(net, min_n, max_n, nr_samples):
     d) fits a gamma function to the ecdf
 
     Args:
-        net (dict): network containing the graph, location,...
+        net (dict): network containing the graph, locations,...
         min_n (int): the minimum number of languages in a zone
         max_n (int): the maximum number of languages in a zone
         nr_samples (int): the number of samples in the ecdf per zone size
@@ -767,4 +762,97 @@ def get_features(table=None, feature_names=None):
             features.append([-1 if x is None else x for x in f_db])
 
         return np.array(features)
+
+
+def simulate_zones(zone_ids, network):
+    """ This function finds out which sites belong to the zone with <zone_ids> and then assigns zone membership accordingly.
+
+        Args:
+            zone_ids(int): The IDs of the simulated contact zones (zones are hand-drawn and stored in a DB)
+            network (dict): The network of all sites.
+
+        Returns:
+            np.array: the simulated zones, boolean assignment of site to zone.
+                shape(n_zones, n_sites)
+    """
+    # Retrieve zones from DB
+    sites_in_zone = get_contact_zones(zone_ids)
+    n_zones = len(sites_in_zone)
+    n_sites = network['n']
+
+    # Assign zone membership
+    zones = np.zeros((n_zones, n_sites), bool)
+    for k, z_id in enumerate(sites_in_zone.values()):
+        zones[k, z_id] = 1
+    return zones
+
+
+def simulate_assignment_probabilities(n_features, p_number_categories, inheritance, zones, intensity_contact,
+                                      intensity_global, intensity_inheritance=None, families=None):
+    """ Simulates the categories and then the assignment probabilities to categories (both in zones/families and globally)
+
+       Args:
+           n_features(int): number of features to simulate
+           p_number_categories(dict): probability of simulating a feature with k categories
+           inheritance(bool): Simulate probability ofr inheritance?
+           zones (np.array): assignment of sites to zones (Boolean)
+                shape(n_zones, n_sites)
+           families (np.array): assignment of sites to families
+                shape(n_families, n_sites)
+           intensity_global(float): controls the intensity of the simulated global effect
+           intensity_contact(float): controls the intensity of the simulated contact effect in the zones
+           intensity_inheritance(float): controls the intensity of the simulated inheritance in the families
+       Returns:
+           (np.array, np.array, np.array): The global/zone/family weights per feature
+       """
+    cat = []
+    p_cat = []
+    for k, v in p_number_categories.items():
+        cat.append(int(k))
+        p_cat.append(v)
+
+    # Simulate categories
+    n_categories = np.random.choice(a=cat, size=n_features, p=p_cat)
+
+    n_features = len(n_categories)
+    max_categories = max(n_categories)
+    n_zones = len(zones)
+
+    # Initialize empty assignment probabilities
+    p_global = np.zeros((n_features, max_categories), dtype=float)
+    p_zones = np.zeros((n_zones, n_features, max_categories), dtype=float)
+
+    # Simulate assignment to categories
+    for f in range(n_features):
+        cat_f = n_categories[f]
+
+        # Global assignment
+        alpha_p_global = [intensity_global] * cat_f
+        p_global[f, range(cat_f)] = np.random.dirichlet(alpha_p_global, size=1)
+
+        # Assignment in zones
+        alpha_p_zones = [intensity_contact] * cat_f
+        for z in range(n_zones):
+            p_zones[z, f, range(cat_f)] = np.random.dirichlet(alpha_p_zones, size=1)
+
+    # Simulate Inheritance?
+    if not inheritance:
+        return p_global, p_zones, None
+
+    else:
+        n_families = len(families)
+        p_families = np.zeros((n_families, n_features, max_categories), dtype=float)
+
+        for f in range(n_features):
+            cat_f = n_categories[f]
+
+            # Assignment in families
+            alpha_p_families = [intensity_inheritance] * cat_f
+            for fam in range(n_families):
+                p_families[fam, f, range(cat_f)] = np.random.dirichlet(alpha_p_families, size=1)
+
+        return p_global, p_zones, p_families
+
+
+
 

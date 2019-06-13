@@ -76,6 +76,27 @@ def cache_kwarg(kwarg_key, hash_function=hash):
     return decorator
 
 
+def cache_global_lh(fn):
+    """This is a cache decorator tailored to the function compute_global_likelihood
+
+        Args:
+            fn(callable): The function to cache, i.e compute_global_likelihood
+
+        Returns:
+            (callable): The cached global likelihood
+        """
+    global result
+    result = None
+
+    def cached_fn(*args, **kwargs):
+        global result
+        if result is None:
+            result = fn(*args, **kwargs)
+        return result
+
+    return cached_fn
+
+
 def cache_decorator(fn):
     """Decorator to cache functions.
 
@@ -101,8 +122,6 @@ def cache_decorator(fn):
 
     return cached_fn
 
-dct = {}
-dct.pop('from_cache', False)
 
 
 def cache_arg(arg_id, hash_function=hash):
@@ -306,3 +325,36 @@ def categories_from_features(features):
 
     return features_cat
 
+
+def transform_weights_from_log(log_weights):
+        """Transforms the weights from log space and normalizes them such that they sum to 1
+
+        Args:
+            log_weights (np.array): The non-normalized weights in log space
+                shape(n_features, 3)
+        Returns:
+            (np.array): transformed and normalized weights
+         """
+
+        # Transform to original space
+        weights = np.exp(log_weights)
+
+        # Normalize
+        weights_norm = weights/weights.sum(axis=1, keepdims=True)
+        return weights_norm
+
+
+def transform_weights_to_log(weights):
+    """Transforms the weights to log-space
+
+    Args:
+        weights (np.array): The weights
+            shape(n_features, 3)
+    Returns:
+        (np.array): transformed weights in log-space
+     """
+
+    # Transform to log space
+    log_weights = np.log(weights)
+
+    return log_weights

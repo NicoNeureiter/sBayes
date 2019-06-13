@@ -7,8 +7,8 @@ import logging
 import numpy as np
 
 from src.sampling.mcmc_generative import MCMC_generative
-from src.model import compute_geo_prior_distance, compute_likelihood_generative, compute_prior_zones
-from src.util import get_neighbours, categories_from_features
+from src.model import GenerativeLikelihood, compute_prior_zones, compute_prior_weights
+from src.util import get_neighbours
 from src.preprocessing import compute_p_global
 from src.plotting import plot_zones
 from src.config import *
@@ -27,14 +27,20 @@ class Sample(object):
         self.zones = zones
         self.weights = weights
 
+        self.zones_changed = True
+        self.weights_changed = True
+
     def copy(self):
-        return Sample(self.zones.copy(), self.weights.copy())
+        new_sample = Sample(self.zones.copy(), self.weights.copy())
+        new_sample.zones_changed = self.zones_changed
+        new_sample.weights_changed = self.weights_changed
+        return new_sample
 
 
 class ZoneMCMC_generative(MCMC_generative):
 
-    def __init__(self, network, features, min_size, max_size, initial_size, background,
-                 zones_previous_run, n_zones=1,
+    def __init__(self, network, features, min_size, max_size, initial_size,
+                 initial_sample, n_zones=1,
                  connected_only=False, **kwargs):
 
         super(ZoneMCMC_generative, self).__init__(**kwargs)
@@ -58,7 +64,7 @@ class ZoneMCMC_generative(MCMC_generative):
         self.initial_size = initial_size
         self.connected_only = connected_only
         self.n_zones = n_zones
-        self.zones_previous_run = zones_previous_run
+        self.initial_sample = initial_sample
 
         # Global and family probabilities
         self.p_global = compute_p_global(features)
@@ -69,6 +75,10 @@ class ZoneMCMC_generative(MCMC_generative):
         # Proposal distribution
         self.var_proposal_weight = 0.1
 
+        self.compute_lh_per_chain = [
+            GenerativeLikelihood() for _ in range(self.n_chains)
+        ]
+
     def prior(self, sample):
         """Compute the (log) prior of a sample.
         Args:
@@ -77,37 +87,27 @@ class ZoneMCMC_generative(MCMC_generative):
         Returns:
             float: The (log) prior of the sample"""
 
-        #Todo: Define and compute prior_zone and prior_weights
         prior_zones = compute_prior_zones(sample.zones, 'uniform')
-        prior_weights = compute_prior_weights(sample.weights, 'uniform)
+        prior_weights = compute_prior_weights(sample.weights, 'uniform')
         prior = prior_zones + prior_weights
         return prior
 
-    def likelihood(self, sample, step_type='nüt'):
+    def likelihood(self, sample, chain):
         """Compute the (log) likelihood of a sample.
         Args:
             sample(Sample): A Sample object consisting of zones and weights
-
-        Kwargs:
-            step_type (str): What operator was used in the current step?
-
+            chain (int): The current chain
         Returns:
             float: The (log) likelihood of the sample"""
-        # Normalize the weight
-        weights_norm = self.normalize_weights(sample.weights)
 
         # Compute the likelihood
-        is_zone_update = not (step_type == 'alter_weights')
-        ll_feature = compute_likelihood_generative(zones=sample.zones, features=self.features,
-                                                   p_global=self.p_global, weights=weights_norm,
-                                                   is_zone_update=is_zone_update)
+        ll_feature = self.compute_lh_per_chain[chain](sample=sample, features=self.features,
+                                                      p_global=self.p_global, inheritance=self.inheritance)
 
         return ll_feature
 
-    # todo
-
     def alter_weights(self, sample):
-        """This function modifies one weight of a random feature in the current sample
+        """This function modifies one weight of one feature in the current sample
 
         Args:
             sample(Sample): The current sample with zones and weights.
@@ -115,12 +115,21 @@ class ZoneMCMC_generative(MCMC_generative):
             Sample: The modified sample
         """
         sample_new = sample.copy()
+        sample_new.weights_changed = True
         weights_current = sample.weights
 
         # Randomly choose one of the features
         f_id = np.random.choice(range(weights_current.shape[0]))
-        # Randomly choose to modify the global or the zone weight (family weight is adjusted during normalization)
-        w_id = np.random.choice(range(weights_current.shape[1] - 1))
+
+        if not self.inheritance:
+            # Only one of the contact weights (column 1 in weights) is modified,
+            # the respective global weight is adjusted during normalization, the inheritance weight is  not relevant
+            w_id = 1
+
+        else:
+            # One of the zone or inheritance weights (column 1 or 2 in weights) is modified
+            # the respective global weight is adjusted during normalization
+            w_id = np.random.choice([1, 2])
 
         weight_current = weights_current[f_id, w_id]
         # Sample new weight from normal distribution centered at the current weight and with fixed variance
@@ -143,6 +152,7 @@ class ZoneMCMC_generative(MCMC_generative):
          """
 
         sample_new = sample.copy()
+        sample_new.zones_changed = True
         zones_current = sample.zones
         occupied = np.any(zones_current, axis=0)
 
@@ -180,6 +190,7 @@ class ZoneMCMC_generative(MCMC_generative):
         """
 
         sample_new = sample.copy()
+        sample_new.zones_changed = True
         zones_current = sample.zones
         occupied = np.any(zones_current, axis=0)
 
@@ -219,10 +230,11 @@ class ZoneMCMC_generative(MCMC_generative):
             (Sample): The modified sample.
         """
         sample_new = sample.copy()
+        sample_new.zones_changed = True
         zones_current = sample.zones
-        z_id = np.random.choice(range(zones_current.shape[0]))
 
         # Randomly choose one of the zones to modify
+        z_id = np.random.choice(range(zones_current.shape[0]))
         zone_current = zones_current[z_id, :]
 
         # Check if zone is big enough to shrink
@@ -255,18 +267,18 @@ class ZoneMCMC_generative(MCMC_generative):
         n_generated = 0
 
         # B: For those zones where a sample from a previous run exists we use this as the initial sample
-        for i in range(len(self.zones_previous_run)):
+        if self.initial_sample.zones is not None:
+            for i in range(len(self.initial_sample.zones)):
 
-            if self.zones_previous_run[i][c] is not None:
-                initial_zones[i, :] = self.zones_previous_run[i][c]
-                occupied += self.zones_previous_run[i][c]
+                initial_zones[i, :] = self.initial_sample.zones[i]
+                occupied += self.initial_sample.zones[i]
                 n_generated += 1
 
         not_initialized = range(n_generated, self.n_zones)
 
         # A: The zones that are not initialized yet are grown
-        # When growing many zones some can get stuck due to an unfavourable seed.
-        # That's why we perform several (15) attempts to initialize them.
+        # When growing many zones, some can get stuck due to an unfavourable seed.
+        # That's why we perform several attempts to initialize them.
         grow_attempts = 0
         while True:
             for i in not_initialized:
@@ -280,7 +292,6 @@ class ZoneMCMC_generative(MCMC_generative):
                             not_initialized = range(n_generated, self.n_zones)
                             break
                         # Seems there is not enough sites to grow n_zones of size k
-
                         else:
                             raise ValueError("Seems there are not enough sites (%i) to grow %i zones of size %i" %
                                              (self.n, self.n_zones, self.initial_size))
@@ -341,8 +352,20 @@ class ZoneMCMC_generative(MCMC_generative):
         Returns:
             list: weights for global, zone and family influence
             """
-        # todo: smart initial value
-        weights = np.full((self.n_features, 3), 1.)
+
+        # Use weights from a previous run
+        if self.initial_sample.weights is not None:
+            weights = self.initial_sample.weights
+
+        # Initialize new weights
+        else:
+            # When the algorithm does not include inheritance then there are only 2 weights (global and contact)
+            if not self.inheritance:
+                weights = np.full((self.n_features, 2), 1.)
+
+            else:
+                weights = np.full((self.n_features, 3), 1.)
+
         return weights
 
     def generate_initial_sample(self, c):
@@ -353,6 +376,7 @@ class ZoneMCMC_generative(MCMC_generative):
         """
         initial_zones = self.generate_initial_zones(c)
         initial_weights = self.generate_initial_weights()
+
         sample = Sample(zones=initial_zones, weights=initial_weights)
 
         return sample
@@ -363,7 +387,7 @@ class ZoneMCMC_generative(MCMC_generative):
 
         Args:
             zone (np.array): The zone for which removal candidates are found.
-
+                shape(n_sites)
         Returns:
             (list): Index-list of removal candidates.
         """
@@ -408,18 +432,3 @@ class ZoneMCMC_generative(MCMC_generative):
 
         return fn_operators, p_operators
 
-    def normalize_weights(self, log_weights):
-        """Transform the weights from log space and normalize them such that they sum to 1
-
-        Args:
-            log_weights (np.array): The non-normalized weights in log space
-                shape(n_features, 3)
-        Returns:
-            (np.array): transformed and normalized weights
-         """
-        # Transform to original space
-        weights = np.exp(log_weights)
-        # Normalize
-        weights_norm = weights/weights.sum(axis=1, keepdims=True)
-
-        return weights_norm

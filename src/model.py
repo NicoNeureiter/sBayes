@@ -9,12 +9,12 @@ from scipy import sparse
 import scipy.stats as spstats
 from scipy.sparse.csgraph import minimum_spanning_tree
 
-from src.util import triangulation, cache_arg, hash_bool_array, compute_delaunay, cache_decorator
+from src.util import triangulation, cache_arg, hash_bool_array, compute_delaunay, transform_weights_from_log
 
 EPS = np.finfo(float).eps
 
 
-@cache_decorator
+# @cache_global_lh
 def compute_global_likelihood(features, p_global):
     """Computes the global likelihood, that is the likelihood per site and features
     without knowledge about family or zones.
@@ -44,7 +44,7 @@ def compute_global_likelihood(features, p_global):
     return lh_global
 
 
-@cache_decorator
+# @cache_decorator
 def compute_zone_likelihood(features, zones):
     """Computes the zone likelihood that is the likelihood per site and feature given zones z1, ... zn
     Args:
@@ -84,7 +84,7 @@ def compute_zone_likelihood(features, zones):
     return lh_zone
 
 
-@cache_decorator
+# @cache_decorator
 def compute_family_likelihood(features, families=1):
     """Computes the family likelihood, that is the likelihood per site and feature given family f1, ... fn
 
@@ -117,73 +117,119 @@ def normalize_weights(weights, assignment):
             np.array: the weight_per site
                 shape(n_sites, n_features, 3)
     """
+
     weights_per_site = weights * assignment[:, np.newaxis, :]
-    return weights_per_site / weights_per_site.sum(axis=0, keepdims=True)
+    return weights_per_site / weights_per_site.sum(axis=2, keepdims=True)
 
 
-# todo: change p_global
-def compute_likelihood_generative(zones, features,  weights, p_global, families=None, is_zone_update=True):
-        """Compute the likelihood of all sites. The likelihood is defined as a mixture of the global distribution and
-        the likelihood distribution of the family and the zone.
+class GenerativeLikelihood(object):
 
-        Args:
-            zones(np.array): Binary arrays indicating the assignment of a site to the current zones.
-                shape: (n_zones, n_sites)
-            features (np.array or 'SparseMatrix'): The feature values for all sites and features.
-                shape: (n_sites, n_features, n_categories)
-            weights (np.array): The mixture coefficient controlling how much each feature is explained by each lh
-                shape: (n_features, 3)
-            p_global (np.array): The global frequencies of every feature and every value.
-                shape: (n_features, n_categories)
+    def __init__(self):
+        self.assignment = None
+        self.all_lh = None
 
-        Kwargs:
-            families (np.array): Binary array indicating the assignment of a site to a language family.
-                shape: (n_families, n_sites)
-    
-        Returns:
-            float: The joint likelihood of all sites in the zone.
-        """
-        n_sites, n_features, n_categories = features.shape
-        if families is None:
-            families = np.zeros((1, n_sites))
+    # todo: change p_global
+    def __call__(self, sample, features,  p_global, inheritance, families=None):
+            """Compute the likelihood of all sites. The likelihood is defined as a mixture of the global distribution and
+            the likelihood distribution of the family and the zone.
 
-        # Weights must sum to one
-        assert np.allclose(a=np.sum(weights, axis=-1), b=1., rtol=EPS)
+            Args:
+                zones(np.array): Binary arrays indicating the assignment of a site to the current zones.
+                    shape: (n_zones, n_sites)
+                features (np.array or 'SparseMatrix'): The feature values for all sites and features.
+                    shape: (n_sites, n_features, n_categories)
+                weights (np.array): The mixture coefficient controlling how much each feature is explained by each lh
+                    shape: (n_features, 3)
+                p_global (np.array): The global frequencies of every feature and every value.
+                    shape: (n_features, n_categories)
+                inheritance (bool): Does the likelihood consider inheritance?
 
-        # Compute likelihood per site # Todo finish family lh
-        global_lh = compute_global_likelihood(features, p_global)
-        zone_lh = compute_zone_likelihood(features, zones, recompute=is_zone_update)
-        family_lh = compute_family_likelihood(features)
+            Kwargs:
+                families (np.array): Binary array indicating the assignment of a site to a language family.
+                    shape: (n_families, n_sites)
 
-        # Compute the assignment of sites to zones (and global and family)
-        global_assignment = np.ones(n_sites)
-        zone_assignment = np.all(zones, axis=0)
-        family_assignment = np.all(families, axis=0)
-        assignment = np.array([global_assignment, zone_assignment, family_assignment]).T
+            Returns:
+                float: The joint likelihood of all sites in the zone.
+            """
+            n_sites, n_features, n_categories = features.shape
+            zones = sample.zones
+
+            weights = transform_weights_from_log(sample.weights)
+
+            # Weights must sum to one
+            assert np.allclose(a=np.sum(weights, axis=-1), b=1., rtol=EPS)
+
+            if sample.zones_changed:
+
+                global_lh = compute_global_likelihood(features, p_global)
+                zone_lh = compute_zone_likelihood(features, zones)
 
 
-        # Define weights for each site depending on whether the likelihood is available
-        # (none, global, global and family, global and zone, global, family and zone)
-        weights = np.repeat(weights[np.newaxis, :, :], n_sites, axis=0)
-        normed_weights = normalize_weights(weights, assignment)
+                # Compute the assignment of sites to zones (and global and family)
+                global_assignment = np.ones(n_sites)
+                zone_assignment = np.any(zones, axis=0)
 
-        all_lh = np.array([global_lh, zone_lh, family_lh]).transpose((1, 2, 0))
-        weighted_lh = np.sum(normed_weights * all_lh, axis=0)
-        ll = np.sum(np.log(weighted_lh))
-        return ll
+                # Todo Finish family lh
+                if not inheritance:
+                    self.assignment = np.array([global_assignment, zone_assignment]).T
+                    self.all_lh = np.array([global_lh, zone_lh]).transpose((1, 2, 0))
 
-def compute_prior_zones(zones, zone_prior_type):
+                else:
+                    family_lh = compute_family_likelihood(features)
+                    family_assignment = np.any(families, axis=0)
+                    self.assignment = np.array([global_assignment, zone_assignment, family_assignment]).T
+                    self.all_lh = np.array([global_lh, zone_lh, family_lh]).transpose((1, 2, 0))
+
+            # Define weights for each site depending on whether the likelihood is available
+            # Order of columns in weights: global, contact, inheritance (if available)
+
+            weights = np.repeat(weights[np.newaxis, :, :], n_sites, axis=0)
+            normed_weights = normalize_weights(weights, self.assignment)
+            weighted_lh = np.sum(normed_weights * self.all_lh, axis=2)
+            ll = np.sum(np.log(weighted_lh))
+
+            sample.zones_changed = False
+            sample.weights_changed = False
+
+            return ll
+
+
+def compute_prior_zones(zones, prior_type):
     """Evaluates the prior of a given array of zones.
     Args:
         zones(np.array): Boolean arrays of the current zones.
             shape(n_zones, n_sites)
-        zone_prior_type(string): The type of prior (either uniform, geo_empirical, geo_gaussian)
+        prior_type(string): The type of prior (either uniform, geo_empirical or geo_gaussian)
 
     Returns:
-        float: The prior probability of the zone
+        float: The prior probability of the zones
     """
-    if zone_prior_type == 'uniform':
+    if prior_type == 'uniform':
         return 0.
+    elif prior_type == 'geo_empirical':
+        # todo: implement!
+        raise ValueError("no supported yet")
+    elif prior_type == 'geo_gaussian':
+        raise ValueError("no supported yet")
+    else:
+        raise ValueError("prior_type must be either 'uniform' geo_empirical' or 'geo_gaussian'")
+
+
+def compute_prior_weights(weights, prior_type):
+    """Evaluates the prior of a given array of weights
+
+        Args:
+            weights(np.array): Boolean arrays of the current weights
+                shape(n_features, 3)
+            prior_type(string): The type of prior (currently only 'uniform' is supported)
+
+        Returns:
+            float: The prior probability of the weights
+    """
+    if prior_type == 'uniform':
+        return 0.
+    else:
+        raise ValueError("Only prior_type 'uniform' is currently supported")
 
 
 @cache_arg(0, hash_bool_array)
