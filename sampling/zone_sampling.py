@@ -7,11 +7,8 @@ import logging
 import numpy as np
 
 from src.sampling.mcmc_generative import MCMC_generative
-from src.model import GenerativeLikelihood, compute_prior_zones, compute_prior_weights
-from src.util import get_neighbours
-from src.preprocessing import compute_p_global
-from src.plotting import plot_zones
-from src.config import *
+from src.model import GenerativeLikelihood, GenerativePrior
+from src.util import get_neighbours, transform_p_to_log
 
 
 class Sample(object):
@@ -21,33 +18,56 @@ class Sample(object):
             shape: (n_sites, )
         weights (np.array): Weights of zone, family and global likelihood for different features.
             shape: (n_features, 3)
+        p_zones (np.array): Probabilities of categories in zones
+            shape: (n_zones, n_features, n_categories)
+        p_families (np.array): Probabilities of categories in families
+            shape: (n_families, n_features, n_categories)
     """
 
-    def __init__(self, zones, weights):
+    def __init__(self, zones, weights, p_zones, p_families):
         self.zones = zones
         self.weights = weights
+        self.p_zones = p_zones
+        self.p_families = p_families
 
-        self.zones_changed = True
-        self.weights_changed = True
+        # The sample contains information about which of its parameters was changed in the last MCMC step
+        self.what_changed = {'lh': {'zones': True, 'weights': True, 'p_zones': True, 'p_families': True},
+                             'prior': {'zones': True, 'weights': True, 'p_zones': True, 'p_families': True}}
 
     def copy(self):
-        new_sample = Sample(self.zones.copy(), self.weights.copy())
-        new_sample.zones_changed = self.zones_changed
-        new_sample.weights_changed = self.weights_changed
+        zone_copied = self.zones.copy()
+        weights_copied = self.weights.copy()
+        what_changed_copied = self.what_changed.copy()
+
+        if self.p_zones is not None:
+            p_zones_copied = self.p_zones.copy()
+        else:
+            p_zones_copied = None
+
+        if self.p_families is not None:
+            p_families_copied = self.p_families.copy()
+        else:
+            p_families_copied = None
+
+        new_sample = Sample(zones=zone_copied, weights=weights_copied,
+                            p_zones=p_zones_copied, p_families=p_families_copied)
+
+        new_sample.what_changed = what_changed_copied
+
         return new_sample
 
 
 class ZoneMCMC_generative(MCMC_generative):
 
     def __init__(self, network, features, min_size, max_size, initial_size,
-                 initial_sample, n_zones=1,
-                 connected_only=False, **kwargs):
+                 initial_sample, n_zones=1, connected_only=False, **kwargs):
 
         super(ZoneMCMC_generative, self).__init__(**kwargs)
 
         # Data
         self.features = features
         self.n_features = features.shape[1]
+        self.sites_per_category = np.count_nonzero(features, axis=0)
 
         # Network
         self.network = network
@@ -58,7 +78,7 @@ class ZoneMCMC_generative(MCMC_generative):
         # Sampling
         self.n = self.adj_mat.shape[0]
 
-        # Prior assumptions about zone size / connectedness /initial sample
+        # Zone size / connectedness /initial sample
         self.min_size = min_size
         self.max_size = max_size
         self.initial_size = initial_size
@@ -66,69 +86,83 @@ class ZoneMCMC_generative(MCMC_generative):
         self.n_zones = n_zones
         self.initial_sample = initial_sample
 
-        # Global and family probabilities
-        self.p_global = compute_p_global(features)
-
-        # Todo compute_p_family
-        #self.p.family = compute_p_family()
+        # Families
+        if self.inheritance:
+            self.n_families = self.families.shape[0]
 
         # Proposal distribution
         self.var_proposal_weight = 0.1
+        self.var_proposal_p_zones = 0.1
+        self.var_proposal_p_families = 0.1
 
         self.compute_lh_per_chain = [
             GenerativeLikelihood() for _ in range(self.n_chains)
         ]
 
-    def prior(self, sample):
+        self.compute_prior_per_chain = [
+            GenerativePrior() for _ in range(self.n_chains)
+        ]
+
+    def prior(self, sample, chain):
         """Compute the (log) prior of a sample.
         Args:
-            sample(Sample): A Sample object consisting of zones and weights
-
+            sample(Sample): A Sample object consisting of zones and parameters
+            chain(int): The current chain
         Returns:
             float: The (log) prior of the sample"""
 
-        prior_zones = compute_prior_zones(sample.zones, 'uniform')
-        prior_weights = compute_prior_weights(sample.weights, 'uniform')
-        prior = prior_zones + prior_weights
-        return prior
+        # Compute the prior
+        log_prior = self.compute_prior_per_chain[chain](sample=sample, geo_prior=self.geo_prior,
+                                                        geo_prior_parameters=self.geo_prior_parameters,
+                                                        prior_weights=self.prior_weights,
+                                                        prior_p_zones=self.prior_p_zones,
+                                                        prior_p_families=self.prior_p_families,
+                                                        prior_p_families_parameters=self.prior_p_families_parameters,
+                                                        network=self.network)
+        return log_prior
 
     def likelihood(self, sample, chain):
         """Compute the (log) likelihood of a sample.
         Args:
-            sample(Sample): A Sample object consisting of zones and weights
+            sample(Sample): A Sample object consisting of zones and parameters.
             chain (int): The current chain
         Returns:
             float: The (log) likelihood of the sample"""
 
         # Compute the likelihood
-        ll_feature = self.compute_lh_per_chain[chain](sample=sample, features=self.features,
-                                                      p_global=self.p_global, inheritance=self.inheritance)
+        log_lh = self.compute_lh_per_chain[chain](sample=sample, features=self.features, families=self.families,
+                                                  global_freq=self.global_freq,
+                                                  inheritance=self.inheritance,
+                                                  sample_p_zones=self.sample_p_zones,
+                                                  sample_p_families=self.sample_p_families)
 
-        return ll_feature
+        return log_lh
 
     def alter_weights(self, sample):
         """This function modifies one weight of one feature in the current sample
 
         Args:
-            sample(Sample): The current sample with zones and weights.
+            sample(Sample): The current sample with zones and parameters.
         Returns:
             Sample: The modified sample
         """
         sample_new = sample.copy()
-        sample_new.weights_changed = True
+        # The step changed the weights (which has an influence on how the lh and the prior look like)
+        sample_new.what_changed['lh']['weights'] = sample_new.what_changed['prior']['weights'] = True
+
         weights_current = sample.weights
 
         # Randomly choose one of the features
         f_id = np.random.choice(range(weights_current.shape[0]))
 
         if not self.inheritance:
-            # Only one of the contact weights (column 1 in weights) is modified,
-            # the respective global weight is adjusted during normalization, the inheritance weight is  not relevant
+            # The contact weights (column 1 in weights) is modified,
+            # the inheritance weight is not relevant, the global weight is adjusted during normalization
             w_id = 1
 
         else:
-            # One of the zone or inheritance weights (column 1 or 2 in weights) is modified
-            # the respective global weight is adjusted during normalization
+            # The contact or family weights (column 1 or 2 in weights) are modified,
+            # the global weight is adjusted during normalization
             w_id = np.random.choice([1, 2])
 
         weight_current = weights_current[f_id, w_id]
@@ -139,6 +173,71 @@ class ZoneMCMC_generative(MCMC_generative):
         # The proposal distribution is normal, so the transition and back probability are equal
         q = q_back = 1.
 
+        return sample_new, q, q_back
+
+    def alter_p_zones(self, sample):
+        """This function modifies one p_zones of one category, one feature and in zone in the current sample
+            Args:
+                sample(Sample): The current sample with zones and parameters.
+            Returns:
+                Sample: The modified sample
+                """
+        sample_new = sample.copy()
+        # The step changed p_zones (which has an influence on how the lh and the prior look like)
+        sample_new.what_changed['lh']['p_zones'] = sample_new.what_changed['prior']['p_zones'] = True
+
+        p_zones_current = sample.p_zones
+
+        # Randomly choose one of the zones, one of the features and one of the categories
+        z_id = np.random.choice(range(self.n_zones))
+        f_id = np.random.choice(range(self.n_features))
+
+        # Different features have different numbers of categories
+        cat_f = np.where(self.sites_per_category[f_id] != 0)[0]
+        cat_id = np.random.choice(cat_f)
+
+        p_current = p_zones_current[z_id, f_id, cat_id]
+
+        # Sample new p from normal distribution centered at the current p and with fixed variance
+        p_new = np.random.normal(loc=p_current, scale=self.var_proposal_p_zones)
+
+        sample_new.p_zones[z_id, f_id, cat_id] = p_new
+
+        # The proposal distribution is normal, so the transition and back probability are equal
+        q = q_back = 1.
+        return sample_new, q, q_back
+
+    def alter_p_families(self, sample):
+        """This function modifies one p_families of one category, one feature and one family in the current sample
+            Args:
+                 sample(Sample): The current sample with zones and parameters.
+            Returns:
+                 Sample: The modified sample
+        """
+
+        sample_new = sample.copy()
+        # The step changed p_families (which has an influence on how the lh and the prior look like)
+        sample_new.what_changed['lh']['p_families'] = sample_new.what_changed['prior']['p_families'] = True
+
+        p_families_current = sample.p_families
+
+        # Randomly choose one of the families, one of the features and one of the categories
+        fam_id = np.random.choice(range(self.n_families))
+        f_id = np.random.choice(range(self.n_features))
+
+        # Different features have different numbers of categories
+        cat_f = np.where(self.sites_per_category[f_id] != 0)[0]
+        cat_id = np.random.choice(cat_f)
+
+        p_current = p_families_current[fam_id, f_id, cat_id]
+
+        # Sample new p from normal distribution centered at the current p and with fixed variance
+        p_new = np.random.normal(loc=p_current, scale=self.var_proposal_p_families)
+
+        sample_new.p_families[fam_id, f_id, cat_id] = p_new
+
+        # The proposal distribution is normal, so the transition and back probability are equal
+        q = q_back = 1.
         return sample_new, q, q_back
 
     def swap_zone(self, sample):
@@ -152,7 +251,9 @@ class ZoneMCMC_generative(MCMC_generative):
          """
 
         sample_new = sample.copy()
-        sample_new.zones_changed = True
+        # The step changed the zone (which has an influence on how the lh and the prior look like)
+        sample_new.what_changed['lh']['zones'] = sample_new.what_changed['prior']['zones'] = True
+
         zones_current = sample.zones
         occupied = np.any(zones_current, axis=0)
 
@@ -190,7 +291,9 @@ class ZoneMCMC_generative(MCMC_generative):
         """
 
         sample_new = sample.copy()
-        sample_new.zones_changed = True
+        # The step changed the zone (which has an influence on how the lh and the prior look like)
+        sample_new.what_changed['lh']['zones'] = sample_new.what_changed['prior']['zones'] = True
+
         zones_current = sample.zones
         occupied = np.any(zones_current, axis=0)
 
@@ -230,7 +333,9 @@ class ZoneMCMC_generative(MCMC_generative):
             (Sample): The modified sample.
         """
         sample_new = sample.copy()
-        sample_new.zones_changed = True
+        # The step changed the zone (which has an influence on how the lh and the prior look like)
+        sample_new.what_changed['lh']['zones'] = sample_new.what_changed['prior']['zones'] = True
+
         zones_current = sample.zones
 
         # Randomly choose one of the zones to modify
@@ -239,7 +344,7 @@ class ZoneMCMC_generative(MCMC_generative):
 
         # Check if zone is big enough to shrink
         current_size = np.count_nonzero(zone_current)
-        if current_size < self.min_size:
+        if current_size <= self.min_size:
             # Zone is too small to shrink: don't modify the sample and reject the step (q_back = 0)
             q, q_back = 1., 0.
             return sample, q, q_back
@@ -252,12 +357,11 @@ class ZoneMCMC_generative(MCMC_generative):
 
         return sample_new, q, q_back
 
-    def generate_initial_zones(self, c):
+    def generate_initial_zones(self):
         """For each chain (c) generate initial zones by
         A) growing through random grow-steps up to self.min_size,
         B) using the last sample of a previous run of the MCMC
-        Args:
-            c (int): the current chain
+
         Returns:
             np.array: The generated initial zones.
         """
@@ -346,38 +450,133 @@ class ZoneMCMC_generative(MCMC_generative):
         return zone, already_in_zone
 
     def generate_initial_weights(self):
-        """This function generates initial weights for the Bayesian additive mixture model.
+        """This function generates initial weights for the Bayesian additive mixture model, either by
+        A) proposing them (randomly) from scratch
+        B) using the last sample of a previous run of the MCMC
         Weights are in log-space and not normalized.
 
         Returns:
-            list: weights for global, zone and family influence
+            np.array: weights for global, zone and family influence
             """
 
-        # Use weights from a previous run
+        # B: Use weights from a previous run
         if self.initial_sample.weights is not None:
-            weights = self.initial_sample.weights
+            initial_weights = self.initial_sample.weights
 
-        # Initialize new weights
+        # A: Initialize new weights
         else:
             # When the algorithm does not include inheritance then there are only 2 weights (global and contact)
             if not self.inheritance:
-                weights = np.full((self.n_features, 2), 1.)
+                initial_weights = np.full((self.n_features, 2), 1.)
 
             else:
-                weights = np.full((self.n_features, 3), 1.)
+                initial_weights = np.full((self.n_features, 3), 1.)
 
-        return weights
+        return initial_weights
 
-    def generate_initial_sample(self, c):
-        """Generate initial Sample object (zones and weights)
+    def generate_initial_p_zones(self):
+        """This function generates initial probabilities for categories in each of the zones, either by
+        A) proposing them (randomly) from scratch
+        B) using the last sample of a previous run of the MCMC
+        Probabilities are in log-space and not normalized.
+
+        Returns:
+            np.array: probabilities for categories in each zones
+                shape (n_zones, n_features, max(n_categories))
+        """
+        # For convenience all p_zones go in one array, even though not all features have the same number of categories
+        initial_p_zones = np.zeros((self.n_zones, self.n_features, self.features.shape[2]))
+        n_generated = 0
+
+        # B: Use p_zones from a previous run
+        if self.initial_sample.p_zones is not None:
+
+            for i in range(len(self.initial_sample.p_zones)):
+                initial_p_zones[i, :] = self.initial_sample.p_zones[i]
+                n_generated += 1
+
+        not_initialized = range(n_generated, self.n_zones)
+
+        # A: Initialize new p_zones
+        for i in not_initialized:
+            initial_p_zones[i, :, :] = np.full((self.n_features, self.features.shape[2]), 1.)
+
+            # The probabilities of categories without data are set to 0 (or -inf in log space)
+            sites_per_category = np.count_nonzero(self.features, axis=0)
+            initial_p_zones[i, sites_per_category == 0] = -np.inf
+
+        return initial_p_zones
+
+    def generate_initial_p_families(self):
+        """This function generates initial probabilities for categories in each of the families, either by
+        A) using the MLE
+        B) using the last sample of a previous run of the MCMC
+        Probabilities are in log-space and not normalized.
+
+        Returns:
+            np.array: probabilities for categories in each family
+                shape (n_families, n_features, max(n_categories))
+        """
+        initial_p_families = np.zeros((self.n_families, self.n_features, self.features.shape[2]))
+
+        # B: Use p_families from a previous run
+        if self.initial_sample.p_families is not None:
+            for i in range(len(self.initial_sample.p_families)):
+                initial_p_families[i, :] = self.initial_sample.p_families[i]
+
+        # A: Initialize new p_families using the MLE
+
+        for fam in range(len(self.families)):
+
+            features_family = self.features[self.families[fam], :, :]
+            idx = self.families[fam].nonzero()[0]
+            family_size = len(idx)
+            p_family = np.sum(features_family, axis=0) / family_size
+
+            initial_p_families[fam, :, :] = transform_p_to_log(p_family)
+
+            # The probabilities of categories without data are set to 0 (or -inf in log space)
+            sites_per_category = np.count_nonzero(self.features, axis=0)
+            initial_p_families[fam, sites_per_category == 0] = -np.inf
+
+        return initial_p_families
+
+    def generate_initial_sample(self):
+        """Generate initial Sample object (zones, weights)
 
         Returns:
             Sample: The generated initial Sample
         """
-        initial_zones = self.generate_initial_zones(c)
-        initial_weights = self.generate_initial_weights()
+        # Zones
+        if self.known_initial_zones is None:
+            initial_zones = self.generate_initial_zones()
+        # for testing: set initial_zones to known start zones
+        else:
+            initial_zones = self.known_initial_zones
 
-        sample = Sample(zones=initial_zones, weights=initial_weights)
+        # Weights
+        if self.known_initial_weights is None:
+            initial_weights = self.generate_initial_weights()
+        # for testing: set initial_weights to  known start weights
+        else:
+            initial_weights = self.known_initial_weights
+
+        # p_zones
+        # p_zones can be sampled or derived from the maximum likelihood estimate
+        if self.sample_p_zones:
+            initial_p_zones = self.generate_initial_p_zones()
+        else:
+            initial_p_zones = None
+
+        # p_families
+        # p_families can be sampled or derived from the maximum likelihood estimate
+        if self.sample_p_families:
+            initial_p_families = self.generate_initial_p_families()
+        else:
+            initial_p_families = None
+
+        sample = Sample(zones=initial_zones, weights=initial_weights,
+                        p_zones=initial_p_zones, p_families=initial_p_families)
 
         return sample
 

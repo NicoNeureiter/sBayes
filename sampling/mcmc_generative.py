@@ -26,8 +26,8 @@ class MCMC_generative(metaclass=_abc.ABCMeta):
     [1]  Altekar, Gautam, et al. "Parallel metropolis coupled Markov chain Monte Carlo for Bayesian phylogenetic inference." Bioinformatics 20.3 (2004): 407-415.
     """
 
-    def __init__(self, operators, inheritance, start_weights=None, start_zone=None,
-                 n_chains=4, swap_period=1000, chain_swaps=1):
+    def __init__(self, operators, inheritance, families, prior, sample_p,  global_freq,
+                 known_initial_weights=None, known_initial_zones=None, n_chains=4, swap_period=1000, chain_swaps=1):
 
         # Sampling attributes
         self.n_chains = n_chains
@@ -36,20 +36,38 @@ class MCMC_generative(metaclass=_abc.ABCMeta):
         self.chain_idx = list(range(self.n_chains))
 
         # Todo: Remove after testing
-        self.start_weights = start_weights
-        self.start_zone = start_zone
+        self.known_initial_weights = known_initial_weights
+        self.known_initial_zones = known_initial_zones
 
         # Operators
         self.fn_operators, self.p_operators = self.get_operators(operators)
 
-        # Inheritance available
+        # Is inheritance (information on language families) available?
         self.inheritance = inheritance
+        self.families = families
+
+        # Prior
+        self.geo_prior = prior['geo_prior']
+        self.geo_prior_parameters = prior['geo_prior_parameters']
+        self.prior_weights = prior['weights']
+        self.prior_p_zones = prior['p_zones']
+        self.prior_p_families = prior['p_families']
+        self.prior_p_families_parameters = prior['p_families_parameters']
+
+        # Global frequencies
+        self.global_freq = global_freq
+
+        # Sample the probabilities of categories in zones and families?
+        self.sample_p_zones = sample_p['zones']
+        self.sample_p_families = sample_p['families']
 
         # Initialize statistics
         self.statistics = {'sample_likelihood': [],
                            'sample_prior': [],
                            'sample_zones': [],
                            'sample_weights': [],
+                           'sample_p_zones': [],
+                           'sample_p_families': [],
                            'last_sample': [],
                            'acceptance_ratio': _math.nan,
                            'accepted_steps': 0,
@@ -62,10 +80,11 @@ class MCMC_generative(metaclass=_abc.ABCMeta):
         self._prior = _np.full(self.n_chains, -_np.inf)
 
     @_abc.abstractmethod
-    def prior(self, x):
+    def prior(self, x, c):
         """Compute the prior of the sample
         Args:
             x (Sample): Sample object
+            c (int): Current chain
         Returns:
             float: the prior of x
         """
@@ -84,13 +103,11 @@ class MCMC_generative(metaclass=_abc.ABCMeta):
         pass
 
     @_abc.abstractmethod
-    def generate_initial_sample(self, c):
+    def generate_initial_sample(self):
         """Generate an initial sample from which the run should be started.
         Preferably in high density areas.
-        Args:
-            c(int): number of chain
         Returns:
-            SampleType: Initial zone.
+            SampleType: Initial sample.
         """
         pass
 
@@ -125,10 +142,10 @@ class MCMC_generative(metaclass=_abc.ABCMeta):
         # Generate initial samples
         for c in self.chain_idx:
 
-            sample[c] = self.generate_initial_sample(c)
+            sample[c] = self.generate_initial_sample()
             # Compute the (log)-likelihood and the prior for each sample
             self._ll[c] = self.likelihood(sample[c], c)
-            self._prior[c] = self.prior(sample[c])
+            self._prior[c] = self.prior(sample[c], c)
 
         # Generate burn-in samples for each chain
         for c in self.chain_idx:
@@ -183,10 +200,10 @@ class MCMC_generative(metaclass=_abc.ABCMeta):
 
             # Compute lh and prior ratio for both chains
             ll_from = self.likelihood(sample[swap_from], swap_from)
-            prior_from = self.prior(sample[swap_from])
+            prior_from = self.prior(sample[swap_from], swap_from)
 
             ll_to = self.likelihood(sample[swap_to], swap_to)
-            prior_to = self.prior(sample[swap_to])
+            prior_to = self.prior(sample[swap_to], swap_to)
             q_to = q_from = 1.
 
             # Evaluate the metropolis-hastings ratio
@@ -211,8 +228,10 @@ class MCMC_generative(metaclass=_abc.ABCMeta):
         Returns:
             Sample: A Sample object consisting of zones and weights"""
 
-        # Randomly choose one of the operators to propose a new sample (grow/shrink/swap zones, alter weights)
+        # Randomly choose one operator to propose new sample (grow/shrink/swap zones, alter weights/p_zones/p_families)
+
         propose_step = _np.random.choice(self.fn_operators, 1, p=self.p_operators)[0]
+
         candidate, q, q_back = propose_step(sample)
 
         # Compute the log-likelihood of the candidate
@@ -220,7 +239,7 @@ class MCMC_generative(metaclass=_abc.ABCMeta):
 
         #print('candidate', ll_candidate, 'current', self._ll, candidate.weights)
         # Compute the prior of the candidate
-        prior_candidate = self.prior(candidate)
+        prior_candidate = self.prior(candidate, c)
 
         # Evaluate the metropolis-hastings ratio
         mh_ratio = self.metropolis_hastings_ratio(ll_new=ll_candidate, ll_prev=self._ll[c],
@@ -281,6 +300,8 @@ class MCMC_generative(metaclass=_abc.ABCMeta):
         """
         self.statistics['sample_zones'].append(sample.zones)
         self.statistics['sample_weights'].append(sample.weights)
+        self.statistics['sample_p_zones'].append(sample.p_zones)
+        self.statistics['sample_p_families'].append(sample.p_families)
         self.statistics['sample_likelihood'].append(self._ll[c])
         self.statistics['sample_prior'].append(self._prior[c])
 

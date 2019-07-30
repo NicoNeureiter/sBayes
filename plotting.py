@@ -13,7 +13,7 @@ import math
 
 from src.util import zones_autosimilarity
 from src.util import bounding_box
-from scipy.stats import gamma
+from scipy.stats import gamma, linregress
 from scipy.spatial import Delaunay
 from matplotlib.collections import LineCollection
 from shapely.ops import cascaded_union, polygonize
@@ -200,25 +200,27 @@ def plot_zones(zones, net, ax=None):
 #     plt.show()
 
 
-def plot_posterior_frequency(zones, net, pz=-1, burn_in=0.2, map=False, proj4=None, geojson_map=None,
+def plot_posterior_frequency(mcmc_res, net, pz=-1, burn_in=0.2, family=None, bg_map=False, proj4=None, geojson_map=None,
                              geo_json_river=None, offset_factor=0.03):
     """ This function creates a scatter plot of all sites in the posterior distribution. The color of a site reflects
     its frequency in the posterior
 
     Args:
-        zones (np.array): the posterior of all zones
+        mcmc_res (dict): the output from the MCMC neatly collected in a dict
         net (dict): The full network containing all sites.
         pz(int): For parallel zones: which parallel zone should be plotted? If -1, plot all.
+        burn_in(float): Percentage of first samples which is discarded as burn-in
+        family(boolean): Visualize all sites belonging to a family?
+        bg_map(boolean): Use a background map for for the visualization?
     """
-    #plt.rcParams['axes.facecolor'] = '#00000000'
+    zones = mcmc_res['zones']
+
     fig, ax = plt.subplots(figsize=(20, 40))
     all_sites = net['locations']
     size = 4
 
-    #fig.set_figwidth(25)
-
     # Find index of first sample after burn-in
-    if map:
+    if bg_map:
         if proj4 is None and geojson_map is None:
             raise Exception('If you want to use a map provide a geojson and a crs')
 
@@ -237,7 +239,6 @@ def plot_posterior_frequency(zones, net, pz=-1, burn_in=0.2, map=False, proj4=No
         # Exclude burn-in
         end_bi = math.ceil(len(zones) * burn_in)
         density = (np.sum(zones[end_bi:], axis=0, dtype=np.int32) / (n - end_bi))
-        sc = ax.scatter(*all_sites.T, c=density, s=size + size * 2 * density, cmap='plasma')
 
     else:
         zone = zones[pz]
@@ -246,9 +247,19 @@ def plot_posterior_frequency(zones, net, pz=-1, burn_in=0.2, map=False, proj4=No
         end_bi = math.ceil(len(zone[pz]) * burn_in)
 
         density = (np.sum(zone[end_bi:], axis=0, dtype=np.int32) / (n - end_bi))
-        sc = ax.scatter(*all_sites.T, c=density, s=size + size * 2 * density, cmap='plasma')
+
+    cmap = plt.cm.get_cmap("plasma")
+    cmap.set_under(color='grey')
+    sc = ax.scatter(*all_sites.T, c=density, s=size + size * 2 * density, cmap=cmap, vmin=0.1)
 
     # Customize plotting layout
+    if family:
+
+        fam_sites = np.sum(mcmc_res['true_families'], axis=0, dtype=np.int32)
+        fam_sites = np.ma.masked_where(fam_sites == 0, fam_sites)
+
+        ax.scatter(*all_sites.T, c=fam_sites, s=size, cmap="inferno")
+
     ax.grid(False)
     ax.set_xticks([])
     ax.set_yticks([])
@@ -405,6 +416,7 @@ def plot_trace_recall_precision(mcmc_res, burn_in=0.2, recall=True, precision=Tr
         x = range(len(y))
         ax.plot(x, y, lw=0.75, color=col['trace']['precision'], label='Precision')
 
+    ax.set_ylim(bottom=0)
     # Find index of first sample after burn-in
     end_bi = math.ceil(len(y) * burn_in)
     end_bi_label = math.ceil(len(y) * (burn_in - 0.03))
@@ -414,6 +426,24 @@ def plot_trace_recall_precision(mcmc_res, burn_in=0.2, recall=True, precision=Tr
     ax.set_xlabel('Sample')
     ax.set_title('Trace plot')
     ax.legend(loc=4)
+    plt.show()
+
+
+def plot_dics(dics):
+    """This function plots dics. What did you think?
+    Args:
+        dics(dict): A dict of DICs from different models
+
+    """
+    fig, ax = plt.subplots()
+    col = get_colors()
+
+    x = range(len(dics))
+    y = dics.values()
+
+    ax.plot(x, y, lw=0.75, color=col['trace']['recall'], label='DIC')
+    names = dics.keys()
+    plt.xticks(x, names)
     plt.show()
 
 
@@ -431,9 +461,9 @@ def plot_trace_lh(mcmc_res, burn_in=0.2, true_lh=True):
     n_zones = len(mcmc_res['zones'])
 
     if n_zones == 1:
-        label = "true (log)-Posterior of simulated area"
+        label = "true (log)-likelihood of simulated area"
     else:
-        label = "true (log)-Posterior of simulated areas"
+        label = "true (log)-likelihood of simulated areas"
 
     y = mcmc_res['lh']
     x = range(len(y))
@@ -776,30 +806,110 @@ def plot_gamma_parameters(ecdf):
     plt.show()
 
 
-def plot_correlation_weights(mcmc_res,  burn_in=0.2, which_weight=1,):
+def plot_correlation_weights(mcmc_res,  burn_in=0.2, which_weight="global"):
     """This function plots the correlation between the mean of the estimated weights and the true weights
     Args:
         mcmc_res(dict):  the output from the MCMC, neatly collected in a dict
         burn_in (float): ratio of initial samples that are discarded as burn-in
-        which_weight(int): compute correlation for which weight:
-        w_global = 0, w_contact = 1, w_inherited = 2 (if available)
+        which_weight(str): compute correlation for which weight? ("global", "contact", "inheritance")
     """
+    if which_weight == "global":
+        weight_idx = 0
+
+    elif which_weight == "contact":
+        weight_idx = 1
+
+    elif which_weight == "inheritance":
+        weight_idx = 2
+
+    else:
+        raise ValueError('weight must be "global", "contact" or "inheritance" ')
 
     fig, ax = plt.subplots()
 
     # Find index of first sample after burn-in
 
     end_bi = math.ceil(len(mcmc_res['weights']) * burn_in)
+    #end = math.ceil(len(mcmc_res['weights']) * 0.005)
 
     weights = np.asarray(mcmc_res['weights'][end_bi:])
-    w_est = weights[:, :, which_weight]
+    w_est = weights[:, :, weight_idx]
     w_mean_est = w_est.mean(axis=0)
-    w_true = mcmc_res['true_weights'][:, which_weight]
+
+    w_true = mcmc_res['true_weights'][:, weight_idx]
+    slope, intercept, r_value, p_value, std_err = linregress(w_true, w_mean_est)
+    line = slope * w_true + intercept
+
+    # todo: compute range of
+    #
+    # p_range_per_feature = []
+    # for f in range(len(mcmc_res['true_p_global'])):
+    #     p_range_per_feature.append(mcmc_res['true_p_global'][f])
+
+    ax.plot(w_true, w_mean_est, 'o')
+    ax.plot(w_true, line)
 
     ax.set_aspect('equal')
     ax.scatter(w_true, w_mean_est)
     ax.set_xlabel('True weights')
     ax.set_ylabel('Mean estimated weights')
+
+    ax.set_xlim([0, 1])
+    ax.set_ylim([0, 1])
+
+    plt.show()
+
+
+# todo: finish
+def plot_correlation_p(mcmc_res,  which_p, burn_in=0.2, which_nr=0, which_cat=0):
+    """This function plots the correlation between the mean of the estimated weights and the true weights
+    Args:
+        mcmc_res(dict):  the output from the MCMC, neatly collected in a dict
+        burn_in (float): ratio of initial samples that are discarded as burn-in
+        which_p(str): compute correlation for "p_zones" or "p_families"?
+        which_nr(int): in case of many zones or families, which one should be visualized? (default=0)
+        which_cat(int): which category?
+    """
+    if which_p == "p_zones" or which_p == "p_families":
+        p_est = mcmc_res[which_p][which_nr]
+        p_true = mcmc_res["true_" + str(which_p)][which_nr]
+
+    else:
+        raise ValueError('which_p must be "p_zones", or "p_families" ')
+
+    p_est_out = []
+    for p in p_est:
+        f_out = []
+        for f in p:
+            f_out.append(f[which_cat])
+        p_est_out.append(f_out)
+    p_est = p_est_out
+
+    p_true_out = []
+
+    for f in p_true:
+        p_true_out.append(f[which_cat])
+    p_true = np.asarray(p_true_out)
+
+    fig, ax = plt.subplots()
+
+    # Find index of first sample after burn-in
+
+    end_bi = math.ceil(len(p_est) * burn_in)
+    p_est = np.asarray(p_est[end_bi:])
+
+    p_mean_est = p_est.mean(axis=0)
+
+    slope, intercept, r_value, p_value, std_err = linregress(p_true, p_mean_est)
+    line = slope * p_true + intercept
+
+    ax.plot(p_true, p_mean_est, 'o')
+    ax.plot(p_true, line)
+
+    ax.set_aspect('equal')
+    ax.scatter(p_true, p_mean_est)
+    ax.set_xlabel('True p')
+    ax.set_ylabel('Mean estimated p')
 
     ax.set_xlim([0, 1])
     ax.set_ylim([0, 1])
@@ -914,7 +1024,7 @@ if __name__ == '__main__':
     plot_posterior_frequency(mcmc_res['zones'], network, pz=0, r=0, burn_in=0.2)
 
     # plot_geo_prior_vs_feature_lh(mcmc_res, r=0, burn_in=0.2 )
-    plot_trace_mcmc(mcmc_res, r=0, burn_in=0.2)
+
     # plot_zone_size_over_time(mcmc_res, r=0, burn_in=0.2)
     #
 

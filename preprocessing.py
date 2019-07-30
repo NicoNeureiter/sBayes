@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 from __future__ import absolute_import, division, print_function, \
     unicode_literals
-import sys
+
 import copy
 import logging
 from multiprocessing import Pool
@@ -17,232 +17,141 @@ import psycopg2
 import igraph
 import math
 from src.model import normalize_weights
-from src.util import compute_distance, triangulation, \
-    compute_delaunay, dump_results
-from src.config import *
+from src.util import compute_distance, compute_delaunay
+import csv
 
 
 EPS = np.finfo(float).eps
 
-@contextmanager
-def psql_connection(commit=False):
-    """This function opens a connection to PostgreSQL, performs a DB operation and finally closes the connection
 
+def get_sites(file):
+    """ This function retrieves the simulated sites from a csv, with the following columns:
+            name: a unique identifier for each site
+            x: the x-coordinate
+            y: the y-coordinate
+            cz: if site belongs to zone this is the id of the simulated zone, 0 otherwise.
     Args:
-        commit (boolean): specifies if the operation is executed
-    """
-
-    # Connection settings for PostgreSQL
-    conn = psycopg2.connect(dbname='limits-db', port=5432, user='contact_zones',
-                            password='letsfindthemcontactzones', host='limits.geo.uzh.ch')
-    cur = conn.cursor()
-    try:
-        yield conn
-    except psycopg2.DatabaseError as err:
-        error, = err.args
-        sys.stderr.write(error.message)
-        cur.execute("ROLLBACK")
-        raise err
-    else:
-        if commit:
-            cur.execute("COMMIT")
-        else:
-            cur.execute("ROLLBACK")
-    finally:
-        conn.close()
-
-
-@dump_results(NETWORK_PATH, RELOAD_DATA)
-def get_network(table=None):
-    """ This function retrieves the edge list and the coordinates of the simulated languages
-    from the DB and then converts these into a spatial network.
-
+        file(str): file location of the csv
     Returns:
-        dict: a dictionary containing the network, its vertices and edges, an adjacency list and matrix
-        and a distance matrix
+        dict, list: a dictionary containing the location tuple (x,y), the id and information about contact zones
+            of each point the mapping between name and id is by position
     """
-    if table is None:
-        table = DB_ZONE_TABLE
-    # Get vertices from PostgreSQL
-    with psql_connection(commit=True) as connection:
-        query_v = "SELECT gid, mx AS x, my AS y " \
-                  "FROM {table} " \
-                  "ORDER BY gid;".format(table=table)
+    columns = []
+    with open(file, 'rU') as f:
+        reader = csv.reader(f)
+        for row in reader:
+            if columns:
+                for i, value in enumerate(row):
+                    columns[i].append(value)
+            else:
+                # first row
+                columns = [[value] for value in row]
+    csv_as_dict = {c[0]: c[1:] for c in columns}
 
-        cursor = connection.cursor()
-        cursor.execute(query_v)
-        rows_v = cursor.fetchall()
+    try:
+        x = csv_as_dict.pop('x')
+        y = csv_as_dict.pop('y')
+        name = csv_as_dict.pop('name')
+        cz = csv_as_dict.pop('cz')
+    except KeyError:
+        raise KeyError('The csv  must contain columns "x", "y", "name", "cz')
 
-    n_v = len(rows_v)
-    vertices = list(range(n_v))
-    locations = np.zeros((n_v, 2))
-    gid_to_idx = {}
-    idx_to_gid = {}
-    for i, v in enumerate(rows_v):
-        gid, x, y = v
+    locations = np.zeros((len(name), 2))
+    seq_id = []
 
-        gid_to_idx[gid] = i
-        idx_to_gid[i] = gid
+    for i in range(len(name)):
 
-        locations[i, 0] = x
-        locations[i, 1] = y
+        # Define location tuples
+        locations[i, 0] = float(x[i])
+        locations[i, 1] = float(y[i])
 
-    # Edges
-    delaunay = compute_delaunay(locations)
-    v1, v2 = delaunay.toarray().nonzero()
-    edges = np.column_stack((v1, v2))
+        # The order in the list maps name -> id and id -> name
+        # name could be any unique identifier, sequential id are integers from 0 to len(name)
+        seq_id.append(i)
 
-    # Adjacency Matrix
-    adj_mat = delaunay.tocsr()
+    sites = {'locations': locations,
+             'cz': [int(i) for i in cz],
+             'id': seq_id}
 
-    # Graph
-    g = igraph.Graph()
-    g.add_vertices(vertices)
+    site_names = name
 
-    for e in edges:
-        dist = compute_distance(edges[e[0]], edges[e[1]])
-        g.add_edge(e[0], e[1], weight=dist)
-
-    # Distance matrix
-    diff = locations[:, None] - locations
-    dist_mat = np.linalg.norm(diff, axis=-1)
-
-    net = {'vertices': vertices,
-           'edges': edges,
-           'locations': locations,
-           'adj_mat': adj_mat,
-           'n': n_v,
-           'm': edges.shape[0],
-           'graph': g,
-           'dist_mat': dist_mat,
-           'gid_to_idx': gid_to_idx,
-           'idx_to_gid': idx_to_gid}
-
-    return net
+    return sites, site_names
 
 
-def get_network_subset(areal_subset, table=None):
-    """ This function retrieves a subset of the network
-        from the DB. Moreover it returns a matching between the full network and the subset.
+def compute_network(sites):
+    """This function converts a set of sites (language locations plus attributes) into a network (graph).
 
-        Args:
-            areal_subset (int): id of the subset.
-            full_network (np.ndarray): the full network
-        Returns:
-            dict: a dictionary containing the network, its vertices and edges, an adjacency list and matrix
-            and a distance matrix
-        """
-    if table is None:
-        table = DB_ZONE_TABLE
-    # Get only those vertices which belong to a specific subset of the network
-    with psql_connection(commit=True) as connection:
-        query_v = "SELECT gid, mx AS x, my AS y " \
-                  "FROM {table} " \
-                  "WHERE cz = {id} " \
-                  "ORDER BY gid;".format(table=table, id=areal_subset)
-        cursor = connection.cursor()
-        cursor.execute(query_v)
-        rows_v = cursor.fetchall()
-
-    n_v = len(rows_v)
-    vertices = list(range(n_v))
-    locations = np.zeros((n_v, 2))
-    gid_to_idx = {}
-    idx_to_gid = {}
-    for i, v in enumerate(rows_v):
-        gid, x, y = v
-
-        gid_to_idx[gid] = i
-        idx_to_gid[i] = gid
-
-        locations[i, 0] = x
-        locations[i, 1] = y
-
-    # Edges
-    delaunay = compute_delaunay(locations)
-    v1, v2 = delaunay.toarray().nonzero()
-    edges = np.column_stack((v1, v2))
-
-    # Adjacency Matrix
-    adj_mat = delaunay.tocsr()
-
-    # Graph
-    g = igraph.Graph()
-    g.add_vertices(vertices)
-
-    for e in edges:
-        dist = compute_distance(edges[e[0]], edges[e[1]])
-        g.add_edge(e[0], e[1], weight=dist)
-
-    # Distance matrix
-    diff = locations[:, None] - locations
-    dist_mat = np.linalg.norm(diff, axis=-1)
-
-    net = {'vertices': vertices,
-           'edges': edges,
-           'locations': locations,
-           'adj_mat': adj_mat,
-           'n': n_v,
-           'm': edges.shape[0],
-           'graph': g,
-           'dist_mat': dist_mat,
-           'gid_to_idx': gid_to_idx,
-           'idx_to_gid': idx_to_gid}
-
-    return net
-
-
-@dump_results(CONTACT_ZONES_PATH, RELOAD_DATA)
-def get_contact_zones(zone_id, table=None):
-    """This function retrieves contact zones from the DB
     Args:
-        zone_id(int or tuple of ints) : the id(s) of the zone(s) in the DB
-        table(string): the name of the table in the DB
+        sites(dict): a dict of sites with keys "locations", "id"
+    Returns:
+        dict: a network
+        """
+
+    # Define vertices and edges
+    vertices = sites['id']
+
+    # Delaunay triangulation
+    delaunay = compute_delaunay(sites['locations'])
+    v1, v2 = delaunay.toarray().nonzero()
+    edges = np.column_stack((v1, v2))
+
+    # Adjacency Matrix
+    adj_mat = delaunay.tocsr()
+
+    # Graph
+    g = igraph.Graph()
+    g.add_vertices(vertices)
+
+    for e in edges:
+        dist = compute_distance(edges[e[0]], edges[e[1]])
+        g.add_edge(e[0], e[1], weight=dist)
+
+    # Distance matrix
+    diff = sites['locations'][:, None] - sites['locations']
+    dist_mat = np.linalg.norm(diff, axis=-1)
+
+    net = {'vertices': vertices,
+           'edges': edges,
+           'locations': sites['locations'],
+           'adj_mat': adj_mat,
+           'n': len(vertices),
+           'm': edges.shape[0],
+           'graph': g,
+           'dist_mat': dist_mat}
+    return net
+
+
+def get_contact_zones(zone_id, sites):
+    """This function retrieves those locations from the dict sites that are marked as contact zones (zone_id)
+    Args:
+        sites: a dict of sites with keys "cz", and "id"
+        zone_id(int or tuple of ints): the id(s) of the contact zone(s)
     Returns:
         dict: the contact zones
         """
-    if table is None:
-        table = DB_ZONE_TABLE
+    contact_zones = {}
+    cz = np.asarray(sites['cz'])
     # For single zones
     if isinstance(zone_id, int):
-        with psql_connection(commit=True) as connection:
-            query_cz = "SELECT cz, array_agg(gid) " \
-                       "FROM {table} " \
-                       "WHERE cz = {list_id} " \
-                       "GROUP BY cz".format(table=table, list_id=zone_id)
-            cursor = connection.cursor()
-            cursor.execute(query_cz)
-            rows_cz = cursor.fetchall()
-            contact_zones = {}
-            for cz in rows_cz:
-                contact_zones[cz[0]] = cz[1]
-        return contact_zones
+        contact_zones[zone_id] = np.where(cz == zone_id)[0].tolist()
 
-    # For parallel zones
-    elif isinstance(zone_id, tuple):
-        if all(isinstance(x, int) for x in zone_id):
-            with psql_connection(commit=True) as connection:
-                query_cz = "SELECT cz, array_agg(gid) " \
-                           "FROM {table} " \
-                           "WHERE cz IN {list_id} " \
-                           "GROUP BY cz".format(table=table, list_id=zone_id)
-                cursor = connection.cursor()
-                cursor.execute(query_cz)
-                rows_cz = cursor.fetchall()
-                contact_zones = {}
-                for cz in rows_cz:
-                    contact_zones[cz[0]] = cz[1]
-            return contact_zones
-        else:
-            raise ValueError('zone_id must be int or a list of ints')
+    # For multiple zones
+    elif isinstance(zone_id, tuple) and all(isinstance(x, int) for x in zone_id):
+            for z in zone_id:
+                contact_zones[z] = np.where(cz == z)[0].tolist()
+
     else:
-        raise ValueError('zone_id must be int or a list of ints')
+        raise ValueError('zone_id must be int or a tuple of int')
+
+    return contact_zones
 
 
 def assign_na(features, n_na):
-    """ Randomly assign NAs to features. Makes the simulated data more realistic.
+    """ Randomly assign NAs to features. Makes the simulated data more realistic. A feature is NA if for one
+    site a feature is 0 in all categories
     Args:
-        features(np.ndarray): binary feature array, with shape = (sites, features, categories)
+        features(np.ndarray): binary feature array
+            shape: (sites, features, categories)
         n_na: number of NAs added
     returns: features(np.ndarray): binary feature array, with shape = (sites, features, categories)
     """
@@ -253,128 +162,13 @@ def assign_na(features, n_na):
 
         na_site = np.random.choice(a=features.shape[0], size=1)
         na_feature = np.random.choice(a=features.shape[1], size=1)
-        features[na_site, na_feature, :] = None
+        features[na_site, na_feature, :] = 0
+
+    return features
 
 
-# Deprecated
-def define_contact_features(n_feat, r_contact_feat, contact_zones):
-    """ This function returns a list of features and those features for which contact is simulated
-    Args:
-        n_feat (int): number of features
-        r_contact_feat (float): percentage of features for which contact is simulated
-        contact_zones (dict): a region of sites for which contact is simulated
 
-    Returns:
-        list, dict: all features, the features for which contact is simulated (per contact zone)
-    """
-
-    n_contact_feat = int(math.ceil(r_contact_feat * n_feat))
-    features = []
-    for f in range(n_feat):
-        features.append('f' + str(f + 1))
-
-    contact_features = {}
-    for cz in contact_zones:
-
-        contact_features[cz] = np.random.choice(features, n_contact_feat, replace=False)
-
-    return features, contact_features
-
-
-# Deprecated
-@dump_results(FEATURES_BG_PATH, RELOAD_DATA)
-def simulate_background_distribution(n_features, n_sites,
-                                     return_as="np.array", cat_axis=True):
-    """This function randomly draws <n_sites> samples from a Categorical distribution
-    for <all_features>. Features can have up to four categories, most features are binary, though.
-
-    Args:
-        n_features (int): number of simulated features
-        n_sites (int): number of sites for which feature are simulated
-        return_as: (string): the data type of the returned background and probabilities, either "dict" or "np.array"
-        cat_axis (boolean): return categories as separate axis? only evaluated when <return_as> is "np.array"
-
-    Returns:
-        (dict, dict) or (np.ndarray, dict): the background distribution and the probabilities to simulate them
-        """
-    # Define features
-
-    features = []
-    for f in range(n_features):
-        features.append('f' + str(f + 1))
-
-    features_bg = {}
-    prob_bg = {}
-
-    for f in features:
-
-        # Define the number of categories per feature (i.e. how many categories can the feature take)
-        nr_cats = np.random.choice(a=[2, 3, 4], size=1, p=[0.7, 0.2, 0.1])[0]
-        cats = list(range(0, nr_cats))
-
-        # Randomly define a probability for each category from a Dirichlet (3, ..., 3) distribution
-        # The mass is in the center of the simplex, extreme values are less likely
-        p_cats = np.random.dirichlet(np.repeat(3, len(cats)), 1)[0]
-
-        # Assign each site to one of the categories according to p_cats
-        bg = np.random.choice(a=cats, p=p_cats, size=n_sites)
-
-        features_bg[f] = bg
-        prob_bg[f] = p_cats
-
-    if return_as == "dict":
-        return features_bg, prob_bg
-
-    elif return_as == "np.array":
-
-        # Sort by key (-f) ...
-        keys = [f[1:] for f in features_bg.keys()]
-        keys_sorted = ['f' + str(s) for s in sorted(list(map(int, keys)))]
-
-        # ... and store to np.ndarray
-        features_bg_array = np.ndarray.transpose(np.array([features_bg[i] for i in keys_sorted]))
-
-        # Leave the dimensions as is
-        if not cat_axis:
-            return features_bg_array, prob_bg
-
-        # Add categories as dimension
-        else:
-            cats = np.unique(features_bg_array)
-            features_bg_cat = []
-
-            for cat in cats:
-                cat_axis = np.expand_dims(np.where(features_bg_array == cat, 1, 0), axis=2)
-                features_bg_cat.append(cat_axis)
-            features_bg_cat_array = np.concatenate(features_bg_cat, axis=2)
-
-            return features_bg_cat_array, prob_bg
-    else:
-        raise ValueError('return_as must be either "dict" or np.array:')
-
-
-def sample_categorical(p):
-    """Sample from a (multidimensional) categorical distribution. The
-    probabilities for every category are given by `p`
-
-    Args:
-        p (np.array): Array defining the probabilities of every category at
-            every site of the output array. The last axis defines the categories
-            and should sum up to 1.
-            shape: (*output_dims, n_categories)
-    Returns
-        np.array: Samples of the categorical distribution.
-            shape: output_dims
-    """
-    *output_dims, n_categories = p.shape
-
-    cdf = np.cumsum(p, axis=-1)
-    z = np.expand_dims(np.random.random(output_dims), axis=-1)
-
-    return np.argmax(z < cdf, axis=-1)
-
-
-def sample_from_likelihood(zones, families, p_global, p_contact, p_inheritance, weights, inheritance):
+def simulate_features(zones, families, p_global, p_contact, p_inheritance, weights, inheritance):
     """Simulate features for of all sites from the likelihood.
 
     Args:
@@ -433,11 +227,17 @@ def sample_from_likelihood(zones, families, p_global, p_contact, p_inheritance, 
             # Families
             if inheritance:
 
-                lh_family = families.dot(p_inheritance[:, i_feat, :]).T
-                lh_feature += normed_weights[i_feat, 2] * lh_family
+                lh_family = families.T.dot(p_inheritance[:, i_feat, :]).T
+                lh_feature += normed_weights[i_feat, :, 2] * lh_family
 
             # Sample from the categorical distribution defined by lh_feature
             features[:, i_feat] = sample_categorical(lh_feature.T)
+
+    # Categories per feature
+    cats_per_feature =[]
+    for f in features.transpose():
+
+        cats_per_feature.append(np.unique(f).tolist())
 
     # Return per category
     cats = np.unique(features)
@@ -445,115 +245,93 @@ def sample_from_likelihood(zones, families, p_global, p_contact, p_inheritance, 
     for cat in cats:
             features_cat[:, :, cat] = np.where(features == cat, 1, 0)
 
-    return features_cat
+    return features_cat, cats_per_feature
 
 
-@dump_results(FEATURES_PATH, RELOAD_DATA)
-def simulate_contact(features, contact_features, p, contact_zones):
-    """This function simulates language contact. For each contact zone the function randomly chooses <n_feat> features,
-    for which the similarity is increased.
-    Args:
-        features (dict): all features
-        contact_features(list): features for which contact is simulated
-        p (float): probability of success, defines the degree of similarity in the contact zone
-        contact_zones (dict): a region of sites for which contact is simulated
-    Returns:
-        np.ndarray: the adjusted features
-        """
-    features_adjusted = copy.deepcopy(features)
-
-    # Iterate over all contact zones
-    for cz in contact_zones:
-
-        # Choose <n_feat> features for which the similarity is increased
-
-        for f in contact_features[cz]:
-
-            # increase similarity
-
-            f_adjusted = np.random.binomial(n=1, p=p, size=len(contact_zones[cz]))
-            for a, _ in enumerate(f_adjusted):
-                idx = contact_zones[cz][a]
-                features_adjusted[f][idx] = f_adjusted[a]
-
-    features_adjusted_mat = np.ndarray.transpose(np.array([features_adjusted[i] for i in features_adjusted.keys()]))
-
-    return features_adjusted_mat
-
-
-@dump_results(FEATURE_PROB_PATH, RELOAD_DATA)
-def compute_p_global(feat):
-    """This function computes the global probabilities for a feature f to belongs to category cat;
+def sample_categorical(p):
+    """Sample from a (multidimensional) categorical distribution. The
+    probabilities for every category are given by `p`
 
     Args:
-        feat (np.ndarray): a matrix of all features
+        p (np.array): Array defining the probabilities of every category at
+            every site of the output array. The last axis defines the categories
+            and should sum up to 1.
+            shape: (*output_dims, n_categories)
+    Returns
+        np.array: Samples of the categorical distribution.
+            shape: output_dims
+    """
+    *output_dims, n_categories = p.shape
 
+    cdf = np.cumsum(p, axis=-1)
+    z = np.expand_dims(np.random.random(output_dims), axis=-1)
+
+    return np.argmax(z < cdf, axis=-1)
+
+
+def compute_global_freq_from_data(feat):
+    """This function computes the global frequency for a feature f to belongs to category cat;
+
+    Args:
+        feat (np.ndarray): a matrix of features
     Returns:
         array: the empirical probability that feature f belongs to category cat"""
     n_sites, n_features, n_categories = feat.shape
     p = np.zeros((n_features, n_categories), dtype=float)
 
     for f in range(n_features):
-        p[f] = np.sum(feat[:, f, :], axis=0) / n_sites
+        counts = np.sum(feat[:, f, :], axis=0)
+        p[f] = counts/n_sites
     return p
 
 
-def estimate_ecdf_n(n, nr_samples, net):
 
-    logging.info('Estimating empirical CDF for n = %i' % n)
+def estimate_geo_prior_parameters(network: dict, geo_prior):
+    """
+    This function estimates parameters for the geo prior
+    If geo_prior = "gaussian", the estimated parameter is the covariance matrix of a two-dimensional Gaussian,
+    if geo_prior = "distance", the estimated parameter is the scale parameter of an Exponential distribution
 
-    dist_mat = net['dist_mat']
+    Args:
+        network (dict): network containing the graph, location,...
+        geo_prior (char): Type of geo prior, "uniform", "distance" or "gaussian"
+    Returns:
+        (dict): The estimated parameters
+    """
+    parameters = {"uniform": None,
+                  "gaussian": None,
+                  "distance": None}
 
-    complete_stat = []
-    delaunay_stat = []
-    mst_stat = []
+    if geo_prior == "uniform":
+        return parameters
 
-    for _ in range(nr_samples):
+    else:
+        dist_mat = network['dist_mat']
+        locations = network['locations']
 
-        zone, _ = grow_zone(n, net)
+        delaunay = compute_delaunay(locations)
+        mst = delaunay.multiply(dist_mat)
 
-        # Mean distance / Mean squared distance
+        # Compute difference vectors along mst
+        if geo_prior == "gaussian":
+            i1, i2 = mst.nonzero()
+            diffs = locations[i1] - locations[i2]
 
-        # Complete graph
-        complete = sparse.triu(dist_mat[zone][:, zone])
-        n_complete = complete.nnz
-        # complete_stat.append(complete.sum()/n_complete)   # Mean
-        # complete_stat.append(np.sum(complete.toarray() **2.) / n_complete)  # Mean squared
+            # Center at (0, 0)
+            diffs -= np.mean(diffs, axis=0)[None, :]
+            parameters["gaussian"] = np.cov(diffs.T)
 
-        # Delaunay graph
-        triang = triangulation(net, zone)
-        delaunay = sparse.triu(triang)
-        n_delaunay = delaunay.nnz
-        # delaunay_stat.append(delaunay.sum()/n_delaunay)   # Mean
-        # delaunay_stat.append(np.sum(delaunay.toarray() **2.) / n_delaunay)  # Mean squared
+        elif geo_prior == "distance":
+            distances = mst.tocsr()[mst.nonzero()]
+            parameters["distance"] = np.mean(distances)
 
-        # Minimum spanning tree (MST)
-        mst = minimum_spanning_tree(triang)
-        n_mst = mst.nnz
-        # mst_stat.append(mst.sum()/n_mst)     # Mean
-        # mst_stat.append(np.sum(mst.toarray() **2) / n_mst)  # Mean squared
-
-        # Max distance
-        # # Complete graph
-        complete_max = dist_mat[zone][:, zone].max(axis=None)
-        complete_stat.append(complete_max)
-
-        # Delaunay graph
-        #triang = triangulation(net, zone)
-        delaunay_max = triang.max(axis=None)
-        delaunay_stat.append(delaunay_max)
-
-        # MST
-        #mst = minimum_spanning_tree(triang)
-        mst_max = mst.max(axis=None)
-        mst_stat.append(mst_max)
-
-    distances = {'complete': complete_stat, 'delaunay': delaunay_stat, 'mst': mst_stat}
-
-    return distances
+        else:
+            raise ValueError('geo_prior mut be "uniform", "distance" or "gaussian"')
+    return parameters
 
 
-@dump_results(ECDF_GEO_PATH, RELOAD_DATA)
+
+#deprecated
 def generate_ecdf_geo_prior(net, min_n, max_n, nr_samples):
     """ This function generates an empirical cumulative density function (ecdf), which is then used to compute the
     geo-prior of a contact zone. The function
@@ -597,7 +375,7 @@ def generate_ecdf_geo_prior(net, min_n, max_n, nr_samples):
 
     return ecdf
 
-@dump_results(RANDOM_WALK_COV_PATH, True)  #RELOAD_DATA)
+# deprecated
 def estimate_random_walk_covariance(net):
     dist_mat = net['dist_mat']
     locations = net['locations']
@@ -617,7 +395,7 @@ def estimate_random_walk_covariance(net):
     return np.cov(diffs.T)
 
 
-@dump_results(LOOKUP_TABLE_PATH, RELOAD_DATA)
+# deprecated
 def precompute_feature_likelihood_old(min_size, max_size, feat_prob, log_surprise=True):
     """This function generates a lookup table of likelihoods
     Args:
@@ -671,7 +449,7 @@ def precompute_feature_likelihood_old(min_size, max_size, feat_prob, log_surpris
 
     return lookup_dict
 
-@dump_results(LOOKUP_TABLE_PATH, RELOAD_DATA)
+
 def precompute_feature_likelihood(min_size, max_size, feat_prob, log_surprise=True):
     """This function generates a lookup table of likelihoods
     Args:
@@ -731,7 +509,7 @@ def precompute_feature_likelihood(min_size, max_size, feat_prob, log_surprise=Tr
     return lookup_dict
 
 
-@dump_results(FEATURES_PATH, RELOAD_DATA)
+
 def get_features(table=None, feature_names=None):
     """ This function retrieves features from the geodatabase
     Args:
@@ -764,27 +542,84 @@ def get_features(table=None, feature_names=None):
         return np.array(features)
 
 
-def simulate_zones(zone_ids, network):
-    """ This function finds out which sites belong to the zone with <zone_ids> and then assigns zone membership accordingly.
+def simulate_zones(zone_id, sites_sim):
+    """ This function finds out which sites belong to contact zones assigns zone membership accordingly.
 
         Args:
-            zone_ids(int): The IDs of the simulated contact zones (zones are hand-drawn and stored in a DB)
-            network (dict): The network of all sites.
+            zone_id(int): The IDs of the simulated contact zones
+            sites_sim (dict): dict with simulates sites
 
         Returns:
-            np.array: the simulated zones, boolean assignment of site to zone.
+            (np.array): the simulated zones, boolean assignment of site to zone.
                 shape(n_zones, n_sites)
     """
-    # Retrieve zones from DB
-    sites_in_zone = get_contact_zones(zone_ids)
+
+    # Retrieve zones
+    sites_in_zone = get_contact_zones(sites=sites_sim, zone_id=zone_id)
     n_zones = len(sites_in_zone)
-    n_sites = network['n']
+    n_sites = len(sites_sim['id'])
 
     # Assign zone membership
     zones = np.zeros((n_zones, n_sites), bool)
     for k, z_id in enumerate(sites_in_zone.values()):
         zones[k, z_id] = 1
+
     return zones
+
+
+def simulate_families(sites, n_families, max_family_size, min_family_size):
+    """Randomly picks some of the sites and assigns them to language families
+
+    Args:
+        sites (dict): A dict comprising all sites.
+        n_families (int): Number of simulated families
+        max_family_size (int): maximum number of members in a family
+        min_family_size (int): minimum number of members in a family
+    Returns:
+        (np.array): the simulated families, boolean assignment of site to families.
+                shape(n_families, n_sites)"""
+
+    # Randomly pick some of the sites. These will be assigned to families.
+    sites = sites['id']
+    n_sites = len(sites)
+
+    sites_in_family = {}
+    for nf in range(n_families):
+        f_size = np.random.randint(min_family_size, max_family_size, 1)
+        f = np.random.choice(sites, size=f_size, replace=False)
+        sites = [s for s in sites if s not in f]
+        sites_in_family[nf] = f
+
+    # Assign family membership
+    families = np.zeros((n_families, n_sites), bool)
+    for k, z_id in enumerate(sites_in_family.values()):
+        families[k, z_id] = 1
+
+    return families
+
+
+def simulate_weights(f_global, f_contact, f_inheritance, inheritance, n_features):
+    """ Simulates weights for all features, that is the influence of global bias, inheritance and contact on the feature.
+    Args: 
+        f_global (float): controls the number of features for which the influence of global bias is high,
+            passed as alpha when drawing samples from a dirichlet distribution
+        f_contact(float): controls the number of features for which the influence of contact is high,
+            passed as alpha when drawing samples from a dirichlet distribution
+        f_inheritance: controls the number of features for which the influence of inheritance is high,
+            passed as alpha when drawing samples from a dirichlet distribution, only relevant if inheritance = True
+        inheritance: Is inheritance evaluated/simulated?
+    Returns: 
+        (np.array):
+        """
+    # Define alpha values which control the influence of contact (and inheritance if available) when simulating features
+    if inheritance:
+        alpha_sim = [f_global, f_contact, f_inheritance]
+    else:
+        alpha_sim = [f_global, f_contact]
+
+    # columns in weights: global, contact, (inheritance if available)
+    weights = np.random.dirichlet(alpha_sim, n_features)
+    return weights
 
 
 def simulate_assignment_probabilities(n_features, p_number_categories, inheritance, zones, intensity_contact,
@@ -833,6 +668,7 @@ def simulate_assignment_probabilities(n_features, p_number_categories, inheritan
         # Assignment in zones
         alpha_p_zones = [intensity_contact] * cat_f
         for z in range(n_zones):
+
             p_zones[z, f, range(cat_f)] = np.random.dirichlet(alpha_p_zones, size=1)
 
     # Simulate Inheritance?
@@ -848,11 +684,72 @@ def simulate_assignment_probabilities(n_features, p_number_categories, inheritan
 
             # Assignment in families
             alpha_p_families = [intensity_inheritance] * cat_f
+
             for fam in range(n_families):
                 p_families[fam, f, range(cat_f)] = np.random.dirichlet(alpha_p_families, size=1)
 
         return p_global, p_zones, p_families
 
+
+def get_global_frequencies(mode, features=None):
+    """ This is a helper function to either import the global frequencies of each category of each feature
+        from a file or to compute it from data
+        Args:
+            mode(dict): contains information on how to compute the global frequencies
+            features(np.array): features, could be None if global frequencies are imported from file
+                shape(n_sites, n_features, n_categories)
+        Returns:
+            np.array: The global probabilities for each category in each feature
+    """
+    # Compute from data
+    if mode['estimate_from_data']:
+        if features is None:
+            raise ValueError("'features' is None! If I should estimate features from data, "
+                             "you better give me some data")
+        else:
+            global_freq = compute_global_freq_from_data(features)
+        return global_freq
+
+    # Read from file
+    else:
+        global_freq, _, _ = read_freq_from_csv(file=mode['file'])
+        if np.allclose(a=np.nansum(global_freq, axis=-1), b=1., rtol=EPS):
+            return global_freq
+        else:
+            if all(isinstance(x, int) for x in global_freq):
+                return global_freq/np.sum(global_freq, axis=1, keepdims=True)
+            else:
+                out = "The data in " + str(mode['file']) + " must be relative frequencies summing to 1 or count data"
+                raise ValueError(out)
+
+
+#todo: make sure family order matches the order of the families in the data
+def get_family_frequencies(files):
+    """ This is a helper function to import the frequencies of each feature in the families from files
+        These define the dirichlet distribution that is used as a prior for p_family
+        Args:
+            files(list): file names containing the family frequencies
+        Returns:
+            np.array: The family frequencies for each category in each feature
+    """
+
+    family_freq = []
+    categories_per_family = []
+    for file in files:
+        freq, categories, _ = read_freq_from_csv(file=file)
+
+        if all(float(y).is_integer() for y in np.nditer(freq)):
+            family_freq.append(freq)
+            categories_per_family.append(categories)
+        else:
+            out = "The data in " + str(file) + " must be count data."
+            raise ValueError(out)
+    # Sanity check
+    for c in range(len(categories_per_family)-1):
+        if categories_per_family[c] != categories_per_family[c+1]:
+            "Families seem to have different categories per feature. Check for consistency!"
+
+    return np.asarray(family_freq), categories_per_family[0]
 
 
 

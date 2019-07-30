@@ -1,12 +1,29 @@
-from src.util import load_from
-from src.config import *
-from src.sampling.zone_sampling_particularity import ZoneMCMC
 from itertools import permutations
 import numpy as np
 import math
 
 
-def compute_model_quality(results, mode):
+def compute_dic(mcmc_res, burn_in):
+    """This function computes the deviance information criterion
+    (see for example Celeux et al. 2006) using the posterior mode as a point estimate
+
+    Args:
+        mcmc_res: (dict): the samples from the MCMC
+        burn_in(float): percentage of samples, which are discarded as burn-in
+        """
+    end_bi = math.ceil(len(mcmc_res['lh']) * burn_in)
+    ll = mcmc_res['lh'][end_bi:]
+
+    # max(ll) likelihood evaluated at the posterior mode
+    d_phi_pm = -2 * np.max(ll)
+    mean_d_phi = -4 * (np.mean(ll))
+
+    dic = mean_d_phi + d_phi_pm
+
+    return dic
+
+
+def compute_model_quality(mcmc_results, mode):
     """This function computes an estimator of the relative quality of a model ( either AIC, BIC or MLE)
 
     Args:
@@ -143,31 +160,27 @@ def compute_bayes_factor(m_lh_1, m_lh_2):
     return np.exp(log_bf)
 
 
-def chains_to_samples(chains_in, in_match_chains=False):
-    """ Helper function to change the data structure from chains to samples
+def samples_list_to_array(samples_in):
+    """ Helper function to change the data structure
 
     Args:
-        chains_in (list): chains, as returned by the MCMC
-        in_match_chains(bool): when used in the match_chains function, the output structure differs
+        samples_in (list): list of zone assignments as returned by the MCMC
 
     Returns
-        samples_out (ndaray): samples, as needed for matching
+        samples_out (ndarray): samples, as needed for matching
          """
 
-    np_chains = np.array([np.array(c) for c in chains_in])
+    samples_1 = np.array([np.array(s) for s in samples_in])
 
-    # Swap axes
-    samples_out = np.swapaxes(np_chains, 0, 1)
-
-    # Swap twice, if output is to be used in the match_chains function
-    if in_match_chains:
-        samples_out = np.swapaxes(samples_out, 1, 2)
+    # Swap axes (twice)
+    samples_2 = np.swapaxes(samples_1, 0, 1)
+    samples_out = np.swapaxes(samples_2, 1, 2)
 
     return samples_out
 
 
-def samples_to_chains(samples_in):
-    """ Helper function to change the data structure from samples to chains
+def samples_array_to_list(samples_in):
+    """ Helper function to change the data structure from samples
 
     Args:
         samples_in (list): Samples, as returned by the matching function
@@ -179,53 +192,57 @@ def samples_to_chains(samples_in):
     samples_np = np.array([np.array(s) for s in samples_in])
 
     # Swap axes
-    chains_out = np.swapaxes(samples_np, 1, 0)
+    samples_out = np.swapaxes(samples_np, 1, 0)
 
-    return chains_out
+    return samples_out
 
 
-def match_chains(samples_in):
-    """Align zones in different chains to maximize matching site-alignements
+def match_zones(mcmc_res):
+    """Align zones in (possibly) different chains.
 
     Args:
-        samples_in (list): All chains returned by the MCMC.
-            Each chain is a boolean assignment from sites to a zone
+        mcmc_res (dict): the output from the MCMC neatly collected in a dict
 
     Returns:
         perm_list(list): Resulting matching.
 
     """
-    # The input data are stored in a nested list
     # Change structure
-    samples = chains_to_samples(samples_in, in_match_chains=True)
+    zone_samples = samples_list_to_array(mcmc_res['zones'])
+    n_samples, n_sites, n_zones = zone_samples.shape
 
-    n_samples, n_sites, n_chains = samples.shape
-    c_sum = np.zeros((n_sites, n_chains))
-    #c_last = np.zeros((n_sites, n_chains))
+    s_sum = np.zeros((n_sites, n_zones))
+
     # All potential permutations of cluster labels
-    perm = list(permutations(range(n_chains)))
-
+    perm = list(permutations(range(n_zones)))
     i = 1
-    perm_list = []
-    for c in samples:
+    matching_list = []
+    for s in zone_samples:
         i += 1
         print(i)
 
         def clustering_agreement(p):
 
-            """In how many sites does the permutation 'p' of chain 'c'
-            match the previous chains?
+            """In how many sites does the permutation 'p'
+            match the previous sample?
             """
-            return np.sum(c_sum * c[:, p])
-            #return np.sum(c_last * c[:, p])
+            return np.sum(s_sum * s[:, p])
 
-        best_perm = max(perm, key=clustering_agreement)
-        perm_list.append(list(best_perm))
-        c_sum += c[:, best_perm]
-        #c_last = c[:, best_perm]
+        best_match = max(perm, key=clustering_agreement)
+        matching_list.append(list(best_match))
+        s_sum += s[:, best_match]
+    # Reorder chains according to matching
+    reordered = []
 
-    #return z_sum / n_samples
-    return perm_list
+    zone_samples = np.swapaxes(zone_samples, 1, 2)
+
+    for z in range(len(zone_samples)):
+
+        reordered.append(zone_samples[z][:][matching_list[z]])
+
+    mcmc_res['zones'] = samples_array_to_list(reordered)
+
+    return mcmc_res
 
 
 def apply_matching(samples_in, matching):
