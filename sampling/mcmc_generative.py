@@ -27,7 +27,8 @@ class MCMC_generative(metaclass=_abc.ABCMeta):
     """
 
     def __init__(self, operators, inheritance, families, prior, sample_p,  global_freq,
-                 known_initial_weights=None, known_initial_zones=None, n_chains=4, swap_period=1000, chain_swaps=1):
+                 known_initial_weights=None, known_initial_zones=None, n_chains=4, swap_period=1000, chain_swaps=1,
+                 show_screen_log=False):
 
         # Sampling attributes
         self.n_chains = n_chains
@@ -45,6 +46,7 @@ class MCMC_generative(metaclass=_abc.ABCMeta):
         # Is inheritance (information on language families) available?
         self.inheritance = inheritance
         self.families = families
+
 
         # Prior
         self.geo_prior = prior['geo_prior']
@@ -78,6 +80,8 @@ class MCMC_generative(metaclass=_abc.ABCMeta):
         # State attributes
         self._ll = _np.full(self.n_chains, -_np.inf)
         self._prior = _np.full(self.n_chains, -_np.inf)
+
+        self.show_screen_log = show_screen_log
 
     @_abc.abstractmethod
     def prior(self, x, c):
@@ -217,6 +221,12 @@ class MCMC_generative(metaclass=_abc.ABCMeta):
                 self.chain_idx[swap_to_idx] = swap_from
                 self.statistics['accepted_swaps'] += 1
 
+        # Set all 'what_changed' flags to true (to avoid caching errors)
+        for s in sample:
+            for d in s.what_changed.values():
+                for k in d.keys():
+                    d[k] = True
+
     def step(self, sample, c):
         """This function performs a full MH step: first, a new candidate sample is proposed
         for either the zones or the weights, then the candidate is evaluated against the current sample
@@ -231,13 +241,11 @@ class MCMC_generative(metaclass=_abc.ABCMeta):
         # Randomly choose one operator to propose new sample (grow/shrink/swap zones, alter weights/p_zones/p_families)
 
         propose_step = _np.random.choice(self.fn_operators, 1, p=self.p_operators)[0]
-
         candidate, q, q_back = propose_step(sample)
 
         # Compute the log-likelihood of the candidate
         ll_candidate = self.likelihood(candidate, c)
 
-        #print('candidate', ll_candidate, 'current', self._ll, candidate.weights)
         # Compute the prior of the candidate
         prior_candidate = self.prior(candidate, c)
 
@@ -266,6 +274,7 @@ class MCMC_generative(metaclass=_abc.ABCMeta):
             else:
                 pass
                 #print('weight step rejected')
+
         return sample
 
     def metropolis_hastings_ratio(self, ll_new, ll_prev, prior_new, prior_prev, q, q_back, temperature=1.):
@@ -304,6 +313,10 @@ class MCMC_generative(metaclass=_abc.ABCMeta):
         self.statistics['sample_p_families'].append(sample.p_families)
         self.statistics['sample_likelihood'].append(self._ll[c])
         self.statistics['sample_prior'].append(self._prior[c])
+
+        if self.show_screen_log:
+            print('Log-likelihood: %.2f' % self._ll[c])
+            print('Accepted steps: %i' % self.statistics['accepted_steps'])
 
     def log_last_sample(self, last_sample):
         """ This function logs the last sample of the first chain of an MCMC run.

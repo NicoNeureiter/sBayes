@@ -227,7 +227,7 @@ def read_languages_from_csv(file):
         Args:
             file(str): file location of the csv file
         Returns:
-            (dict, list, np.array, list, list, np.array, list) :
+            (dict, dict, np.array, dict, dict, np.array, dict) :
             The language date including sites, site names, all features, feature names and category names per feature,
             as well as family membership and family names
     """
@@ -268,19 +268,22 @@ def read_languages_from_csv(file):
         locations[i, 0] = float(x[i])
         locations[i, 1] = float(y[i])
 
-        # The order in the list maps name -> id and id -> name
-        # name could be any unique identifier, id are integers from 0 to len(name)
+        # The order in the list maps name to id and id to name
+        # name could be any unique identifier, id is an integer from 0 to len(name)
         id.append(i)
 
     sites = {'locations': locations,
              'id': id,
              'cz': None}
-    site_names_ordered = name
+    site_names = {'external': name,
+                  'internal': list(range(0, len(name)))}
 
     # features
+
     features_with_cat = np.ndarray.transpose(np.array([csv_as_dict[i] for i in feature_names_ordered]))
 
     cat_names = np.unique(features_with_cat)
+
     features_cat = []
     for cat in cat_names:
         if cat == "":
@@ -290,15 +293,21 @@ def read_languages_from_csv(file):
             cat_axis = np.expand_dims(np.where(features_with_cat == cat, 1, 0), axis=2)
             features_cat.append(cat_axis)
     features = np.concatenate(features_cat, axis=2)
+    feature_names = {'external': feature_names_ordered,
+                     'internal': list(range(0, len(feature_names_ordered)))}
 
     # categories per feature
     category_names_ordered = []
+
     for f in features_with_cat.transpose():
         cat_per_feature = []
-        for c in cat_names:
-            if c in f:
-                cat_per_feature.append(c)
+        for cat in cat_names:
+            if cat in f and cat != "":
+                cat_per_feature.append(cat)
         category_names_ordered.append(cat_per_feature)
+
+    category_names = {'external': category_names_ordered,
+                      'internal': [list(range(0, len(c))) for c in category_names_ordered]}
 
     # family
     family_names_ordered = np.unique(family).tolist()
@@ -309,8 +318,10 @@ def read_languages_from_csv(file):
     for fam in range(len(family_names_ordered)):
         families[fam, np.where(family == family_names_ordered[fam])] = 1
 
-    return sites, site_names_ordered, features, feature_names_ordered, \
-           category_names_ordered, families, family_names_ordered
+    family_names = {'external': family_names_ordered,
+                    'internal': list(range(0, len(family_names_ordered)))}
+
+    return sites, site_names, features, feature_names, category_names, families, family_names
 
 
 def write_languages_to_csv(features, sites, families, file):
@@ -378,7 +389,7 @@ def write_feature_occurrence_to_csv(occurr, categories, file):
 
 
 def read_feature_occurrence_from_csv(file):
-    """This is a helper function to import the occurrence of features in families or globally from a csv
+    """This is a helper function to import the occurrence of features in families (or globally) from a csv
         Args:
             file(str): file location of the csv file
         Returns:
@@ -408,14 +419,20 @@ def read_feature_occurrence_from_csv(file):
         raise KeyError('The csv must contain column "feature"')
     occurr = np.zeros((len(feature_names_ordered), len(cat_names)))
 
+    feature_names = {'external': feature_names_ordered,
+                     'internal': list(range(0, len(feature_names_ordered)))}
+
+    cat_names = np.unique(cat_names)
+
     cat_names_ordered = [[] for _ in range(len(feature_names_ordered))]
     for c in range(len(cat_names)):
         row = csv_as_dict[cat_names[c]]
+
         # Handle missing data
         for f in range(len(row)):
             try:
                 row[f] = float(row[f])
-                cat_names_ordered[f].append(c)
+                cat_names_ordered[f].append(cat_names[c])
 
             except ValueError:
                 if row[f] == '':
@@ -424,34 +441,65 @@ def read_feature_occurrence_from_csv(file):
                     raise ValueError("Frequencies must be numeric!")
         occurr[:, c] = row
 
-    return occurr, cat_names_ordered, feature_names_ordered
+    category_names = {'external': cat_names_ordered,
+                      'internal': [list(range(0, len(c))) for c in cat_names_ordered]}
+
+    return occurr, category_names, feature_names
 
 
-def freq_to_dirichlet(freq, categories):
-    """This is a helper function transform the family frequencies into alpha values that
+def counts_to_dirichlet(counts, categories):
+    """This is a helper function transform the family counts to alpha values that
     are then used to define a dirichlet distribution
 
     Args:
-        freq(np.array): the family frequencies
+        counts(np.array): the family counts
             shape(n_families, n_features, n_categories)
         categories(list): categories per feature in each of the families
     Returns:
         list: the dirichlet distributions, neatly stored in a dict
     """
 
-    n_fam, n_feat, n_cat = freq.shape
+    n_fam, n_feat, n_cat = counts.shape
     dirichlet = [[] for _ in range(n_fam)]
 
     for fam in range(n_fam):
         for feat in range(n_feat):
             cat = categories[feat]
-            alpha = freq[fam, feat, cat]
-            for i, n in enumerate(alpha):
-                if n == 0:
-                    alpha[i] = EPS
+
+            alpha = counts[fam, feat, cat]
+            # Add 1 to alpha values (1,1,...1 is a uniform prior)
+            alpha = alpha + 1
+
             dirichlet[fam].append(stats.dirichlet(alpha))
 
     return dirichlet
+
+
+def balance_p_array(p_array, balance_by):
+    """This is a helper function to balance an array of probabilities, such that no probability is zero
+
+        Args:
+            p_array(np.array): the array of probabilities
+            balance_by(float): how much of the non-zero probabilities should be distributed to the zero ones (0-1)
+        Returns:
+            np.array: the balanced p_array
+        """
+    # Find all zeros and non-zeros
+
+    zero_idx = np.where(p_array == 0)[0]
+    nonzero_idx = np.where(p_array != 0)[0]
+
+    # Subtract balance_by from all nonzero probabilities (proportional to their magnitude)
+    non_zero_proportion = p_array[nonzero_idx] / sum(p_array[nonzero_idx])
+    p_array_nonzero_balanced = p_array[nonzero_idx] - non_zero_proportion * balance_by
+
+    # Balance and update
+    p_array_zero_balanced = balance_by / len(zero_idx)
+
+    p_array[zero_idx] = p_array_zero_balanced
+    p_array[nonzero_idx] = p_array_nonzero_balanced
+
+    return p_array
 
 
 

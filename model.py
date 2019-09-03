@@ -205,6 +205,9 @@ class GenerativeLikelihood(object):
             n_sites, n_features, n_categories = features.shape
             zones = sample.zones
 
+            # Find NA features in the data
+            na_features = (np.sum(features, axis=-1) == 0)
+
             # Weights and p_zones must sum to one
             # assert np.allclose(a=np.sum(weights, axis=-1), b=1., rtol=EPS)
 
@@ -212,7 +215,7 @@ class GenerativeLikelihood(object):
             # Global
             ##################
             # Global assignment and lh are constants and only evaluated when initialized
-            if True: #self.global_assignment is None and self.global_lh is None:
+            if self.global_assignment is None and self.global_lh is None:
                 global_assignment = np.ones(n_sites)
                 global_lh = compute_global_likelihood(features=features, global_freq=global_freq)
                 self.global_assignment = global_assignment
@@ -228,14 +231,14 @@ class GenerativeLikelihood(object):
             if inheritance:
 
                 # Family assignment is a constant, and only evaluated when initialized
-                if True: # self.family_assignment is None:
+                if self.family_assignment is None:
                     family_assignment = np.any(families, axis=0)
                     self.family_assignment = family_assignment
                 else:
                     family_assignment = self.family_assignment
 
                 # Family lh is evaluated when initialized and when p_families is changed
-                if True: # self.family_lh is None or sample.what_changed['lh']['p_families']:
+                if self.family_lh is None or sample.what_changed['lh']['p_families']:
                     # p_families can be sampled or estimated
                     if sample_p_families:
                         p_families = transform_p_from_log(sample.p_families)
@@ -249,8 +252,8 @@ class GenerativeLikelihood(object):
                     else:
                         family_lh = compute_family_likelihood(features=features, families=families,
                                                               sample_p_families=sample_p_families)
-
                     self.family_lh = family_lh
+
                 else:
                     family_lh = self.family_lh
 
@@ -258,7 +261,7 @@ class GenerativeLikelihood(object):
             # Zone
             ##################
             # Zone assignment is evaluated when initialized or when zones change
-            if True: # self.zone_assignment is None or sample.what_changed['lh']['zones']:
+            if self.zone_assignment is None or sample.what_changed['lh']['zones']:
 
                 # Compute the assignment of sites to zones
                 zone_assignment = np.any(zones, axis=0)
@@ -268,7 +271,7 @@ class GenerativeLikelihood(object):
                 zone_assignment = self.zone_assignment
 
             # Zone lh is evaluated when initialized, or when zones or p_zones change
-            if True: # self.zone_lh is None or sample.what_changed['lh']['zones'] or sample.what_changed['lh']['p_zones']:
+            if self.zone_lh is None or sample.what_changed['lh']['zones'] or sample.what_changed['lh']['p_zones']:
 
                 # p_zones can be sampled or estimated
                 if sample_p_zones:
@@ -276,7 +279,6 @@ class GenerativeLikelihood(object):
                     # assert np.allclose(a=np.sum(p_zones, axis=-1), b=1., rtol=EPS)
                     zone_lh = compute_zone_likelihood(features=features, zones=zones, sample_p_zones=sample_p_zones,
                                                       p_zones=p_zones)
-
                 else:
                     zone_lh = compute_zone_likelihood(features=features, zones=zones, sample_p_zones=sample_p_zones)
 
@@ -288,25 +290,28 @@ class GenerativeLikelihood(object):
             # Combination
             ##################
             # Assignments are recombined when initialized or when zones change
-            if True: # self.assignment is None or sample.what_changed['lh']['zones']:
+            if self.assignment is None or sample.what_changed['lh']['zones']:
+
                 # Structure of assignment depends on whether inheritance is considered or not
                 if inheritance:
                     assignment = np.array([global_assignment, zone_assignment, family_assignment]).T
                 else:
                     assignment = np.array([global_assignment, zone_assignment]).T
+
                 self.assignment = assignment
             else:
                 assignment = self.assignment
 
             # Lh is recombined when initialized, when zones change or when p_zones or p_families change
-            if True: # self.all_lh is None or sample.what_changed['lh']['zones'] or \
-                    # sample.what_changed['lh']['p_zones'] or sample.what_changed['lh']['p_families']:
+            if self.all_lh is None or sample.what_changed['lh']['zones'] or \
+                    sample.what_changed['lh']['p_zones'] or sample.what_changed['lh']['p_families']:
 
                 # Structure of assignment depends on whether inheritance is considered or not
                 if inheritance:
                     all_lh = np.array([global_lh, zone_lh, family_lh]).transpose((1, 2, 0))
                 else:
                     all_lh = np.array([global_lh, zone_lh]).transpose((1, 2, 0))
+
                 self.all_lh = all_lh
             else:
                 all_lh = self.all_lh
@@ -315,7 +320,7 @@ class GenerativeLikelihood(object):
             # Weights
             ##################
             # weights are evaluated when initialized, when weights change or when assignment changes
-            if True: # self.weights is None or sample.what_changed['lh']['weights'] or sample.what_changed['lh']['zones']:
+            if self.weights is None or sample.what_changed['lh']['weights'] or sample.what_changed['lh']['zones']:
 
                 abnormal_weights = transform_weights_from_log(sample.weights)
 
@@ -324,17 +329,22 @@ class GenerativeLikelihood(object):
                 abnormal_weights_per_site = np.repeat(abnormal_weights[np.newaxis, :, :], n_sites, axis=0)
                 weights = normalize_weights(abnormal_weights_per_site, assignment)
                 self.weights = weights
+
             else:
                 weights = self.weights
 
             # This is always evaluated
+
             weighted_lh = np.sum(weights * all_lh, axis=2)
+            # Replace na values by 1
+            weighted_lh[na_features] = 1.
             log_lh = np.sum(np.log(weighted_lh))
 
             # todo: try
             # weighted_lh = all_lh.dot(weights)
 
             # The step is completed. Everything is up-to-date.
+
             sample.what_changed['lh']['zones'] = False
             sample.what_changed['lh']['p_zones'] = False
             sample.what_changed['lh']['weights'] = False
@@ -349,6 +359,9 @@ class GenerativePrior(object):
 
     def __init__(self):
         self.prior_zones = None
+        self.prior_weights = None
+        self.prior_p_zones = None
+        self.prior_p_families = None
 
     def __call__(self, sample, geo_prior, geo_prior_parameters, prior_weights,
                  prior_p_zones, prior_p_families, prior_p_families_parameters, network):
@@ -374,50 +387,75 @@ class GenerativePrior(object):
             # assert np.allclose(a=np.sum(weights, axis=-1), b=1., rtol=EPS)
 
             # Geo Prior
-            if sample.what_changed['prior']['zones']:
+            if self.prior_zones is None or sample.what_changed['prior']['zones']:
 
                 if geo_prior == "uniform":
-                    self.log_prior_zones = 0.
+                    prior_zones = 0.
 
                 elif geo_prior == "gaussian":
-                    self.log_prior_zones = geo_prior_gaussian(sample.zones, network, geo_prior_parameters['gaussian'])
+                    prior_zones = geo_prior_gaussian(sample.zones, network, geo_prior_parameters['gaussian'])
 
                 elif geo_prior == "distance":
-                    self.log_prior_zones = geo_prior_distance(sample.zones, network, geo_prior_parameters['distance'])
+                    prior_zones = geo_prior_distance(sample.zones, network, geo_prior_parameters['distance'])
 
                 else:
                     raise ValueError('geo_prior must be either "uniform", "gaussian" or "distance"')
 
+                self.prior_zones = prior_zones
+            else:
+                prior_zones = self.prior_zones
+
             # Weights
-            if prior_weights == "uniform":
-                self.log_prior_weights = 0.
+            if self.prior_weights is None or sample.what_changed['prior']['weights']:
+                if prior_weights == "uniform":
+                    prior_weights = 0.
+
+                else:
+                    raise ValueError('prior_weights must be "uniform"')
+
+                self.prior_weights = prior_weights
+
             else:
-                raise ValueError('prior_weights must be "uniform"')
+                prior_weights = self.prior_weights
 
-            if prior_p_zones == "uniform":
-                self.log_prior_p_zones = 0.
+            if self.prior_p_zones is None or sample.what_changed['prior']['p_zones']:
+
+                if prior_p_zones == "uniform":
+                    prior_p_zones = 0.
+                else:
+                    raise ValueError('prior_p_zones must be "uniform"')
+
+                self.prior_p_zones = prior_p_zones
             else:
-                raise ValueError('prior_p_zones must be "uniform"')
+                prior_p_zones = self.prior_p_zones
 
-            if prior_p_families == "uniform":
-                self.log_prior_p_families = 0.
-            elif prior_p_families == "dirichlet":
+            if self.prior_p_families is None or sample.what_changed['prior']['p_families']:
+                if prior_p_families == "uniform":
+                    prior_p_families = 0.
 
-                prior_p_families_dirichlet(p_families=transform_p_from_log(sample.p_families),
-                                           dirichlet=prior_p_families_parameters['dirichlet'],
-                                           categories=prior_p_families_parameters['categories'])
-                self.log_prior_p_families = 0.
+                elif prior_p_families == "dirichlet":
+
+                    prior_p_families = prior_p_families_dirichlet(
+                        p_families=transform_p_from_log(sample.p_families),
+                        dirichlet=prior_p_families_parameters['dirichlet'],
+                        categories=prior_p_families_parameters['categories'])
+
+                else:
+                    raise ValueError('prior_p_zones must be "uniform" or "dirichlet')
+
+                self.prior_p_families = prior_p_families
+
             else:
-                raise ValueError('prior_p_zones must be "uniform"')
+                prior_p_families = self.prior_p_families
 
-            log_prior = self.log_prior_zones + self.log_prior_weights + \
-                        self.log_prior_p_zones + self.log_prior_p_families
+            log_prior = prior_zones + prior_weights + prior_p_zones + prior_p_families
 
             # The step is completed. Everything is up-to-date.
             sample.what_changed['prior']['zones'] = False
             sample.what_changed['prior']['p_zones'] = False
             sample.what_changed['prior']['weights'] = False
-            # todo: p_families_changed?
+            sample.what_changed['prior']['p_families'] = False
+
             return log_prior
 
 # deprecated
@@ -531,16 +569,15 @@ def geo_prior_distance(zones: np.array, network: dict, scale: float):
     return np.mean(log_prior)
 
 
-def prior_p_families_dirichlet(dirichlet, categories, p_families):
+def prior_p_families_dirichlet(p_families, dirichlet, categories):
     """" This function evaluates the prior for p_families
     Args:
         p_families(np.array): p_families from the sample
         dirichlet(list): list of dirichlet distributions
         categories(list): list of available categories per feature
 
-            shape (n_families,
     Returns:
-        float: the geo-prior of the zones
+        float: the prior for p_families
     """
     n_fam, n_feat, n_cat = p_families.shape
     log_prior = []

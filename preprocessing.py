@@ -17,7 +17,7 @@ import psycopg2
 import igraph
 import math
 from src.model import normalize_weights
-from src.util import compute_distance, compute_delaunay
+from src.util import compute_distance, compute_delaunay, read_feature_occurrence_from_csv, counts_to_dirichlet
 import csv
 
 
@@ -165,7 +165,6 @@ def assign_na(features, n_na):
         features[na_site, na_feature, :] = 0
 
     return features
-
 
 
 def simulate_features(zones, families, p_global, p_contact, p_inheritance, weights, inheritance):
@@ -712,7 +711,7 @@ def get_global_frequencies(mode, features=None):
 
     # Read from file
     else:
-        global_freq, _, _ = read_freq_from_csv(file=mode['file'])
+        global_freq, _, _ = read_feature_occurrence_from_csv(file=mode['file'])
         if np.allclose(a=np.nansum(global_freq, axis=-1), b=1., rtol=EPS):
             return global_freq
         else:
@@ -723,33 +722,86 @@ def get_global_frequencies(mode, features=None):
                 raise ValueError(out)
 
 
-#todo: make sure family order matches the order of the families in the data
-def get_family_frequencies(files):
-    """ This is a helper function to import the frequencies of each feature in the families from files
-        These define the dirichlet distribution that is used as a prior for p_family
-        Args:
-            files(list): file names containing the family frequencies
-        Returns:
-            np.array: The family frequencies for each category in each feature
+def get_family_priors(family_names, feature_names, category_names):
+    """ This is a helper function to import the counts of each feature in the families,
+    which define the dirichlet distribution that is used as a prior for p_family.
+
+    Args:
+        family_names(dict): the names of the families (internal and external)
+        feature_names(dict): the features names (internal and external)
+        category_names(dict): the category names (internal and external
+
+    Returns:
+        np.array: The family frequencies for each category in each feature
     """
+    n_families = len(family_names['external'])
+    n_features = len(feature_names['external'])
+    n_categories = len(set(x for l in category_names['external'] for x in l))
 
-    family_freq = []
-    categories_per_family = []
-    for file in files:
-        freq, categories, _ = read_freq_from_csv(file=file)
+    cats = list(np.unique([x for l in category_names['external'] for x in l]))
+    categories_ordered = []
+    for f in category_names['external']:
+        categories_ordered.append([cats.index(i) for i in f])
 
-        if all(float(y).is_integer() for y in np.nditer(freq)):
-            family_freq.append(freq)
-            categories_per_family.append(categories)
-        else:
-            out = "The data in " + str(file) + " must be count data."
-            raise ValueError(out)
-    # Sanity check
-    for c in range(len(categories_per_family)-1):
-        if categories_per_family[c] != categories_per_family[c+1]:
-            "Families seem to have different categories per feature. Check for consistency!"
+    counts = np.empty([n_families, n_features, n_categories])
 
-    return np.asarray(family_freq), categories_per_family[0]
+    for n in range(len(family_names['external'])):
+        file = "data\counts_" + str.lower(family_names['external'][n]) + ".csv"
+        try:
+            # Read the family counts from csv
+            counts_fam, category_names_fam, feature_names_fam = read_feature_occurrence_from_csv(file=file)
+
+            # Sanity check
+            if not all(float(y).is_integer() for y in np.nditer(counts_fam)):
+                out = "The data in " + str(file) + " must be count data."
+                raise ValueError(out)
+
+            if len(feature_names['external']) != len(feature_names_fam['external']) or \
+                    len(feature_names['internal']) != len(feature_names_fam['internal']):
+                out = "Different number of features in " + str(file) + " as in features."
+                raise ValueError(out)
+
+            for f in range(0, len(feature_names['external'])):
+                if feature_names['external'][f] != feature_names_fam['external'][f]:
+                    out = "The external feature " + str(f+1) + " in " + str(file) \
+                          + " differs from the one used in features."
+                    raise ValueError(out)
+                if feature_names['internal'][f] != feature_names_fam['internal'][f]:
+                    out = "The internal feature name " + str(f+1) + " in " + str(file) \
+                          + " differs from the one used in features."
+                    raise ValueError(out)
+
+            if len(category_names['external']) != len(category_names_fam['external']) or \
+                    len(category_names['internal']) != len(category_names_fam['internal']):
+                out = "Different number of features in " + str(file) + " as in features."
+                raise ValueError(out)
+
+            for f in range(0, len(category_names['external'])):
+                if category_names['external'][f] != category_names_fam['external'][f]:
+                    out = "The external category names for feature " + str(f+1) + " in " + str(file) \
+                          + " differ from those used in features."
+                    print(category_names['external'][f], category_names_fam['external'][f])
+                    raise ValueError(out)
+
+                if feature_names['internal'][f] != feature_names_fam['internal'][f]:
+                    out = "The internal category names for " + str(f+1) + " in " + str(file) \
+                          + " differ from those used in features."
+                    raise ValueError(out)
+            counts[n, :, :] = counts_fam
+            print('Import prior information for ' + str(family_names['external'][n]) + ' from ' + str(file) + '.')
+
+        except FileNotFoundError:
+
+            n_categories = len(set(x for l in category_names['external'] for x in l))
+            n_features = len(feature_names['external'])
+            counts_fam = np.asarray([[0.] * n_categories for _ in range(n_features)])
+            counts[n, :, :] = counts_fam
+
+            print('No prior information for ' + str(family_names['external'][n]) + '. Uniform prior used instead.')
+
+    dirichlet = counts_to_dirichlet(counts, categories_ordered)
+    return dirichlet, categories_ordered
+
 
 
 

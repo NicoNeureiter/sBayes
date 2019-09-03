@@ -3,12 +3,13 @@
 from __future__ import absolute_import, division, print_function, unicode_literals
 import random as _random
 import logging
+from copy import deepcopy
 
 import numpy as np
 
 from src.sampling.mcmc_generative import MCMC_generative
 from src.model import GenerativeLikelihood, GenerativePrior
-from src.util import get_neighbours, transform_p_to_log
+from src.util import get_neighbours, transform_p_to_log, balance_p_array
 
 
 class Sample(object):
@@ -35,9 +36,9 @@ class Sample(object):
                              'prior': {'zones': True, 'weights': True, 'p_zones': True, 'p_families': True}}
 
     def copy(self):
-        zone_copied = self.zones.copy()
-        weights_copied = self.weights.copy()
-        what_changed_copied = self.what_changed.copy()
+        zone_copied = deepcopy(self.zones)
+        weights_copied = deepcopy(self.weights)
+        what_changed_copied = deepcopy(self.what_changed)
 
         if self.p_zones is not None:
             p_zones_copied = self.p_zones.copy()
@@ -149,6 +150,7 @@ class ZoneMCMC_generative(MCMC_generative):
         sample_new = sample.copy()
         # The step changed the weights (which has an influence on how the lh and the prior look like)
         sample_new.what_changed['lh']['weights'] = sample_new.what_changed['prior']['weights'] = True
+        sample.what_changed['lh']['weights'] = sample.what_changed['prior']['weights'] = True
 
         weights_current = sample.weights
 
@@ -185,6 +187,7 @@ class ZoneMCMC_generative(MCMC_generative):
         sample_new = sample.copy()
         # The step changed p_zones (which has an influence on how the lh and the prior look like)
         sample_new.what_changed['lh']['p_zones'] = sample_new.what_changed['prior']['p_zones'] = True
+        sample.what_changed['lh']['p_zones'] = sample.what_changed['prior']['p_zones'] = True
 
         p_zones_current = sample.p_zones
 
@@ -218,6 +221,7 @@ class ZoneMCMC_generative(MCMC_generative):
         sample_new = sample.copy()
         # The step changed p_families (which has an influence on how the lh and the prior look like)
         sample_new.what_changed['lh']['p_families'] = sample_new.what_changed['prior']['p_families'] = True
+        sample.what_changed['lh']['p_families'] = sample.what_changed['prior']['p_families'] = True
 
         p_families_current = sample.p_families
 
@@ -252,7 +256,8 @@ class ZoneMCMC_generative(MCMC_generative):
 
         sample_new = sample.copy()
         # The step changed the zone (which has an influence on how the lh and the prior look like)
-        sample_new.what_changed['lh']['zones'] = sample_new.what_changed['prior']['zones'] = True
+        sample_new.what_changed['lh']['zones'] = sample.what_changed['lh']['zones'] = True
+        sample_new.what_changed['prior']['zones'] = sample.what_changed['prior']['zones'] = True
 
         zones_current = sample.zones
         occupied = np.any(zones_current, axis=0)
@@ -292,7 +297,8 @@ class ZoneMCMC_generative(MCMC_generative):
 
         sample_new = sample.copy()
         # The step changed the zone (which has an influence on how the lh and the prior look like)
-        sample_new.what_changed['lh']['zones'] = sample_new.what_changed['prior']['zones'] = True
+        sample_new.what_changed['lh']['zones'] = sample.what_changed['lh']['zones'] = True
+        sample_new.what_changed['prior']['zones'] = sample.what_changed['prior']['zones'] = True
 
         zones_current = sample.zones
         occupied = np.any(zones_current, axis=0)
@@ -314,6 +320,7 @@ class ZoneMCMC_generative(MCMC_generative):
 
         # When stuck (all neighbors occupied) return current sample and reject the step (q_back = 0)
         if not np.any(neighbours):
+
             q, q_back = 1., 0.
             return sample, q, q_back
 
@@ -334,7 +341,8 @@ class ZoneMCMC_generative(MCMC_generative):
         """
         sample_new = sample.copy()
         # The step changed the zone (which has an influence on how the lh and the prior look like)
-        sample_new.what_changed['lh']['zones'] = sample_new.what_changed['prior']['zones'] = True
+        sample_new.what_changed['lh']['zones'] = sample.what_changed['lh']['zones'] = True
+        sample_new.what_changed['prior']['zones'] = sample.what_changed['prior']['zones'] = True
 
         zones_current = sample.zones
 
@@ -525,13 +533,32 @@ class ZoneMCMC_generative(MCMC_generative):
                 initial_p_families[i, :] = self.initial_sample.p_families[i]
 
         # A: Initialize new p_families using the MLE
-
         for fam in range(len(self.families)):
-
-            features_family = self.features[self.families[fam], :, :]
             idx = self.families[fam].nonzero()[0]
-            family_size = len(idx)
-            p_family = np.sum(features_family, axis=0) / family_size
+            features_family = self.features[idx, :, :]
+
+            # Compute the MLE for each category and each family
+            # Some families have only NAs for some features, of course.
+            # FInd these in the data and set equal pseudo counts (1) such that the start value is 0.5
+
+            for feat in range(len(features_family[0])):
+                idx = np.where(self.sites_per_category[feat] != 0)[0]
+                if sum(features_family[0][feat][idx]) == 0:
+                    features_family[0][feat][idx] = 1
+
+            l_per_cat = np.sum(features_family, axis=0)
+            l_sums = np.sum(l_per_cat, axis=1)
+            p_family = l_per_cat/l_sums[:, np.newaxis]
+
+            # If one of the p_family values is 0 balance the p_array
+            for p in range(len(p_family)):
+
+                # Check for nonzero p_idx
+                p_idx = np.where(self.sites_per_category[p] != 0)[0]
+
+                # If any of the remaining is zero -> balance
+                if 0. in p_family[p, p_idx]:
+                    p_family[p, p_idx] = balance_p_array(p_array=p_family[p, p_idx], balance_by=0.2)
 
             initial_p_families[fam, :, :] = transform_p_to_log(p_family)
 

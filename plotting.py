@@ -200,7 +200,7 @@ def plot_zones(zones, net, ax=None):
 #     plt.show()
 
 
-def plot_posterior_frequency(mcmc_res, net, pz=-1, burn_in=0.2, family=None, bg_map=False, proj4=None, geojson_map=None,
+def plot_posterior_frequency(mcmc_res, net, nz=-1, burn_in=0.2, family=None, bg_map=False, proj4=None, geojson_map=None,
                              geo_json_river=None, offset_factor=0.03):
     """ This function creates a scatter plot of all sites in the posterior distribution. The color of a site reflects
     its frequency in the posterior
@@ -208,7 +208,7 @@ def plot_posterior_frequency(mcmc_res, net, pz=-1, burn_in=0.2, family=None, bg_
     Args:
         mcmc_res (dict): the output from the MCMC neatly collected in a dict
         net (dict): The full network containing all sites.
-        pz(int): For parallel zones: which parallel zone should be plotted? If -1, plot all.
+        nz(int): For parallel zones: which parallel zone should be plotted? If -1, plot all.
         burn_in(float): Percentage of first samples which is discarded as burn-in
         family(boolean): Visualize all sites belonging to a family?
         bg_map(boolean): Use a background map for for the visualization?
@@ -226,13 +226,16 @@ def plot_posterior_frequency(mcmc_res, net, pz=-1, burn_in=0.2, family=None, bg_
 
         world = gpd.read_file(geojson_map)
         world = world.to_crs(proj4)
-        world.plot(ax=ax, color='white', edgecolor='black')
+        world.plot(ax=ax, color='darkgrey', edgecolor='black')
+
         if geo_json_river is not None:
             rivers = gpd.read_file(geo_json_river)
             rivers = rivers.to_crs(proj4)
             rivers.plot(ax=ax, color=None, edgecolor="skyblue")
+    if nz != -1:
+        nz += -1
 
-    if pz == -1:
+    if nz == -1:
         n = len(zones[0])
         zones = [sum(k) for k in zip(*zones)]
 
@@ -241,10 +244,10 @@ def plot_posterior_frequency(mcmc_res, net, pz=-1, burn_in=0.2, family=None, bg_
         density = (np.sum(zones[end_bi:], axis=0, dtype=np.int32) / (n - end_bi))
 
     else:
-        zone = zones[pz]
+        zone = zones[nz]
         n = len(zone)
         # Exclude burn-in
-        end_bi = math.ceil(len(zone[pz]) * burn_in)
+        end_bi = math.ceil(len(zone[nz]) * burn_in)
 
         density = (np.sum(zone[end_bi:], axis=0, dtype=np.int32) / (n - end_bi))
 
@@ -466,6 +469,7 @@ def plot_trace_lh(mcmc_res, burn_in=0.2, true_lh=True):
         label = "true (log)-likelihood of simulated areas"
 
     y = mcmc_res['lh']
+
     x = range(len(y))
     ax.plot(x, y, lw=0.75, color=col['trace']['lh'], label='(log)-likelihood')
 
@@ -1021,7 +1025,7 @@ if __name__ == '__main__':
     #print(len(mcmc_res['zones'][0][0]))
     #
 
-    plot_posterior_frequency(mcmc_res['zones'], network, pz=0, r=0, burn_in=0.2)
+    plot_posterior_frequency(mcmc_res['zones'], network, nz=0, r=0, burn_in=0.2)
 
     # plot_geo_prior_vs_feature_lh(mcmc_res, r=0, burn_in=0.2 )
 
