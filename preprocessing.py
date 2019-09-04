@@ -13,7 +13,6 @@ from contextlib import contextmanager
 import numpy as np
 from scipy import stats, sparse
 from scipy.sparse.csgraph import minimum_spanning_tree
-import psycopg2
 import igraph
 import math
 from src.model import normalize_weights
@@ -113,11 +112,13 @@ def compute_network(sites):
     net = {'vertices': vertices,
            'edges': edges,
            'locations': sites['locations'],
+           'names': sites['names'],
            'adj_mat': adj_mat,
            'n': len(vertices),
            'm': edges.shape[0],
            'graph': g,
-           'dist_mat': dist_mat}
+           'dist_mat': dist_mat,
+           }
     return net
 
 
