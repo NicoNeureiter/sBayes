@@ -8,6 +8,7 @@ import numpy as np
 from scipy import sparse
 import scipy.stats as spstats
 from scipy.sparse.csgraph import minimum_spanning_tree
+from scipy.stats import poisson
 
 from src.util import compute_delaunay, transform_weights_from_log, \
     transform_p_from_log, n_smallest_distances
@@ -355,6 +356,8 @@ class GenerativeLikelihood(object):
             return log_lh
 
 
+PRIOR_SIZE_LOGPMF = poisson(15).logpmf
+
 class GenerativePrior(object):
 
     def __init__(self):
@@ -364,7 +367,8 @@ class GenerativePrior(object):
         self.prior_p_families = None
 
     def __call__(self, sample, geo_prior, geo_prior_parameters, prior_weights,
-                 prior_p_zones, prior_p_families, prior_p_families_parameters, network):
+                 prior_p_zones, prior_p_families, prior_p_families_parameters, network,
+                 set_prior_size=True):
             """Compute the prior of the current sample.
             Args:
                 sample(Sample): A Sample object consisting of zones and weights
@@ -455,6 +459,11 @@ class GenerativePrior(object):
             sample.what_changed['prior']['p_zones'] = False
             sample.what_changed['prior']['weights'] = False
             sample.what_changed['prior']['p_families'] = False
+
+            # TODO implement properly
+            if set_prior_size:
+                zone_sizes = np.count_nonzero(sample.zones, axis=1)
+                log_prior += np.sum(PRIOR_SIZE_LOGPMF(zone_sizes))
 
             return log_prior
 
