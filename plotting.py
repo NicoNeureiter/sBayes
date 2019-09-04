@@ -51,25 +51,25 @@ def get_colors():
                                           (1, 1, 0.2),                      # yellow
                                           (0.651, 0.337, 0.157),            # brown
                                           (0.969, 0.506, 0.749),            # pinkish
-                                          (0, 0, 0)]}}                      # black ]
+                                          (0, 0, 0)],                       # black ]
+                             'triangulation': (0.4, 0., 0.)}}
     return plot_colors
 
 
-def plot_posterior(samples, net):
+def plot_posterior(samples, net, ax=None):
     """ This function plots the posterior distribution of contact zones
 
     Args:
         samples (np.array): the samples from the MCMC
         net (dict): The full network containing all sites.
     """
+    if ax is None:
+        ax = plt.gca()
 
     # Get data
     col = get_colors()
     adj_mat = net['adj_mat']
     locations = net['locations']
-
-    # Initialize plot
-    fig, ax = plt.subplots()
 
     # Add edge evidence for the sampled zone
     n_samples, n_v = samples.shape
@@ -77,6 +77,7 @@ def plot_posterior(samples, net):
     edge_counts = (weights[:, None] * samples).T.dot(samples)
     edge_counts *= adj_mat.toarray()
     edge_freq = (edge_counts / n_samples).clip(0, 1)
+    edge_freq[edge_freq < 0.1] = 0.
 
     # Plot background
     size = 4
@@ -91,14 +92,15 @@ def plot_posterior(samples, net):
     lines = LineCollection(locations[edges], colors=line_col)
     ax.add_collection(lines)
 
-    # Remove axes
-    ax.grid(False)
-    ax.set_xticks([])
-    ax.set_yticks([])
+    # # Remove axes
+    # ax.grid(False)
+    # ax.set_xticks([])
+    # ax.set_yticks([])
 
-    # Add legend
-    ax.legend([bg, lines], ['All sites', 'Edges in posterior distribution'], frameon=False, fontsize=10)
-    plt.show()
+    # # Add legend
+    # ax.legend([bg, lines], ['All sites', 'Edges in posterior distribution'], frameon=False, fontsize=10)
+
+    return ax
 
 
 def plot_zone(zone, net):
@@ -201,23 +203,25 @@ def plot_zones(zones, net, ax=None):
 
 
 def plot_posterior_frequency(mcmc_res, net, nz=-1, burn_in=0.2, family=None, bg_map=False, proj4=None, geojson_map=None,
-                             geo_json_river=None, offset_factor=0.03):
+                             geo_json_river=None, offset_factor=0.03, plot_edges=True):
     """ This function creates a scatter plot of all sites in the posterior distribution. The color of a site reflects
     its frequency in the posterior
 
     Args:
         mcmc_res (dict): the output from the MCMC neatly collected in a dict
         net (dict): The full network containing all sites.
-        nz(int): For parallel zones: which parallel zone should be plotted? If -1, plot all.
-        burn_in(float): Percentage of first samples which is discarded as burn-in
-        family(boolean): Visualize all sites belonging to a family?
-        bg_map(boolean): Use a background map for for the visualization?
+        nz (int): For parallel zones: which parallel zone should be plotted? If -1, plot all.
+        burn_in (float): Percentage of first samples which is discarded as burn-in
+        family (bool): Visualize all sites belonging to a family?
+        bg_map (bool): Use a background map for for the visualization?
+        plot_edges (bool)
     """
     zones = mcmc_res['zones']
 
     fig, ax = plt.subplots(figsize=(20, 40))
     all_sites = net['locations']
-    size = 4
+    names = net['names']
+    size = 50
 
     # Find index of first sample after burn-in
     if bg_map:
@@ -226,7 +230,8 @@ def plot_posterior_frequency(mcmc_res, net, nz=-1, burn_in=0.2, family=None, bg_
 
         world = gpd.read_file(geojson_map)
         world = world.to_crs(proj4)
-        world.plot(ax=ax, color='darkgrey', edgecolor='black')
+        # world.plot(ax=ax, color=(.95,.95,.95), edgecolor='grey')
+        world.plot(ax=ax, color='w', edgecolor='black')
 
         if geo_json_river is not None:
             rivers = gpd.read_file(geo_json_river)
@@ -251,9 +256,13 @@ def plot_posterior_frequency(mcmc_res, net, nz=-1, burn_in=0.2, family=None, bg_
 
         density = (np.sum(zone[end_bi:], axis=0, dtype=np.int32) / (n - end_bi))
 
-    cmap = plt.cm.get_cmap("plasma")
+    # cmap = plt.cm.get_cmap("plasma")
+    cmap = plt.cm.get_cmap('YlOrRd')
     cmap.set_under(color='grey')
-    sc = ax.scatter(*all_sites.T, c=density, s=size + size * 2 * density, cmap=cmap, vmin=0.1)
+    sc = ax.scatter(*all_sites.T, c=density, s=size + size * 2 * density, cmap=cmap, vmin=0.1, zorder=10)
+    for i, name in enumerate(names):
+        if density[i] > 0.1:
+            plt.annotate(name, all_sites[i] + [20000., 20000.], zorder=11, backgroundcolor='w')
 
     # Customize plotting layout
     if family:
@@ -262,6 +271,10 @@ def plot_posterior_frequency(mcmc_res, net, nz=-1, burn_in=0.2, family=None, bg_
         fam_sites = np.ma.masked_where(fam_sites == 0, fam_sites)
 
         ax.scatter(*all_sites.T, c=fam_sites, s=size, cmap="inferno")
+
+    if plot_edges:
+        plot_posterior(np.array(mcmc_res['zones'][-1]), net, ax=ax)
+
 
     ax.grid(False)
     ax.set_xticks([])
