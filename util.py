@@ -10,6 +10,7 @@ from scipy.sparse import csr_matrix
 from math import sqrt
 import datetime
 import csv
+import os
 
 EPS = np.finfo(float).eps
 
@@ -274,7 +275,8 @@ def read_languages_from_csv(file):
 
     sites = {'locations': locations,
              'id': id,
-             'cz': None}
+             'cz': None,
+             'names': name}
     site_names = {'external': name,
                   'internal': list(range(0, len(name)))}
 
@@ -502,5 +504,14 @@ def balance_p_array(p_array, balance_by):
     return p_array
 
 
+def touch(fname):
+    if os.path.exists(fname):
+        os.utime(fname, None)
+    else:
+        open(fname, 'a').close()
 
 
+def mkpath(path):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    if not os.path.isdir(path):
+        touch(path)
