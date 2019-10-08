@@ -47,7 +47,6 @@ class MCMC_generative(metaclass=_abc.ABCMeta):
         self.inheritance = inheritance
         self.families = families
 
-
         # Prior
         self.geo_prior = prior['geo_prior']
         self.geo_prior_parameters = prior['geo_prior_parameters']
@@ -59,7 +58,8 @@ class MCMC_generative(metaclass=_abc.ABCMeta):
         # Global frequencies
         self.global_freq = global_freq
 
-        # Sample the probabilities of categories in zones and families?
+        # Sample the probabilities of categories (global, in zones and in families)?
+        self.sample_p_global = sample_p['global']
         self.sample_p_zones = sample_p['zones']
         self.sample_p_families = sample_p['families']
 
@@ -68,6 +68,7 @@ class MCMC_generative(metaclass=_abc.ABCMeta):
                            'sample_prior': [],
                            'sample_zones': [],
                            'sample_weights': [],
+                           'sample_p_global': [],
                            'sample_p_zones': [],
                            'sample_p_families': [],
                            'last_sample': [],
@@ -151,12 +152,25 @@ class MCMC_generative(metaclass=_abc.ABCMeta):
             self._ll[c] = self.likelihood(sample[c], c)
             self._prior[c] = self.prior(sample[c], c)
 
+        # Probability of operators in burn-in is different to post-burn-in
+        p_operators_post_burn_in = list(self.p_operators)
+
+        # For burn-in we set the weights operator to 0. to make it easier to find zones
+        operator_names = [f.__name__ for f in self.fn_operators]
+        i_weights = operator_names.index('alter_weights')
+        self.p_operators[i_weights] = 0.
+
+        # Re-normalize
+        self.p_operators = [p/sum(self.p_operators) for p in self.p_operators]
+
         # Generate burn-in samples for each chain
         for c in self.chain_idx:
             for i_step in range(burn_in_steps):
                 sample[c] = self.step(sample[c], c)
 
         # Generate post burn-in samples
+        self.p_operators = p_operators_post_burn_in
+
         for i_step in range(n_steps):
 
                 # Generate samples for each chain
@@ -261,12 +275,14 @@ class MCMC_generative(metaclass=_abc.ABCMeta):
             self._prior[c] = prior_candidate
             self.statistics['accepted_steps'] += 1
 
-            if not (propose_step.__name__ == 'alter_weights'):
-                #print('zone step accepted')
-                pass
-            else:
-                pass
-                #print('weight step accepted')
+            #print(propose_step.__name__, " accepted", _np.count_nonzero(sample.zones), "zone size")
+            # if (propose_step.__name__ == 'grow_zone'):
+            #     print('grow step accepted')
+            #     pass
+            # elif(propose_step.__name__ == 'shrink_zone'):
+            #     pass
+            #     print('shrink step accepted')
+
         else:
             if not (propose_step.__name__ == 'alter_weights'):
                 pass
@@ -309,6 +325,7 @@ class MCMC_generative(metaclass=_abc.ABCMeta):
         """
         self.statistics['sample_zones'].append(sample.zones)
         self.statistics['sample_weights'].append(sample.weights)
+        self.statistics['sample_p_global'].append(sample.p_global)
         self.statistics['sample_p_zones'].append(sample.p_zones)
         self.statistics['sample_p_families'].append(sample.p_families)
         self.statistics['sample_likelihood'].append(self._ll[c])

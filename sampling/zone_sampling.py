@@ -505,9 +505,14 @@ class ZoneMCMC_generative(MCMC_generative):
 
         not_initialized = range(n_generated, self.n_zones)
 
-        # A: Initialize new p_zones
+        # A: Initialize new p_zones using the global MLE
         for i in not_initialized:
-            initial_p_zones[i, :, :] = np.full((self.n_features, self.features.shape[2]), 1.)
+
+            l_per_cat = np.sum(self.features, axis=0)
+            l_sums = np.sum(l_per_cat, axis=1)
+            p_zones = l_per_cat / l_sums[:, np.newaxis]
+
+            initial_p_zones[i, :, :] = transform_p_to_log(p_zones)
 
             # The probabilities of categories without data are set to 0 (or -inf in log space)
             sites_per_category = np.count_nonzero(self.features, axis=0)
