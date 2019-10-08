@@ -156,7 +156,7 @@ def normalize_weights(weights, assignment):
             np.array: the weight_per site
                 shape(n_sites, n_features, 3)
     """
-    #Todo: check assignment
+
     weights_per_site = weights * assignment[:, np.newaxis, :]
     return weights_per_site / weights_per_site.sum(axis=2, keepdims=True)
 
@@ -205,6 +205,7 @@ class GenerativeLikelihood(object):
             """
             n_sites, n_features, n_categories = features.shape
             zones = sample.zones
+            #print(np.count_nonzero(sample.zones), "zone size")
 
             # Find NA features in the data
             na_features = (np.sum(features, axis=-1) == 0)
@@ -355,7 +356,6 @@ class GenerativeLikelihood(object):
 
             return log_lh
 
-
 PRIOR_SIZE_LOGPMF = poisson(15).logpmf
 
 class GenerativePrior(object):
@@ -366,9 +366,10 @@ class GenerativePrior(object):
         self.prior_p_zones = None
         self.prior_p_families = None
 
+    #todo: implement set_prior_size!
     def __call__(self, sample, geo_prior, geo_prior_parameters, prior_weights,
                  prior_p_zones, prior_p_families, prior_p_families_parameters, network,
-                 set_prior_size=True):
+                 set_prior_size=False):
             """Compute the prior of the current sample.
             Args:
                 sample(Sample): A Sample object consisting of zones and weights

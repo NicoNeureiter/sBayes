@@ -8,15 +8,14 @@ import logging
 from multiprocessing import Pool
 from functools import partial
 
-from contextlib import contextmanager
-
 import numpy as np
 from scipy import stats, sparse
 from scipy.sparse.csgraph import minimum_spanning_tree
 import igraph
 import math
 from src.model import normalize_weights
-from src.util import compute_distance, compute_delaunay, read_feature_occurrence_from_csv, counts_to_dirichlet
+from src.util import (compute_distance, form_family_of_size_k, compute_delaunay,
+                      read_feature_occurrence_from_csv, counts_to_dirichlet, FamilyError)
 import csv
 
 
@@ -69,10 +68,12 @@ def get_sites(file):
         seq_id.append(i)
 
     sites = {'locations': locations,
+             'id': seq_id,
              'cz': [int(i) for i in cz],
-             'id': seq_id}
+             'names': name}
 
-    site_names = name
+    site_names = {'external': name,
+                  'internal': list(range(0, len(name)))}
 
     return sites, site_names
 
@@ -330,218 +331,6 @@ def estimate_geo_prior_parameters(network: dict, geo_prior):
     return parameters
 
 
-
-#deprecated
-def generate_ecdf_geo_prior(net, min_n, max_n, nr_samples):
-    """ This function generates an empirical cumulative density function (ecdf), which is then used to compute the
-    geo-prior of a contact zone. The function
-    a) grows <nr samples> contact zones of size n, where n is between <min_n> and <max_n>,
-    b) for each contact zone: generates a complete graph, delaunay graph and a minimum spanning tree
-    and computes the summed length of each graph's edges
-    c) for each size n: generates an ecdf of all summed lengths
-    d) fits a gamma function to the ecdf
-
-    Args:
-        net (dict): network containing the graph, locations,...
-        min_n (int): the minimum number of languages in a zone
-        max_n (int): the maximum number of languages in a zone
-        nr_samples (int): the number of samples in the ecdf per zone size
-
-    Returns:
-        dict: a dictionary comprising the empirical and fitted ecdf for all types of graphs
-        """
-
-    n_values = range(min_n, max_n+1)
-
-    estimate_ecdf_n_ = partial(estimate_ecdf_n, nr_samples=nr_samples, net=net)
-
-    with Pool(7, maxtasksperchild=1) as pool:
-        distances = pool.map(estimate_ecdf_n_, n_values)
-
-    complete = []
-    delaunay = []
-    mst = []
-
-    for d in distances:
-
-        complete.extend(d['complete'])
-        delaunay.extend(d['delaunay'])
-        mst.extend(d['mst'])
-
-    # Fit a gamma distribution distribution to each type of graph
-    ecdf = {'complete': {'fitted_gamma': stats.gamma.fit(complete, floc=0), 'empirical': complete},
-            'delaunay': {'fitted_gamma': stats.gamma.fit(delaunay, floc=0), 'empirical': delaunay},
-            'mst': {'fitted_gamma': stats.gamma.fit(mst, floc=0), 'empirical': mst}}
-
-    return ecdf
-
-# deprecated
-def estimate_random_walk_covariance(net):
-    dist_mat = net['dist_mat']
-    locations = net['locations']
-
-    delaunay = compute_delaunay(locations)
-    mst = delaunay.multiply(dist_mat)
-    # mst = minimum_spanning_tree(delaunay.multiply(dist_mat))
-    # mst += mst.T  # Could be used as data augmentation? (enforces 0 mean)
-
-    # Compute difference vectors along mst
-    i1, i2 = mst.nonzero()
-    diffs = locations[i1] - locations[i2]
-
-    # Center at (0, 0)
-    diffs -= np.mean(diffs, axis=0)[None, :]
-
-    return np.cov(diffs.T)
-
-
-# deprecated
-def precompute_feature_likelihood_old(min_size, max_size, feat_prob, log_surprise=True):
-    """This function generates a lookup table of likelihoods
-    Args:
-        min_size (int): the minimum number of languages in a zone.
-        max_size (int): the maximum number of languages in a zone.
-        feat_prob (np.array): the probability of a feature to be present.
-        log_surprise: define surprise with logarithm (see below)
-    Returns:
-        dict: the lookup table of likelihoods for a specific feature,
-            sample size and observed presence.
-    """
-
-    # The binomial test computes the p-value of having k or more (!) successes out of n trials,
-    # given a specific probability of success
-    # For a two-sided binomial test, simply remove "greater".
-    # The p-value is then used to compute surprise either as
-    # a) -log(p-value)
-    # b) 1/p-value,
-    # the latter being more sensitive to exceptional observations.
-    # and then returns the log likelihood.
-
-    def ll(p_zone, s, p_global, log_surprise):
-        p = stats.binom_test(p_zone, s, p_global, 'greater')
-
-        if log_surprise:
-            try:
-                lh = -math.log(p)
-            except Exception as e:
-                print(p_zone, s, p_global, p)
-                raise e
-        else:
-            try:
-                lh = 1/p
-            except ZeroDivisionError:
-                lh = math.inf
-
-        # Log-Likelihood
-        try:
-            return math.log(lh)
-        except ValueError:
-            return -math.inf
-
-    lookup_dict = {}
-    for i_feat, p_global in enumerate(feat_prob):
-        lookup_dict[i_feat] = {}
-        for s in range(min_size, max_size + 1):
-            lookup_dict[i_feat][s] = {}
-            for p_zone in range(s + 1):
-
-                lookup_dict[i_feat][s][p_zone] = ll(p_zone, s, p_global, log_surprise)
-
-    return lookup_dict
-
-
-def precompute_feature_likelihood(min_size, max_size, feat_prob, log_surprise=True):
-    """This function generates a lookup table of likelihoods
-    Args:
-        min_size (int): the minimum number of languages in a zone.
-        max_size (int): the maximum number of languages in a zone.
-        feat_prob (np.array): the probability of a feature to be present.
-        log_surprise: define surprise with logarithm (see below)
-    Returns:
-        dict: the lookup table of likelihoods for a specific feature,
-            sample size and observed presence.
-    """
-
-    # The binomial test computes the p-value of having k or more (!) successes out of n trials,
-    # given a specific probability of success
-    # For a two-sided binomial test, simply remove "greater".
-    # The p-value is then used to compute surprise either as
-    # a) -log(p-value)
-    # b) 1/p-value,
-    # the latter being more sensitive to exceptional observations.
-    # and then returns the log likelihood.
-
-    def ll(s_zone, n_zone, p_global, log_surprise):
-        p_value = stats.binom_test(s_zone, n_zone, p_global, 'greater')
-
-        if log_surprise:
-            try:
-                lh = -math.log(p_value)
-            except Exception as e:
-                print(s_zone, n_zone, p_global, p_value)
-                raise e
-        else:
-            try:
-                lh = 1/p_value
-            except ZeroDivisionError:
-                lh = math.inf
-
-        # Log-Likelihood
-        try:
-            return math.log(lh)
-        except ValueError:
-            return -math.inf
-
-    lookup_dict = {}
-
-    for features, categories in feat_prob.items():
-        lookup_dict[features] = {}
-        for cat, p_global in categories.items():
-            # -1 denotes missing values
-            if cat != -1:
-                lookup_dict[features][cat] = {}
-                for n_zone in range(min_size, max_size + 1):
-                    lookup_dict[features][cat][n_zone] = {}
-                    for s_zone in range(n_zone + 1):
-                        lookup_dict[features][cat][n_zone][s_zone] = \
-                            ll(s_zone, n_zone, p_global, log_surprise)
-
-    return lookup_dict
-
-
-
-def get_features(table=None, feature_names=None):
-    """ This function retrieves features from the geodatabase
-    Args:
-        table(string): the name of the table
-    Returns:
-        dict: an np.ndarray of all features
-    """
-
-    feature_columns = ','.join(feature_names)
-
-    if table is None:
-        table = DB_ZONE_TABLE
-    # Get vertices from PostgreSQL
-    with psql_connection(commit=True) as connection:
-        query_v = "SELECT {feature_columns} " \
-                  "FROM {table} " \
-                  "ORDER BY gid;".format(feature_columns=feature_columns, table=table)
-
-        cursor = connection.cursor()
-        cursor.execute(query_v)
-        rows_v = cursor.fetchall()
-
-        features = []
-        for f in rows_v:
-            f_db = list(f)
-
-            # Replace None with -1
-            features.append([-1 if x is None else x for x in f_db])
-
-        return np.array(features)
-
-
 def simulate_zones(zone_id, sites_sim):
     """ This function finds out which sites belong to contact zones assigns zone membership accordingly.
 
@@ -567,35 +356,78 @@ def simulate_zones(zone_id, sites_sim):
     return zones
 
 
-def simulate_families(sites, n_families, max_family_size, min_family_size):
+def simulate_families(network, n_families, min_family_size, max_family_size,
+                      grow_families=True, overlap_with_zones=False, zones=None):
     """Randomly picks some of the sites and assigns them to language families
 
     Args:
-        sites (dict): A dict comprising all sites.
+        network(dict): A dict comprising all sites.
         n_families (int): Number of simulated families
         max_family_size (int): maximum number of members in a family
         min_family_size (int): minimum number of members in a family
+        grow_families(bool): grow families as spatially connected areas(similar to zones)?
+        overlap_with_zones(bool): allow families and zones to overlap?
+        zones (np.array): boolean assignment of sites to zones
     Returns:
         (np.array): the simulated families, boolean assignment of site to families.
                 shape(n_families, n_sites)"""
 
-    # Randomly pick some of the sites. These will be assigned to families.
-    sites = sites['id']
-    n_sites = len(sites)
+    if not overlap_with_zones and zones is None:
+        raise ValueError("Zones ar not defined! To avoid families and zones to overlap, zones need to be defined! ")
 
-    sites_in_family = {}
-    for nf in range(n_families):
-        f_size = np.random.randint(min_family_size, max_family_size, 1)
-        f = np.random.choice(sites, size=f_size, replace=False)
-        sites = [s for s in sites if s not in f]
-        sites_in_family[nf] = f
+    n_sites = len(network['vertices'])
+
+    if overlap_with_zones:
+        occupied = np.zeros(n_sites, bool)
+    else:
+        occupied = np.any(zones, axis=0)
+
+    # When growing many families, some can get stuck due to an unfavourable seed.
+    # That's why we perform several attempts to initialize them.
+    families = np.zeros((n_families, len(network['vertices'])), bool)
+    n_generated = 0
+    grow_attempts = 0
+
+    while True:
+        for i in range(n_families):
+            try:
+                fam_size = np.random.randint(min_family_size, max_family_size, 1).item()
+                fam = form_family_of_size_k(net=network, k=fam_size, already_occupied=occupied,
+                                            grow_families=grow_families)
+
+            except FamilyError:
+                # Might be due to an unfavourable seed
+                if grow_attempts < 15:
+                    grow_attempts += 1
+                    break
+
+                # Seems there is not enough sites to grow n_zones of size k
+                else:
+                    raise ValueError("Seems there are not enough sites (%i) to grow %i families of size %i" %
+                                     (n_sites, n_families, fam_size))
+            n_generated += 1
+            families[i, :] = fam[0]
+            occupied = fam[1]
+
+            if n_generated == n_families:
+                return families
+
+    # todo: remove after testing
+    # for nf in range(n_families):
+        # Randomly define the size of each family
+        # f_size = np.random.randint(min_family_size, max_family_size, 1)
+        # Form random families
+
+        # f = np.random.choice(sites, size=f_size, replace=False)
+        # sites = [s for s in sites if s not in f]
+        # sites_in_family[nf] = f
 
     # Assign family membership
-    families = np.zeros((n_families, n_sites), bool)
-    for k, z_id in enumerate(sites_in_family.values()):
-        families[k, z_id] = 1
+    # families = np.zeros((n_families, n_sites), bool)
+    # for k, z_id in enumerate(sites_in_family.values()):
+    #    families[k, z_id] = 1
 
-    return families
+    # return families
 
 
 def simulate_weights(f_global, f_contact, f_inheritance, inheritance, n_features):

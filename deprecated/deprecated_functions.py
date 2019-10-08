@@ -668,9 +668,6 @@ families_in, family_names_in = read_languages_from_csv(file="data\simulated_feat
 
 # Import p_global and p_family
 category_names_in, feature_names_in, p_global_in = read_p_from_csv(file="data\simulated_p_global.csv")
-category_names_in = {}
-feature_names_in = {}
-p_family_in = []
 
 for fam in family_names_in:
     file = "data\simulated_p_" + str(fam) + ".csv"
@@ -684,6 +681,30 @@ print(np.array_equal(families_sim, families_in), "families are the same")
 print(np.array_equal(sites_sim['locations'], sites_in['locations']), "sites are the same")
 print(np.array_equal(p_global, p_global_in), "p_global is the same")
 print(np.array_equal(p_family, p_family_in), "p_global is the same")
+
+# todo: remove after testing is complete
+for fam in range(families_sim.shape[0]):
+    file = "data/freq_family_" + str(fam) + ".csv"
+    fam_features = features_sim[families_sim[fam], :, :]
+
+    n_fam_sites, n_fam_features, n_fam_categories = fam_features.shape
+    freq = np.zeros((n_fam_features, n_fam_categories), dtype=float)
+
+    for f in range(n_fam_features):
+        counts = np.sum(fam_features[:, f, :], axis=0)
+        freq[f] = counts
+
+    write_freq_to_csv(freq=freq.astype(int), categories=categories_sim, file=file)
+
+if PRIOR['p_families'] == "dirichlet":
+    fam_freq, categories = get_family_frequencies(PRIOR['p_families_parameters']['files'])
+
+    if categories_sim != categories:
+        print("Categories in family frequency data and features do not match. Check for consistency!")
+
+    dirichlet = freq_to_dirichlet(fam_freq, categories)
+    PRIOR['p_families_parameters']['dirichlet'] = dirichlet
+    PRIOR['p_families_parameters']['categories'] = categories
 
 
 # model.py
@@ -754,3 +775,214 @@ def compute_feature_likelihood_old(zone, features, ll_lookup):
         log_lh += ll_lookup[f_idx][zone_size][f_freq]
 
     return log_lh
+
+def get_features(table=None, feature_names=None):
+    """ This function retrieves features from the geodatabase
+    Args:
+        table(string): the name of the table
+    Returns:
+        dict: an np.ndarray of all features
+    """
+
+    feature_columns = ','.join(feature_names)
+
+    if table is None:
+        table = DB_ZONE_TABLE
+    # Get vertices from PostgreSQL
+    with psql_connection(commit=True) as connection:
+        query_v = "SELECT {feature_columns} " \
+                  "FROM {table} " \
+                  "ORDER BY gid;".format(feature_columns=feature_columns, table=table)
+
+        cursor = connection.cursor()
+        cursor.execute(query_v)
+        rows_v = cursor.fetchall()
+
+        features = []
+        for f in rows_v:
+            f_db = list(f)
+
+            # Replace None with -1
+            features.append([-1 if x is None else x for x in f_db])
+
+        return np.array(features)
+
+
+#deprecated
+def generate_ecdf_geo_prior(net, min_n, max_n, nr_samples):
+    """ This function generates an empirical cumulative density function (ecdf), which is then used to compute the
+    geo-prior of a contact zone. The function
+    a) grows <nr samples> contact zones of size n, where n is between <min_n> and <max_n>,
+    b) for each contact zone: generates a complete graph, delaunay graph and a minimum spanning tree
+    and computes the summed length of each graph's edges
+    c) for each size n: generates an ecdf of all summed lengths
+    d) fits a gamma function to the ecdf
+
+    Args:
+        net (dict): network containing the graph, locations,...
+        min_n (int): the minimum number of languages in a zone
+        max_n (int): the maximum number of languages in a zone
+        nr_samples (int): the number of samples in the ecdf per zone size
+
+    Returns:
+        dict: a dictionary comprising the empirical and fitted ecdf for all types of graphs
+        """
+
+    n_values = range(min_n, max_n+1)
+
+    estimate_ecdf_n_ = partial(estimate_ecdf_n, nr_samples=nr_samples, net=net)
+
+    with Pool(7, maxtasksperchild=1) as pool:
+        distances = pool.map(estimate_ecdf_n_, n_values)
+
+    complete = []
+    delaunay = []
+    mst = []
+
+    for d in distances:
+
+        complete.extend(d['complete'])
+        delaunay.extend(d['delaunay'])
+        mst.extend(d['mst'])
+
+    # Fit a gamma distribution distribution to each type of graph
+    ecdf = {'complete': {'fitted_gamma': stats.gamma.fit(complete, floc=0), 'empirical': complete},
+            'delaunay': {'fitted_gamma': stats.gamma.fit(delaunay, floc=0), 'empirical': delaunay},
+            'mst': {'fitted_gamma': stats.gamma.fit(mst, floc=0), 'empirical': mst}}
+
+    return ecdf
+
+# deprecated
+def estimate_random_walk_covariance(net):
+    dist_mat = net['dist_mat']
+    locations = net['locations']
+
+    delaunay = compute_delaunay(locations)
+    mst = delaunay.multiply(dist_mat)
+    # mst = minimum_spanning_tree(delaunay.multiply(dist_mat))
+    # mst += mst.T  # Could be used as data augmentation? (enforces 0 mean)
+
+    # Compute difference vectors along mst
+    i1, i2 = mst.nonzero()
+    diffs = locations[i1] - locations[i2]
+
+    # Center at (0, 0)
+    diffs -= np.mean(diffs, axis=0)[None, :]
+
+    return np.cov(diffs.T)
+
+
+# deprecated
+def precompute_feature_likelihood_old(min_size, max_size, feat_prob, log_surprise=True):
+    """This function generates a lookup table of likelihoods
+    Args:
+        min_size (int): the minimum number of languages in a zone.
+        max_size (int): the maximum number of languages in a zone.
+        feat_prob (np.array): the probability of a feature to be present.
+        log_surprise: define surprise with logarithm (see below)
+    Returns:
+        dict: the lookup table of likelihoods for a specific feature,
+            sample size and observed presence.
+    """
+
+    # The binomial test computes the p-value of having k or more (!) successes out of n trials,
+    # given a specific probability of success
+    # For a two-sided binomial test, simply remove "greater".
+    # The p-value is then used to compute surprise either as
+    # a) -log(p-value)
+    # b) 1/p-value,
+    # the latter being more sensitive to exceptional observations.
+    # and then returns the log likelihood.
+
+    def ll(p_zone, s, p_global, log_surprise):
+        p = stats.binom_test(p_zone, s, p_global, 'greater')
+
+        if log_surprise:
+            try:
+                lh = -math.log(p)
+            except Exception as e:
+                print(p_zone, s, p_global, p)
+                raise e
+        else:
+            try:
+                lh = 1/p
+            except ZeroDivisionError:
+                lh = math.inf
+
+        # Log-Likelihood
+        try:
+            return math.log(lh)
+        except ValueError:
+            return -math.inf
+
+    lookup_dict = {}
+    for i_feat, p_global in enumerate(feat_prob):
+        lookup_dict[i_feat] = {}
+        for s in range(min_size, max_size + 1):
+            lookup_dict[i_feat][s] = {}
+            for p_zone in range(s + 1):
+
+                lookup_dict[i_feat][s][p_zone] = ll(p_zone, s, p_global, log_surprise)
+
+    return lookup_dict
+
+
+def precompute_feature_likelihood(min_size, max_size, feat_prob, log_surprise=True):
+    """This function generates a lookup table of likelihoods
+    Args:
+        min_size (int): the minimum number of languages in a zone.
+        max_size (int): the maximum number of languages in a zone.
+        feat_prob (np.array): the probability of a feature to be present.
+        log_surprise: define surprise with logarithm (see below)
+    Returns:
+        dict: the lookup table of likelihoods for a specific feature,
+            sample size and observed presence.
+    """
+
+    # The binomial test computes the p-value of having k or more (!) successes out of n trials,
+    # given a specific probability of success
+    # For a two-sided binomial test, simply remove "greater".
+    # The p-value is then used to compute surprise either as
+    # a) -log(p-value)
+    # b) 1/p-value,
+    # the latter being more sensitive to exceptional observations.
+    # and then returns the log likelihood.
+
+    def ll(s_zone, n_zone, p_global, log_surprise):
+        p_value = stats.binom_test(s_zone, n_zone, p_global, 'greater')
+
+        if log_surprise:
+            try:
+                lh = -math.log(p_value)
+            except Exception as e:
+                print(s_zone, n_zone, p_global, p_value)
+                raise e
+        else:
+            try:
+                lh = 1/p_value
+            except ZeroDivisionError:
+                lh = math.inf
+
+        # Log-Likelihood
+        try:
+            return math.log(lh)
+        except ValueError:
+            return -math.inf
+
+    lookup_dict = {}
+
+    for features, categories in feat_prob.items():
+        lookup_dict[features] = {}
+        for cat, p_global in categories.items():
+            # -1 denotes missing values
+            if cat != -1:
+                lookup_dict[features][cat] = {}
+                for n_zone in range(min_size, max_size + 1):
+                    lookup_dict[features][cat][n_zone] = {}
+                    for s_zone in range(n_zone + 1):
+                        lookup_dict[features][cat][n_zone][s_zone] = \
+                            ll(s_zone, n_zone, p_global, log_surprise)
+
+    return lookup_dict
+
+

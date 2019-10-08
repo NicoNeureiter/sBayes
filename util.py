@@ -11,8 +11,14 @@ from math import sqrt
 import datetime
 import csv
 import os
+import random
+from scipy.misc import logsumexp
 
 EPS = np.finfo(float).eps
+
+
+class FamilyError(Exception):
+    pass
 
 
 def compute_distance(a, b):
@@ -167,11 +173,10 @@ def transform_weights_from_log(log_weights):
         (np.array): transformed and normalized weights
     """
 
-    # Transform to original space
-    weights = np.exp(log_weights)
+    # Normalize in original space and transform
+    log_weights -= logsumexp(log_weights, keepdims=True)
+    weights_norm = np.exp(log_weights)
 
-    # Normalize
-    weights_norm = weights/weights.sum(axis=1, keepdims=True)
     return weights_norm
 
 
@@ -515,3 +520,73 @@ def mkpath(path):
     os.makedirs(os.path.dirname(path), exist_ok=True)
     if not os.path.isdir(path):
         touch(path)
+
+
+def form_family_of_size_k(k, net, already_occupied=None, grow_families=True):
+    """ This function forms a family of size k, either by
+    randomly selecting sites in a network or growing regions in space (similar to grow_zone_of_size_k)
+    Args:
+        k (int): The size of the family i.e. the number of sites in the family.
+        net: dict of network
+        already_occupied (np.array): All sites already assigned to a family or to a zone (boolean)
+
+    Returns:
+        np.array: The newly formed family (boolean).
+        np.array: all nodes in the network already assigned to a family or a zone (boolean).
+    """
+    n_sites = len(net['vertices'])
+    if already_occupied is None:
+        already_occupied = np.zeros(n_sites, bool)
+
+    # Initialize the family
+    family = np.zeros(n_sites, bool)
+
+    # Find all sites that already belong to a family or a zone (sites_occupied) and those that don't (sites_free)
+    sites_occupied = np.nonzero(already_occupied)[0]
+    sites_free = set(range(n_sites)) - set(sites_occupied)
+
+    # Grow families
+    if grow_families:
+        # Take a random free site and use it as seed for the new family
+        try:
+            i = random.sample(sites_free, 1)[0]
+            family[i] = already_occupied[i] = 1
+        except ValueError:
+            print('No more free sites to grow family.')
+
+        # Grow the zone if possible
+        for _ in range(k - 1):
+
+            # todo: self.adj_mat
+            neighbours = get_neighbours(family, already_occupied, net['adj_mat'])
+            if not np.any(neighbours):
+                print('No more free sites to grow family.')
+
+            # Add a neighbour to the zone
+            site_new = random.choice(neighbours.nonzero()[0])
+            family[site_new] = already_occupied[site_new] = 1
+
+    # Assign random points to families
+    else:
+        i = random.sample(sites_free, k)
+        family[i] = already_occupied[i] = 1
+
+    return family, already_occupied
+
+
+def add_edge(edges, edge_nodes, coords, i, j):
+    """
+    Add an edge between the i-th and j-th points, if not in edges already
+    Args:
+        edges (set): set of edges
+        edge_nodes(list): coordinates of all nodes in all edges
+        coords(float, float): point coordinates of sites
+        i (int): i-th point
+        j (int): j-th point
+        """
+    if (i, j) in edges or (j, i) in edges:
+        # already added
+        return
+
+    edges.add((i, j))
+    edge_nodes.append(coords[[i, j]])

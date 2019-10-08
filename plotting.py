@@ -11,7 +11,7 @@ plt.tight_layout()
 import numpy as np
 import math
 
-from src.util import zones_autosimilarity
+from src.util import zones_autosimilarity, add_edge, compute_delaunay
 from src.util import bounding_box
 from scipy.stats import gamma, linregress
 from scipy.spatial import Delaunay
@@ -54,6 +54,72 @@ def get_colors():
                                           (0, 0, 0)],                       # black ]
                              'triangulation': (0.4, 0., 0.)}}
     return plot_colors
+
+
+def plot_triangulation_edges(samples, net, triangulation, ax=None):
+    """ This function adds a triangulation to the points in the posterior
+
+    Args:
+        samples (np.array): the samples from the MCMC
+        net (dict): The full network containing all sites.
+        triangulation (str): type of triangulation, either "mst" or "delaunay"
+        ax (axis): matlibplot axis
+    """
+
+    if ax is None:
+        ax = plt.gca()
+
+    all_sites = net['locations']
+    # todo: change to np.any
+
+    zone_locations = all_sites[samples[0]]
+    dist_mat = net['dist_mat']
+
+    delaunay = compute_delaunay(zone_locations)
+    mst = delaunay.multiply(dist_mat)
+
+    if triangulation == "delaunay":
+        tri = delaunay
+
+    elif triangulation == "mst":
+        tri = mst
+
+    print(tri.shape, "tri")
+    # Get data
+    col = get_colors()
+    adj_mat = net['adj_mat']
+    locations = net['locations']
+
+    # Add edge evidence for the sampled zone
+    n_samples, n_v = samples.shape
+    weights = np.ones(n_samples)
+    edge_counts = (weights[:, None] * samples).T.dot(samples)
+    edge_counts *= adj_mat.toarray()
+    edge_freq = (edge_counts / n_samples).clip(0, 1)
+    edge_freq[edge_freq < 0.1] = 0.
+
+    # Plot background
+    size = 4
+    bg=plt.scatter(*locations.T, s=size, color=col['zones']['background_nodes'])
+    print('Nonzero:', np.count_nonzero(edge_freq))
+
+    # Plot posterior
+    edges = np.argwhere(edge_freq)
+    line_col = col['zones']['triangulation']
+    line_col = [(line_col + (c,)) for c in edge_freq[edges[:, 0], edges[:, 1]]]
+
+    lines = LineCollection(locations[edges], colors=line_col)
+    ax.add_collection(lines)
+
+    # # Remove axes
+    # ax.grid(False)
+    # ax.set_xticks([])
+    # ax.set_yticks([])
+
+    # # Add legend
+    # ax.legend([bg, lines], ['All sites', 'Edges in posterior distribution'], frameon=False, fontsize=10)
+
+    return ax
 
 
 def plot_posterior(samples, net, ax=None):
@@ -202,26 +268,36 @@ def plot_zones(zones, net, ax=None):
 #     plt.show()
 
 
-def plot_posterior_frequency(mcmc_res, net, nz=-1, burn_in=0.2, family=None, bg_map=False, proj4=None, geojson_map=None,
-                             geo_json_river=None, offset_factor=0.03, plot_edges=True):
+def plot_posterior_frequency(mcmc_res, net, nz=-1, burn_in=0.2, plot_family=None, family_alpha_shape=None,
+                             family_color = None, bg_map=False, proj4=None, geojson_map=None,
+                             geo_json_river=None, offset_factor=0.03, plot_edges=False,
+                             labels=False, labels_offset=None):
     """ This function creates a scatter plot of all sites in the posterior distribution. The color of a site reflects
     its frequency in the posterior
 
     Args:
         mcmc_res (dict): the output from the MCMC neatly collected in a dict
         net (dict): The full network containing all sites.
-        nz (int): For parallel zones: which parallel zone should be plotted? If -1, plot all.
+        nz (int): For multiple zones: which zone should be plotted? If -1, plot all.
         burn_in (float): Percentage of first samples which is discarded as burn-in
-        family (bool): Visualize all sites belonging to a family?
+        plot_family (str): Visualize all sites belonging to a family (either "alha_shapes", "color" or None)
+        family_alpha_shape (float): Alpha value passed to the function compute_alpha_shapes
+        family_color (str): Color of family in plot
         bg_map (bool): Use a background map for for the visualization?
-        plot_edges (bool)
+        proj4 (str): projection information when using a background map
+        geojson_map (str): file location of the background map
+        geo_json_river (str): file location of river data (for making the background map a bit nicer)
+        offset_factor (float): map extent is tailored to the location of the sites. This defines the offset.
+        plot_edges (bool): Plot the edges of the mst triangulation for the zone?
+        labels (bool): Plot the labels of the families?
+        labels_offset (float, float): Offset of the labels in both x and y
     """
     zones = mcmc_res['zones']
 
     fig, ax = plt.subplots(figsize=(20, 40))
     all_sites = net['locations']
     names = net['names']
-    size = 50
+    size = 10
 
     # Find index of first sample after burn-in
     if bg_map:
@@ -251,30 +327,45 @@ def plot_posterior_frequency(mcmc_res, net, nz=-1, burn_in=0.2, family=None, bg_
     else:
         zone = zones[nz]
         n = len(zone)
+
         # Exclude burn-in
-        end_bi = math.ceil(len(zone[nz]) * burn_in)
+        end_bi = math.ceil(n * burn_in)
 
         density = (np.sum(zone[end_bi:], axis=0, dtype=np.int32) / (n - end_bi))
 
     # cmap = plt.cm.get_cmap("plasma")
     cmap = plt.cm.get_cmap('YlOrRd')
     cmap.set_under(color='grey')
-    sc = ax.scatter(*all_sites.T, c=density, s=size + size * 2 * density, cmap=cmap, vmin=0.1, zorder=10)
-    for i, name in enumerate(names):
-        if density[i] > 0.1:
-            plt.annotate(name, all_sites[i] + [20000., 20000.], zorder=11, backgroundcolor='w')
+    sc = ax.scatter(*all_sites.T, c=density, s=size, cmap=cmap, vmin=0.1)
+    #sc = ax.scatter(*all_sites.T, c=density, s=size * density, cmap=cmap, vmin=0.1, zorder=10)
+
+    # Add labels for those sites which occur most often in the posterior
+    if labels:
+        if labels_offset is None:
+            labels_offset = (10., 10.)
+        for i, name in enumerate(names):
+            if density[i] > 0.1:
+
+                plt.annotate(name, all_sites[i] + [labels_offset[0], labels_offset[1]], zorder=11, fontsize=9)
 
     # Customize plotting layout
-    if family:
+    if plot_family == "alpha_shapes":
 
-        fam_sites = np.sum(mcmc_res['true_families'], axis=0, dtype=np.int32)
-        fam_sites = np.ma.masked_where(fam_sites == 0, fam_sites)
+        alpha_shape = compute_alpha_shapes(mcmc_res['true_families'], net, family_alpha_shape)
+        smooth_shape = alpha_shape.buffer(100, resolution=16, cap_style=1, join_style=1, mitre_limit=5.0)
+        patch = PolygonPatch(smooth_shape, fc=family_color, ec=family_color, alpha=0.5,
+                             fill=True, zorder=-1)
 
-        ax.scatter(*all_sites.T, c=fam_sites, s=size, cmap="inferno")
+        ax.add_patch(patch)
+
+    # elif plot_family == "color":
+    #     fam_sites = np.sum(mcmc_res['true_families'], axis=0, dtype=np.int32)
+    #     fam_sites = np.ma.masked_where(fam_sites == 0, fam_sites)
+    #     ax.scatter(*all_sites.T, c=fam_sites, s=size, cmap="inferno", zorder=-1)
 
     if plot_edges:
-        plot_posterior(np.array(mcmc_res['zones'][-1]), net, ax=ax)
-
+        plot_triangulation_edges(samples=np.array(zones[end_bi:]), net=net, triangulation="mst", ax=ax)
+        #plot_posterior(np.array(zone[end_bi:]), net, ax=ax)
 
     ax.grid(False)
     ax.set_xticks([])
@@ -291,7 +382,7 @@ def plot_posterior_frequency(mcmc_res, net, nz=-1, burn_in=0.2, family=None, bg_
 
     fig.subplots_adjust(left=0.01, right=0.99, top=0.99, bottom=0.01)
 
-    fig.savefig('posterior_frequency.png', dpi=400)
+    #fig.savefig('posterior_frequency.png', dpi=400)
     plt.show()
 
 
@@ -332,37 +423,24 @@ def f_score_mle(posterior):
     return precision, recall, f_score
 
 
-def plot_alpha_shapes(zone, net, alpha):
-    # ToDo: Make shapes look nice
+def compute_alpha_shapes(sites, net, alpha):
 
-    """Compute the alpha shape (concave hull) of a zone.
-
+    """Compute the alpha shape (concave hull) of a set of sites
     Args:
-        zone (np.array): a contact zone from the posterior
+        sites (np.array): subset of sites around which to create the alpha shapes (e.g. family, zone, ...)
         net (dict): The full network containing all sites.
-        alpha (float): alpha value to influence the gooeyness of the border. Smaller numbers don't fall inward
-        as much as larger numbers. Too large, and you lose everything! "
+        alpha (float): alpha value to influence the gooeyness of the convex hull Smaller numbers don't fall inward
+        as much as larger numbers. Too large, and you lose everything!"
 
     Returns:
-        ()"""
+        (polygon): the alpha shape"""
 
     all_sites = net['locations']
-    points = all_sites[zone[0]]
-
-    def add_edge(edges, edge_points, coords, i, j):
-        """
-        Add a line between the i-th and j-th points,
-        if not in the list already
-        """
-        if (i, j) in edges or (j, i) in edges:
-            # already added
-            return
-        edges.add((i, j))
-        edge_points.append(coords[[i, j]])
-
+    points = all_sites[sites[0]]
     tri = Delaunay(points, qhull_options="QJ Pp")
+
     edges = set()
-    edge_points = []
+    edge_nodes = []
 
     # loop over triangles:
     # ia, ib, ic = indices of corner points of the triangle
@@ -384,27 +462,18 @@ def plot_alpha_shapes(zone, net, alpha):
         circum_r = a * b * c / (4.0 * area)
 
         if circum_r < 1.0 / alpha:
-            add_edge(edges, edge_points, points, ia, ib)
-            add_edge(edges, edge_points, points, ib, ic)
-            add_edge(edges, edge_points, points, ic, ia)
 
-    m = geometry.MultiLineString(edge_points)
+            add_edge(edges, edge_nodes, points, ia, ib)
+            add_edge(edges, edge_nodes, points, ib, ic)
+            add_edge(edges, edge_nodes, points, ic, ia)
+
+
+    m = geometry.MultiLineString(edge_nodes)
 
     triangles = list(polygonize(m))
     polygon = cascaded_union(triangles)
-    fig, ax = plt.subplots()
-    margin = .3
 
-    bb = bounding_box(all_sites)
-    ax.set_xlim([bb['x_min'] - margin, bb['x_max'] + margin])
-    ax.set_ylim([bb['y_min'] - margin, bb['y_max'] + margin])
-
-    patch = PolygonPatch(polygon, fc='#999999',
-                         ec='#000000', fill=True,
-                         zorder=-1)
-    ax.add_patch(patch)
-    ax.scatter(*points.T)
-    plt.show()
+    return polygon
 
 
 def plot_trace_recall_precision(mcmc_res, burn_in=0.2, recall=True, precision=True):
