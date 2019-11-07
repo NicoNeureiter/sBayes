@@ -1,0 +1,140 @@
+INFO:root:Experiment: 2019-10-20_17-57
+INFO:root:Simulating 35 features.
+INFO:root:Simulated global intensity: 1.25
+INFO:root:Simulated contact intensity: [1.25, 0.75, 0.25]
+INFO:root:Simulated global exposition (number of similar features): 1.0
+INFO:root:Simulated exposition in zone (number of similar features): [1.5, 2, 2.5]
+INFO:root:MCMC with 200000 steps and 1000 samples (burn-in 0 steps)
+INFO:root:Zones have a minimum size of 3 and a maximum size of 300. The initial size is 40.
+INFO:root:Inheritance is considered: False
+INFO:root:Sample p_global: True
+INFO:root:Sample p_zones: True
+INFO:root:Sample p_families: False
+INFO:root:Ratio of zone steps: 0.02
+INFO:root:Ratio of weight steps: 0.77
+INFO:root:Ratio of p_global steps: 0.01
+INFO:root:Ratio of p_zones steps: 0.2
+INFO:root:Ratio of p_families steps: 0
+INFO:root:MCMC with 10 chains and 3 attempted swap(s) after 1000 steps.
+INFO:root:Geo-prior: uniform 
+INFO:root:Prior on weights: uniform 
+INFO:root:Prior on p_global: uniform 
+INFO:root:Prior on p_zones: uniform 
+INFO:root:Prior on p_families: uniform 
+INFO:root:Variance of proposal distribution for weights: 0.1 
+INFO:root:Variance of proposal distribution for p_global: 0.1 
+INFO:root:Variance of proposal distribution for p_zones: 0.1 
+INFO:root:Variance of proposal distribution for p_families: 0.1 
+INFO:root:Iterating over the following simulated setup: [(0, 4), (0, 6), (0, 3), (0, 8), (1, 4), (1, 6), (1, 3), (1, 8), (2, 4), (2, 6), (2, 3), (2, 8)]
+INFO:root:Experiment: 2019-10-20_17-57
+INFO:root:Simulating 35 features.
+INFO:root:Simulated global intensity: 1.25
+INFO:root:Simulated contact intensity: [1.25, 0.75, 0.25]
+INFO:root:Simulated global exposition (number of similar features): 1.0
+INFO:root:Simulated exposition in zone (number of similar features): [1.5, 2, 2.5]
+INFO:root:MCMC with 200000 steps and 1000 samples (burn-in 0 steps)
+INFO:root:Zones have a minimum size of 3 and a maximum size of 300. The initial size is 40.
+INFO:root:Inheritance is considered: False
+INFO:root:Sample p_global: True
+INFO:root:Sample p_zones: True
+INFO:root:Sample p_families: False
+INFO:root:Ratio of zone steps: 0.02
+INFO:root:Ratio of weight steps: 0.77
+INFO:root:Ratio of p_global steps: 0.01
+INFO:root:Ratio of p_zones steps: 0.2
+INFO:root:Ratio of p_families steps: 0
+INFO:root:MCMC with 10 chains and 3 attempted swap(s) after 1000 steps.
+INFO:root:Experiment: 2019-10-20_17-57
+INFO:root:Simulating 35 features.
+INFO:root:Simulated global intensity: 1.25
+INFO:root:Simulated contact intensity: [1.25, 0.75, 0.25]
+INFO:root:Simulated global exposition (number of similar features): 1.0
+INFO:root:Simulated exposition in zone (number of similar features): [1.5, 2, 2.5]
+INFO:root:MCMC with 200000 steps and 1000 samples (burn-in 0 steps)
+INFO:root:Zones have a minimum size of 3 and a maximum size of 300. The initial size is 40.
+INFO:root:Inheritance is considered: False
+INFO:root:Sample p_global: True
+INFO:root:Sample p_zones: True
+INFO:root:Sample p_families: False
+INFO:root:Ratio of zone steps: 0.02
+INFO:root:Ratio of weight steps: 0.77
+INFO:root:Ratio of p_global steps: 0.01
+INFO:root:Ratio of p_zones steps: 0.2
+INFO:root:Ratio of p_families steps: 0
+INFO:root:MCMC with 10 chains and 3 attempted swap(s) after 1000 steps.
+INFO:root:Experiment: 2019-10-20_17-57
+INFO:root:Simulating 35 features.
+INFO:root:Simulated global intensity: 1.25
+INFO:root:Simulated contact intensity: [1.25, 0.75, 0.25]
+INFO:root:Simulated global exposition (number of similar features): 1.0
+INFO:root:Simulated exposition in zone (number of similar features): [1.5, 2, 2.5]
+INFO:root:MCMC with 200000 steps and 1000 samples (burn-in 0 steps)
+INFO:root:Zones have a minimum size of 3 and a maximum size of 300. The initial size is 40.
+INFO:root:Inheritance is considered: False
+INFO:root:Sample p_global: True
+INFO:root:Sample p_zones: True
+INFO:root:Sample p_families: False
+INFO:root:Ratio of zone steps: 0.02
+INFO:root:Ratio of weight steps: 0.77
+INFO:root:Ratio of p_global steps: 0.01
+INFO:root:Ratio of p_zones steps: 0.2
+INFO:root:Ratio of p_families steps: 0
+INFO:root:MCMC with 10 chains and 3 attempted swap(s) after 1000 steps.
+INFO:root:Experiment: 2019-10-20_17-57
+INFO:root:Simulating 35 features.
+INFO:root:Simulated global intensity: 1.25
+INFO:root:Simulated contact intensity: [1.25, 0.75, 0.25]
+INFO:root:Simulated global exposition (number of similar features): 1.0
+INFO:root:Simulated exposition in zone (number of similar features): [1.5, 2, 2.5]
+INFO:root:MCMC with 200000 steps and 1000 samples (burn-in 0 steps)
+INFO:root:Zones have a minimum size of 3 and a maximum size of 300. The initial size is 40.
+INFO:root:Inheritance is considered: False
+INFO:root:Sample p_global: True
+INFO:root:Sample p_zones: True
+INFO:root:Sample p_families: False
+INFO:root:Ratio of zone steps: 0.02
+INFO:root:Ratio of weight steps: 0.77
+INFO:root:Ratio of p_global steps: 0.01
+INFO:root:Ratio of p_zones steps: 0.2
+INFO:root:Ratio of p_families steps: 0
+INFO:root:MCMC with 10 chains and 3 attempted swap(s) after 1000 steps.
+INFO:root:Geo-prior: uniform 
+INFO:root:Prior on weights: uniform 
+INFO:root:Prior on p_global: uniform 
+INFO:root:Prior on p_zones: uniform 
+INFO:root:Prior on p_families: uniform 
+INFO:root:Variance of proposal distribution for weights: 0.1 
+INFO:root:Variance of proposal distribution for p_global: 0.1 
+INFO:root:Variance of proposal distribution for p_zones: 0.1 
+INFO:root:Variance of proposal distribution for p_families: 0.1 
+INFO:root:Iterating over the following simulated setup: [(0, 4), (0, 6), (0, 3), (0, 8), (1, 4), (1, 6), (1, 3), (1, 8), (2, 4), (2, 6), (2, 3), (2, 8)]
+INFO:root:Geo-prior: uniform 
+INFO:root:Prior on weights: uniform 
+INFO:root:Prior on p_global: uniform 
+INFO:root:Prior on p_zones: uniform 
+INFO:root:Prior on p_families: uniform 
+INFO:root:Variance of proposal distribution for weights: 0.1 
+INFO:root:Variance of proposal distribution for p_global: 0.1 
+INFO:root:Variance of proposal distribution for p_zones: 0.1 
+INFO:root:Variance of proposal distribution for p_families: 0.1 
+INFO:root:Iterating over the following simulated setup: [(0, 4), (0, 6), (0, 3), (0, 8), (1, 4), (1, 6), (1, 3), (1, 8), (2, 4), (2, 6), (2, 3), (2, 8)]
+INFO:root:Geo-prior: uniform 
+INFO:root:Prior on weights: uniform 
+INFO:root:Prior on p_global: uniform 
+INFO:root:Prior on p_zones: uniform 
+INFO:root:Prior on p_families: uniform 
+INFO:root:Variance of proposal distribution for weights: 0.1 
+INFO:root:Variance of proposal distribution for p_global: 0.1 
+INFO:root:Variance of proposal distribution for p_zones: 0.1 
+INFO:root:Variance of proposal distribution for p_families: 0.1 
+INFO:root:Iterating over the following simulated setup: [(0, 4), (0, 6), (0, 3), (0, 8), (1, 4), (1, 6), (1, 3), (1, 8), (2, 4), (2, 6), (2, 3), (2, 8)]
+INFO:root:Geo-prior: uniform 
+INFO:root:Prior on weights: uniform 
+INFO:root:Prior on p_global: uniform 
+INFO:root:Prior on p_zones: uniform 
+INFO:root:Prior on p_families: uniform 
+INFO:root:Variance of proposal distribution for weights: 0.1 
+INFO:root:Variance of proposal distribution for p_global: 0.1 
+INFO:root:Variance of proposal distribution for p_zones: 0.1 
+INFO:root:Variance of proposal distribution for p_families: 0.1 
+INFO:root:Iterating over the following simulated setup: [(0, 4), (0, 6), (0, 3), (0, 8), (1, 4), (1, 6), (1, 3), (1, 8), (2, 4), (2, 6), (2, 3), (2, 8)]
