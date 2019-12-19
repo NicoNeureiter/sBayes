@@ -1,0 +1,101 @@
+name,id,x,y,family,F1,F2,F3,F4,F5,F6,F7,F8,F9,F10,F11,F12,F13,F14,F15,F16,F17,F18,F19,F20,F21,F22,F23,F24,F25,F26,F27,F28,F29,F30,F31,F32,F33,F34,F35,F36
+Paez,pbb,-1898858.494,3725496.327,,N,N,N,Y,N,N,Y,Y,Y,N,N,Y,N,Y,,N,N,,N,Y,N,N,N,N,Y,N,B,B,Y,N,A,A,N,A,C,Y
+Cubeo,cub,-1177837.828,3646741.179,Tucanoan,N,N,N,N,N,N,N,N,N,Y,Y,Y,Y,Y,Y,Y,N,Y,Y,Y,Y,Y,N,Y,N,N,B,A,Y,Y,A,A,N,C,D,Y
+Kamsá,kbh,-1947342.88,3556364.277,,N,N,N,N,Y,N,Y,N,Y,N,Y,Y,Y,N,N,Y,N,,Y,N,Y,N,,Y,Y,N,D,C,Y,Y,C,C,N,C,D,
+Inga,inb,-1941990.01,3540287.708,Quechuan,N,N,N,N,N,N,N,N,Y,N,N,N,N,N,N,N,Y,Y,N,N,N,N,N,Y,Y,N,B,A,N,N,C,A,N,B,C,Y
+Koreguaje,coe,-1767807.596,3550662.098,Tucanoan,N,N,N,Y,N,N,N,N,Y,Y,Y,Y,Y,Y,Y,N,N,,Y,Y,Y,N,N,N,N,N,C,C,N,N,A,A,N,B,A,Y
+Cha’paalachi,cbi,-2188725.28,3477509.242,,N,N,N,N,N,N,Y,N,Y,N,N,Y,N,N,N,N,Y,,N,N,Y,N,N,Y,N,N,B,A,Y,N,A,A,N,B,C,Y
+Desano,des,-1092883.205,3570461.932,Tucanoan,N,N,N,N,N,N,N,N,N,Y,Y,Y,Y,Y,Y,Y,N,Y,Y,Y,Y,N,Y,N,N,N,B,D,Y,N,A,A,N,B,C,Y
+Tucano,tuo,-1102073.299,3569861.124,Tucanoan,N,N,N,N,N,N,N,N,N,Y,Y,Y,Y,Y,Y,Y,N,Y,Y,Y,Y,N,Y,N,N,N,D,C,Y,N,A,A,N,B,C,Y
+Imbabura Q,qvi,-2105610.469,3444729.321,Quechuan,N,N,N,N,N,N,Y,Y,Y,N,N,N,N,N,N,N,N,Y,N,N,N,N,Y,Y,Y,N,B,A,N,N,C,A,N,B,C,Y
+Siona,snn,-1837407.845,3476434.156,Tucanoan,N,Y,N,N,N,N,N,N,N,Y,Y,Y,N,Y,Y,N,N,,Y,Y,Y,N,N,N,N,N,C,A,Y,N,A,A,N,B,C,Y
+Cofan,con,-1955649.321,3458542.23,,N,N,N,Y,N,N,Y,Y,Y,Y,Y,Y,N,Y,Y,Y,N,,N,N,Y,N,N,Y,Y,N,B,A,N,N,A,A,N,C,D,Y
+Napo Quechua,qvo,-1874842.224,3428875.302,Quechuan,N,N,N,N,N,N,Y,N,Y,N,N,N,N,N,N,N,Y,,Y,N,N,N,N,N,Y,N,B,A,Y,N,C,A,N,B,C,Y
+Tsafiki,cof,-2195939.139,3373951.412,,N,N,N,N,N,N,Y,N,N,N,N,Y,Y,Y,N,N,N,Y,N,N,Y,N,N,Y,N,N,B,A,Y,N,E,A,N,A,C,Y
+Secoya,sey,-1774547.769,3396496.92,Tucanoan,N,Y,N,N,N,N,N,Y,N,Y,Y,Y,Y,Y,Y,N,N,,Y,Y,Y,N,N,N,Y,N,C,A,Y,N,A,A,N,,,Y
+Andoque,ano,-1379996.402,3425036.572,,N,N,N,N,N,N,N,N,Y,Y,N,Y,Y,Y,Y,Y,N,,N,Y,N,Y,N,N,N,N,D,A,Y,Y,C,C,Y,A,B,N
+Tena Quechua,quw,-1996642.892,3337858.305,Quechuan,N,N,N,N,N,N,N,Y,Y,N,N,N,N,N,N,N,N,Y,N,N,N,N,N,Y,Y,N,B,A,Y,N,C,A,N,B,C,Y
+Waorani,auc,-1894648.686,3309773.886,,N,N,N,N,N,N,N,N,N,Y,N,Y,N,Y,Y,N,N,,Y,Y,N,N,Y,N,Y,Y,D,C,Y,N,A,A,N,B,C,N
+Salasaca Quechua,qxl,-2085841.434,3261098.601,Quechuan,N,N,N,Y,N,N,N,N,Y,N,N,N,N,N,N,N,Y,Y,Y,N,N,N,N,Y,Y,N,B,A,,N,A,A,N,B,C,Y
+N Pastaza Q,qvz,-1812923.615,3233282.362,Quechuan,N,N,N,N,N,N,N,Y,Y,N,N,N,Y,N,N,N,,Y,Y,N,N,N,N,Y,Y,N,B,A,N,N,C,A,N,B,C,Y
+Arabela,arl,-1701767.92,3237370.915,,N,Y,N,N,N,N,N,N,Y,N,N,Y,Y,N,N,N,N,,Y,N,Y,N,N,N,N,N,A,A,N,Y,A,A,N,B,C,Y
+Zaparo,zro,-1847583.055,3217185.821,,N,Y,N,N,N,N,N,N,Y,Y,Y,N,N,N,N,N,N,,Y,N,N,Y,N,N,N,N,D,A,Y,Y,A,C,Y,B,B,N
+Achuar,acu,-1937947.172,3114356.234,,N,N,N,N,N,N,N,N,N,Y,Y,N,N,Y,Y,N,,Y,N,N,N,Y,N,Y,N,N,B,C,N,N,C,A,N,B,C,Y
+Miraña,boa,-1001581.474,3189546.24,,N,N,N,N,N,Y,Y,Y,N,Y,Y,Y,Y,N,N,Y,N,Y,Y,Y,Y,N,Y,N,N,N,B,A,N,Y,A,A,N,B,C,N
+Taushiro,trr,-1743250.073,3092914.059,,N,Y,N,N,N,N,N,N,N,Y,Y,Y,Y,Y,Y,N,N,,N,N,N,Y,Y,Y,Y,N,D,A,N,Y,A,A,Y,B,A,N
+Andoa,anb,-1859391.604,3071178.373,,N,Y,N,N,N,N,N,N,Y,N,Y,N,Y,N,Y,N,,,N,N,,Y,N,N,,Y,D,D,,Y,C,A,N,,,
+Iquito,iqu,-1564739.992,3101009.001,,N,Y,N,N,N,N,N,N,N,Y,Y,N,N,N,N,Y,N,,Y,N,N,N,N,N,N,N,D,C,Y,Y,A,A,Y,B,B,
+S Pastaza Q,qup,-1850099.953,3068897.694,Quechuan,N,N,N,N,N,N,N,N,Y,N,N,N,N,N,N,N,,N,N,N,N,Y,N,Y,Y,N,B,A,N,N,C,A,N,B,C,Y
+Yagua,yad,-1368109.091,3105353.714,,N,N,N,N,N,N,N,N,N,Y,Y,Y,Y,Y,Y,Y,N,,Y,Y,Y,Y,N,N,Y,N,D,B,N,Y,C,C,Y,B,A,Y
+Shuar,jiv,-2033329.528,3033664.516,,N,N,N,N,N,N,N,N,Y,Y,Y,N,N,Y,N,N,Y,Y,N,N,N,Y,Y,Y,N,N,B,B,N,N,C,A,N,B,C,Y
+Omagua,omg,-1026471.22,3119314.737,Tupian,N,Y,N,N,N,N,N,N,N,Y,Y,Y,N,N,N,N,,,Y,N,N,N,N,N,N,N,D,D,N,Y,A,C,Y,B,B,N
+Candoshi Shapra,cbu,-1883039.471,2963819.749,,N,N,N,N,Y,Y,N,Y,N,Y,N,N,N,N,N,N,Y,Y,N,N,N,Y,N,N,Y,N,B,C,N,Y,A,A,N,B,C,N
+Matís,mpq,-1136299.578,3020038.516,Panoan,N,N,N,N,Y,N,N,N,N,Y,Y,Y,Y,N,,N,Y,N,Y,N,N,N,N,Y,N,Y,A,B,Y,N,A,B,N,B,C,Y
+Urarina,ura,-1713414.855,2960419.837,,N,Y,N,N,N,N,Y,N,Y,N,Y,Y,Y,N,Y,Y,N,N,Y,N,N,N,N,N,N,N,D,B,Y,Y,A,A,Y,A,B,N
+Kokama,cod,-1555502.536,2969700.827,Tupian,N,N,N,N,N,Y,N,N,N,Y,Y,Y,N,N,N,N,Y,Y,Y,N,N,N,N,N,N,N,D,D,N,Y,E,D,Y,B,B,N
+Chamicuro,ccc,-1734260.532,2883681.65,Arawak,N,N,N,N,Y,N,N,N,Y,N,N,Y,Y,N,N,N,Y,,N,N,,Y,Y,N,N,N,D,B,,Y,C,,Y,C,D,
+Aguaruna,agr,-1978277.049,2834354.577,,N,N,N,N,N,N,N,N,N,Y,Y,N,N,Y,Y,N,N,Y,N,N,N,Y,Y,Y,N,N,B,B,N,N,C,A,N,B,C,Y
+Jebero,jeb,-1811075.265,2842950.061,,N,N,N,N,N,N,N,N,Y,N,N,N,N,N,Y,N,N,,Y,N,N,Y,,Y,N,N,A,A,N,N,C,C,N,B,D,
+Chayahuita,cbt,-1854175.789,2811313.998,,N,N,N,N,N,N,N,N,N,Y,Y,N,N,N,Y,N,N,N,Y,N,Y,Y,Y,Y,N,N,A,A,N,N,C,C,Y,B,C,
+Matsés,mcf,-1391848.82,2846960.309,Panoan,N,N,N,N,Y,N,N,N,N,Y,Y,Y,Y,N,N,N,N,N,Y,N,N,N,N,Y,N,N,A,B,Y,N,C,C,N,C,C,Y
+Muniche,myr,-1791746.926,2799495.944,,N,N,N,N,Y,N,N,N,Y,N,Y,Y,N,N,N,N,Y,N,N,N,Y,N,N,N,N,Y,D,A,N,N,E,D,N,B,A,
+Capanahua,kaq,-1574447.666,2731194.209,Panoan,N,N,N,N,N,N,Y,N,N,Y,Y,N,N,N,Y,Y,,,N,N,N,N,N,N,Y,Y,A,C,Y,N,A,C,N,B,C,Y
+San Martin Q,qvs,-1818922.351,2668431.499,Quechuan,N,N,N,N,N,N,N,N,Y,N,N,N,N,N,N,N,Y,Y,Y,N,N,Y,N,Y,Y,N,B,A,N,N,C,A,N,B,C,Y
+Cajamarca Q,qvc,-1997454.774,2632481.033,Quechuan,Y,N,N,N,Y,N,N,N,Y,N,N,N,N,N,N,N,Y,N,Y,N,N,Y,N,Y,Y,N,B,A,N,N,C,A,N,B,C,Y
+Shipibo,shp,-1616413.933,2666969.218,Panoan,N,N,N,N,Y,N,Y,N,N,Y,Y,N,N,N,Y,N,N,Y,N,N,N,N,N,Y,Y,N,A,C,Y,N,E,B,N,C,B,Y
+Panobo,pno,-1635977.908,2664966.154,Panoan,N,N,N,N,N,N,N,N,N,Y,Y,N,N,N,N,N,N,Y,N,N,N,N,N,Y,N,N,A,,Y,N,E,B,Y,B,D,Y
+Jarawara,jaa,-715339.6633,2683152.998,,N,N,N,N,N,N,Y,N,N,Y,N,Y,N,N,N,N,N,Y,Y,Y,N,N,Y,N,N,Y,D,B,Y,Y,C,B,Y,C,C,N
+Shanenawa,swo,-1445913.993,2590111.677,Panoan,N,N,N,N,N,N,Y,N,N,Y,Y,N,N,N,Y,N,N,N,N,N,N,N,N,Y,N,N,A,B,N,N,E,B,N,B,C,Y
+Cashibo,cbr,-1663795.415,2491928.095,Panoan,N,Y,N,N,N,N,N,N,Y,Y,Y,Y,Y,N,Y,N,N,Y,Y,N,N,N,N,Y,N,N,B,C,N,N,A,C,N,B,C,Y
+Cholon,cht,-1715443.382,2427403.113,,N,N,N,N,N,N,N,N,Y,N,N,Y,Y,N,N,,Y,N,N,Y,Y,Y,N,N,Y,N,D,A,N,Y,C,D,N,B,C,Y
+Karitiana,ktn,-446415.1071,2498242.654,Tupian,N,N,N,N,N,N,N,N,Y,Y,Y,Y,N,Y,Y,N,Y,,Y,N,N,Y,N,N,N,N,D,B,N,Y,B,B,Y,B,B,N
+Ucuyali-Yurua Ash,cpb,-1414944.497,2428564.212,Arawak,N,N,N,Y,N,N,N,N,Y,N,N,Y,N,N,N,N,N,N,Y,Y,N,Y,N,N,,Y,D,,N,Y,C,B,Y,B,B,
+Huallaga Q,qub,-1671822.861,2394304.679,Quechuan,Y,N,N,N,N,N,N,N,Y,N,N,N,N,N,N,N,Y,Y,Y,N,N,Y,N,Y,Y,N,B,A,N,N,C,A,N,B,C,Y
+Ajy Apurucayali,cpc,-1565400.155,2377544.559,Arawak,N,N,N,Y,N,Y,N,N,Y,N,N,N,N,N,N,N,N,N,Y,Y,N,Y,Y,N,,Y,D,B,N,Y,C,C,Y,B,B,
+Yaminahua,yaa,-1242283.155,2399947.288,Panoan,N,N,N,N,N,N,Y,Y,N,Y,N,N,Y,Y,Y,N,N,,N,N,N,N,N,Y,N,N,A,B,Y,N,E,C,N,B,C,Y
+Amahuaca,amc,-1316232.512,2358368.056,Panoan,N,N,N,N,N,N,N,N,N,Y,Y,N,Y,Y,Y,Y,N,Y,N,N,N,N,N,Y,N,N,A,C,N,N,E,D,N,B,C,Y
+Pichis Ash,cpu,-1556094.771,2306221.247,Arawak,N,N,N,Y,N,N,Y,N,Y,N,N,Y,N,N,N,N,N,,Y,Y,N,Y,Y,N,N,Y,D,C,N,Y,C,C,N,B,A,
+Yanesha',ame,-1630571.879,2289677.264,Arawak,N,N,N,N,Y,N,N,N,Y,N,N,N,N,N,N,N,Y,Y,N,N,Y,Y,Y,Y,Y,N,D,A,N,Y,C,C,N,B,A,N
+Wari',pav,-485949.9106,2350996.23,,N,Y,N,N,N,N,N,N,Y,Y,N,Y,N,N,N,N,Y,Y,Y,Y,N,Y,Y,N,N,Y,D,A,N,N,C,A,N,A,A,N
+Asheninka,prq,-1584334.008,2246657.608,Arawak,N,N,N,Y,N,N,N,N,Y,N,N,Y,N,N,N,N,N,Y,Y,Y,Y,Y,Y,N,N,Y,D,A,N,Y,C,A,Y,B,A,N
+Yine,pib,-1412564.169,2248853.45,Arawak,N,N,N,N,N,N,N,N,N,N,Y,Y,N,N,N,N,N,N,N,Y,N,Y,Y,N,Y,Y,D,C,N,Y,C,C,Y,C,D,N
+Caquinte,cot,-1423618.645,2206737.923,Arawak,N,N,N,N,N,N,Y,N,Y,N,N,Y,N,N,N,N,N,Y,Y,Y,N,Y,Y,N,N,Y,D,,N,Y,C,C,Y,,,
+Nomatsiguenga,not,-1527530.277,2191235.625,Arawak,N,N,N,N,N,N,N,N,N,Y,N,Y,N,N,N,Y,,N,Y,Y,N,Y,Y,N,N,Y,D,C,N,Y,C,C,N,B,A,N
+Esseeja,ese,-795306.9595,2224175.857,,N,Y,N,N,N,N,N,N,Y,N,N,Y,N,N,N,N,N,N,Y,N,N,N,N,Y,N,N,A,B,N,Y,A,B,N,B,B,Y
+Nanti,cox,-1320615.055,2147061.659,Arawak,N,N,N,N,N,N,N,N,Y,N,N,Y,Y,N,N,N,N,N,Y,Y,Y,Y,Y,N,N,Y,D,A,N,Y,A,A,N,B,B,N
+Matchiguenga,mcb,-1317177.362,2144025.873,Arawak,N,N,N,N,N,N,Y,N,Y,N,Y,Y,N,N,N,N,N,Y,Y,Y,N,Y,Y,N,N,Y,D,C,N,Y,C,C,Y,B,A,
+Chacobo,cao,-708728.9586,2184096.237,Panoan,N,N,N,N,N,N,Y,N,N,Y,Y,N,N,N,N,Y,N,Y,N,N,N,N,Y,Y,N,Y,B,B,N,N,A,C,N,C,D,Y
+Kanoe,kxo,-482950.3892,2187294.73,,N,N,N,N,N,N,Y,N,Y,Y,Y,Y,Y,Y,Y,N,Y,N,N,N,Y,N,N,Y,N,N,D,D,N,Y,A,A,N,B,C,N
+Itene,ite,-524661.4882,2172647.841,,N,N,N,N,N,N,Y,N,Y,Y,N,Y,Y,N,N,N,Y,,Y,Y,N,Y,Y,N,Y,Y,D,A,N,N,E,A,N,B,A,
+Araona,aro,-813460.1636,2146793.728,,N,N,N,N,N,N,N,Y,N,Y,N,Y,N,N,N,N,N,Y,N,N,N,N,Y,Y,N,N,A,C,Y,N,A,B,N,B,C,Y
+Iñapari,inp,-979172.1139,2131580.658,Arawak,N,N,N,N,N,N,N,N,Y,Y,Y,Y,Y,Y,N,Y,N,,N,Y,Y,Y,Y,N,,Y,D,,N,Y,C,C,N,C,A,N
+Amarakaeri,amr,-1109215.265,2120512.783,,N,N,N,N,N,N,N,N,N,Y,Y,Y,N,Y,Y,N,Y,Y,Y,N,Y,N,Y,Y,N,N,C,A,Y,Y,C,A,N,B,C,
+Itonama,ito,-457712.8754,2119446.361,,N,N,Y,N,N,N,N,N,N,N,Y,Y,Y,N,N,N,N,N,Y,Y,Y,Y,Y,N,N,Y,D,B,N,Y,C,D,N,B,A,N
+Jaqaru,jqr,-1665176.934,2026745.802,,Y,N,Y,Y,N,Y,N,N,Y,N,N,N,N,N,N,N,N,,Y,Y,N,Y,N,Y,Y,N,C,A,N,N,C,A,N,C,C,Y
+Baure,brg,-437777.6046,2083505.358,Arawak,N,N,N,N,N,N,Y,N,N,Y,N,Y,N,N,Y,N,N,N,N,Y,Y,Y,Y,N,N,Y,D,B,N,Y,C,C,Y,B,A,N
+Cayubaba,cyb,-573374.5543,2065738.964,,N,N,N,N,N,N,Y,N,Y,Y,Y,Y,Y,Y,Y,N,N,Y,Y,Y,N,Y,N,N,Y,Y,D,A,N,Y,C,A,N,C,D,N
+Cavineña,cav,-693122.3385,2049701.653,,N,Y,N,N,N,N,N,N,Y,N,N,Y,N,N,N,N,N,N,N,N,N,N,N,Y,N,N,A,B,N,Y,E,B,N,C,D,Y
+Tacana,tna,-840149.392,2037884.72,,N,Y,N,N,Y,N,N,N,N,Y,N,Y,N,N,N,N,,Y,N,N,N,N,N,Y,N,N,A,,N,N,E,B,N,C,D,
+Movima,mzp,-586675.1082,2003232.481,,N,Y,N,N,N,N,Y,N,N,N,N,Y,Y,N,Y,N,Y,N,Y,Y,Y,Y,Y,N,N,Y,D,A,N,Y,D,C,Y,B,A,N
+Cuzco Q,quz,-1222979.916,1934278.457,Quechuan,Y,N,Y,Y,N,N,N,N,Y,N,N,N,N,N,N,N,Y,N,Y,N,N,Y,N,Y,Y,N,B,A,N,N,C,A,N,B,C,Y
+Paresí,pab,268414.5711,1925856.033,Arawak,N,N,N,N,N,N,Y,N,N,N,N,Y,N,N,N,N,N,Y,N,N,Y,Y,Y,N,N,Y,E,B,N,Y,C,A,N,B,C,N
+Moseten,cas,-791162.8611,1902016.393,,N,N,N,Y,N,N,Y,N,Y,Y,N,Y,N,Y,Y,N,Y,N,Y,Y,N,N,N,Y,Y,N,D,C,N,N,C,D,N,B,B,N
+Reyesano,rey,-732200.9115,1883939.021,,N,Y,N,N,Y,N,N,N,N,N,N,Y,N,N,N,N,N,Y,N,N,N,N,N,Y,N,N,D,B,N,Y,D,C,N,A,A,N
+Leko,lec,-813785.8975,1859816.622,,N,N,Y,Y,N,N,N,Y,Y,N,Y,Y,Y,N,N,N,,N,N,N,N,Y,Y,Y,Y,N,D,A,N,Y,C,A,Y,C,D,N
+Ignaciano,ign,-557364.2571,1859292.284,Arawak,N,N,N,N,N,N,Y,N,Y,N,N,Y,N,N,N,N,N,N,N,Y,Y,Y,Y,N,N,Y,D,A,N,Y,C,C,Y,B,B,N
+Trinitario,trn,-557535.8929,1836033.262,Arawak,N,N,N,N,N,N,Y,N,Y,Y,N,Y,Y,N,N,N,,N,N,Y,Y,Y,Y,N,N,Y,D,A,N,Y,C,C,Y,B,B,N
+Sirionó,srq,-408576.4601,1818673.796,Tupian,N,Y,N,N,N,N,Y,N,Y,Y,Y,Y,Y,N,Y,N,N,Y,Y,N,N,Y,N,N,N,Y,D,B,N,Y,C,C,Y,C,C,N
+Callawaya,caw,-831149.5478,1762453.733,,Y,N,Y,Y,N,N,N,N,Y,N,N,Y,Y,N,N,N,Y,N,Y,N,N,Y,N,Y,Y,N,B,A,N,N,C,A,N,B,C,
+Uru,ure,-914544.3104,1663354.325,,Y,Y,Y,Y,N,N,N,N,N,N,N,Y,Y,N,N,N,Y,N,Y,N,N,N,N,N,Y,N,D,A,N,Y,C,A,N,B,C,Y
+Yurakare,yuz,-522157.7006,1680069.942,,N,N,N,N,N,N,N,N,Y,Y,Y,Y,Y,N,N,N,Y,Y,N,N,N,Y,N,N,N,N,D,C,Y,Y,C,A,N,C,D,Y
+Yuki,yuq,-503658.1005,1676277.65,Tupian,N,Y,N,N,N,N,N,N,Y,Y,N,Y,Y,Y,Y,N,N,Y,Y,N,N,Y,N,N,N,N,D,B,N,Y,C,C,Y,A,C,N
+Aymara,ayr,-864943.5529,1636388.866,,Y,N,Y,Y,N,N,N,N,Y,N,N,N,N,N,N,N,N,N,Y,N,N,Y,N,Y,Y,N,A,A,N,N,C,D,N,C,D,Y
+Muylaq Aym,ayc,-1050798.3,1608865.975,,Y,N,Y,Y,N,N,N,N,Y,N,N,N,N,N,N,N,N,,Y,N,N,Y,N,Y,Y,N,A,A,Y,N,C,D,N,B,C,N
+Chiquitano,cax,8106.461063,1590718.032,,N,N,N,N,N,N,Y,N,Y,Y,Y,Y,Y,Y,Y,N,N,,Y,Y,N,Y,N,N,N,N,D,D,N,Y,C,D,Y,B,B,N
+Chipaya,cap,-793544.5353,1447514.216,,Y,Y,Y,Y,Y,Y,N,N,Y,N,N,Y,Y,N,N,N,Y,,Y,N,N,N,N,Y,Y,N,D,A,N,Y,A,A,N,B,C,Y
+Canichana,caz,-343437.3584,1454987.932,,N,N,N,N,N,N,N,N,N,N,N,Y,Y,N,,N,,,N,N,N,Y,Y,N,N,Y,D,B,,Y,,A,Y,B,B,
+Ayoreo,ayo,-22029.47876,1415820.127,,N,N,N,N,N,N,N,N,Y,Y,N,Y,Y,Y,Y,N,N,Y,N,N,N,Y,Y,N,N,Y,D,A,N,Y,A,A,N,B,B,N
+Kadiweu,kbc,241396.7341,1358488.81,,Y,N,N,N,N,Y,N,N,N,N,N,Y,N,N,N,N,N,,N,Y,N,Y,Y,N,N,Y,D,,N,Y,D,A,Y,C,D,
+Bol Quechua,quh,-625500.6329,1214087.81,Quechuan,Y,Y,Y,Y,N,Y,N,N,Y,N,N,N,N,N,N,N,Y,N,Y,N,N,Y,N,Y,Y,N,B,,N,N,C,A,N,B,C,Y
+Chiriguano,gui,-169789.9638,1207815.972,Tupian,N,Y,N,N,N,N,Y,N,N,Y,Y,Y,Y,Y,Y,N,N,,Y,N,N,Y,N,N,Y,Y,D,A,N,Y,C,C,Y,C,D,N
+Tapiete,tpj,-263877.6904,1169857.613,Tupian,N,Y,N,N,N,N,N,N,N,Y,Y,Y,Y,Y,Y,N,N,N,Y,N,N,Y,Y,N,Y,Y,D,D,Y,Y,C,C,Y,B,C,N

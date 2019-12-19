@@ -3,13 +3,13 @@ if __name__ == '__main__':
     from src.preprocessing import get_sites, compute_network
     from src.plotting import plot_trace_recall_precision, plot_trace_lh, \
         plot_posterior_frequency, plot_dics
-    from src.postprocessing import match_zones, compute_dic
+    from src.postprocessing import match_zones, compute_dic, rank_zones
     import numpy as np
 
-    TEST_SAMPLING_DIRECTORY = 'results/number_zones/2019-10-24_14-27/'
+    TEST_SAMPLING_DIRECTORY = 'results/number_zones/2019-11-23_15-04/'
 
     # Number of zones number of runs
-    nz = 6
+    nz = 4
     run = 0
 
     # Load the MCMC results
@@ -27,6 +27,8 @@ if __name__ == '__main__':
                 'posterior': [],
                 'zones': [[] for _ in range(n_zones)],
                 'weights': [],
+                'lh_single_zones': [[] for _ in range(n_zones)],
+                'posterior_single_zones': [[] for _ in range(n_zones)],
                 'true_zones': [],
                 'true_weights': [],
                 'true_lh': []}
@@ -54,6 +56,12 @@ if __name__ == '__main__':
         posterior = samples['sample_likelihood'][t] + samples['sample_prior'][t]
         mcmc_res['posterior'].append(posterior)
 
+        # Likelihood and posterior of single zones
+        for z in range(n_zones):
+            mcmc_res['lh_single_zones'][z].append(samples['sample_lh_single_zones'][t][z])
+            posterior_single_zone = samples['sample_lh_single_zones'][t][z] + samples['sample_prior_single_zones'][t][z]
+            mcmc_res['posterior_single_zones'][z].append(posterior_single_zone)
+
         # Recall and precision
         sample_z = np.any(samples['sample_zones'][t], axis=0)
         n_true = np.sum(true_z)
@@ -67,12 +75,15 @@ if __name__ == '__main__':
 
     np.set_printoptions(suppress=True)
 
+    # Change order and rank
+    #mcmc_res = match_zones(mcmc_res)
+    mcmc_res = rank_zones(mcmc_res, rank_by="lh", burn_in=0.8)
     # Retrieve the sites from the csv and transform into a network
     sites, site_names = get_sites("data/sites_simulation.csv")
     network = compute_network(sites)
 
     # Plot posterior frequency
-    plot_posterior_frequency(mcmc_res, net=network, nz=3, burn_in=0.8)
+    plot_posterior_frequency(mcmc_res, net=network, nz=1, burn_in=0.8)
 
     # Plot trace of likelihood, recall and precision
     plot_trace_lh(mcmc_res, burn_in=0.4, true_lh=True)

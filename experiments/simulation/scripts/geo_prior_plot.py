@@ -9,7 +9,7 @@ if __name__ == '__main__':
     TEST_SAMPLING_DIRECTORY = 'results/prior/geo_prior/2019-10-25_21-04/'
 
     # Number of zones number of runs
-    pg = 1
+    pg = 0
     run = 0
 
     # Load the MCMC results

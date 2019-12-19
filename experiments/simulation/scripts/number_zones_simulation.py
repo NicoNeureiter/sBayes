@@ -17,6 +17,7 @@ from src.preprocessing import (get_sites, compute_network, simulate_assignment_p
                                simulate_weights,
                                simulate_features)
 from src.sampling.zone_sampling import ZoneMCMC_generative, Sample
+from src.postprocessing import contribution_per_zone
 
 
 class NoDaemonProcess(multiprocessing.Process):
@@ -67,7 +68,8 @@ N_STEPS = 100000
 N_STEPS_INCREASE = 50000
 N_SAMPLES = 1000
 N_RUNS = 1
-logging.info("MCMC with %s steps and %s samples (burn-in %s steps)", N_STEPS, N_SAMPLES, BURN_IN)
+logging.info("MCMC with %s steps (+ %s increase per extra zone)and %s samples (burn-in %s steps)",
+             N_STEPS, N_SAMPLES, N_STEPS_INCREASE, BURN_IN)
 
 # Zone sampling
 MIN_SIZE = 3
@@ -222,7 +224,7 @@ features_sim, categories_sim = simulate_features(zones=zones_sim,
 PRIOR['geo']['parameters'] = estimate_geo_prior_parameters(network_sim, PRIOR['geo']['type'])
 
 # Maximum number of zones used in the sampler
-TEST_N_ZONES = range(1,8)
+TEST_N_ZONES = range(1, 8)
 stats = []
 samples = []
 
@@ -248,6 +250,9 @@ if __name__ == '__main__':
 
                 zone_sampler.generate_samples(N_STEPS, N_SAMPLES, BURN_IN)
 
+                # Evaluate likelihood and prior for each zone alone (makes it possible to rank zones)
+                zone_sampler = contribution_per_zone(zone_sampler)
+
                 # Evaluate the likelihood of the true sample
                 weights_sim_log = transform_weights_to_log(weights_sim)
                 p_global_sim_log = transform_p_to_log([p_global_sim])
@@ -260,6 +265,7 @@ if __name__ == '__main__':
                                                    'p_global': True, 'p_zones': True, 'p_families': True},
                                             'prior': {'zones': True, 'weights': True,
                                                       'p_global': True, 'p_zones': True, 'p_families': True}}
+
                 run_stats = zone_sampler.statistics
 
                 # Save stats about true sample

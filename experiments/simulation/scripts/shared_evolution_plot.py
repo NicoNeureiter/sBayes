@@ -1,5 +1,5 @@
 if __name__ == '__main__':
-    from src.util import load_from, transform_weights_from_log,transform_p_from_log
+    from src.util import load_from, transform_weights_from_log, transform_p_from_log
     from src.preprocessing import compute_network, get_sites
     from src.plotting import plot_posterior_frequency, plot_trace_lh, plot_trace_recall_precision, \
         plot_zone_size_over_time
@@ -13,7 +13,7 @@ if __name__ == '__main__':
     # Ease [0, 1, 2]
     # Run [0]
     zone = 6
-    ease = 2
+    ease = 1
     run = 0
 
     # Load the MCMC results
@@ -78,6 +78,7 @@ if __name__ == '__main__':
     sites, site_names = get_sites("data/sites_simulation.csv")
     network = compute_network(sites)
 
+    print(network['locations'].shape)
     # Plot posterior frequency
     plot_posterior_frequency(mcmc_res, net=network, nz=0, burn_in=0.6)
 

@@ -18,6 +18,7 @@ from src.preprocessing import (get_sites, compute_network, simulate_assignment_p
                                simulate_weights,
                                simulate_features)
 from src.sampling.zone_sampling import ZoneMCMC_generative, Sample
+from src.postprocessing import contribution_per_zone
 
 
 class NoDaemonProcess(multiprocessing.Process):
@@ -56,7 +57,7 @@ logging.basicConfig(filename=TEST_SAMPLING_LOG_PATH, level=logging.DEBUG)
 logging.getLogger().addHandler(logging.StreamHandler())
 logging.info("Experiment: %s", experiment_name)
 
-#todo: problem: each entry in must be larger than....
+
 ################################
 # Simulation
 ################################
@@ -104,19 +105,20 @@ weights_sim = simulate_weights(f_global=F_GLOBAL_SIM, f_contact=F_CONTACT_SIM,
                                inheritance=INHERITANCE,
                                n_features=N_FEATURES_SIM)
 
+
 # Simulate probabilities for features to belong to categories, globally in zones (and in families if available)
 p_global_sim, p_zones_sim, p_families_sim \
-    = simulate_assignment_probabilities(n_features=N_FEATURES_SIM, p_number_categories=P_N_CATEGORIES_SIM,
-                                        zones=zones_sim,
-                                        intensity_global=I_GLOBAL_SIM,
-                                        intensity_contact=I_CONTACT_SIM,
-                                        inheritance=INHERITANCE)
+        = simulate_assignment_probabilities(n_features=N_FEATURES_SIM, p_number_categories=P_N_CATEGORIES_SIM,
+                                            zones=zones_sim,
+                                            intensity_global=I_GLOBAL_SIM,
+                                            intensity_contact=I_CONTACT_SIM,
+                                            inheritance=INHERITANCE)
 
 # Simulate features
+
 features_sim, categories_sim = simulate_features(zones=zones_sim,
                                                  p_global=p_global_sim, p_contact=p_zones_sim,
                                                  weights=weights_sim, inheritance=INHERITANCE)
-
 
 #################################
 # MCMC
@@ -124,7 +126,7 @@ features_sim, categories_sim = simulate_features(zones=zones_sim,
 
 # General
 BURN_IN = 0
-N_STEPS = 100000
+N_STEPS = 2000
 N_SAMPLES = 1000
 N_RUNS = 1
 logging.info("MCMC with %s steps and %s samples (burn-in %s steps)", N_STEPS, N_SAMPLES, BURN_IN)
@@ -282,6 +284,7 @@ if __name__ == '__main__':
                                                var_proposal=VAR_PROPOSAL)
 
             zone_sampler.generate_samples(N_STEPS, N_SAMPLES, BURN_IN)
+
 
             # Collect statistics
             run_stats = zone_sampler.statistics
