@@ -9,7 +9,7 @@ if __name__ == '__main__':
     TEST_ZONE_DIRECTORY = 'results/shared_evolution/no_prior/2019-11-26_15-21'
 
     # MAP SETTINGS
-    PROJ4_STRING = '+proj=eqdc +lat_0=-32 +lon_0=-60 +lat_1=-5 +lat_2=-42 +x_0=0 +y_0=0 +ellps=aust_SA +units=m +no_defs '
+    PROJ4_STRING = '+proj=lcc +lat_1=43 +lat_2=62 +lat_0=30 +lon_0=10 +x_0=0 +y_0=0 +ellps=intl +units=m +no_defs'
     GEOJSON_MAP_PATH = 'data/map/ne_50m_land.geojson'
     GEOJSON_RIVER_PATH = 'data/map/ne_50m_rivers_lake_centerlines_scale_rank.geojson'
 
