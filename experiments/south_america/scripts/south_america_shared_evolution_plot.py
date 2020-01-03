@@ -74,7 +74,7 @@ if __name__ == '__main__':
 
     # Change order and rank
     mcmc_res = match_zones(mcmc_res)
-    mcmc_res = rank_zones(mcmc_res, rank_by="lh", burn_in=0.6)
+    mcmc_res, p_per_zone = rank_zones(mcmc_res, rank_by="lh", burn_in=0.6)
 
     network = compute_network(sites)
 

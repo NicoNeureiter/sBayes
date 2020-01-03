@@ -76,8 +76,8 @@ if __name__ == '__main__':
     np.set_printoptions(suppress=True)
 
     # Change order and rank
-    #mcmc_res = match_zones(mcmc_res)
-    mcmc_res = rank_zones(mcmc_res, rank_by="lh", burn_in=0.8)
+    mcmc_res = match_zones(mcmc_res)
+    mcmc_res, p_per_zone = rank_zones(mcmc_res, rank_by="lh", burn_in=0.8)
     # Retrieve the sites from the csv and transform into a network
     sites, site_names = get_sites("data/sites_simulation.csv")
     network = compute_network(sites)

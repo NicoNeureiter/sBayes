@@ -78,7 +78,7 @@ if __name__ == '__main__':
     network = compute_network(sites)
     # Change order and rank
     mcmc_res = match_zones(mcmc_res)
-    mcmc_res = rank_zones(mcmc_res, rank_by="lh", burn_in=0.8)
+    mcmc_res, p_per_zone = rank_zones(mcmc_res, rank_by="lh", burn_in=0.8)
 
     # Compute the dic
     dic = compute_dic(mcmc_res, burn_in=0.6)
