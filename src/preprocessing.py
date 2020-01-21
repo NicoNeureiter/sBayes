@@ -14,31 +14,26 @@ from scipy.sparse.csgraph import minimum_spanning_tree
 import igraph
 import math
 from src.model import normalize_weights
-from src.util import (compute_distance, simulate_family_of_size_k, compute_delaunay,
-                      read_feature_occurrence_from_csv, global_counts_to_dirichlet, family_counts_to_dirichlet,
-                      FamilyError)
+from src.util import (compute_distance, form_family_of_size_k, compute_delaunay,
+                      read_feature_occurrence_from_csv, counts_to_dirichlet, FamilyError)
 import csv
 
 
 EPS = np.finfo(float).eps
 
 
-def get_sites(file, retrieve_family=False, retrieve_subset=False):
+def get_sites(file, subset=False):
     """ This function retrieves the simulated sites from a csv, with the following columns:
             name: a unique identifier for each site
             x: the x-coordinate
             y: the y-coordinate
-            cz: if a site belongs to a zone this is the id of the simulated zone, 0 otherwise.
-            (family: if site belongs to a family this is the id of the simulated zone, 0 otherwise.)
+            cz: if site belongs to zone this is the id of the simulated zone, 0 otherwise.
     Args:
         file(str): file location of the csv
-        retrieve_family(boolean): retrieve family assignments from the csv
-        retrieve_subset(boolean): retrieve assignment to subsets from the csv
     Returns:
         dict, list: a dictionary containing the location tuple (x,y), the id and information about contact zones
             of each point the mapping between name and id is by position
     """
-
     columns = []
     with open(file, 'rU') as f:
         reader = csv.reader(f)
@@ -59,19 +54,6 @@ def get_sites(file, retrieve_family=False, retrieve_subset=False):
     except KeyError:
         raise KeyError('The csv  must contain columns "x", "y", "name", "cz')
 
-    if retrieve_family:
-        try:
-            family = csv_as_dict.pop('family')
-        except KeyError:
-            KeyError('The csv does not contain family information, i.e. a "family" column')
-
-    if retrieve_subset:
-
-        try:
-            subset = csv_as_dict.pop('subset')
-        except KeyError:
-            KeyError('The csv does not contain subset information, i.e. a "subset" column')
-
     locations = np.zeros((len(name), 2))
     seq_id = []
 
@@ -85,19 +67,13 @@ def get_sites(file, retrieve_family=False, retrieve_subset=False):
         # name could be any unique identifier, sequential id are integers from 0 to len(name)
         seq_id.append(i)
 
-    cz = [int(i) for i in cz]
     sites = {'locations': locations,
              'id': seq_id,
-             'cz': cz,
+             'cz': [int(i) for i in cz],
              'names': name}
 
-    if retrieve_family:
-        family = [int(i) for i in family]
-        sites['family'] = family
-
-    if retrieve_subset:
-        subset = [int(i) for i in subset]
-        sites['subset'] = subset
+    if subset:
+        sites['subset'] = [bool(int(i)) for i in csv_as_dict['subset']]
 
     site_names = {'external': name,
                   'internal': list(range(0, len(name)))}
@@ -105,156 +81,50 @@ def get_sites(file, retrieve_family=False, retrieve_subset=False):
     return sites, site_names
 
 
-def compute_network(sites, subset=None):
+def compute_network(sites):
     """This function converts a set of sites (language locations plus attributes) into a network (graph).
-    If a subset is defined, only those sites in the subset go into the network.
 
     Args:
         sites(dict): a dict of sites with keys "locations", "id"
-        subset(list): boolean assignment of sites to subset
     Returns:
         dict: a network
         """
 
-    if subset is None:
+    # Define vertices and edges
+    vertices = sites['id']
 
-        # Define vertices and edges
-        vertices = sites['id']
+    # Delaunay triangulation
+    delaunay = compute_delaunay(sites['locations'])
+    v1, v2 = delaunay.toarray().nonzero()
+    edges = np.column_stack((v1, v2))
 
-        # Delaunay triangulation
-        delaunay = compute_delaunay(sites['locations'])
-        v1, v2 = delaunay.toarray().nonzero()
-        edges = np.column_stack((v1, v2))
+    # Adjacency Matrix
+    adj_mat = delaunay.tocsr()
 
-        # Adjacency Matrix
-        adj_mat = delaunay.tocsr()
+    # Graph
+    g = igraph.Graph()
+    g.add_vertices(vertices)
 
-        # Graph
-        g = igraph.Graph()
-        g.add_vertices(vertices)
+    for e in edges:
+        dist = compute_distance(edges[e[0]], edges[e[1]])
+        g.add_edge(e[0], e[1], weight=dist)
 
-        for e in edges:
-            dist = compute_distance(edges[e[0]], edges[e[1]])
-            g.add_edge(e[0], e[1], weight=dist)
+    # Distance matrix
+    diff = sites['locations'][:, None] - sites['locations']
+    dist_mat = np.linalg.norm(diff, axis=-1)
 
-        # Distance matrix
-        diff = sites['locations'][:, None] - sites['locations']
-        dist_mat = np.linalg.norm(diff, axis=-1)
-
-        net = {'vertices': vertices,
-               'edges': edges,
-               'locations': sites['locations'],
-               'names': sites['names'],
-               'adj_mat': adj_mat,
-               'n': len(vertices),
-               'm': edges.shape[0],
-               'graph': g,
-               'dist_mat': dist_mat,
-               }
-
-    else:
-        sub_idx = np.nonzero(subset)[0]
-        vertices = list(range(len(sub_idx)))
-
-        # Delaunay triangulation
-        locations = sites['locations'][sub_idx, :]
-        delaunay = compute_delaunay(locations)
-        v1, v2 = delaunay.toarray().nonzero()
-        edges = np.column_stack((v1, v2))
-
-        # Adjacency Matrix
-        adj_mat = delaunay.tocsr()
-
-        # Graph
-        g = igraph.Graph()
-        g.add_vertices(vertices)
-
-        for e in edges:
-            dist = compute_distance(edges[e[0]], edges[e[1]])
-            g.add_edge(e[0], e[1], weight=dist)
-
-        # Distance matrix
-        diff = locations[:, None] - locations
-        dist_mat = np.linalg.norm(diff, axis=-1)
-
-        names = [sites['names'][i] for i in sub_idx]
-
-        net = {'vertices': vertices,
-               'edges': edges,
-               'locations': locations,
-               'names': names,
-               'adj_mat': adj_mat,
-               'n': len(vertices),
-               'm': edges.shape[0],
-               'graph': g,
-               'dist_mat': dist_mat,
-               }
+    net = {'vertices': vertices,
+           'edges': edges,
+           'locations': sites['locations'],
+           'names': sites['names'],
+           'adj_mat': adj_mat,
+           'n': len(vertices),
+           'm': edges.shape[0],
+           'graph': g,
+           'dist_mat': dist_mat,
+           }
     return net
 
-
-def features_from_subset(features, subset):
-    """This function returns the subset of a feature array
-        Args:
-            features(np.array): features for each site
-                shape(n_sites, n_features, n_categories)
-            subset(list): boolean assignment of sites to subset
-
-        Returns:
-            np.array: The feature subset
-                shape(n_sub_sites, n_features, n_categories)
-    """
-    sub_idx = np.nonzero(subset)[0]
-    return features[sub_idx, :, :]
-
-
-# deprecated
-def get_contact_zones_old(zone_id, sites):
-    """This function retrieves those locations from the dict sites that are marked as contact zones (zone_id)
-    Args:
-        sites: a dict of sites with keys "cz", and "id"
-        zone_id(int or tuple of ints): the id(s) of the contact zone(s)
-    Returns:
-        dict: the contact zones
-        """
-    contact_zones = {}
-    cz = np.asarray(sites['cz'])
-    # For single zones
-    if isinstance(zone_id, int):
-        contact_zones[zone_id] = np.where(cz == zone_id)[0].tolist()
-
-    # For multiple zones
-    elif isinstance(zone_id, tuple) and all(isinstance(x, int) for x in zone_id):
-            for z in zone_id:
-                contact_zones[z] = np.where(cz == z)[0].tolist()
-
-    else:
-        raise ValueError('zone_id must be int or a tuple of int')
-
-    return contact_zones
-
-# deprecated
-def simulate_zones_old(zone_id, sites_sim):
-    """ This function finds out which sites belong to contact zones assigns zone membership accordingly.
-
-		Args:
-            zone_id(int): The IDs of the simulated contact zones
-            sites_sim (dict): dict with simulates sites
-        Returns:
-            (np.array): the simulated zones, boolean assignment of site to zone.
-                shape(n_zones, n_sites)
-    """
-
-    # Retrieve zones
-    sites_in_zone = get_contact_zones_old(sites=sites_sim, zone_id=zone_id)
-    n_zones = len(sites_in_zone)
-    n_sites = len(sites_sim['id'])
-
-    # Assign zone membership
-    zones = np.zeros((n_zones, n_sites), bool)
-    for k, z_id in enumerate(sites_in_zone.values()):
-        zones[k, z_id] = 1
-
-    return zones
 
 def get_contact_zones(zone_id, sites):
     """This function retrieves those locations from the dict sites that are marked as contact zones (zone_id)
@@ -302,7 +172,7 @@ def assign_na(features, n_na):
     return features
 
 
-def simulate_features(zones,  p_global, p_contact, weights, inheritance, p_inheritance=None, families=None):
+def simulate_features(zones, families, p_global, p_contact, p_inheritance, weights, inheritance):
     """Simulate features for of all sites from the likelihood.
 
     Args:
@@ -352,20 +222,20 @@ def simulate_features(zones,  p_global, p_contact, weights, inheritance, p_inher
 
     for i_feat in range(n_features):
 
-        # Compute the feature likelihood matrix (for all sites and all categories)
-        lh_global = p_global[np.newaxis, i_feat, :].T
-        lh_zone = zones.T.dot(p_contact[:, i_feat, :]).T
+            # Compute the feature likelihood matrix (for all sites and all categories)
+            lh_global = p_global[np.newaxis, i_feat, :].T
+            lh_zone = zones.T.dot(p_contact[:, i_feat, :]).T
 
-        lh_feature = normed_weights[i_feat, :, 0] * lh_global + normed_weights[i_feat, :, 1] * lh_zone
+            lh_feature = normed_weights[i_feat, :, 0] * lh_global + normed_weights[i_feat, :, 1] * lh_zone
 
-        # Families
-        if inheritance:
+            # Families
+            if inheritance:
 
-            lh_family = families.T.dot(p_inheritance[:, i_feat, :]).T
-            lh_feature += normed_weights[i_feat, :, 2] * lh_family
+                lh_family = families.T.dot(p_inheritance[:, i_feat, :]).T
+                lh_feature += normed_weights[i_feat, :, 2] * lh_family
 
-        # Sample from the categorical distribution defined by lh_feature
-        features[:, i_feat] = sample_categorical(lh_feature.T)
+            # Sample from the categorical distribution defined by lh_feature
+            features[:, i_feat] = sample_categorical(lh_feature.T)
 
     # Categories per feature
     cats_per_feature =[]
@@ -419,6 +289,7 @@ def compute_global_freq_from_data(feat):
     return p
 
 
+
 def estimate_geo_prior_parameters(network: dict, geo_prior):
     """
     This function estimates parameters for the geo prior
@@ -467,7 +338,7 @@ def simulate_zones(zone_id, sites_sim):
     """ This function finds out which sites belong to contact zones assigns zone membership accordingly.
 
         Args:
-            zone_id(int, tuple): The IDs of the simulated contact zones
+            zone_id(int): The IDs of the simulated contact zones
             sites_sim (dict): dict with simulates sites
 
         Returns:
@@ -476,20 +347,7 @@ def simulate_zones(zone_id, sites_sim):
     """
 
     # Retrieve zones
-    sites_in_zone = {}
-    cz = np.asarray(sites_sim['cz'])
-
-    # For single zones
-    if isinstance(zone_id, int):
-        sites_in_zone[zone_id] = np.where(cz == zone_id)[0].tolist()
-
-    # For multiple zones
-    elif isinstance(zone_id, tuple) and all(isinstance(x, int) for x in zone_id):
-            for z in zone_id:
-                sites_in_zone[z] = np.where(cz == z)[0].tolist()
-    else:
-        raise ValueError('zone_id must be int or a tuple of int')
-
+    sites_in_zone = get_contact_zones(sites=sites_sim, zone_id=zone_id)
     n_zones = len(sites_in_zone)
     n_sites = len(sites_sim['id'])
 
@@ -501,44 +359,81 @@ def simulate_zones(zone_id, sites_sim):
     return zones
 
 
-def simulate_families(fam_id, sites_sim):
-    """ This function finds out which sites belong to a family and assigns family membership accordingly.
+def simulate_families(network, n_families, min_family_size, max_family_size,
+                      grow_families=True, overlap_with_zones=False, zones=None):
+    """Randomly picks some of the sites and assigns them to language families
 
-        Args:
-            fam_id(int): The IDs of the simulated families
-            sites_sim (dict): dict with simulates sites
+    Args:
+        network(dict): A dict comprising all sites.
+        n_families (int): Number of simulated families
+        max_family_size (int): maximum number of members in a family
+        min_family_size (int): minimum number of members in a family
+        grow_families(bool): grow families as spatially connected areas(similar to zones)?
+        overlap_with_zones(bool): allow families and zones to overlap?
+        zones (np.array): boolean assignment of sites to zones
+    Returns:
+        (np.array): the simulated families, boolean assignment of site to families.
+                shape(n_families, n_sites)"""
 
-        Returns:
-            (np.array): the simulated families, boolean assignment of site to zone.
-                shape(n_families, n_sites)
-    """
-    # Retrieve families
-    sites_in_families = {}
-    family = np.asarray(sites_sim['family'])
+    if not overlap_with_zones and zones is None:
+        raise ValueError("Zones ar not defined! To avoid families and zones to overlap, zones need to be defined! ")
 
-    # For single family
-    if isinstance(fam_id, int):
-        sites_in_families[fam_id] = np.where(family == fam_id)[0].tolist()
+    n_sites = len(network['vertices'])
 
-    # For multiple families
-    elif isinstance(fam_id, tuple) and all(isinstance(x, int) for x in fam_id):
-        for f in fam_id:
-            sites_in_families[f] = np.where(family == f)[0].tolist()
+    if overlap_with_zones:
+        occupied = np.zeros(n_sites, bool)
     else:
-        raise ValueError('zone_id must be int or a tuple of int')
+        occupied = np.any(zones, axis=0)
 
-    n_families = len(sites_in_families)
-    n_sites = len(sites_sim['id'])
+    # When growing many families, some can get stuck due to an unfavourable seed.
+    # That's why we perform several attempts to initialize them.
+    families = np.zeros((n_families, len(network['vertices'])), bool)
+    n_generated = 0
+    grow_attempts = 0
 
-    # Assign zone membership
-    families = np.zeros((n_families, n_sites), bool)
-    for k, z_id in enumerate(sites_in_families.values()):
-        families[k, z_id] = 1
+    while True:
+        for i in range(n_families):
+            try:
+                fam_size = np.random.randint(min_family_size, max_family_size, 1).item()
+                fam = form_family_of_size_k(net=network, k=fam_size, already_occupied=occupied,
+                                            grow_families=grow_families)
 
-    return families
+            except FamilyError:
+                # Might be due to an unfavourable seed
+                if grow_attempts < 15:
+                    grow_attempts += 1
+                    break
+
+                # Seems there is not enough sites to grow n_zones of size k
+                else:
+                    raise ValueError("Seems there are not enough sites (%i) to grow %i families of size %i" %
+                                     (n_sites, n_families, fam_size))
+            n_generated += 1
+            families[i, :] = fam[0]
+            occupied = fam[1]
+
+            if n_generated == n_families:
+                return families
+
+    # todo: remove after testing
+    # for nf in range(n_families):
+        # Randomly define the size of each family
+        # f_size = np.random.randint(min_family_size, max_family_size, 1)
+        # Form random families
+
+        # f = np.random.choice(sites, size=f_size, replace=False)
+        # sites = [s for s in sites if s not in f]
+        # sites_in_family[nf] = f
+
+    # Assign family membership
+    # families = np.zeros((n_families, n_sites), bool)
+    # for k, z_id in enumerate(sites_in_family.values()):
+    #    families[k, z_id] = 1
+
+    # return families
 
 
-def simulate_weights(f_global, f_contact,  inheritance, n_features, f_inheritance=None):
+def simulate_weights(f_global, f_contact, f_inheritance, inheritance, n_features):
     """ Simulates weights for all features, that is the influence of global bias, inheritance and contact on the feature.
     Args: 
         f_global (float): controls the number of features for which the influence of global bias is high,
@@ -548,7 +443,6 @@ def simulate_weights(f_global, f_contact,  inheritance, n_features, f_inheritanc
         f_inheritance: controls the number of features for which the influence of inheritance is high,
             passed as alpha when drawing samples from a dirichlet distribution, only relevant if inheritance = True
         inheritance: Is inheritance evaluated/simulated?
-        n_features: Simulate weights for how many features?
     Returns: 
         (np.array):
         """
@@ -632,108 +526,50 @@ def simulate_assignment_probabilities(n_features, p_number_categories, inheritan
         return p_global, p_zones, p_families
 
 
-def get_p_global_prior(feature_names, category_names, file_location, log=True):
-    """ This is a helper function to import global counts of each category of each feature,
-        which then define dirichlet distributions that are used as a prior for p_global.
+def get_global_frequencies(mode, features=None):
+    """ This is a helper function to either import the global frequencies of each category of each feature
+        from a file or to compute it from data
         Args:
-            feature_names(dict): the features names (internal and external)
-            category_names(dict): the category names (internal and external)
-            file_location (str): The file location of the prior for p_global
-            log(bool): write import information to the log-file?
-        Returns:
-            dict, dict: The dirichlet distribution for each category in each feature,  and the categories
-    """
-    file = file_location + "/prior_p_global.csv"
-    cats = list(np.unique([x for l in category_names['external'] for x in l]))
-    categories_ordered = []
-    for f in category_names['external']:
-        categories_ordered.append([cats.index(i) for i in f])
-
-    # Read the global counts from csv
-    counts, category_names_file, feature_names_file = read_feature_occurrence_from_csv(file=file)
-
-    # Sanity check
-    # Are the data count data?
-    if not all(float(y).is_integer() for y in np.nditer(counts)):
-        out = "The data in " + str(file) + " must be count data."
-        raise ValueError(out)
-
-    # Same number of features?
-    if len(feature_names['external']) != len(feature_names_file['external']) or \
-            len(feature_names['internal']) != len(feature_names_file['internal']):
-        out = "Different number of features in " + str(file) + " as in features."
-        raise ValueError(out)
-
-    # Same feature names?
-    for f in range(0, len(feature_names['external'])):
-        if feature_names['external'][f] != feature_names_file['external'][f]:
-            out = "The external feature " + str(f + 1) + " in " + str(file) \
-                    + " differs from the one used in features."
-            raise ValueError(out)
-        if feature_names['internal'][f] != feature_names_file['internal'][f]:
-            out = "The internal feature name " + str(f + 1) + " in " + str(file) \
-                    + " differs from the one used in features."
-            raise ValueError(out)
-
-    # Same number of categories?
-    if len(category_names['external']) != len(category_names_file['external']) or \
-            len(category_names['internal']) != len(category_names_file['internal']):
-        out = "Different number of categories in " + str(file) + " as in categories."
-        raise ValueError(out)
-
-    # Same category names?
-    for f in range(0, len(category_names['external'])):
-        if category_names['external'][f] != category_names_file['external'][f]:
-            out = "The external category names for feature " + str(f + 1) + " in " + str(file) \
-                    + " differ from those used in features."
-            print(category_names['external'][f], category_names_file['external'][f])
-            raise ValueError(out)
-
-        if feature_names['internal'][f] != feature_names_file['internal'][f]:
-            out = "The internal category names for " + str(f + 1) + " in " + str(file) \
-                    + " differ from those used in features."
-            raise ValueError(out)
-    if log:
-        logging.info('Import prior information for p_global from % s.', file)
-
-    dirichlet = global_counts_to_dirichlet(counts, categories_ordered)
-    return dirichlet, categories_ordered
-
-
-def p_global_prior_from_complement(features, categories, subset):
-    """ This is a helper function to compute a prior from p_global from the complement of a subset of simulated data.
-        Args:
-            features(np.array): the features
+            mode(dict): contains information on how to compute the global frequencies
+            features(np.array): features, could be None if global frequencies are imported from file
                 shape(n_sites, n_features, n_categories)
-            categories(list): available categeories per feature
-            subset(list): boolean assignment of sites to subset
-
         Returns:
-            dict, list: The dirichlet distribution for each category in each feature, and the categories
+            np.array: The global probabilities for each category in each feature
     """
-    complement = [not i for i in subset]
-    complement_idx = np.nonzero(complement)[0]
-    features_complement = features[complement_idx, :, :]
-    counts = np.sum(features_complement, axis=0)
-    dirichlet = global_counts_to_dirichlet(counts, categories)
+    # Compute from data
+    if mode['estimate_from_data']:
+        if features is None:
+            raise ValueError("'features' is None! If I should estimate features from data, "
+                             "you better give me some data")
+        else:
+            global_freq = compute_global_freq_from_data(features)
+        return global_freq
 
-    return dirichlet, categories
+    # Read from file
+    else:
+        global_freq, _, _ = read_feature_occurrence_from_csv(file=mode['file'])
+        if np.allclose(a=np.nansum(global_freq, axis=-1), b=1., rtol=EPS):
+            return global_freq
+        else:
+            if all(isinstance(x, int) for x in global_freq):
+                return global_freq/np.sum(global_freq, axis=1, keepdims=True)
+            else:
+                out = "The data in " + str(mode['file']) + " must be relative frequencies summing to 1 or count data"
+                raise ValueError(out)
 
 
-def get_p_families_prior(family_names, feature_names, category_names, file_location, log=True):
+def get_family_priors(family_names, feature_names, category_names):
     """ This is a helper function to import the counts of each feature in the families,
-    which define dirichlet distributions that are used as prior for p_family.
+    which define the dirichlet distribution that is used as a prior for p_family.
 
     Args:
         family_names(dict): the names of the families (internal and external)
         feature_names(dict): the features names (internal and external)
         category_names(dict): the category names (internal and external
-        file_location(str): the file location of the p_family_prior files
-        log(bool): write import information to the log-file?
-    Returns:
-        dict, list: The dirichlet distribution per family for each category in each feature, and the categories
-        """
 
+    Returns:
+        np.array: The family frequencies for each category in each feature
+    """
     n_families = len(family_names['external'])
     n_features = len(feature_names['external'])
     n_categories = len(set(x for l in category_names['external'] for x in l))
@@ -746,51 +582,49 @@ def get_p_families_prior(family_names, feature_names, category_names, file_locat
     counts = np.empty([n_families, n_features, n_categories])
 
     for n in range(len(family_names['external'])):
-        file = file_location + "/prior_p_families_" + str.lower(family_names['external'][n]) + ".csv"
+        file = "data\counts_" + str.lower(family_names['external'][n]) + ".csv"
         try:
             # Read the family counts from csv
-            counts_fam, category_names_file, feature_names_file = read_feature_occurrence_from_csv(file=file)
+            counts_fam, category_names_fam, feature_names_fam = read_feature_occurrence_from_csv(file=file)
 
             # Sanity check
             if not all(float(y).is_integer() for y in np.nditer(counts_fam)):
                 out = "The data in " + str(file) + " must be count data."
                 raise ValueError(out)
 
-            if len(feature_names['external']) != len(feature_names_file['external']) or \
-                    len(feature_names['internal']) != len(feature_names_file['internal']):
+            if len(feature_names['external']) != len(feature_names_fam['external']) or \
+                    len(feature_names['internal']) != len(feature_names_fam['internal']):
                 out = "Different number of features in " + str(file) + " as in features."
                 raise ValueError(out)
 
             for f in range(0, len(feature_names['external'])):
-                if feature_names['external'][f] != feature_names_file['external'][f]:
+                if feature_names['external'][f] != feature_names_fam['external'][f]:
                     out = "The external feature " + str(f+1) + " in " + str(file) \
                           + " differs from the one used in features."
                     raise ValueError(out)
-                if feature_names['internal'][f] != feature_names_file['internal'][f]:
+                if feature_names['internal'][f] != feature_names_fam['internal'][f]:
                     out = "The internal feature name " + str(f+1) + " in " + str(file) \
                           + " differs from the one used in features."
                     raise ValueError(out)
 
-            if len(category_names['external']) != len(category_names_file['external']) or \
-                    len(category_names['internal']) != len(category_names_file['internal']):
+            if len(category_names['external']) != len(category_names_fam['external']) or \
+                    len(category_names['internal']) != len(category_names_fam['internal']):
                 out = "Different number of features in " + str(file) + " as in features."
                 raise ValueError(out)
 
             for f in range(0, len(category_names['external'])):
-                if category_names['external'][f] != category_names_file['external'][f]:
+                if category_names['external'][f] != category_names_fam['external'][f]:
                     out = "The external category names for feature " + str(f+1) + " in " + str(file) \
                           + " differ from those used in features."
-                    print(category_names['external'][f], category_names_file['external'][f])
+                    print(category_names['external'][f], category_names_fam['external'][f])
                     raise ValueError(out)
 
-                if feature_names['internal'][f] != feature_names_file['internal'][f]:
+                if feature_names['internal'][f] != feature_names_fam['internal'][f]:
                     out = "The internal category names for " + str(f+1) + " in " + str(file) \
                           + " differ from those used in features."
                     raise ValueError(out)
             counts[n, :, :] = counts_fam
-
-            if log:
-                logging.info('Import prior information for %s from % s.', family_names['external'][n], file)
+            print('Import prior information for ' + str(family_names['external'][n]) + ' from ' + str(file) + '.')
 
         except FileNotFoundError:
 
@@ -801,7 +635,7 @@ def get_p_families_prior(family_names, feature_names, category_names, file_locat
 
             print('No prior information for ' + str(family_names['external'][n]) + '. Uniform prior used instead.')
 
-    dirichlet = family_counts_to_dirichlet(counts, categories_ordered)
+    dirichlet = counts_to_dirichlet(counts, categories_ordered)
     return dirichlet, categories_ordered
 
 

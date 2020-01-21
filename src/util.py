@@ -7,13 +7,15 @@ import numpy as np
 import scipy.spatial as spatial
 import scipy.stats as stats
 from scipy.sparse import csr_matrix
-from math import sqrt
+from math import sqrt, floor, ceil
 import datetime
 import csv
 import os
 import random
 from scipy.misc import logsumexp
-import logging
+import matplotlib.pyplot as plt
+from matplotlib.collections import LineCollection
+
 
 EPS = np.finfo(float).eps
 
@@ -175,7 +177,6 @@ def transform_weights_from_log(log_weights):
     """
 
     # Normalize in original space and transform
-
     log_weights -= logsumexp(log_weights, keepdims=True)
     weights_norm = np.exp(log_weights)
 
@@ -191,9 +192,10 @@ def transform_p_from_log(log_p):
         (np.array): transformed and normalized weights
     """
     # Transform to original space
+    p = np.exp(log_p)
 
-    log_p -= logsumexp(log_p, axis=2, keepdims=True)
-    p_norm = np.exp(log_p)
+    # Normalize
+    p_norm = p / p.sum(axis=2, keepdims=True)
 
     return p_norm
 
@@ -208,8 +210,7 @@ def transform_weights_to_log(weights):
     """
 
     # Transform to log space
-    with np.errstate(divide='ignore'):
-        log_weights = np.log(weights)
+    log_weights = np.log(weights)
 
     return log_weights
 
@@ -230,17 +231,15 @@ def transform_p_to_log(p):
     return log_p
 
 
-def read_features_from_csv(file_location, log=True):
-    """This is a helper function to import data (sites, features, family membership,...) from a csv file
+def read_languages_from_csv(file):
+    """This is a helper function to import language data (sites, features, family membership,...) from a csv file
         Args:
-            file_location(str): file location of the csv file
-            log (bool): write information on importing the features to the log-file?
+            file(str): file location of the csv file
         Returns:
             (dict, dict, np.array, dict, dict, np.array, dict) :
             The language date including sites, site names, all features, feature names and category names per feature,
             as well as family membership and family names
     """
-    file = file_location + "features.csv"
     columns = []
     feature_names_ordered = []
     with open(file, 'rU') as f:
@@ -258,24 +257,22 @@ def read_features_from_csv(file_location, log=True):
     try:
         x = csv_as_dict.pop('x')
         y = csv_as_dict.pop('y')
-        l_id = csv_as_dict.pop('id')
         name = csv_as_dict.pop('name')
         family = csv_as_dict.pop('family')
         family = np.array(family)
 
         feature_names_ordered.remove('x')
         feature_names_ordered.remove('y')
-        feature_names_ordered.remove('id')
         feature_names_ordered.remove('name')
         feature_names_ordered.remove('family')
     except KeyError:
-        raise KeyError('The csv  must contain columns "x", "y", "id","name", "family"')
+        raise KeyError('The csv  must contain columns "x", "y", "name", "family')
 
     # sites
-    locations = np.zeros((len(l_id), 2))
+    locations = np.zeros((len(name), 2))
     id = []
 
-    for i in range(len(l_id)):
+    for i in range(len(name)):
         # Define location tuples
         locations[i, 0] = float(x[i])
         locations[i, 1] = float(y[i])
@@ -288,18 +285,20 @@ def read_features_from_csv(file_location, log=True):
              'id': id,
              'cz': None,
              'names': name}
-    site_names = {'external': l_id,
-                  'internal': list(range(0, len(l_id)))}
+    site_names = {'external': name,
+                  'internal': list(range(0, len(name)))}
 
     # features
+
     features_with_cat = np.ndarray.transpose(np.array([csv_as_dict[i] for i in feature_names_ordered]))
+
     cat_names = np.unique(features_with_cat)
+
     features_cat = []
-    na_number = 0
     for cat in cat_names:
         if cat == "":
             na_number = np.count_nonzero(np.where(features_with_cat == cat, 1, 0))
-
+            # print(na_number, "NA value(s) found in the data.")
         else:
             cat_axis = np.expand_dims(np.where(features_with_cat == cat, 1, 0), axis=2)
             features_cat.append(cat_axis)
@@ -324,16 +323,14 @@ def read_features_from_csv(file_location, log=True):
     family_names_ordered = np.unique(family).tolist()
     family_names_ordered = list(filter(None, family_names_ordered))
 
-    families = np.zeros((len(family_names_ordered), len(l_id)), dtype=int)
+    families = np.zeros((len(family_names_ordered), len(name)), dtype=int)
 
     for fam in range(len(family_names_ordered)):
         families[fam, np.where(family == family_names_ordered[fam])] = 1
 
     family_names = {'external': family_names_ordered,
                     'internal': list(range(0, len(family_names_ordered)))}
-    if log:
-        logging.info("%s sites with %s features imported from %s. %s NA value(s) found.", len(site_names['internal']),
-                     len(feature_names['internal']), file, na_number)
+
     return sites, site_names, features, feature_names, category_names, families, family_names
 
 
@@ -460,7 +457,7 @@ def read_feature_occurrence_from_csv(file):
     return occurr, category_names, feature_names
 
 
-def family_counts_to_dirichlet(counts, categories):
+def counts_to_dirichlet(counts, categories):
     """This is a helper function transform the family counts to alpha values that
     are then used to define a dirichlet distribution
 
@@ -484,31 +481,6 @@ def family_counts_to_dirichlet(counts, categories):
             alpha = alpha + 1
 
             dirichlet[fam].append(stats.dirichlet(alpha))
-
-    return dirichlet
-
-def global_counts_to_dirichlet(counts, categories):
-    """This is a helper function transform the global counts to alpha values that
-    are then used to define dirichlet distributions
-
-    Args:
-        counts(np.array): the global counts
-            shape(n_features, n_categories)
-        categories(list): categories per feature
-    Returns:
-        list: the dirichlet distributions, neatly stored in a dict
-    """
-
-    n_feat, n_cat = counts.shape
-    dirichlet = []
-
-    for feat in range(n_feat):
-        cat = categories[feat]
-
-        alpha = counts[feat, cat]
-        # Add 1 to alpha values (1,1,...1 is a uniform prior)
-        alpha = alpha + 1
-        dirichlet.append(stats.dirichlet(alpha))
 
     return dirichlet
 
@@ -553,7 +525,7 @@ def mkpath(path):
         touch(path)
 
 
-def simulate_family_of_size_k(k, net, already_occupied=None, grow_families=True):
+def form_family_of_size_k(k, net, already_occupied=None, grow_families=True):
     """ This function forms a family of size k, either by
     randomly selecting sites in a network or growing regions in space (similar to grow_zone_of_size_k)
     Args:
@@ -621,3 +593,382 @@ def add_edge(edges, edge_nodes, coords, i, j):
 
     edges.add((i, j))
     edge_nodes.append(coords[[i, j]])
+
+
+def samples2res_old(samples):
+    """
+    Stores the output of the MCMC contained in samples in a simple data container (dict).
+    The returned data container facilitates the analysis of the results (e.g. plotting).
+    Args:
+        samples (list): samples
+    """
+
+    n_zones = samples['sample_zones'][0].shape[0]
+
+    # Define output format for estimated samples
+    mcmc_res = {
+        'lh': [],
+        'prior': [],
+        'recall': [],
+        'precision': [],
+        'posterior': [],
+        'zones': [[] for _ in range(n_zones)],
+        'weights': [],
+        'p_global': [],
+        'p_zones': [[] for _ in range(n_zones)],
+        'true_zones': [],
+        'n_zones': n_zones,
+    }
+
+    # Collect true sample
+    true_z = np.any(samples['true_zones'], axis=0)
+    mcmc_res['true_zones'].append(true_z)
+    mcmc_res['true_weights'] = samples['true_weights']
+    mcmc_res['true_p_global'] = samples['true_p_global']
+    mcmc_res['true_p_zones'] = samples['true_p_zones']
+
+    mcmc_res['true_lh'] = samples['true_ll']
+    true_posterior = samples['true_ll'] + samples['true_prior']
+    mcmc_res['true_posterior'] = true_posterior
+
+    for t in range(len(samples['sample_zones'])):
+
+        # Zones and p_zones
+        for z in range(n_zones):
+            mcmc_res['zones'][z].append(samples['sample_zones'][t][z])
+            # mcmc_res['p_zones'][z].append(transform_p_from_log(samples['sample_p_zones'][t])[z])
+
+        # Weights
+        mcmc_res['weights'].append(transform_weights_from_log(samples['sample_weights'][t]))
+
+        # Likelihood, prior and posterior
+        mcmc_res['lh'].append(samples['sample_likelihood'][t])
+        mcmc_res['prior'].append(samples['sample_prior'][t])
+
+        posterior = samples['sample_likelihood'][t] + samples['sample_prior'][t]
+        mcmc_res['posterior'].append(posterior)
+
+        # Recall and precision
+        sample_z = samples['sample_zones'][t][0]
+        n_true = np.sum(true_z)
+
+        intersections = np.minimum(sample_z, true_z)
+        total_recall = np.sum(intersections, axis=0) / n_true
+        mcmc_res['recall'].append(total_recall)
+
+        precision = np.sum(intersections, axis=0) / np.sum(sample_z, axis=0)
+        mcmc_res['precision'].append(precision)
+    np.set_printoptions(suppress=True)
+
+    return mcmc_res
+
+
+
+def samples2res(samples):
+    """
+    Stores the output of the MCMC contained in samples in a simple data container (dict).
+    The returned data container facilitates the analysis of the results (e.g. plotting).
+    Args:
+        samples (list): samples
+    """
+
+    n_zones = samples['sample_zones'][0].shape[0]
+
+    # Define output format for estimated samples
+    mcmc_res = {
+        'lh': [],
+        'prior': [],
+        'recall': [],
+        'precision': [],
+        'posterior': [],
+        'zones': [[] for _ in range(n_zones)],
+        'weights': [],
+        'p_global': [],
+        'p_zones': [[] for _ in range(n_zones)],
+        'true_zones': [],
+        'n_zones': n_zones,
+    }
+
+    # Collect true sample
+    if 'true_zones' in samples.keys():
+        true_z = np.any(samples['true_zones'], axis=0)
+        mcmc_res['true_zones'].append(true_z)
+        mcmc_res['true_weights'] = samples['true_weights']
+        mcmc_res['true_p_global'] = samples['true_p_global']
+        mcmc_res['true_p_zones'] = samples['true_p_zones']
+
+    if 'true_families' in samples.keys():
+        if samples['sample_p_families'][0] is not None:
+            n_families = samples['sample_p_families'][0].shape[0]
+        else:
+            n_families = 0
+        mcmc_res['p_families'] = [[] for _ in range(n_families)]
+        mcmc_res['true_families'] = samples['true_families']
+        mcmc_res['true_p_families'] = samples['true_p_families']
+
+    if 'true_lh' in samples.keys():
+        mcmc_res['true_lh'] = samples['true_ll']
+        true_posterior = samples['true_ll'] + samples['true_prior']
+        mcmc_res['true_posterior'] = true_posterior
+
+
+
+    for t in range(len(samples['sample_zones'])):
+
+        # Zones and p_zones
+        for z in range(n_zones):
+            mcmc_res['zones'][z].append(samples['sample_zones'][t][z])
+            mcmc_res['p_zones'][z].append(transform_p_from_log(samples['sample_p_zones'][t])[z])
+
+        # Weights
+        mcmc_res['weights'].append(transform_weights_from_log(samples['sample_weights'][t]))
+
+        if 'true_families' in samples.keys():
+            # p_families
+            for fam in range(n_families):
+                mcmc_res['p_families'][fam].append(transform_p_from_log(samples['sample_p_families'][t])[fam])
+
+        # Likelihood, prior and posterior
+        mcmc_res['lh'].append(samples['sample_likelihood'][t])
+        mcmc_res['prior'].append(samples['sample_prior'][t])
+
+        posterior = samples['sample_likelihood'][t] + samples['sample_prior'][t]
+        mcmc_res['posterior'].append(posterior)
+
+        # Recall and precision
+        sample_z = samples['sample_zones'][t][0]
+        n_true = np.sum(true_z)
+
+        intersections = np.minimum(sample_z, true_z)
+        total_recall = np.sum(intersections, axis=0) / n_true
+        mcmc_res['recall'].append(total_recall)
+
+        precision = np.sum(intersections, axis=0) / np.sum(sample_z, axis=0)
+        mcmc_res['precision'].append(precision)
+    np.set_printoptions(suppress=True)
+
+    return mcmc_res
+
+
+
+def linear_rescale(value, old_min, old_max, new_min, new_max):
+    """
+    Function to linear rescale a number to a new range
+
+    Args:
+         n (float): number to rescale
+         old_min (float): old minimum of value range
+         old_max (float): old maximum of value range
+         new_min (float): new minimum of value range
+         new_max (float): new maximum of vlaue range
+    """
+
+    return (new_max - new_min) / (old_max - old_min) * (value - old_max) + old_max
+
+
+
+def round_int_old(n, mode='up', offset=0):
+    """
+    Function to round an integer for the calculation of axes limits.
+    For example:
+    up: 113 -> 120, 3456 -> 3500
+    down: 113 -> 110, 3456 -> 3450
+
+    Args:
+         n (int): integer number to round
+         mode (str): round 'up' or 'down'
+         offset (int): adding offset to rounded number
+    """
+
+    if mode != 'up' and mode != 'down':
+        raise Exception('unknown mode')
+        # raise Exception(f'Unknown mode: "{mode}". Use either "up" or "down".')
+
+    n = int(n) if isinstance(n, float) else n
+    n_digits = len(str(n)) if n > 0 else len(str(n)) - 1
+
+    # special rules for 1 and 2 digit numbers
+    if n_digits == 1:
+        n_rounded = 0 if mode == 'down' else 10
+
+    elif n_digits == 2:
+        n_rounded = (n // 10) * 10 if mode == 'down' else (n // 10 + 1) * 10
+
+    else:
+        convertor = 10 ** (n_digits - 2)
+        if mode == 'up':
+            n_rounded = ceil(n / convertor) * convertor
+            n_rounded += offset * convertor
+        if mode == 'down':
+            n_rounded = floor(n / convertor) * convertor
+            n_rounded -= offset * convertor
+
+    return n_rounded
+
+
+def round_single_int(n, mode='up', position=2, offset=1):
+    """
+    Function to round an integer for the calculation of axes limits.
+    For example:
+    up: 113 -> 120, 3456 -> 3500
+    down: 113 -> 110, 3456 -> 3450
+
+    Args:
+         n (int): integer number to round
+         mode (str): round 'up' or 'down'
+         offset (int): adding offset to rounded number
+    """
+
+    # print(f'rounding {mode} {n} (position {position} offset {offset})')
+
+    # convert to int if necessary and get number of digits
+    n = int(n) if isinstance(n, float) else n
+    n_digits = len(str(n)) if n > 0 else len(str(n)) - 1
+
+    # check for validity of input parameters
+    if mode != 'up' and mode != 'down':
+        raise Exception('unkown mode')
+        # raise Exception(f'Unknown mode: "{mode}". Use either "up" or "down".')
+    if position > n_digits:
+        raise Exception('unkown mode')
+        # raise Exception(f'Position {position} is not valid for a number with only {n_digits} digits.')
+
+    # special rules for 1 and 2 digit numbers
+    if n_digits == 1:
+        n_rounded = n - offset if mode == 'down' else n + offset
+
+    elif n_digits == 2:
+        if position == 1:
+            base = n // 10 * 10
+            n_rounded = base - offset * 10 if mode == 'down' else base + ((offset + 1) * 10)
+        else:
+            assert (position == 2)
+            n_rounded = n - offset if mode == 'down' else n + offset
+
+
+    else:
+        if not position == n_digits:
+            factor = 10 ** (n_digits - position)
+            base = (n // factor) * factor
+            # print(f'factor {factor} base {base}')
+            n_rounded = base - offset * factor if mode == 'down' else base + ((offset + 1) * factor)
+        else:
+            n_rounded = n - offset if mode == 'down' else n + offset
+
+    # print(f'rounded to {n_rounded}')
+    return n_rounded
+
+
+
+def round_multiple_ints(ups, downs, position=2, offset=1):
+
+    ups = [int(n) for n in ups]
+    downs = [int(n) for n in downs]
+
+    # find value with fewest digits
+    fewest_digits = len(str(np.min(ups + downs)))
+
+    # print(f'rounding multiples {ups} {downs} {fewest_digits}')
+
+    ups_rounded = []
+    for n in ups:
+        length = len(str(n))
+        # print(f'n {n} length {length}')
+        n_rounded = round_single_int(n, 'up', position + length - fewest_digits, offset)
+        ups_rounded.append(n_rounded)
+
+    downs_rounded = []
+    for n in downs:
+        length = len(str(n))
+        n_rounded = round_single_int(n, 'down', position + length - fewest_digits, offset)
+        downs_rounded.append(n_rounded)
+
+    return ups_rounded, downs_rounded
+
+
+
+
+
+def round_int(n, mode='up', offset=0):
+    """
+    Function to round an integer for the calculation of axes limits.
+    For example:
+    up: 113 -> 120, 3456 -> 3500
+    down: 113 -> 110, 3456 -> 3450
+
+    Args:
+         n (int): integer number to round
+         mode (str): round 'up' or 'down'
+         offset (int): adding offset to rounded number
+    """
+
+    if mode != 'up' and mode != 'down':
+        raise Exception('unkown mode')
+        # raise Exception(f'Unknown mode: "{mode}". Use either "up" or "down".')
+
+    n = int(n) if isinstance(n, float) else n
+    convertor = 10 ** (len(str(offset)) - 1)
+
+    # print(f'rounding {n} {mode} by {offset}')
+    # print(convertor)
+
+    if n > offset: # number is larger than offset (must be positive)
+        if mode == 'up':
+            n_rounded = ceil(n / convertor) * convertor
+            n_rounded += offset
+        if mode == 'down':
+            n_rounded = floor(n / convertor) * convertor
+            n_rounded -= offset
+
+    else: # number is smaller than offset (can be negative)
+        if n >= 0:
+            n_rounded = offset + convertor if mode == 'up' else -offset
+        else: # for negative numbers we use round_int with inversed mode and the positive number
+            print('inverse case')
+            inverse_mode = 'up' if mode == 'down' else 'down'
+            n_rounded = round_int(abs(n), inverse_mode, offset)
+            n_rounded = - n_rounded
+
+    return n_rounded
+
+def compute_mst_posterior(mcmc_res):
+
+    return
+
+
+def colorline(ax, x, y, z=None, cmap=plt.get_cmap('copper'), norm=plt.Normalize(0.0, 1.0), linewidth=3, alpha=1.0):
+    """
+    Plot a colored line with coordinates x and y
+    Optionally specify colors in the array z
+    Optionally specify a colormap, a norm function and a line width
+    from: https://nbviewer.jupyter.org/github/dpsanders/matplotlib-examples/blob/master/colorline.ipynb
+    """
+
+    # Default colors equally spaced on [0,1]:
+    if z is None:
+        z = np.linspace(0.0, 1.0, len(x))
+
+    # Special case if a single number:
+    if not hasattr(z, "__iter__"):  # to check for numerical input -- this is a hack
+        z = np.array([z])
+
+    z = np.asarray(z)
+
+    def make_segments(x, y):
+        """
+        Create list of line segments from x and y coordinates, in the correct format for LineCollection:
+        an array of the form   numlines x (points per line) x 2 (x and y) array
+        """
+
+        points = np.array([x, y]).T.reshape(-1, 1, 2)
+        segments = np.concatenate([points[:-1], points[1:]], axis=1)
+
+        return segments
+
+    segments = make_segments(x, y)
+    lc = LineCollection(segments, array=z, cmap=cmap, norm=norm, linewidth=linewidth, alpha=1, zorder=1)
+
+    # ax = plt.gca()
+    ax.add_collection(lc)
+
+    return lc
