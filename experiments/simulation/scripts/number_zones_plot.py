@@ -11,8 +11,8 @@ if __name__ == '__main__':
     import os
 
 
-    PATH = '../../../../' # relative path to contact_zones_directory
-    PATH_SIMULATION = f'{PATH}/src/experiments/simulation/'
+    PATH = '../../../' # relative path to contact_zones_directory
+    PATH_SIMULATION = f'{PATH}/experiments/simulation/'
 
     # data directories
     TEST_ZONE_DIRECTORY = 'results/number_zones/2019-11-23_15-04/'
@@ -25,7 +25,7 @@ if __name__ == '__main__':
 
     run = 0
     # scenarios = [1, 2, 3, 4, 5, 6, 7]
-    scenarios = [6] # fix for more than 4 zones
+    scenarios = [4] # fix for more than 4 zones
 
     # general parameters for plots
     ts_posterior_freq = 0.6

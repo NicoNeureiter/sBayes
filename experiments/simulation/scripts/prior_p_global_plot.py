@@ -9,10 +9,8 @@ if __name__ == '__main__':
     import os
 
 
-
-
-    PATH = '../../../../' # relative path to contact_zones_directory
-    PATH_SIMULATION = f'{PATH}/src/experiments/simulation/'
+    PATH = '../../../' # relative path to contact_zones_directory
+    PATH_SIMULATION = f'{PATH}/experiments/simulation/'
 
     # data directories
     TEST_ZONE_DIRECTORY = 'results/prior/prior_p_global/2019-10-25_21-07/'
@@ -20,8 +18,6 @@ if __name__ == '__main__':
     # plotting directories
     PLOT_PATH = f'{PATH}plots/prior_p_global/'
     if not os.path.exists(PLOT_PATH): os.makedirs(PLOT_PATH)
-
-
 
 
     # Number of zones number of runs

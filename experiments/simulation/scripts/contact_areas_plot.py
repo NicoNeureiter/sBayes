@@ -11,8 +11,8 @@ if __name__ == '__main__':
 
 
 
-    PATH = '../../../../' # relative path to contact_zones_directory
-    PATH_SIMULATION = PATH + '/src/experiments/simulation/'
+    PATH = '../../../' # relative path to contact_zones_directory
+    PATH_SIMULATION = PATH + '/experiments/simulation/'
     TEST_ZONE_DIRECTORY = 'results/contact_zones/2019-10-21_14-49/'
 
     PLOT_PATH = PATH + 'plots/contact_zones/'

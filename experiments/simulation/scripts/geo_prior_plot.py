@@ -8,8 +8,8 @@ if __name__ == '__main__':
     import numpy as np
     import os
 
-    PATH = '../../../../' # relative path to contact_zones_directory
-    PATH_SIMULATION = f'{PATH}/src/experiments/simulation/'
+    PATH = '../../../' # relative path to contact_zones_directory
+    PATH_SIMULATION = f'{PATH}/experiments/simulation/'
 
     # data directories
     TEST_ZONE_DIRECTORY = 'results/prior/geo_prior/2019-10-25_21-04/'
