@@ -295,7 +295,7 @@ def get_plotting_params():
         'line_thickness': 2, # thickness of lines in plots
         'frame_width': 1.5, # width of frame of plots
         'color_burn_in': 'grey', # color of burn in line and text
-        'save_format': 'svg', # output format for plots
+        'save_format': 'pdf', # output format for plots
         'n_fragments': 100, # number of fragments for minimum spanning tree edges
     }
 
@@ -957,7 +957,7 @@ def plot_posterior_frequency_family(mcmc_res, net, nz=-1, burn_in=0.2, show_zone
     # adding scatter plot and corresponding colorbar legend
     cmap, norm = get_cmap(ts_low_frequency, name='YlOrRd', lower_ts=0.2)
     add_posterior_frequency_points(ax, zones, locations, ts_low_frequency, cmap, norm, nz=nz, burn_in=burn_in, size=size)
-    add_posterior_frequency_legend(fig, cbar_axes, ts_low_frequency, cmap, norm, ts_posterior_freq, fontsize=fontsize)
+    add_posterior_frequency_legend(fig, cbar_axes, ts_low_frequency, cmap, norm, ts_posterior_freq)
 
 
     # adding family information (alpha shapes), if available
@@ -997,7 +997,7 @@ def plot_posterior_frequency_family(mcmc_res, net, nz=-1, burn_in=0.2, show_zone
 
 
     # styling the axes
-    style_axes(ax, locations, frame_offset, show=show_axes, fontsize=fontsize)
+    style_axes(ax, locations, show=show_axes, offset=frame_offset)
 
     # adding a legend to the plot
     if not leg_zone:
@@ -1061,7 +1061,7 @@ def plot_minimum_spanning_tree(mcmc_res, net, z=1, burn_in=0.2, ts_posterior_fre
     # adding scatter plot and corresponding colorbar legend
     cmap, norm = get_cmap(ts_low_frequency, name='YlOrRd', lower_ts=0.2)
     add_posterior_frequency_points(ax, zones, locations, ts_low_frequency, cmap, norm, nz=z, burn_in=burn_in, size=size)
-    add_posterior_frequency_legend(fig, cbar_axes, ts_low_frequency, cmap, norm, ts_posterior_freq, fontsize=pp['fontsize'])
+    add_posterior_frequency_legend(fig, cbar_axes, ts_low_frequency, cmap, norm, ts_posterior_freq)
 
     # plotting minimum spanning tree of contact points
     extend_locations = add_minimum_spanning_tree(ax, zone, locations, dist_mat, burn_in, ts_posterior_freq, cmap, norm, size=size)
@@ -1082,7 +1082,7 @@ def plot_minimum_spanning_tree(mcmc_res, net, z=1, burn_in=0.2, ts_posterior_fre
 
 
     # styling axes
-    style_axes(ax, extend_locations, frame_offset, show=show_axes, fontsize=pp['fontsize'])
+    style_axes(ax, extend_locations, offset=frame_offset, show=show_axes)
 
     fig.savefig(f"{fname}.{pp['save_format']}", bbox_inches='tight', dpi=400, format=pp['save_format'])
     plt.close(fig)
