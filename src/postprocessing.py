@@ -10,7 +10,6 @@ from src.sampling.zone_sampling import ZoneMCMC_generative, Sample
 def compute_dic(mcmc_res, burn_in):
     """This function computes the deviance information criterion
     (see for example Celeux et al. 2006) using the posterior mode as a point estimate
-
     Args:
         mcmc_res: (dict): the samples from the MCMC
         burn_in(float): percentage of samples, which are discarded as burn-in
@@ -29,7 +28,6 @@ def compute_dic(mcmc_res, burn_in):
 
 def compute_model_quality(mcmc_results, mode):
     """This function computes an estimator of the relative quality of a model ( either AIC, BIC or MLE)
-
     Args:
         results (dict): the samples from the MCMC
         mode (char): either  'AIC' (Akaike Information Criterion),
@@ -66,7 +64,6 @@ def compute_marginal_likelihood(model, samples, mode, n_temp=100):
         samples(int): the number of samples generated per temperature
         mode (char):  either "stepping stones" or "power posterior"
         n_temp (int): the number of temperatures for which samples are generated
-
     Returns:
         float: the marginal likelihood of the model
     """
@@ -104,7 +101,6 @@ def power_posterior (lh, temp):
     Args:
         lh (list): A list of all the likelihood values for a specific temperature
         temp (list): A list of all temperature values
-
     Returns:
         (float): The marginal likelihood of the model
     """
@@ -120,10 +116,8 @@ def power_posterior (lh, temp):
 
 def stepping_stone_sampler(samples):
     """ This function estimates the marginal likelihood of a model using the stepping stone sampler
-
     Args:
         samples(dict): samples returned from the marginal lh sampler
-
     Returns:
         float: the marginal likelihood of the model
     """
@@ -147,11 +141,9 @@ def stepping_stone_sampler(samples):
 
 def compute_bayes_factor(m_lh_1, m_lh_2):
     """ This function computes the Bayes' factor between two models.
-
     Args:
         m_lh_1 (list): the marginal likelihood of model 1 (for different zone sizes)
         m_lh_2 (list): the marginal likelihood of model 2 (for different zone sizes)
-
     Returns:
         float: the Bayes' factor of model 2 compared to model 1
     """
@@ -166,7 +158,6 @@ def compute_bayes_factor(m_lh_1, m_lh_2):
 
 def samples_list_to_array(samples_in, samples_type="zone"):
     """ Helper function to change the data structure
-
     Args:
         samples_in (list): list of zone assignments as returned by the MCMC
         samples_type (str): type of the input, either "zone", "lh" or "posterior"
@@ -190,7 +181,6 @@ def samples_list_to_array(samples_in, samples_type="zone"):
 
 def samples_array_to_list(samples_in, samples_type):
     """ Helper function to change the data structure from samples
-
     Args:
         samples_in (list): Samples, as returned by the matching function
         samples_type (str): type of the input, either "zone", "lh", or "posterior'
@@ -216,13 +206,10 @@ def samples_array_to_list(samples_in, samples_type):
 
 def match_zones(mcmc_res):
     """Align zones and single zone lh and posterior in (possibly) different chains.
-
     Args:
         mcmc_res (dict): the output from the MCMC neatly collected in a dict
-
     Returns:
         perm_list(list): Resulting matching.
-
     """
     # Change structure
     zone_samples = samples_list_to_array(mcmc_res['zones'], samples_type="zone")
@@ -239,7 +226,7 @@ def match_zones(mcmc_res):
     matching_list = []
     for s in zone_samples:
         i += 1
-        print(i)
+        # print(i)
 
         def clustering_agreement(p):
 
@@ -274,12 +261,10 @@ def match_zones(mcmc_res):
 
 def contribution_per_zone(mcmc_sampler):
     """Evaluate the contribution of each zone to the lh and the posterior in each sample
-
     Args:
         mcmc_sampler(MCMC_generative): MCMC sampler for generative model (including samples)
     Returns:
         MCMC_generative: MCMC sampler including statistics on the likelihood and prior per zone
-
     """
     stats = mcmc_sampler.statistics
     stats['sample_lh_single_zones'] = []
@@ -319,7 +304,6 @@ def rank_zones(mcmc_res, rank_by, burn_in):
             mcmc_res (dict): the output from the MCMC neatly collected in a dict
             rank_by(str): statistics for ranking (either "lh" or "posterior")
             burn_in: (float): First n% of samples are burn-in
-
         Returns:
             dict: the ordered mcmc_res
             np.ndarray: the probability of each zone compared to the other zones (in log-space)
@@ -337,7 +321,8 @@ def rank_zones(mcmc_res, rank_by, burn_in):
     to_rank = np.mean(cont, axis=1)
     p_total = logsumexp(to_rank)
 
-    p_per_zone = np.exp(to_rank[np.argsort(-to_rank)] - p_total)
+    # p_per zone in log-space
+    p_per_zone = to_rank[np.argsort(-to_rank)] - p_total
     ranked = np.argsort(-to_rank)
     mcmc_res['zones'] = [mcmc_res['zones'][r] for r in ranked]
     mcmc_res['lh_single_zones'] = [mcmc_res['lh_single_zones'][r] for r in ranked]
@@ -349,13 +334,11 @@ def rank_zones(mcmc_res, rank_by, burn_in):
 # deprecated
 def apply_matching(samples_in, matching):
     """iterates through a list of samples and reorders the chains in each sample according to the matching schema
-
         Args:
             samples_in (list): samples that need to be reordered
             matching (list): matching according to which the samples are ordered
         Returns:
             list: samples, reordered according to matching
-
         """
 
     # Change data structure to perform the reordering
@@ -375,10 +358,8 @@ def apply_matching(samples_in, matching):
 
 def unnest_marginal_lh(samples_in):
     """Un-nest marginal likelihood samples
-
     Args:
         samples_in: samples to un-nest
-
     Returns:
         list: un-nested samples
     """
