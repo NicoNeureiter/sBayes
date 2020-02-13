@@ -5,6 +5,7 @@ from __future__ import absolute_import, division, print_function, \
 
 import matplotlib as mpl
 import matplotlib.pyplot as plt
+import matplotlib.ticker as mtick
 # import seaborn as sns
 plt.style.use('seaborn-paper')
 plt.tight_layout()
@@ -20,6 +21,7 @@ from scipy.spatial import Delaunay
 from scipy.sparse.csgraph import minimum_spanning_tree
 from matplotlib.collections import LineCollection
 from matplotlib.patches import Patch
+from matplotlib import patches
 from matplotlib.lines import Line2D
 from matplotlib import cm
 from matplotlib.ticker import AutoMinorLocator
@@ -31,9 +33,12 @@ from shapely import geometry
 from descartes import PolygonPatch
 from copy import deepcopy
 import geopandas as gpd
+from itertools import compress
 from decimal import Decimal
 import os
 os.environ["PROJ_LIB"] = "C:/Users/ranacher/Anaconda3/Library/share"
+
+
 
 
 def get_colors():
@@ -291,7 +296,7 @@ def get_plotting_params():
     return {
         'fig_width': 20,
         'fig_height': 10,
-        'fontsize': 22, # overall fontsize value
+        'fontsize': 16, # overall fontsize value
         'line_thickness': 2, # thickness of lines in plots
         'frame_width': 1.5, # width of frame of plots
         'color_burn_in': 'grey', # color of burn in line and text
@@ -520,6 +525,7 @@ def add_zone_bbox(ax, zones, locations, net, nz, n_zones, burn_in, ts_posterior_
 
     return leg_zone
 
+
 def add_zone_boundary(ax, locations, net, is_in_zone, alpha, annotation=None, color='#000000'):
     """ Function to add bounding boxes around zones
     Args:
@@ -547,7 +553,7 @@ def add_zone_boundary(ax, locations, net, is_in_zone, alpha, annotation=None, co
         alpha_shape = compute_alpha_shapes([is_in_zone], net, alpha)
 
         # smooth_shape = alpha_shape.buffer(100, resolution=16, cap_style=1, join_style=1, mitre_limit=5.0)
-        smooth_shape = alpha_shape.buffer(160, resolution=16, cap_style=1, join_style=1, mitre_limit=10.0)
+        smooth_shape = alpha_shape.buffer(60, resolution=16, cap_style=1, join_style=1, mitre_limit=10.0)
         # smooth_shape = alpha_shape
         patch = PolygonPatch(smooth_shape, ec=color, lw=1, ls='-', alpha=1, fill=False,
                              zorder=1)
@@ -830,7 +836,7 @@ def add_minimum_spanning_tree_new(ax, zone, locations, dist_mat, burn_in, ts_pos
     points_posterior_freq = points_posterior_freq / n_samples
 
     # factor for sizes
-    size_factor = 4
+    size_factor = 1.5
 
     for index, freq in np.ndenumerate(mst_posterior_freq):
         if freq >= ts_posterior_freq:
@@ -904,12 +910,11 @@ def plot_posterior_frequency(mcmc_res, net, nz=-1, burn_in=0.2, show_zone_bbox=F
     style_axes(ax, locations, frame_offset, show=show_axes, fontsize=pp['fontsize'])
 
     # adding a legend to the plot
-    if leg_zone:
-        ax.legend((leg_zone,), ('Contact zone',), frameon=False, fontsize=pp['fontsize'], loc='upper right', ncol=1, columnspacing=1)
+    #if leg_zone:
+    #    ax.legend((leg_zone,), ('Contact zone',), frameon=False, fontsize=pp['fontsize'], loc='upper right', ncol=1, columnspacing=1)
 
     fig.savefig(f"{fname}.{pp['save_format']}", bbox_inches='tight', dpi=400, format=pp['save_format'])
     plt.close(fig)
-
 
 
 def plot_posterior_frequency_family(mcmc_res, net, nz=-1, burn_in=0.2, show_zone_bbox=False, zone_bbox_offset=200,
@@ -942,11 +947,9 @@ def plot_posterior_frequency_family(mcmc_res, net, nz=-1, burn_in=0.2, show_zone
     width, height = 15, 10
 
     # initializing figure
-    fig = plt.figure(figsize=(width,height), constrained_layout=True)
-
+    fig = plt.figure(figsize=(width, height), constrained_layout=True)
 
     ax, cbar_axes = get_axes(fig)
-
 
     # getting mcmc data and locations of points
     zones = mcmc_res['zones']
@@ -1260,7 +1263,7 @@ def plot_posterior_frequency_map(mcmc_res, net, nz=-1, burn_in=0.2, plot_family=
 
 
 def plot_mst_posterior(mcmc_res, sites, subset=False, burn_in=0.2, show_zone_boundaries=False, x_extend=None,
-                       y_extend=None, ts_posterior_freq=0.6, frame_offset=None,
+                       y_extend=None, ts_posterior_freq=0.6, frame_offset=None, plot_family=False, flamingo=False,
                        show_axes=True, size=25, fname='mst_posterior'):
     """ This function creates a scatter plot of all sites in the posterior distribution. The color of a site reflects
     its frequency in the posterior
@@ -1270,15 +1273,34 @@ def plot_mst_posterior(mcmc_res, sites, subset=False, burn_in=0.2, show_zone_bou
         net (dict): The full network containing all sites.
         nz (int): For multiple zones: which zone should be plotted? If -1, plot all.
         burn_in (float): Percentage of first samples which is discarded as burn-in
-        show_zone_bbox (boolean): Adds box(es) with annotation to zone(s)
+        show_zone_boundaries (boolean): Adds box(es) with annotation to zone(s)
+        x_extend (tuple): Extend of the plot along x-axis
+        flamingo(bool: Is there a flamingo?
+        y_extend (tuple): Extend of the plot along y-axis
+        plot_family (bool): Plot family shapes?
         ts_posterior_freq (float): If zones are annotated this threshold
         size (int): size of points
-        cmap (matplotlib.cm): colormap for posterior frequency of points
         fname (str): a path followed by a the name of the file
     """
 
+    class TrueZone(object):
+        pass
 
-    # gemeral plotting parameters
+    class TrueZoneHandler(object):
+        def legend_artist(self, legend, orig_handle, fontsize, handlebox):
+            x0, y0 = handlebox.xdescent+10, handlebox.ydescent+10
+
+            patch = patches.Polygon([[x0, y0],
+                                     [x0 + 40, y0+20],
+                                     [x0+60, y0-10],
+                                     [x0+50, y0-20],
+                                     [x0+30, y0-20]],
+                                    ec='black', lw=1, ls='-', alpha=1, fill=False,
+                                    joinstyle="round", capstyle="butt")
+            handlebox.add_artist(patch)
+            return patch
+
+    # general plotting parameters
     pp = get_plotting_params()
 
     plt.rcParams["axes.linewidth"] = pp['frame_width']
@@ -1305,6 +1327,7 @@ def plot_mst_posterior(mcmc_res, sites, subset=False, burn_in=0.2, show_zone_bou
     # plotting all points
     cmap, _ = get_cmap(0.5, name='YlOrRd', lower_ts=1.2)
     ax.scatter(*locations.T, s=size, c=[cmap(0)], alpha=1, linewidth=0)
+
     if subset:
         # plot all points not in the subset
         not_in_subset = np.logical_not(is_in_subset)
@@ -1318,29 +1341,123 @@ def plot_mst_posterior(mcmc_res, sites, subset=False, burn_in=0.2, show_zone_bou
         y_min, y_max = min(y_coords) - offset, max(y_coords) + offset
         bbox_width = x_max - x_min
         bbox_height = y_max - y_min
-        bbox = mpl.patches.Rectangle((x_min, y_min), bbox_width, bbox_height, ec='k', fill=False, linestyle='-')
+        bbox = mpl.patches.Rectangle((x_min, y_min), bbox_width, bbox_height, ec='grey', fill=False,
+                                     lw=1.5, linestyle='-.')
         ax.add_patch(bbox)
-        ax.text(x_max, y_max, 'Subset', fontsize=18, color='#000000')
+        ax.text(x_max, y_max+200, 'Subset', fontsize=18, color='#000000')
 
     # plotting minimum spanningtree for each zone
-    leg_zone = None
-    for i, zone in enumerate(zones):
+    leg_zones = []
+    zone_labels = []
 
-        zone_colors = ['#1b9e77', '#d95f02', '#7570b3', '#e7298a', '#66a61e', '#e6ab02', '#a6761d', '#666666']
-        flamingo_color = '#F48AA7'
-        c = flamingo_color if len(zones) == 1 else zone_colors[i]
+    for i, zone in enumerate(zones):
+        zone_colors = ['#7570b3', '#1b9e77', '#d95f02', '#e7298a', '#66a61e', '#e6ab02', '#a6761d', '#666666']
+        if flamingo:
+            flamingo_color = '#F48AA7'
+            c = flamingo_color if len(zones) == 1 else zone_colors[i]
+        else:
+            c = zone_colors[i]
+
         is_in_zone = add_minimum_spanning_tree_new(ax, zone, locations, dist_mat, burn_in, ts_posterior_freq, size=size, color=c)
+        line = Line2D([], [], color=c, lw=2, linestyle='-', marker="o", markeredgecolor=c, markerfacecolor=c,
+                      markeredgewidth=1.2, markersize=6)
+        leg_zones.append(line)
+        zone_labels.append(f'$Z_{i + 1}$')
 
         if show_zone_boundaries:
-            ann = f'$simulated \, Z_{i + 1}$' if len(zones) > 1 else f'$simulated \, z$'
-            leg_zone = add_zone_boundary(ax, locations, net, is_in_zone, alpha=0.0002, annotation=ann, color='#000000')
+            # ann = f'$simulated \, Z_{i + 1}$' if len(zones) > 1 else f'$simulated \, z$'
+            add_zone_boundary(ax, locations, net, mcmc_res['true_zones'][i], alpha=0.001, color='#000000')
+        # Customize plotting layout
+
+    if plot_family:
+        families = mcmc_res['true_families']
+        family_colors = ['#b3e2cd', '#f1e2cc', '#cbd5e8', '#f4cae4', '#e6f5c9']
+        # handles for legend
+        handles = []
+        for i, is_in_family in enumerate(families):
+                # plot points belonging to family
+
+                family_color = family_colors[i]
+
+                family_alpha_shape = 0.001
+                family_fill = family_color
+                family_border = family_color
+                alpha_shape = compute_alpha_shapes([is_in_family], net, family_alpha_shape)
+                # print(is_in_family, net, alpha_shape)
+                smooth_shape =alpha_shape.buffer(60, resolution=16, cap_style=1, join_style=1, mitre_limit=5.0)
+                # smooth_shape = alpha_shape
+                patch = PolygonPatch(smooth_shape, fc=family_fill, ec=family_border, lw=1, ls='-', alpha=1, fill=True,
+                                     zorder=-i)
+                ax.add_patch(patch)
+
+                # adding legend handle
+                handle = Patch(facecolor=family_color, edgecolor=family_color, label="Simulated family")
+                handles.append(handle)
 
     # styling the axes
     style_axes(ax, locations, show=show_axes, offset=frame_offset, x_extend=x_extend, y_extend=y_extend)
 
     # adding a legend to the plot
-    if leg_zone is not None:
-        ax.legend((leg_zone,), ('Contact zone',), frameon=False, fontsize=pp['fontsize'], loc='upper right', ncol=1, columnspacing=1)
+    legend_zones = ax.legend(
+        leg_zones,
+        zone_labels,
+        numpoints=2,
+        title_fontsize=18,
+        title='Contact Zones ($Z$) in posterior distribution',
+        frameon=True,
+        edgecolor='#ffffff',
+        framealpha=1,
+        fontsize=16,
+        ncol=2,
+        columnspacing=1,
+        loc='lower left',
+        bbox_to_anchor=(0.01, 0.02)
+    )
+    ax.add_artist(legend_zones)
+    # # North - East arrows
+    # arr_e_t = (0.95, 1.8)
+    # arr_e_h = (1.45, 1.8)
+    # arr_n_t = (1, 1.85)
+    # arr_n_h = (1, 2.35)
+    # arrow_east = patches.FancyArrowPatch(arr_e_t, arr_e_h, mutation_scale=8,
+    #                                      transform=fig.dpi_scale_trans, lw=0.5, ec="black", fc="black")
+    # arrow_north = patches.FancyArrowPatch(arr_n_t, arr_n_h, mutation_scale=8,
+    #                                      transform=fig.dpi_scale_trans, lw=0.5, ec="black", fc="black")
+    # ax.add_patch(arrow_east)
+    # ax.add_patch(arrow_north)
+    # ax.text(arr_e_h[0]+0.05, arr_e_t[1] - 0.05, "East", fontsize=12, transform=fig.dpi_scale_trans)
+    # ax.text(arr_n_h[0]-0.2, arr_n_h[1] + 0.05, "North", fontsize=12, transform=fig.dpi_scale_trans)
+
+    if show_zone_boundaries:
+        legend_true_zones = ax.legend([TrueZone()], ['Bounding box of true $Z$'],
+                                      handler_map={TrueZone: TrueZoneHandler()},
+                                      bbox_to_anchor=(0.35, 0.045),
+                                      title_fontsize=16,
+                                      loc='lower left',
+                                      frameon=True,
+                                      edgecolor='#ffffff',
+                                      handletextpad=4,
+                                      fontsize=18,
+                                      ncol=1,
+                                      columnspacing=1)
+        ax.add_artist(legend_true_zones)
+
+    if plot_family:
+        legend_families = ax.legend(
+            handles=handles,
+            title_fontsize=16,
+            fontsize = 18,
+            frameon = True,
+            edgecolor = '#ffffff',
+            framealpha = 1,
+            ncol = 1,
+            columnspacing = 1,
+            handletextpad=4,
+            loc='lower left',
+            bbox_to_anchor=(0.35, 0)
+        )
+        ax.add_artist(legend_families)
+
 
     fig.savefig(f"{fname}.{pp['save_format']}", bbox_inches='tight', dpi=400, format=pp['save_format'])
     plt.close(fig)
@@ -1348,16 +1465,14 @@ def plot_mst_posterior(mcmc_res, sites, subset=False, burn_in=0.2, show_zone_bou
     # if zone boundaries is on we also create a zoomed in plot for each contact zone
     if show_zone_boundaries:
         x_min, x_max = ax.get_xlim()
-        print(x_min, x_max)
         y_min, y_max = ax.get_ylim()
-        print(y_min, y_max)
 
         for i, zone in enumerate(zones):
 
             # first we compute the extend of the contact zone to compute the figure width height ration
             locations_zone = locations[is_in_zone, :]
             x_coords, y_coords = locations_zone.T
-            offset = 0
+            offset = 200
             x_extend = (min(x_coords) - offset, max(x_coords) + offset)
             y_extend = (min(y_coords) - offset, max(y_coords) + offset)
             print(x_extend)
@@ -1374,7 +1489,7 @@ def plot_mst_posterior(mcmc_res, sites, subset=False, burn_in=0.2, show_zone_bou
             print(fig_width, fig_height)
 
             fig, ax_zone = plt.subplots(figsize=(fig_width, fig_height), constrained_layout=True)
-            size_factor = 5
+            size_factor = 1.5
 
             ax_zone.scatter(*locations.T, s=size*size_factor, c=[cmap(0)], alpha=1, linewidth=0)
 
@@ -1383,7 +1498,7 @@ def plot_mst_posterior(mcmc_res, sites, subset=False, burn_in=0.2, show_zone_bou
             c = flamingo_color if len(zones) == 1 else zone_colors[i]
             is_in_zone = add_minimum_spanning_tree_new(ax_zone, zone, locations, dist_mat, burn_in, ts_posterior_freq,
                                                        size=size*size_factor, color=c)
-            add_zone_boundary(ax_zone, locations, net, is_in_zone, alpha=0.0002, color='#000000')
+            add_zone_boundary(ax_zone, locations, net, is_in_zone, alpha=0.001, color='#000000')
 
 
             style_axes(ax_zone, locations, show=show_axes, x_extend=x_extend, y_extend=y_extend)
@@ -1394,11 +1509,12 @@ def plot_mst_posterior(mcmc_res, sites, subset=False, burn_in=0.2, show_zone_bou
             fig.savefig(f"{fname}_z{i + 1}.{pp['save_format']}", bbox_inches='tight', dpi=400, format=pp['save_format'])
             plt.close(fig)
 
+
 def plot_mst_posterior_map(mcmc_res, sites, burn_in=0.2, x_extend=None,
                        y_extend=None, ts_posterior_freq=0.6, lh=None, frame_offset=None,
                        show_axes=True, size=25, labels=False, families=False, family_names=False,
                         bg_map=False, proj4=None, geojson_map=None, family_alpha_shape=None,
-                        geo_json_river=None,
+                        geo_json_river=None, label_languages=False,
                         x_extend_overview=None, y_extend_overview=None, fname='mst_posterior'):
     """ This function creates a scatter plot of all sites in the posterior distribution. The color of a site reflects
     its frequency in the posterior
@@ -1408,6 +1524,7 @@ def plot_mst_posterior_map(mcmc_res, sites, burn_in=0.2, x_extend=None,
         net (dict): The full network containing all sites.
         nz (int): For multiple zones: which zone should be plotted? If -1, plot all.
         burn_in (float): Percentage of first samples which is discarded as burn-in
+        label_languages(int): Show a label for the languages?
         show_zone_bbox (boolean): Adds box(es) with annotation to zone(s)
         ts_posterior_freq (float): If zones are annotated this threshold
         size (int): size of points
@@ -1415,8 +1532,7 @@ def plot_mst_posterior_map(mcmc_res, sites, burn_in=0.2, x_extend=None,
         fname (str): a path followed by a the name of the file
     """
 
-
-    # gemeral plotting parameters
+    # general plotting parameters
     pp = get_plotting_params()
 
     plt.rcParams["axes.linewidth"] = pp['frame_width']
@@ -1449,14 +1565,29 @@ def plot_mst_posterior_map(mcmc_res, sites, burn_in=0.2, x_extend=None,
 
     # plotting minimum spanningtree for each zone
     leg_zones = []
+    extra = patches.Rectangle((0, 0), 1, 1, fc="w", fill=False, edgecolor='none', linewidth=0)
+    leg_zones.append(extra)
     for i, zone in enumerate(zones):
 
         zone_colors = ['#1b9e77', '#d95f02', '#7570b3', '#e7298a', '#66a61e', '#e6ab02', '#a6761d', '#666666']
-        flamingo_color = '#F48AA7'
-        c = flamingo_color if len(zones) == 1 else zone_colors[i]
+        c = zone_colors[i]
         is_in_zone = add_minimum_spanning_tree_new(ax, zone, locations, dist_mat, burn_in, ts_posterior_freq, size=size, color=c)
         line = Line2D([0], [0], color=c, lw=6, linestyle='-')
         leg_zones.append(line)
+
+        # annotating languages
+        if label_languages:
+            loc_in_zone = locations[is_in_zone, :]
+            labels_in_zone = list(compress(sites['id'], is_in_zone))
+
+            for l in range(len(loc_in_zone)):
+
+                x, y = loc_in_zone[l]
+                x += 20000
+                y += 10000
+                anno_opts = dict(xy=(x, y), fontsize=14, color=c)
+                ax.annotate(labels_in_zone[l]+1, **anno_opts)
+
 
     # add overview
     add_overview = True
@@ -1492,7 +1623,6 @@ def plot_mst_posterior_map(mcmc_res, sites, burn_in=0.2, x_extend=None,
 
         # handles for legend
         handles = []
-
         for i, family in enumerate(family_names['external']):
             # print(i, family)
 
@@ -1526,40 +1656,48 @@ def plot_mst_posterior_map(mcmc_res, sites, burn_in=0.2, x_extend=None,
     legend_families = ax.legend(
         handles = handles,
         title = 'Language family',
-        title_fontsize = 18,
-        fontsize = 18,
+        title_fontsize =18,
+        fontsize = 16,
         frameon = True,
         edgecolor = '#ffffff',
         framealpha = 1,
         ncol = 1,
         columnspacing = 1,
         loc = 'upper left',
-        bbox_to_anchor = (0, 0.965)
+        bbox_to_anchor=(0, 0.965)
     )
     ax.add_artist(legend_families)
 
+    def scientific(x):
+        b = int(np.log10(x))
+        a = x / 10**b
+        return '%.2f \cdot 10^{%i}' % (a, b)
+
     # adding a legend to the plot
     zone_labels = []
+    zone_labels.append("         probability of zone")
     for i, exp in enumerate(lh):
         lh_value = np.exp(exp)
         # print(lh_value)
-        lh_value = f"{Decimal(lh_value):.2E}"
-        zone_labels.append(f'$Z_{i + 1} \, {lh_value}$')
+        lh_value = scientific(lh_value)
+        zone_labels.append(f'$Z_{i + 1}: \, \;\;\; {lh_value}$')
 
     legend_zones = ax.legend(
         leg_zones,
         zone_labels,
         title_fontsize=18,
-        title='Contact zone',
+        title='Contact zones',
         frameon=True,
         edgecolor='#ffffff',
         framealpha=1,
-        fontsize=18,
+        fontsize=16,
         ncol=1,
         columnspacing=1,
         loc='upper left',
         bbox_to_anchor=(0, 0.7)
     )
+    legend_zones._legend_box.align = "left"
+
     ax.add_artist(legend_zones)
 
     # styling the axes
@@ -1567,8 +1705,6 @@ def plot_mst_posterior_map(mcmc_res, sites, burn_in=0.2, x_extend=None,
 
     fig.savefig(f"{fname}.{pp['save_format']}", bbox_inches='tight', dpi=400, format=pp['save_format'])
     plt.close(fig)
-
-
 
 
 def plot_posterior_frequency_map_new(mcmc_res, net, labels=False, families=False, family_names=False, nz=-1, burn_in=0.2,
@@ -2027,11 +2163,12 @@ def compute_alpha_shapes(sites, net, alpha):
     return polygon
 
 
-def plot_trace_recall_precision(mcmc_res, burn_in=0.2, recall=True, precision=True, fname='trace_recall_precision'):
+def plot_trace_recall_precision(mcmc_res, steps_per_sample, burn_in=0.2, recall=True, precision=True, fname='trace_recall_precision'):
     """
     Function to plot the trace of the MCMC chains both in terms of likelihood and recall
     Args:
         mcmc_res (dict): the output from the MCMC neatly collected in a dict
+        steps_per_sample (int): How many steps did the MCMC take between each two samples?
         burn_in (float): First n% of samples are burn-in
         recall (boolean): plot recall?
         precision (boolean): plot precision?
@@ -2042,13 +2179,13 @@ def plot_trace_recall_precision(mcmc_res, burn_in=0.2, recall=True, precision=Tr
 
     plt.rcParams["axes.linewidth"] = pp['frame_width']
 
-
     fig, ax = plt.subplots(figsize=(pp['fig_width'], pp['fig_height']))
 
     # Recall
     if recall:
         y = mcmc_res['recall']
         x = range(len(y))
+        x = [i * steps_per_sample for i in x]
         # col['trace']['recall']
         ax.plot(x, y, lw=pp['line_thickness'], color='#e41a1c', label='Recall')
 
@@ -2056,24 +2193,24 @@ def plot_trace_recall_precision(mcmc_res, burn_in=0.2, recall=True, precision=Tr
     if precision:
         y = mcmc_res['precision']
         x = range(len(y))
+        x = [i * steps_per_sample for i in x]
         # col['trace']['precision']
         ax.plot(x, y, lw=pp['line_thickness'], color='#377eb8', label='Precision')
 
     ax.set_ylim(bottom=0)
 
-
     # Find index of first sample after burn-in
-    end_bi = math.ceil(len(y) * burn_in)
-    end_bi_label = math.ceil(len(y) * (burn_in - 0.04))
+    end_bi = math.ceil(len(x) *steps_per_sample * burn_in)
+    end_bi_label = math.ceil(len(x) *steps_per_sample * (burn_in - 0.03))
 
     color_burn_in = 'grey'
     ax.axvline(x=end_bi, lw=pp['line_thickness'], color=pp['color_burn_in'], linestyle='--')
     plt.text(end_bi_label, 0.5, 'Burn-in', rotation=90, size=pp['fontsize'], color=pp['color_burn_in'])
 
-    x_min, x_max = 0, 1000
-    ax.set_xlim([x_min, x_max])
+    xmin, xmax = 0, x[-1] + steps_per_sample
+    ax.set_xlim([xmin, xmax])
     n_ticks = 6 if int(burn_in * 100) % 20 == 0 else 12
-    x_ticks = np.linspace(x_min, x_max, n_ticks)
+    x_ticks = np.linspace(xmin, xmax, n_ticks)
     ax.set_xticks(x_ticks)
     ax.set_xticklabels([f'{x_tick:.0f}' for x_tick in x_ticks], fontsize=pp['fontsize'])
 
@@ -2085,9 +2222,11 @@ def plot_trace_recall_precision(mcmc_res, burn_in=0.2, recall=True, precision=Tr
     y_ticklabels[0] = '0'
     ax.set_yticklabels(y_ticklabels, fontsize=pp['fontsize'])
 
+    f = mtick.ScalarFormatter(useOffset=False, useMathText=True)
+    g = lambda x, pos: "${}$".format(f._formatSciNotation('%1.10e' % x))
+    plt.gca().xaxis.set_major_formatter(mtick.FuncFormatter(g))
 
-    ax.set_xlabel('Sample', fontsize=pp['fontsize'], fontweight='bold')
-
+    ax.set_xlabel('Iteration', fontsize=pp['fontsize'], fontweight='bold')
     ax.legend(loc=4, prop={'size': pp['fontsize']}, frameon=False)
 
     fig.savefig(f"{fname}.{pp['save_format']}", bbox_inches='tight', dpi=400, format=pp['save_format'])
@@ -2155,15 +2294,10 @@ def plot_traces(recall, precision, fname='trace_recalls_precisions'):
     y_ticklabels[0] = '0'
     ax.set_yticklabels(y_ticklabels, fontsize=pp['fontsize'])
 
-
-
-
     ax.legend(loc=4, prop={'size': pp['fontsize']}, frameon=True, framealpha=1, facecolor='#ffffff', edgecolor='#ffffff')
 
     fig.savefig(f"{fname}.{pp['save_format']}", bbox_inches='tight', dpi=400, format=pp['save_format'])
     plt.close(fig)
-
-
 
 
 def plot_dics(dics, threshold=False, fname='DICs'):
@@ -2223,11 +2357,12 @@ def plot_dics(dics, threshold=False, fname='DICs'):
     plt.close(fig)
 
 
-def plot_trace_lh(mcmc_res, burn_in=0.2, true_lh=True, fname='trace_likelihood.png'):
+def plot_trace_lh(mcmc_res, steps_per_sample, burn_in=0.2, true_lh=True,  fname='trace_likelihood.png'):
     """
     Function to plot the trace of the MCMC chains both in terms of likelihood and recall
     Args:
         mcmc_res (dict): the output from the MCMC neatly collected in a dict
+        steps_per_sample (int): How many steps did the MCMC take between each two samples?
         burn_in: (float): First n% of samples are burn-in
         true_lh (boolean): Visualize the true likelihood
         fname (str): a path followed by a the name of the file
@@ -2239,25 +2374,16 @@ def plot_trace_lh(mcmc_res, burn_in=0.2, true_lh=True, fname='trace_likelihood.p
 
 
     fig, ax = plt.subplots(figsize=(pp['fig_width'], pp['fig_height']))
-
     n_zones = len(mcmc_res['zones'])
-
     y = mcmc_res['lh']
-    x = range(len(y))
-    color = 'red' # col['trace']['lh']
-
-
+    x = list(range(len(y)))
+    x = [i * steps_per_sample for i in x]
 
     if true_lh:
         ax.axhline(y=mcmc_res['true_lh'], xmin=x[0], xmax=x[-1], lw=2, color='#fdbf6f', linestyle='-', label='True')
-    ax.plot(x, y, lw=pp['line_thickness'], color='#6a3d9a', linestyle='-', label='Predicted')
-
+    ax.plot(x, y, lw=pp['line_thickness'], color='#6a3d9a', linestyle='-', label='Posterior')
 
     y_min, y_max = min(y), max(y)
-
-
-
-
 
     # round y min and y max to 100 up and down, respectively
     n_digits = len(str(int(y_min))) - 1
@@ -2266,16 +2392,13 @@ def plot_trace_lh(mcmc_res, burn_in=0.2, true_lh=True, fname='trace_likelihood.p
     y_min = int(np.floor(y_min / convertor) * convertor)
     y_max = int(np.ceil(y_max / convertor) * convertor)
 
-
     # add burn-in line and label
-    end_bi = math.ceil(len(x) * burn_in)
-    end_bi_label = math.ceil(len(x) * (burn_in - 0.03))
+    end_bi = math.ceil(len(x)*steps_per_sample * burn_in)
+    end_bi_label = math.ceil(len(x) *steps_per_sample * (burn_in - 0.03))
 
     ax.axvline(x=end_bi, lw=pp['line_thickness'], color=pp['color_burn_in'], linestyle='--')
     ypos_label = y_min + (y_max - y_min) / 2
     ax.text(end_bi_label, ypos_label, 'Burn-in', rotation=90, size=pp['fontsize'], color=pp['color_burn_in'])
-
-
 
     ax.set_ylim([y_min, y_max])
     y_ticks = np.linspace(y_min, y_max, 6)
@@ -2283,22 +2406,23 @@ def plot_trace_lh(mcmc_res, burn_in=0.2, true_lh=True, fname='trace_likelihood.p
     yticklabels = [f'{y_tick:.0f}' for y_tick in y_ticks]
     ax.set_yticklabels(yticklabels, fontsize=pp['fontsize'])
 
-
-
-
-    xmin, xmax, xstep = 0, 1000, 200
+    xmin, xmax, xstep = 0, x[-1] + steps_per_sample,  steps_per_sample * 200
     ax.set_xlim([xmin, xmax])
     xticks = np.arange(xmin, xmax+xstep, xstep)
     ax.set_xticks(xticks)
     ax.set_xticklabels(xticks, fontsize=pp['fontsize'])
 
+    f = mtick.ScalarFormatter(useOffset=False, useMathText=True)
+    g = lambda x, pos: "${}$".format(f._formatSciNotation('%1.10e' % x))
+    plt.gca().yaxis.set_major_formatter(mtick.FuncFormatter(g))
+    plt.gca().xaxis.set_major_formatter(mtick.FuncFormatter(g))
 
-    ax.set_xlabel('Sample', fontsize=pp['fontsize'], fontweight='bold')
+    ax.set_xlabel('Iteration', fontsize=pp['fontsize'], fontweight='bold')
 
     if n_zones == 1:
-        yaxis_label = "Log-likelihood of simulated area"
+        yaxis_label = "log-likelihood"
     else:
-        yaxis_label = "Log-likelihood of simulated areas"
+        yaxis_label = "log-likelihood"
     ax.set_ylabel(yaxis_label, fontsize=pp['fontsize'], fontweight='bold')
 
     ax.legend(loc=4, prop={'size': pp['fontsize']}, frameon=False)
@@ -2308,11 +2432,12 @@ def plot_trace_lh(mcmc_res, burn_in=0.2, true_lh=True, fname='trace_likelihood.p
     plt.close(fig)
 
 
-def plot_trace_lh_with_prior(mcmc_res,  burn_in=0.2, lh_range=None, prior_range=None, labels=None, fname='trace_likelihood'):
+def plot_trace_lh_with_prior(mcmc_res,  steps_per_sample, burn_in=0.2, lh_range=None, prior_range=None, labels=None, fname='trace_likelihood'):
     """
     Function to plot the trace of the MCMC chains both in terms of likelihood and recall
     Args:
         mcmc_res (dict): the output from the MCMC neatly collected in a dict
+        steps_per_sample (int): How many steps did the MCMC take between each two samples?
         burn_in: (float): First n% of samples are burn-in
         true_lh (boolean): Visualize the true likelihood
         fname (str): a path followed by a the name of the file
@@ -2324,25 +2449,25 @@ def plot_trace_lh_with_prior(mcmc_res,  burn_in=0.2, lh_range=None, prior_range=
 
     n_zones = len(mcmc_res['zones'])
 
-
     fig, ax1 = plt.subplots(figsize=(pp['fig_width'], pp['fig_height']))
 
+    x = list(range(len(mcmc_res['lh'])))
+    x = [i * steps_per_sample for i in x]
+
     # create shared x axis
-    xmin, xmax, xstep = 0, 1000, 200
-    x = range(xmax - xmin)
+    xmin, xmax, xstep = 0, x[-1] + steps_per_sample, steps_per_sample * 200
 
     ax1.set_xlim([xmin, xmax])
     xticks = np.arange(xmin, xmax+xstep, xstep)
     ax1.set_xticks(xticks)
     ax1.set_xticklabels(xticks, fontsize=pp['fontsize'])
 
-    ax1.set_xlabel('Sample', fontsize=pp['fontsize'], fontweight='bold')
+    ax1.set_xlabel('Iteration', fontsize=pp['fontsize'], fontweight='bold')
 
     # create first y axis showing likelihood
     color_lh = 'tab:red'
     lh = mcmc_res['lh']
     ax1.plot(x, lh, lw=pp['line_thickness'], color=color_lh, linestyle='-', label=labels[0])
-
 
     if lh_range is None:
         y_min, y_max = min(lh), max(lh)
@@ -2363,20 +2488,15 @@ def plot_trace_lh_with_prior(mcmc_res,  burn_in=0.2, lh_range=None, prior_range=
     yticklabels = [f'{y_tick:.0f}' for y_tick in y_ticks]
     ax1.set_yticklabels(yticklabels, fontsize=pp['fontsize'], color=color_lh)
 
-    yaxis_label = 'Log-likelihood of simulated area'
-    if n_zones > 1:
-        yaxis_label += 's'
-    yaxis_label = 'Log-likelihood'
+    yaxis_label = 'log-likelihood'
     ax1.set_ylabel(yaxis_label, fontsize=pp['fontsize'], fontweight='bold', color=color_lh)
-
-
 
 
     ax2 = ax1.twinx()  # instantiate a second axes that shares the same x-axis
     color_prior = 'tab:blue'
     prior = mcmc_res['prior']
     ax2.plot(x, prior, lw=pp['line_thickness'], color=color_prior, linestyle='-', label=labels[1])
-    yaxis_label = 'Prior'
+    yaxis_label = 'prior'
     ax2.set_ylabel(yaxis_label, fontsize=pp['fontsize'], fontweight='bold', color=color_prior)
 
     if prior_range is None:
@@ -2388,24 +2508,27 @@ def plot_trace_lh_with_prior(mcmc_res,  burn_in=0.2, lh_range=None, prior_range=
     yticklabels = [f'{y_tick:.0f}' for y_tick in y_ticks]
     ax2.set_yticklabels(yticklabels, fontsize=pp['fontsize'], color=color_prior)
 
-
-
-
     # add burn-in line and label
-    end_bi = math.ceil(len(x) * burn_in)
-    end_bi_label = math.ceil(len(x) * (burn_in - 0.03))
+    end_bi = math.ceil(len(x) * steps_per_sample * burn_in)
+    end_bi_label = math.ceil(len(x) * steps_per_sample * (burn_in - 0.03))
 
     ax2.axvline(x=end_bi, lw=pp['line_thickness'], color=pp['color_burn_in'], linestyle='--')
     ypos_label = y_min + (y_max - y_min) / 2
     ax2.text(end_bi_label, ypos_label, 'Burn-in', rotation=90, size=pp['fontsize'], color=pp['color_burn_in'])
 
+    f = mtick.ScalarFormatter(useOffset=False, useMathText=True)
+    g = lambda x, pos: "${}$".format(f._formatSciNotation('%1.10e' % x))
+    plt.gca().xaxis.set_major_formatter(mtick.FuncFormatter(g))
+
     # ax1.legend(loc=4, prop={'size': pp['fontsize']}, frameon=False)
     # ax1.legend([lh_handle, prior_handle])
 
     # ask matplotlib for the plotted objects and their labels
-    lh_handle, lh_label = ax1.get_legend_handles_labels()
-    prior_handle, prior_label = ax2.get_legend_handles_labels()
-    ax2.legend(lh_handle + prior_handle, lh_label + prior_label, loc=4, prop={'size': pp['fontsize']}, frameon=False)
+    #lh_handle, _  = ax1.get_legend_handles_labels()
+    #lh_label = "log-likelihood"
+    #prior_handle, _ = ax2.get_legend_handles_labels()
+    #prior_label = "prior"
+    #ax2.legend(lh_handle + prior_handle, lh_label + prior_label, loc=4, prop={'size': pp['fontsize']}, frameon=False)
 
     fig.savefig(f"{fname}.{pp['save_format']}", bbox_inches='tight', dpi=400, format=pp['save_format'])
     plt.close(fig)
@@ -2588,7 +2711,7 @@ def plot_geo_prior_vs_feature_lh(mcmc_res, r=0, burn_in=0.2):
     ax.axvline(x=end_bi, lw=1, color="grey", linestyle='--')
     ax.text(end_bi_label, max(x_mid), 'Burn-in', rotation=90, size=8)
 
-    ax.set_xlabel('Sample')
+    ax.set_xlabel('Iteration')
     ax.legend(loc=4)
     plt.show()
 
@@ -2697,7 +2820,7 @@ def plot_zone_size_over_time(mcmc_res, r=0, burn_in=0.2, true_zone=True, fname='
             ax.axhline(y=true_size, xmin=x[0], xmax=x[-1], lw=pp['line_thickness'], color=colors[1],
                        linestyle=linestyle[1], label=label)
 
-        ax.plot(x, size, lw=pp['line_thickness'], color=colors[0], linestyle=linestyle[0], label="Predicted")
+        ax.plot(x, size, lw=pp['line_thickness'], color=colors[0], linestyle=linestyle[0], label="Posterior")
 
         max_size, min_size = max(size), min(size)
         y_max = max_size if max_size > y_max else y_max
@@ -2741,7 +2864,7 @@ def plot_zone_size_over_time(mcmc_res, r=0, burn_in=0.2, true_zone=True, fname='
     yticklabels[0] = '0'
     ax.set_yticklabels(yticklabels, fontsize=pp['fontsize'])
 
-    ax.set_xlabel('Sample', fontsize=pp['fontsize'], fontweight='bold')
+    ax.set_xlabel('Iteration', fontsize=pp['fontsize'], fontweight='bold')
     ax.set_ylabel('Zone size', fontsize=pp['fontsize'], fontweight='bold')
 
     ax.legend(loc=4, prop={'size': pp['fontsize']}, frameon=False)
@@ -2890,6 +3013,50 @@ def plot_correlation_p(mcmc_res,  which_p, burn_in=0.2, which_nr=0, which_cat=0)
     ax.set_ylim([0, 1])
 
     plt.show()
+
+
+def plot_correspondence_table(sites, fname):
+    """ Which language belongs to which number? This table will tell you more
+    Args:
+        net(dict): the network containing all languages and sites
+        fnam(str): name of the figure
+    """
+    pp = get_plotting_params()
+    fig, ax = plt.subplots()
+
+    # hide axes
+    fig.patch.set_visible(False)
+    ax.axis('off')
+    ax.axis('tight')
+    n_col = 3
+    n_row = math.ceil(len(sites['id'])/n_col)
+
+    l = [[] for _ in range(n_row)]
+
+    for i in range(len(sites['id'])):
+        col = i%n_row
+        nr = str(sites['id'][i] + 1)
+        l[col].append(nr)
+        l[col].append(sites['names'][i])
+
+    # Fill up empty cells
+    for i in range(len(l)):
+        if len(l[i]) != n_col*2:
+            fill_up_nr = n_col*2 - len(l[i])
+            for f in range(fill_up_nr):
+                l[i].append("")
+
+    widths = [0.05, 0.3] * int(((len(l[0]))/2))
+
+    table = ax.table(cellText=l, loc='center', cellLoc="left", colWidths=widths)
+    table.set_fontsize(40)
+
+    for key, cell in table.get_celld().items():
+        cell.set_linewidth(0)
+    fig.tight_layout()
+
+    fig.savefig(f"{fname}.{pp['save_format']}", bbox_inches='tight', dpi=400, format=pp['save_format'])
+
 
 
 def plot_parallel_posterior(post):

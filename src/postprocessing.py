@@ -1,7 +1,7 @@
 from itertools import permutations
 import numpy as np
 import math
-from scipy.misc import logsumexp
+from scipy.special import logsumexp
 from src.util import (transform_weights_to_log, transform_p_to_log)
 from src.sampling.zone_sampling import ZoneMCMC_generative, Sample
 

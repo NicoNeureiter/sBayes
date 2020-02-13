@@ -28,7 +28,7 @@ if __name__ == '__main__':
     scenarios = [4] # fix for more than 4 zones
 
     # general parameters for plots
-    ts_posterior_freq = 0.6
+    ts_posterior_freq = 0.4
     ts_low_frequency = 0.5
     burn_in =  0.4
 
@@ -64,12 +64,89 @@ if __name__ == '__main__':
             burn_in=burn_in,
             show_zone_boundaries=True,
             show_axes=False,
-            x_extend = (2510, 10000), # (1750, 10360)
-            y_extend = (700, 10000), # (400, 11950)
+            x_extend =(1750, 10360), # (1750, 10360)
+            y_extend = (400, 11950), # (400, 11950)
             fname=f'{scenario_plot_path}mst_posterior_nz{n_zones}_{run}'
         )
 
-
+        # nz = 0
+        # dics = {}
+        # list_precision = []
+        # list_recall = []
+        # while True:
+        #
+        #     nz += 1
+        #
+        #     try:
+        #         # Load the MCMC results
+        #         # sample_path = TEST_ZONE_DIRECTORY + 'number_zones_nz' + str(nz) + '_' + str(run) + '.pkl'
+        #         sample_path = f'{PATH_SIMULATION}{TEST_ZONE_DIRECTORY}number_zones_nz{nz}_{run}.pkl'
+        #         samples = load_from(sample_path)
+        #
+        #     except FileNotFoundError:
+        #         break
+        #
+        #     # Define output format
+        #     n_zones = samples['sample_zones'][0].shape[0]
+        #
+        #     # Define output format
+        #     mcmc_res = {'lh': [],
+        #                 'prior': [],
+        #                 'recall': [],
+        #                 'precision': [],
+        #                 'posterior': [],
+        #                 'zones': [[] for _ in range(n_zones)],
+        #                 'weights': [],
+        #                 'true_zones': [],
+        #                 'true_weights': [],
+        #                 'true_lh': []}
+        #
+        #     # True sample
+        #     true_z = np.any(samples['true_zones'], axis=0)
+        #     mcmc_res['true_zones'].append(true_z)
+        #     mcmc_res['true_weights'] = transform_weights_from_log(samples['true_weights'])
+        #
+        #     # True likelihood
+        #     mcmc_res['true_lh'] = samples['true_ll']
+        #     true_posterior = samples['true_ll'] + samples['true_prior']
+        #
+        #     for t in range(len(samples['sample_zones'])):
+        #
+        #         # Zones
+        #         for z in range(n_zones):
+        #             mcmc_res['zones'][z].append(samples['sample_zones'][t][z])
+        #         mcmc_res['weights'].append(transform_weights_from_log(samples['sample_weights'][t]))
+        #
+        #         # Likelihood, prior and posterior
+        #         mcmc_res['lh'].append(samples['sample_likelihood'][t])
+        #         mcmc_res['prior'].append(samples['sample_prior'][t])
+        #
+        #         posterior = samples['sample_likelihood'][t] + samples['sample_prior'][t]
+        #         mcmc_res['posterior'].append(posterior)
+        #
+        #         # Recall and precision
+        #         sample_z = np.any(samples['sample_zones'][t], axis=0)
+        #         n_true = np.sum(true_z)
+        #
+        #         intersections = np.minimum(sample_z, true_z)
+        #         total_recall = np.sum(intersections, axis=0) / n_true
+        #         mcmc_res['recall'].append(total_recall)
+        #         list_recall.append(total_recall)
+        #
+        #         precision = np.sum(intersections, axis=0) / np.sum(sample_z, axis=0)
+        #         mcmc_res['precision'].append(precision)
+        #         list_precision.append(precision)
+        #
+        #     dics[nz] = compute_dic(mcmc_res, 0.5)
+        #
+        #
+        # plot_dics(dics, fname=f'{PLOT_PATH}DICs_all_{run}')
+        #
+        # plot_traces(
+        #     list_recall,
+        #     list_precision,
+        #     fname=f'{PLOT_PATH}traces_all_{run}'
+        # )
 
         """
         # Plot posterior frequency
@@ -112,7 +189,7 @@ if __name__ == '__main__':
             burn_in=burn_in,
             fname=f'{scenario_plot_path}trace_recall_precision_nz{n_zones}_{run}'
         )
-        
+
         """
 
         """
@@ -126,87 +203,3 @@ if __name__ == '__main__':
         """
 
 
-
-
-"""
-
-nz = 0
-dics = {}
-list_precision = []
-list_recall = []
-while True:
-
-    nz += 1
-
-    try:
-        # Load the MCMC results
-        # sample_path = TEST_ZONE_DIRECTORY + 'number_zones_nz' + str(nz) + '_' + str(run) + '.pkl'
-        sample_path = f'{PATH_SIMULATION}{TEST_ZONE_DIRECTORY}number_zones_nz{nz}_{run}.pkl'
-        samples = load_from(sample_path)
-
-    except FileNotFoundError:
-        break
-
-    # Define output format
-    n_zones = samples['sample_zones'][0].shape[0]
-
-    # Define output format
-    mcmc_res = {'lh': [],
-                'prior': [],
-                'recall': [],
-                'precision': [],
-                'posterior': [],
-                'zones': [[] for _ in range(n_zones)],
-                'weights': [],
-                'true_zones': [],
-                'true_weights': [],
-                'true_lh': []}
-
-    # True sample
-    true_z = np.any(samples['true_zones'], axis=0)
-    mcmc_res['true_zones'].append(true_z)
-    mcmc_res['true_weights'] = transform_weights_from_log(samples['true_weights'])
-
-    # True likelihood
-    mcmc_res['true_lh'] = samples['true_ll']
-    true_posterior = samples['true_ll'] + samples['true_prior']
-
-    for t in range(len(samples['sample_zones'])):
-
-        # Zones
-        for z in range(n_zones):
-            mcmc_res['zones'][z].append(samples['sample_zones'][t][z])
-        mcmc_res['weights'].append(transform_weights_from_log(samples['sample_weights'][t]))
-
-        # Likelihood, prior and posterior
-        mcmc_res['lh'].append(samples['sample_likelihood'][t])
-        mcmc_res['prior'].append(samples['sample_prior'][t])
-
-        posterior = samples['sample_likelihood'][t] + samples['sample_prior'][t]
-        mcmc_res['posterior'].append(posterior)
-
-        # Recall and precision
-        sample_z = np.any(samples['sample_zones'][t], axis=0)
-        n_true = np.sum(true_z)
-
-        intersections = np.minimum(sample_z, true_z)
-        total_recall = np.sum(intersections, axis=0) / n_true
-        mcmc_res['recall'].append(total_recall)
-        list_recall.append(total_recall)
-
-        precision = np.sum(intersections, axis=0) / np.sum(sample_z, axis=0)
-        mcmc_res['precision'].append(precision)
-        list_precision.append(precision)
-
-    dics[nz] = compute_dic(mcmc_res, 0.5)
-
-
-plot_dics(dics, fname=f'{PLOT_PATH}DICs_all_{run}')
-
-plot_traces(
-    list_recall,
-    list_precision,
-    fname=f'{PLOT_PATH}traces_all_{run}'
-)
-
-"""

@@ -6,7 +6,7 @@ if __name__ == '__main__':
     from src.postprocessing import compute_dic
     from src.plotting import plot_posterior_frequency, plot_trace_lh, plot_trace_recall_precision, \
         plot_zone_size_over_time, plot_dics, plot_correlation_weights, plot_histogram_weights, plot_correlation_p, \
-        plot_posterior_frequency_family, plot_minimum_spanning_tree
+        plot_posterior_frequency_family, plot_minimum_spanning_tree, plot_mst_posterior
     import os
 
 
@@ -24,9 +24,9 @@ if __name__ == '__main__':
     run = 0
 
     # general parameters for plots
-    ts_posterior_freq = 0.8
+    ts_posterior_freq = 0.7
     ts_low_frequency = 0.5
-    burn_in =  0.2
+    burn_in = 0.2
 
 
     for inheritance in inheritances:
@@ -46,18 +46,31 @@ if __name__ == '__main__':
         network = compute_network(sites)
 
         # plot posterior frequency including family
-        show_zone_bbox = True if inheritance == 1 else False
-        plot_posterior_frequency_family(
+        plot_mst_posterior(
             mcmc_res,
-            net = network,
-            nz = -1,
-            ts_low_frequency = ts_low_frequency,
-            ts_posterior_freq = ts_posterior_freq,
-            burn_in = burn_in,
-            show_zone_bbox = show_zone_bbox,
-            show_axes = False,
-            fname = f'{scenario_plot_path}posterior_frequency_family_i{inheritance}_{run}'
+            sites,
+            ts_posterior_freq=ts_posterior_freq,
+            plot_family=True,
+            burn_in=burn_in,
+            show_zone_boundaries=True,
+            show_axes=False,
+            x_extend=(1750, 10360),
+            y_extend=(400, 11950),
+            fname=f'{scenario_plot_path}posterior_frequency_family_i{inheritance}_{run}'
         )
+
+
+        # plot_posterior_frequency_family(
+        #     mcmc_res,
+        #     net = network,
+        #     nz = -1,
+        #     ts_low_frequency = ts_low_frequency,
+        #     ts_posterior_freq = ts_posterior_freq,
+        #     burn_in = burn_in,
+        #     show_zone_bbox = show_zone_bbox,
+        #     show_axes = False,
+        #     fname = f'{scenario_plot_path}posterior_frequency_family_i{inheritance}_{run}'
+        # )
 
 
         # Plot minimum spanning tree
