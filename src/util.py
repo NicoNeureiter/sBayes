@@ -12,7 +12,10 @@ import datetime
 import csv
 import os
 import random
-from scipy.misc import logsumexp
+try:
+    from scipy.special import logsumexp
+except ImportError:
+    from scipy.misc import logsumexp
 import matplotlib.pyplot as plt
 from matplotlib.collections import LineCollection
 
