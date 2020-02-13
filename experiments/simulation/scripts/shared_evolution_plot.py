@@ -6,7 +6,6 @@ if __name__ == '__main__':
     import itertools
     import os
 
-
     PATH = '../../../' # relative path to contact_zones_directory
     PATH_SIMULATION = f'{PATH}/experiments/simulation/'
 
@@ -70,32 +69,35 @@ if __name__ == '__main__':
         sites, site_names = get_sites(f'{PATH_SIMULATION}data/sites_simulation.csv')
         network = compute_network(sites)
 
-        plot_mst_posterior(
-            mcmc_res,
-            sites,
-            ts_posterior_freq=ts_posterior_freq,
-            burn_in=burn_in,
-            show_zone_boundaries=True,
-            show_axes=False,
-            x_extend = (2510, 10000), # (1750, 10360)
-            y_extend = (700, 10000), # (400, 11950)
-            fname=f'{scenario_plot_path}mst_posterior_z{zone}_e{ease}_{run}'
-        )
+        # plot_mst_posterior(
+        #     mcmc_res,
+        #     sites,
+        #     ts_posterior_freq=ts_posterior_freq,
+        #     burn_in=burn_in,
+        #     show_zone_boundaries=True,
+        #     show_axes=False,
+        #     size=20,
+        #     flamingo=True,
+        #     x_extend=(1750, 10360), # (1750, 10360)
+        #     y_extend=(400, 11950), # (400, 11950)
+        #     fname=f'{scenario_plot_path}mst_posterior_z{zone}_e{ease}_{run}'
+        # )
 
         plot_trace_recall_precision(
             mcmc_res,
+            steps_per_sample=200,
             burn_in = burn_in,
             fname = f'{scenario_plot_path}trace_recall_precision_z{zone}_e{ease}_{run}'
         )
 
-        # Plot zone size over time
-        plot_zone_size_over_time(
+        # Plot trace of likelihood, recall and precision
+        plot_trace_lh(
             mcmc_res,
-            r = 0,
-            burn_in = burn_in,
-            fname = f'{scenario_plot_path}zone_size_over_time_z{zone}_e{ease}_{run}'
+            steps_per_sample=200,
+            burn_in=burn_in,
+            true_lh=True,
+            fname=f'{scenario_plot_path}trace_likelihood_z{zone}_e{ease}_{run}'
         )
-
 
         # old plotting functions are below
 
@@ -124,13 +126,14 @@ if __name__ == '__main__':
             fname = f'{scenario_plot_path}minimum spanning tree_z{zone}_e{ease}_{run}'
         )
 
-        # Plot trace of likelihood, recall and precision
-        plot_trace_lh(
+        # Plot zone size over time
+        plot_zone_size_over_time(
             mcmc_res,
+            r = 0,
             burn_in = burn_in,
-            true_lh = True,
-            fname = f'{scenario_plot_path}trace_likelihood_z{zone}_e{ease}_{run}'
+            fname = f'{scenario_plot_path}zone_size_over_time_z{zone}_e{ease}_{run}'
         )
+
 
         """
         

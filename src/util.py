@@ -12,7 +12,7 @@ import datetime
 import csv
 import os
 import random
-from scipy.misc import logsumexp
+from scipy.special import logsumexp
 import matplotlib.pyplot as plt
 from matplotlib.collections import LineCollection
 
@@ -692,7 +692,7 @@ def samples2res(samples):
     # Collect true sample
     if 'true_zones' in samples.keys():
         true_z = np.any(samples['true_zones'], axis=0)
-        mcmc_res['true_zones'].append(true_z)
+        mcmc_res['true_zones'] = samples['true_zones']
         mcmc_res['true_weights'] = samples['true_weights']
         mcmc_res['true_p_global'] = samples['true_p_global']
         mcmc_res['true_p_zones'] = samples['true_p_zones']
@@ -706,7 +706,7 @@ def samples2res(samples):
         mcmc_res['true_families'] = samples['true_families']
         mcmc_res['true_p_families'] = samples['true_p_families']
 
-    if 'true_lh' in samples.keys():
+    if 'true_ll' in samples.keys():
         mcmc_res['true_lh'] = samples['true_ll']
         true_posterior = samples['true_ll'] + samples['true_prior']
         mcmc_res['true_posterior'] = true_posterior

@@ -5,7 +5,7 @@ if __name__ == '__main__':
     from src.postprocessing import compute_dic, match_zones, rank_zones
     from src.plotting import plot_posterior_frequency, plot_trace_lh, plot_trace_recall_precision, \
         plot_zone_size_over_time, plot_dics, plot_correlation_weights, plot_histogram_weights, plot_correlation_p, \
-        plot_posterior_frequency_map_new, plot_mst_posterior_map
+        plot_posterior_frequency_map_new, plot_mst_posterior_map, plot_correspondence_table
 
     import numpy as np
     import os
@@ -14,8 +14,8 @@ if __name__ == '__main__':
 
     warnings.filterwarnings("ignore")
 
-    PATH = '../../../../' # relative path to contact_zones_directory
-    PATH_BK = f'{PATH}/src/experiments/balkan/'
+    PATH = '../../../' # relative path to contact_zones_directory
+    PATH_BK = f'{PATH}/experiments/balkan/'
 
 
     TEST_ZONE_DIRECTORY = 'results/shared_evolution/prior_p_global/2019-12-13_21-43/'
@@ -43,9 +43,9 @@ if __name__ == '__main__':
     # n_zones = [5]
 
     # general parameters
-    ts_posterior_freq = 0.6
+    ts_posterior_freq = 0.2
     ts_lower_freq = 0.8
-    burn_in = 0.8
+    burn_in = 0.6
 
 
     for n_zone in n_zones:
@@ -120,6 +120,9 @@ if __name__ == '__main__':
         mcmc_res = match_zones(mcmc_res)
         mcmc_res, p_per_zone = rank_zones(mcmc_res, rank_by="lh", burn_in=0.8)
 
+        plot_correspondence_table(sites,
+                                  fname=f'{scenario_plot_path}_lang_table')
+
         plot_mst_posterior_map(
             mcmc_res,
             sites,
@@ -130,6 +133,7 @@ if __name__ == '__main__':
             ts_posterior_freq=ts_posterior_freq,
             lh = p_per_zone,
             bg_map=True,
+            label_languages=True,
             proj4=PROJ4_STRING,
             geojson_map=GEOJSON_MAP_PATH,
             geo_json_river=GEOJSON_RIVER_PATH,
@@ -165,29 +169,29 @@ if __name__ == '__main__':
             fname=f'{scenario_plot_path}sa_contact_zones_nz{n_zones}_{run}'
         )
     """
-    n_zone_file = 1
-    dics = {}
-    while True:
-        try:
-            # Load the MCMC results
-            sample_path = f'{PATH_BK}{TEST_ZONE_DIRECTORY}bk_prior_p_global_nz{n_zone_file}_{run}.pkl'
-            # sample_path = TEST_ZONE_DIRECTORY + '/sa_shared_evolution_nz' + str(n_zone_file) + '_' + str(run) + '.pkl'
-            samples = load_from(sample_path)
-
-        except FileNotFoundError:
-            break
-
-        # Define output format
-        n_zones = samples['sample_zones'][0].shape[0]
-
-        # Define output format
-        mcmc_res_all = {'lh': []}
-
-        for t in range(len(samples['sample_zones'])):
-            # Likelihood, prior and posterior
-            mcmc_res_all['lh'].append(samples['sample_likelihood'][t])
-
-        dics[n_zone_file] = compute_dic(mcmc_res_all, 0.5)
-        n_zone_file += 1
-
-    plot_dics(dics, 5, f'{PLOT_PATH}DICs')
+    # n_zone_file = 1
+    # dics = {}
+    # while True:
+    #     try:
+    #         # Load the MCMC results
+    #         sample_path = f'{PATH_BK}{TEST_ZONE_DIRECTORY}bk_prior_p_global_nz{n_zone_file}_{run}.pkl'
+    #         # sample_path = TEST_ZONE_DIRECTORY + '/sa_shared_evolution_nz' + str(n_zone_file) + '_' + str(run) + '.pkl'
+    #         samples = load_from(sample_path)
+    #
+    #     except FileNotFoundError:
+    #         break
+    #
+    #     # Define output format
+    #     n_zones = samples['sample_zones'][0].shape[0]
+    #
+    #     # Define output format
+    #     mcmc_res_all = {'lh': []}
+    #
+    #     for t in range(len(samples['sample_zones'])):
+    #         # Likelihood, prior and posterior
+    #         mcmc_res_all['lh'].append(samples['sample_likelihood'][t])
+    #
+    #     dics[n_zone_file] = compute_dic(mcmc_res_all, 0.5)
+    #     n_zone_file += 1
+    #
+    # plot_dics(dics, 5, f'{PLOT_PATH}DICs')
