@@ -15,8 +15,7 @@ import igraph
 import math
 from src.model import normalize_weights
 from src.util import (compute_distance, simulate_family_of_size_k, compute_delaunay,
-                      read_feature_occurrence_from_csv, global_counts_to_dirichlet, family_counts_to_dirichlet,
-                      FamilyError)
+                      read_feature_occurrence_from_csv, FamilyError)
 import csv
 
 
