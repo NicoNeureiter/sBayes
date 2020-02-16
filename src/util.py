@@ -15,7 +15,7 @@ import random
 from scipy.special import logsumexp
 import matplotlib.pyplot as plt
 from matplotlib.collections import LineCollection
-
+import logging
 
 EPS = np.finfo(float).eps
 
@@ -177,6 +177,7 @@ def transform_weights_from_log(log_weights):
     """
 
     # Normalize in original space and transform
+
     log_weights -= logsumexp(log_weights, keepdims=True)
     weights_norm = np.exp(log_weights)
 
@@ -192,10 +193,9 @@ def transform_p_from_log(log_p):
         (np.array): transformed and normalized weights
     """
     # Transform to original space
-    p = np.exp(log_p)
 
-    # Normalize
-    p_norm = p / p.sum(axis=2, keepdims=True)
+    log_p -= logsumexp(log_p, axis=2, keepdims=True)
+    p_norm = np.exp(log_p)
 
     return p_norm
 
@@ -210,7 +210,8 @@ def transform_weights_to_log(weights):
     """
 
     # Transform to log space
-    log_weights = np.log(weights)
+    with np.errstate(divide='ignore'):
+        log_weights = np.log(weights)
 
     return log_weights
 
@@ -231,15 +232,17 @@ def transform_p_to_log(p):
     return log_p
 
 
-def read_languages_from_csv(file):
-    """This is a helper function to import language data (sites, features, family membership,...) from a csv file
+def read_features_from_csv(file_location, log=True):
+    """This is a helper function to import data (sites, features, family membership,...) from a csv file
         Args:
-            file(str): file location of the csv file
+            file_location(str): file location of the csv file
+            log (bool): write information on importing the features to the log-file?
         Returns:
             (dict, dict, np.array, dict, dict, np.array, dict) :
             The language date including sites, site names, all features, feature names and category names per feature,
             as well as family membership and family names
     """
+    file = file_location + "features.csv"
     columns = []
     feature_names_ordered = []
     with open(file, 'rU') as f:
@@ -257,22 +260,24 @@ def read_languages_from_csv(file):
     try:
         x = csv_as_dict.pop('x')
         y = csv_as_dict.pop('y')
+        l_id = csv_as_dict.pop('id')
         name = csv_as_dict.pop('name')
         family = csv_as_dict.pop('family')
         family = np.array(family)
 
         feature_names_ordered.remove('x')
         feature_names_ordered.remove('y')
+        feature_names_ordered.remove('id')
         feature_names_ordered.remove('name')
         feature_names_ordered.remove('family')
     except KeyError:
-        raise KeyError('The csv  must contain columns "x", "y", "name", "family')
+        raise KeyError('The csv  must contain columns "x", "y", "id","name", "family"')
 
     # sites
-    locations = np.zeros((len(name), 2))
+    locations = np.zeros((len(l_id), 2))
     id = []
 
-    for i in range(len(name)):
+    for i in range(len(l_id)):
         # Define location tuples
         locations[i, 0] = float(x[i])
         locations[i, 1] = float(y[i])
@@ -285,20 +290,18 @@ def read_languages_from_csv(file):
              'id': id,
              'cz': None,
              'names': name}
-    site_names = {'external': name,
-                  'internal': list(range(0, len(name)))}
+    site_names = {'external': l_id,
+                  'internal': list(range(0, len(l_id)))}
 
     # features
-
     features_with_cat = np.ndarray.transpose(np.array([csv_as_dict[i] for i in feature_names_ordered]))
-
     cat_names = np.unique(features_with_cat)
-
     features_cat = []
+    na_number = 0
     for cat in cat_names:
         if cat == "":
             na_number = np.count_nonzero(np.where(features_with_cat == cat, 1, 0))
-            # print(na_number, "NA value(s) found in the data.")
+
         else:
             cat_axis = np.expand_dims(np.where(features_with_cat == cat, 1, 0), axis=2)
             features_cat.append(cat_axis)
@@ -323,14 +326,16 @@ def read_languages_from_csv(file):
     family_names_ordered = np.unique(family).tolist()
     family_names_ordered = list(filter(None, family_names_ordered))
 
-    families = np.zeros((len(family_names_ordered), len(name)), dtype=int)
+    families = np.zeros((len(family_names_ordered), len(l_id)), dtype=int)
 
     for fam in range(len(family_names_ordered)):
         families[fam, np.where(family == family_names_ordered[fam])] = 1
 
     family_names = {'external': family_names_ordered,
                     'internal': list(range(0, len(family_names_ordered)))}
-
+    if log:
+        logging.info("%s sites with %s features imported from %s. %s NA value(s) found.", len(site_names['internal']),
+                     len(feature_names['internal']), file, na_number)
     return sites, site_names, features, feature_names, category_names, families, family_names
 
 
@@ -457,7 +462,7 @@ def read_feature_occurrence_from_csv(file):
     return occurr, category_names, feature_names
 
 
-def counts_to_dirichlet(counts, categories):
+def family_counts_to_dirichlet(counts, categories):
     """This is a helper function transform the family counts to alpha values that
     are then used to define a dirichlet distribution
 
@@ -481,6 +486,31 @@ def counts_to_dirichlet(counts, categories):
             alpha = alpha + 1
 
             dirichlet[fam].append(stats.dirichlet(alpha))
+
+    return dirichlet
+
+def global_counts_to_dirichlet(counts, categories):
+    """This is a helper function transform the global counts to alpha values that
+    are then used to define dirichlet distributions
+
+    Args:
+        counts(np.array): the global counts
+            shape(n_features, n_categories)
+        categories(list): categories per feature
+    Returns:
+        list: the dirichlet distributions, neatly stored in a dict
+    """
+
+    n_feat, n_cat = counts.shape
+    dirichlet = []
+
+    for feat in range(n_feat):
+        cat = categories[feat]
+
+        alpha = counts[feat, cat]
+        # Add 1 to alpha values (1,1,...1 is a uniform prior)
+        alpha = alpha + 1
+        dirichlet.append(stats.dirichlet(alpha))
 
     return dirichlet
 
@@ -525,7 +555,7 @@ def mkpath(path):
         touch(path)
 
 
-def form_family_of_size_k(k, net, already_occupied=None, grow_families=True):
+def simulate_family_of_size_k(k, net, already_occupied=None, grow_families=True):
     """ This function forms a family of size k, either by
     randomly selecting sites in a network or growing regions in space (similar to grow_zone_of_size_k)
     Args:
@@ -663,7 +693,6 @@ def samples2res_old(samples):
     return mcmc_res
 
 
-
 def samples2res(samples):
     """
     Stores the output of the MCMC contained in samples in a simple data container (dict).
@@ -750,7 +779,6 @@ def samples2res(samples):
     return mcmc_res
 
 
-
 def linear_rescale(value, old_min, old_max, new_min, new_max):
     """
     Function to linear rescale a number to a new range
@@ -764,7 +792,6 @@ def linear_rescale(value, old_min, old_max, new_min, new_max):
     """
 
     return (new_max - new_min) / (old_max - old_min) * (value - old_max) + old_max
-
 
 
 def round_int_old(n, mode='up', offset=0):
@@ -859,7 +886,6 @@ def round_single_int(n, mode='up', position=2, offset=1):
     return n_rounded
 
 
-
 def round_multiple_ints(ups, downs, position=2, offset=1):
 
     ups = [int(n) for n in ups]
@@ -884,9 +910,6 @@ def round_multiple_ints(ups, downs, position=2, offset=1):
         downs_rounded.append(n_rounded)
 
     return ups_rounded, downs_rounded
-
-
-
 
 
 def round_int(n, mode='up', offset=0):
@@ -972,3 +995,26 @@ def colorline(ax, x, y, z=None, cmap=plt.get_cmap('copper'), norm=plt.Normalize(
     ax.add_collection(lc)
 
     return lc
+
+
+def normalize(x, axis=-1):
+    """Normalize ´x´ s.t. the last axis sums up to 1.
+
+    Args:
+        x (np.array): Array to be normalized.
+
+    Returns:
+         np.array: x with normalized s.t. the last axis sums to 1.
+    """
+    return x / np.sum(x, axis=axis, keepdims=True)
+
+
+def mle_weights(samples):
+    """
+
+    Args:
+        samples (np.array):
+    Returns:
+    """
+    counts = np.sum(samples, axis=0)
+    return normalize(counts)
