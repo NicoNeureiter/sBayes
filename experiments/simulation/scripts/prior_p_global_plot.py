@@ -1,5 +1,5 @@
 if __name__ == '__main__':
-    from src.util import load_from, transform_weights_from_log, samples2res
+    from src.util import load_from, samples2res
     from src.preprocessing import get_sites, compute_network
     from src.plotting import plot_trace_recall_precision, plot_trace_lh, \
         plot_posterior_frequency, plot_dics, \

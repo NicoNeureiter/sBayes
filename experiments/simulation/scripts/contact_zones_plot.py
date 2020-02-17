@@ -1,7 +1,7 @@
 
 
 if __name__ == '__main__':
-    from src.util import load_from, transform_weights_from_log,transform_p_from_log, samples2res
+    from src.util import load_from, samples2res
     from src.preprocessing import compute_network, get_sites
     from src.postprocessing import compute_dic
     from src.plotting import plot_posterior_frequency, plot_trace_lh, plot_trace_recall_precision, \
