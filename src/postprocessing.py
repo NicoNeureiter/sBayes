@@ -2,7 +2,6 @@ from itertools import permutations
 import numpy as np
 import math
 from scipy.special import logsumexp
-from src.util import (transform_weights_to_log, transform_p_to_log)
 from src.sampling.zone_sampling import ZoneMCMC_generative, Sample
 
 
@@ -29,7 +28,7 @@ def compute_dic(mcmc_res, burn_in):
 def compute_model_quality(mcmc_results, mode):
     """This function computes an estimator of the relative quality of a model ( either AIC, BIC or MLE)
     Args:
-        results (dict): the samples from the MCMC
+        mcmc_results (dict): the samples from the MCMC
         mode (char): either  'AIC' (Akaike Information Criterion),
                              'BIC' (Bayesian Information Criterion),
                              'MLE' (Maximum likelihood estimation)
@@ -40,18 +39,18 @@ def compute_model_quality(mcmc_results, mode):
     if mode not in valid_modes:
         raise ValueError("mode must be AIC, BIC or MLE")
 
-    mle = max(results['stats']['sample_likelihoods'])
+    mle = max(mcmc_results['stats']['sample_likelihoods'])
 
     if mode == 'MLE':
         return mle
-    k = results['n_zones']
+    k = mcmc_results['n_zones']
 
     if mode == 'AIC':
         aic = 2*k - 2 * math.log(mle)
         return aic
 
     elif mode== 'BIC':
-        bic = math.log(results['n_features'])*k - 2 * math.log(mle)
+        bic = math.log(mcmc_results['n_features']) * k - 2 * math.log(mle)
         return bic
 
 
@@ -72,12 +71,14 @@ def compute_marginal_likelihood(model, samples, mode, n_temp=100):
     # Iterate over temperatures
     for t in np.nditer(np.linspace(0, 1, n_temp)):
 
-        sampler = ZoneMCMC(network=model['network'], features=model['features'], n_steps=model['n_steps'],
-                           min_size=model['min_size'], max_size=model['max_size'], p_transition_mode=['p_transition_mode'],
-                           geo_weight=model['geo_weight']/model['features'].shape[1],
-                           lh_lookup=model['lh_lookup'], n_zones=model['n_zones'],
-                           ecdf_geo=model['ecdf_geo'], restart_interval=model['restart_interval'],
-                           simulated_annealing=False, plot_samples=False)
+        sampler = ZoneMCMC_generative(
+            network=model['network'], features=model['features'], n_steps=model['n_steps'],
+            min_size=model['min_size'], max_size=model['max_size'], p_transition_mode=['p_transition_mode'],
+            geo_weight=model['geo_weight']/model['features'].shape[1],
+            lh_lookup=model['lh_lookup'], n_zones=model['n_zones'],
+            ecdf_geo=model['ecdf_geo'], restart_interval=model['restart_interval'],
+            simulated_annealing=False, plot_samples=False
+        )
 
         sampler.generate_samples(samples)
         lh.append(sampler.statistics['sample_likelihoods'])
@@ -331,29 +332,29 @@ def rank_zones(mcmc_res, rank_by, burn_in):
     return mcmc_res, p_per_zone
 
 
-# deprecated
-def apply_matching(samples_in, matching):
-    """iterates through a list of samples and reorders the chains in each sample according to the matching schema
-        Args:
-            samples_in (list): samples that need to be reordered
-            matching (list): matching according to which the samples are ordered
-        Returns:
-            list: samples, reordered according to matching
-        """
-
-    # Change data structure to perform the reordering
-    samples = chains_to_samples(samples_in)
-    print('After chains_to_samples', samples.shape)
-    # Reorder chains according to matching
-    reordered = []
-    for s in range(len(samples)):
-
-        if not len(samples) == len(matching):
-            raise ValueError("number of samples and number of matches differ")
-
-        reordered.append(samples[s][matching[s]])
-
-    return samples_to_chains(reordered)
+# # deprecated
+# def apply_matching(samples_in, matching):
+#     """iterates through a list of samples and reorders the chains in each sample according to the matching schema
+#         Args:
+#             samples_in (list): samples that need to be reordered
+#             matching (list): matching according to which the samples are ordered
+#         Returns:
+#             list: samples, reordered according to matching
+#         """
+#
+#     # Change data structure to perform the reordering
+#     samples = chains_to_samples(samples_in)
+#     print('After chains_to_samples', samples.shape)
+#     # Reorder chains according to matching
+#     reordered = []
+#     for s in range(len(samples)):
+#
+#         if not len(samples) == len(matching):
+#             raise ValueError("number of samples and number of matches differ")
+#
+#         reordered.append(samples[s][matching[s]])
+#
+#     return samples_to_chains(reordered)
 
 
 def unnest_marginal_lh(samples_in):
@@ -375,3 +376,28 @@ def unnest_marginal_lh(samples_in):
             raise ValueError("Parallel zones detected! Rerun without parallel zones.")
 
     return samples_out
+
+
+COL_WIDTHS = [20, 8, 8, 8, 10]
+def print_operator_statistics_header():
+    name_header = str.ljust('OPERATOR', COL_WIDTHS[0])
+    acc_header = str.ljust('ACCEPTS', COL_WIDTHS[1])
+    rej_header = str.ljust('REJECTS', COL_WIDTHS[2])
+    total_header = str.ljust('TOTAL', COL_WIDTHS[3])
+    acc_rate_header = 'ACC. RATE'
+
+    print('\t'.join([name_header, acc_header, rej_header, total_header, acc_rate_header]))
+
+
+def print_operator_statistics(operator_name, mcmc_stats):
+    acc = mcmc_stats['accept_operator'][operator_name]
+    rej = mcmc_stats['reject_operator'][operator_name]
+    total = acc + rej
+
+    name_str = str.ljust(operator_name, COL_WIDTHS[0])
+    acc_str = str.ljust(str(acc), COL_WIDTHS[1])
+    rej_str = str.ljust(str(rej), COL_WIDTHS[2])
+    total_str = str.ljust(str(total), COL_WIDTHS[3])
+    acc_rate_str = '%.2f%%' % (100*acc/total)
+
+    print('\t'.join([name_str, acc_str, rej_str, total_str, acc_rate_str]))
