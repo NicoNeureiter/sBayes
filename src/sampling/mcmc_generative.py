@@ -8,6 +8,8 @@ import random as _random
 import time as _time
 import numpy as _np
 
+from collections import defaultdict
+
 
 class MCMC_generative(metaclass=_abc.ABCMeta):
 
@@ -60,7 +62,8 @@ class MCMC_generative(metaclass=_abc.ABCMeta):
         self.sample_p_families = sample_p['p_families']
 
         # Initialize statistics
-        self.statistics = {'sample_likelihood': [],
+        self.statistics = {'sample_id': [],
+                           'sample_likelihood': [],
                            'sample_prior': [],
                            'sample_zones': [],
                            'sample_weights': [],
@@ -72,7 +75,9 @@ class MCMC_generative(metaclass=_abc.ABCMeta):
                            'accepted_steps': 0,
                            'n_swaps': 0,
                            'accepted_swaps': 0,
-                           'swap_ratio': []}
+                           'swap_ratio': [],
+                           'accept_operator': defaultdict(int),
+                           'reject_operator': defaultdict(int)}
 
         # State attributes
         self._ll = _np.full(self.n_chains, -_np.inf)
@@ -177,7 +182,8 @@ class MCMC_generative(metaclass=_abc.ABCMeta):
                 if i_step % steps_per_sample == 0:
 
                     # Log samples, but only from the first chain
-                    self.log_sample_statistics(sample[self.chain_idx[0]], c=self.chain_idx[0])
+                    self.log_sample_statistics(sample[self.chain_idx[0]], c=self.chain_idx[0],
+                                               sample_id=int(i_step/steps_per_sample))
 
                 # Exchange chains at fixed intervals
                 if i_step % self.swap_period == 0:
@@ -253,7 +259,6 @@ class MCMC_generative(metaclass=_abc.ABCMeta):
             Sample: A Sample object consisting of zones and weights"""
 
         # Randomly choose one operator to propose new sample (grow/shrink/swap zones, alter weights/p_zones/p_families)
-
         propose_step = _np.random.choice(self.fn_operators, 1, p=self.p_operators)[0]
         candidate, q, q_back = propose_step(sample)
 
@@ -269,26 +274,15 @@ class MCMC_generative(metaclass=_abc.ABCMeta):
                                                   q=q, q_back=q_back)
 
         # Accept/reject according to MH-ratio and update
-        if _math.log(_random.random()) < mh_ratio:
-            #if c == 0:
-            #    print("new:", ll_candidate, "old:", self._ll[c], propose_step.__name__, "accepted")
+        accept = _math.log(_random.random()) < mh_ratio
+        if accept:
             sample = candidate
             self._ll[c] = ll_candidate
             self._prior[c] = prior_candidate
             self.statistics['accepted_steps'] += 1
-
-        #else:
-            #if c == 0:
-            #    print("new:", ll_candidate, "old:", self._ll[c], propose_step.__name__, "rejected")
-
-        #     if (propose_step.__name__ == 'alter_p_global'):
-        #
-        #         print('p_global accepted')
-        #
-        # else:
-        #     if (propose_step.__name__ == 'alter_p_global'):
-        #
-        #             print('p_global step rejected')
+            self.statistics['accept_operator'][propose_step.__name__] += 1
+        else:
+            self.statistics['reject_operator'][propose_step.__name__] += 1
 
         return sample
 
@@ -316,12 +310,14 @@ class MCMC_generative(metaclass=_abc.ABCMeta):
         mh_ratio = (ll_ratio * temperature) - log_q_ratio + prior_ratio
         return mh_ratio
 
-    def log_sample_statistics(self, sample, c):
+    def log_sample_statistics(self, sample, c, sample_id):
         """ This function logs the statistics of an MCMC sample.
         Args:
             sample (Sample): A Sample object consisting of zones and weights
             c (int): The current chain
+            sample_id (int): Index of the logged sample.
         """
+        self.statistics['sample_id'].append(sample_id)
         self.statistics['sample_zones'].append(sample.zones)
         self.statistics['sample_weights'].append(sample.weights)
         self.statistics['sample_p_global'].append(sample.p_global)
