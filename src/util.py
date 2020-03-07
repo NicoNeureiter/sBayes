@@ -166,72 +166,6 @@ def zones_autosimilarity(zones, t):
     return np.mean(sim_norm)
 
 
-def transform_weights_from_log(log_weights):
-    """Transforms the weights from log space and normalizes them such that they sum to 1
-
-    Args:
-        log_weights (np.array): The non-normalized weights in log space
-            shape(n_features, 3)
-    Returns:
-        (np.array): transformed and normalized weights
-    """
-
-    # Normalize in original space and transform
-
-    log_weights -= logsumexp(log_weights, keepdims=True)
-    weights_norm = np.exp(log_weights)
-
-    return weights_norm
-
-
-def transform_p_from_log(log_p):
-    """Transforms the probabilities from log space and normalizes them such that they sum to 1
-    Args:
-        log_p (np.array): The non-normalized probabilities in log space
-                shape(n_zones, n_features, n_categories)
-    Returns:
-        (np.array): transformed and normalized weights
-    """
-    # Transform to original space
-
-    log_p -= logsumexp(log_p, axis=2, keepdims=True)
-    p_norm = np.exp(log_p)
-
-    return p_norm
-
-
-def transform_weights_to_log(weights):
-    """Transforms the weights to log-space
-    Args:
-        weights (np.array): The weights
-            shape(n_features, 3)
-    Returns:
-        (np.array): transformed weights in log-space
-    """
-
-    # Transform to log space
-    with np.errstate(divide='ignore'):
-        log_weights = np.log(weights)
-
-    return log_weights
-
-
-def transform_p_to_log(p):
-    """Transforms the probabilities to log-space
-
-    Args:
-        p (np.array): The non-normalized probabilities in log space
-            shape(n_zones, n_features, n_categories)
-    Returns:
-        (np.array): transformed probabilities in log-space
-     """
-
-    # Transform to log space
-    with np.errstate(divide='ignore'):
-        log_p = np.log(p)
-    return log_p
-
-
 def read_features_from_csv(file_location, log=True):
     """This is a helper function to import data (sites, features, family membership,...) from a csv file
         Args:
@@ -669,7 +603,7 @@ def samples2res_old(samples):
             # mcmc_res['p_zones'][z].append(transform_p_from_log(samples['sample_p_zones'][t])[z])
 
         # Weights
-        mcmc_res['weights'].append(transform_weights_from_log(samples['sample_weights'][t]))
+        mcmc_res['weights'].append(samples['sample_weights'][t])
 
         # Likelihood, prior and posterior
         mcmc_res['lh'].append(samples['sample_likelihood'][t])
@@ -747,15 +681,15 @@ def samples2res(samples):
         # Zones and p_zones
         for z in range(n_zones):
             mcmc_res['zones'][z].append(samples['sample_zones'][t][z])
-            mcmc_res['p_zones'][z].append(transform_p_from_log(samples['sample_p_zones'][t])[z])
+            mcmc_res['p_zones'][z].append(samples['sample_p_zones'][t][z])
 
         # Weights
-        mcmc_res['weights'].append(transform_weights_from_log(samples['sample_weights'][t]))
+        mcmc_res['weights'].append(samples['sample_weights'][t])
 
         if 'true_families' in samples.keys():
             # p_families
             for fam in range(n_families):
-                mcmc_res['p_families'][fam].append(transform_p_from_log(samples['sample_p_families'][t])[fam])
+                mcmc_res['p_families'][fam].append(samples['sample_p_families'][t][fam])
 
         # Likelihood, prior and posterior
         mcmc_res['lh'].append(samples['sample_likelihood'][t])

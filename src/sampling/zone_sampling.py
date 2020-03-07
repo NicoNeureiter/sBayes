@@ -6,9 +6,11 @@ from copy import deepcopy
 
 import numpy as np
 
+import scipy.stats as spstats
+
 from src.sampling.mcmc_generative import MCMC_generative
 from src.model import GenerativeLikelihood, GenerativePrior
-from src.util import get_neighbours, transform_p_to_log, balance_p_array
+from src.util import get_neighbours, balance_p_array, normalize
 
 
 class Sample(object):
@@ -167,24 +169,22 @@ class ZoneMCMC_generative(MCMC_generative):
         # Randomly choose one of the features
         f_id = np.random.choice(range(weights_current.shape[0]))
 
-        if not self.inheritance:
-            # The contact weights (column 1 in weights) is modified,
-            # the inheritance weight is not relevant, the global weight is adjusted during normalization
-            w_id = 1
+        # if not self.inheritance:
+        #     # The contact weights (column 1 in weights) is modified,
+        #     # the inheritance weight is not relevant, the global weight is adjusted during normalization
+        #     w_id = 1
+        #
+        # else:
+        #     # The contact or family weights (column 1 or 2 in weights) are modified,
+        #     # the global weight is adjusted during normalization
+        #     w_id = np.random.choice([1, 2])
+        #
+        # weight_current = weights_current[f_id, w_id]
 
-        else:
-            # The contact or family weights (column 1 or 2 in weights) are modified,
-            # the global weight is adjusted during normalization
-            w_id = np.random.choice([1, 2])
+        # Sample new weight from dirichlet distribution with given precision
+        weight_new, q, q_back = self.dirichlet_proposal(weights_current[f_id, :], self.var_proposal_weight)
 
-        weight_current = weights_current[f_id, w_id]
-        # Sample new weight from normal distribution centered at the current weight and with fixed variance
-        weight_new = np.random.normal(loc=weight_current, scale=self.var_proposal_weight)
-        sample_new.weights[f_id, w_id] = weight_new
-
-        # The proposal distribution is normal, so the transition and back probability are equal
-        q = q_back = 1.
-
+        sample_new.weights[f_id, :] = weight_new
         return sample_new, q, q_back
 
     def alter_p_global(self, sample):
@@ -206,18 +206,13 @@ class ZoneMCMC_generative(MCMC_generative):
         f_id = np.random.choice(range(self.n_features))
 
         # Different features have different numbers of categories
-        cat_f = np.where(self.sites_per_category[f_id] != 0)[0]
-        cat_id = np.random.choice(cat_f)
+        f_cats = np.where(self.sites_per_category[f_id] != 0)[0]
+        p_current = p_global_current[0, f_id, f_cats]
 
-        p_current = p_global_current[0, f_id, cat_id]
+        # Sample new p from dirichlet distribution with given precision
+        p_new, q, q_back = self.dirichlet_proposal(p_current, step_precision=self.var_proposal_p_global)
 
-        # Sample new p from normal distribution centered at the current p and with fixed variance
-        p_new = np.random.normal(loc=p_current, scale=self.var_proposal_p_global)
-
-        sample_new.p_global[0, f_id, cat_id] = p_new
-
-        # The proposal distribution is normal, so the transition and back probability are equal
-        q = q_back = 1.
+        sample_new.p_global[0, f_id, f_cats] = p_new
         return sample_new, q, q_back
 
     def alter_p_zones(self, sample):
@@ -239,19 +234,40 @@ class ZoneMCMC_generative(MCMC_generative):
         f_id = np.random.choice(range(self.n_features))
 
         # Different features have different numbers of categories
-        cat_f = np.where(self.sites_per_category[f_id] != 0)[0]
-        cat_id = np.random.choice(cat_f)
+        f_cats = np.where(self.sites_per_category[f_id] != 0)[0]
+        p_current = p_zones_current[z_id, f_id, f_cats]
 
-        p_current = p_zones_current[z_id, f_id, cat_id]
+        # Sample new p from dirichlet distribution with given precision
+        p_new, q, q_back = self.dirichlet_proposal(p_current, step_precision=self.var_proposal_p_zones)
 
-        # Sample new p from normal distribution centered at the current p and with fixed variance
-        p_new = np.random.normal(loc=p_current, scale=self.var_proposal_p_zones)
-
-        sample_new.p_zones[z_id, f_id, cat_id] = p_new
-
-        # The proposal distribution is normal, so the transition and back probability are equal
-        q = q_back = 1.
+        sample_new.p_zones[z_id, f_id, f_cats] = p_new
         return sample_new, q, q_back
+
+    @staticmethod
+    def dirichlet_proposal(w, step_precision):
+        """ A proposal distribution for normalized weight and probability vectors (summing to 1).
+
+        Args:
+            w (np.array): The weight vector, which is being resampled.
+                Shape: (n_categories, )
+            step_precision (float): The precision parameter conrolling how narrow/wide the proposal
+                distribution is. Low precision -> wide, high precision -> narrow.
+
+        Returns:
+            np.array: The newly proposed weights w_new (same shape as w).
+            float: The transition probability q.
+            float: The back probability q_back
+        """
+        # assert np.allclose(np.sum(w, axis=-1), 1.), w
+
+        alpha = 1 + step_precision * w
+        w_new = np.random.dirichlet(alpha)
+        q = spstats.dirichlet.pdf(w_new, alpha)
+
+        alpha_back = 1 + step_precision * w_new
+        q_back = spstats.dirichlet.pdf(w, alpha_back)
+
+        return w_new, q, q_back
 
     def alter_p_families(self, sample):
         """This function modifies one p_families of one category, one feature and one family in the current sample
@@ -272,19 +288,18 @@ class ZoneMCMC_generative(MCMC_generative):
         fam_id = np.random.choice(range(self.n_families))
         f_id = np.random.choice(range(self.n_features))
 
+
+
+
         # Different features have different numbers of categories
-        cat_f = np.where(self.sites_per_category[f_id] != 0)[0]
-        cat_id = np.random.choice(cat_f)
+        f_cats = np.where(self.sites_per_category[f_id] != 0)[0]
+        p_current = p_families_current[fam_id, f_id, f_cats]
 
-        p_current = p_families_current[fam_id, f_id, cat_id]
+        # Sample new p from dirichlet distribution with given precision
+        p_new, q, q_back = self.dirichlet_proposal(p_current, step_precision=self.var_proposal_p_families)
 
-        # Sample new p from normal distribution centered at the current p and with fixed variance
-        p_new = np.random.normal(loc=p_current, scale=self.var_proposal_p_families)
+        sample_new.p_zones[fam_id, f_id, f_cats] = p_new
 
-        sample_new.p_families[fam_id, f_id, cat_id] = p_new
-
-        # The proposal distribution is normal, so the transition and back probability are equal
-        q = q_back = 1.
         return sample_new, q, q_back
 
     def swap_zone(self, sample):
@@ -547,7 +562,7 @@ class ZoneMCMC_generative(MCMC_generative):
             else:
                 initial_weights = np.full((self.n_features, 3), 1.)
 
-        return initial_weights
+        return normalize(initial_weights)
 
     def generate_initial_p_global(self):
         """This function generates initial global probabilities for each category either by
@@ -568,8 +583,7 @@ class ZoneMCMC_generative(MCMC_generative):
         # A: Initialize new p_global using the MLE
         else:
             l_per_cat = np.sum(self.features, axis=0)
-            l_sums = np.sum(l_per_cat, axis=1)
-            p_global = l_per_cat/l_sums[:, np.newaxis]
+            p_global = normalize(l_per_cat)
 
             # If one of the p_global values is 0 balance the p_array
             for p in range(len(p_global)):
@@ -581,11 +595,11 @@ class ZoneMCMC_generative(MCMC_generative):
                 if 0. in p_global[p, p_idx]:
                     p_global[p, p_idx] = balance_p_array(p_array=p_global[p, p_idx], balance_by=0.1)
 
-            initial_p_global[0, :, :] = transform_p_to_log(p_global)
+            initial_p_global[0, :, :] = p_global
 
             # The probabilities of categories without data are set to 0 (or -inf in log space)
             sites_per_category = np.count_nonzero(self.features, axis=0)
-            initial_p_global[0, sites_per_category == 0] = -np.inf
+            initial_p_global[0, sites_per_category == 0] = 0.
 
         return initial_p_global
 
@@ -603,14 +617,11 @@ class ZoneMCMC_generative(MCMC_generative):
         idx = updated_zone.nonzero()[0]
         features_zone = self.features[idx, :, :]
         l_per_cat = np.sum(features_zone, axis=0)
-        l_sums = np.sum(l_per_cat, axis=1)
-        p_zones_mle = l_per_cat / l_sums[:, np.newaxis]
-
-        p_zones = transform_p_to_log(p_zones_mle)
+        p_zones = normalize(l_per_cat)
 
         # The probabilities of categories without data are set to 0 (or -inf in log space)
         sites_per_category = np.count_nonzero(self.features, axis=0)
-        p_zones[sites_per_category == 0] = -np.inf
+        p_zones[sites_per_category == 0] = 0.
 
         return p_zones
 
@@ -658,11 +669,11 @@ class ZoneMCMC_generative(MCMC_generative):
                 if 0. in p_zones[p, p_idx]:
                     p_zones[p, p_idx] = balance_p_array(p_array=p_zones[p, p_idx], balance_by=0.01)
 
-            initial_p_zones[i, :, :] = transform_p_to_log(p_zones)
+            initial_p_zones[i, :, :] = p_zones
 
             # The probabilities of categories without data are set to 0 (or -inf in log space)
             sites_per_category = np.count_nonzero(self.features, axis=0)
-            initial_p_zones[i, sites_per_category == 0] = -np.inf
+            initial_p_zones[i, sites_per_category == 0] = 0
 
         return initial_p_zones
 
@@ -713,11 +724,11 @@ class ZoneMCMC_generative(MCMC_generative):
                     if 0. in p_family[p, p_idx]:
                         p_family[p, p_idx] = balance_p_array(p_array=p_family[p, p_idx], balance_by=0.2)
 
-                initial_p_families[fam, :, :] = transform_p_to_log(p_family)
+                initial_p_families[fam, :, :] = p_family
 
                 # The probabilities of categories without data are set to 0 (or -inf in log space)
                 sites_per_category = np.count_nonzero(self.features, axis=0)
-                initial_p_families[fam, sites_per_category == 0] = -np.inf
+                initial_p_families[fam, sites_per_category == 0] = 0.
 
         return initial_p_families
 
@@ -786,7 +797,7 @@ class ZoneMCMC_generative(MCMC_generative):
         else:
             # Compute non cut-vertices (can be removed while keeping zone connected).
             g_zone = self.graph.induced_subgraph(zone_idx)
-            assert g_zone.is_connected()
+            # assert g_zone.is_connected()
 
             cut_vs_idx = g_zone.cut_vertices()
             if len(cut_vs_idx) == size:

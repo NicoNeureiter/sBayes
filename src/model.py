@@ -10,8 +10,7 @@ import scipy.stats as spstats
 from scipy.sparse.csgraph import minimum_spanning_tree
 from scipy.stats import poisson
 
-from src.util import compute_delaunay, transform_weights_from_log, \
-    transform_p_from_log, n_smallest_distances
+from src.util import compute_delaunay, n_smallest_distances
 
 EPS = np.finfo(float).eps
 
@@ -52,6 +51,7 @@ def compute_global_likelihood(features, sample_p_global, p_global=None):
 
         # Compute the feature likelihood vector (for all sites in zone)
         lh_global[:, i_f] = f.dot(p_glob[i_f, :])
+
 
     return lh_global
 
@@ -190,8 +190,23 @@ class GenerativeLikelihood(object):
         # Weights
         self.weights = None
 
+    def reset_cache(self):
+        # The assignment (global, zone, family) combined and weighted and the non-normalized likelihood
+        self.assignment = None
+        self.all_lh = None
+        # Assignment and lh (global, per zone and family)
+        self.global_assignment = None
+        self.family_assignment = None
+        self.zone_assignment = None
+        self.global_lh = None
+        self.family_lh = None
+        self.zone_lh = None
+        # Weights
+        self.weights = None
+
     def __call__(self, sample, features, inheritance, families=None,
-                 sample_p_global=True, sample_p_zones=True,  sample_p_families=True):
+                 sample_p_global=True, sample_p_zones=True,  sample_p_families=True,
+                 caching=True):
             """Compute the likelihood of all sites. The likelihood is defined as a mixture of the global distribution and
             the likelihood distribution of the family and the zone.
 
@@ -211,15 +226,22 @@ class GenerativeLikelihood(object):
             Returns:
                 float: The joint likelihood of the current sample.
             """
+            if not caching:
+                self.reset_cache()
+
             n_sites, n_features, n_categories = features.shape
             zones = sample.zones
 
             # Find NA features in the data
             na_features = (np.sum(features, axis=-1) == 0)
 
-            # todo: assertion for all
-            # Weights, p_global, p_families and p_zones must sum to one
-            # assert np.allclose(a=np.sum(weights, axis=-1), b=1., rtol=EPS)
+            # # Weights, p_global, p_families and p_zones must sum to one
+            # assert np.allclose(a=np.sum(sample.weights, axis=-1), b=1., rtol=EPS), sample.weights.sum(axis=-1)
+            # assert np.allclose(a=np.sum(sample.p_global, axis=-1), b=1., rtol=EPS), sample.p_global.sum(axis=-1)
+            # assert np.allclose(a=np.sum(sample.p_zones, axis=-1), b=1., rtol=EPS), sample.p_zones.sum(axis=-1)
+            # assert np.all(sample.weights >= 0.)
+            # assert np.all(sample.p_global >= 0.)
+            # assert np.all(sample.p_zones >= 0.)
 
             ##################
             # Global
@@ -238,7 +260,7 @@ class GenerativeLikelihood(object):
                 # p_global can be sampled or estimated
                 if sample_p_global:
 
-                    p_global = transform_p_from_log(sample.p_global)
+                    p_global = sample.p_global
                     global_lh = compute_global_likelihood(features=features, sample_p_global=True,
                                                           p_global=p_global)
 
@@ -269,7 +291,7 @@ class GenerativeLikelihood(object):
 
                     # p_families can be sampled or estimated
                     if sample_p_families:
-                        p_families = transform_p_from_log(sample.p_families)
+                        p_families = sample.p_families
 
                         # assert np.allclose(a=np.sum(p_families, axis=-1), b=1., rtol=EPS)
                         family_lh = compute_family_likelihood(features=features, families=families,
@@ -302,7 +324,7 @@ class GenerativeLikelihood(object):
 
                 # p_zones can be sampled or estimated
                 if sample_p_zones:
-                    p_zones = transform_p_from_log(sample.p_zones)
+                    p_zones = sample.p_zones
                     # assert np.allclose(a=np.sum(p_zones, axis=-1), b=1., rtol=EPS)
                     zone_lh = compute_zone_likelihood(features=features, zones=zones, sample_p_zones=True,
                                                       p_zones=p_zones)
@@ -351,7 +373,7 @@ class GenerativeLikelihood(object):
             # weights are evaluated when initialized, when weights change or when assignment to zones changes
             if self.weights is None or sample.what_changed['lh']['weights'] or sample.what_changed['lh']['zones']:
 
-                abnormal_weights = transform_weights_from_log(sample.weights)
+                abnormal_weights = sample.weights
 
                 # Extract weights for each site depending on whether the likelihood is available
                 # Order of columns in weights: global, contact, inheritance (if available)
@@ -453,7 +475,7 @@ class GenerativePrior(object):
                 elif prior_p_global_meta['type'] == "dirichlet":
 
                     prior_p_global = prior_p_global_dirichlet(
-                            p_global=transform_p_from_log(sample.p_global),
+                            p_global=sample.p_global,
                             dirichlet=prior_p_global_meta['parameters']['dirichlet'],
                             categories=prior_p_global_meta['parameters']['categories'])
 
@@ -484,7 +506,7 @@ class GenerativePrior(object):
                     elif prior_p_families_meta['type'] == "dirichlet":
 
                         prior_p_families = prior_p_families_dirichlet(
-                            p_families=transform_p_from_log(sample.p_families),
+                            p_families=sample.p_families,
                             dirichlet=prior_p_families_meta['parameters']['dirichlet'],
                             categories=prior_p_families_meta['parameters']['categories'])
 
@@ -629,4 +651,3 @@ def prior_p_families_dirichlet(p_families, dirichlet, categories):
             log_prior.append(diri.logpdf(p_fam))
 
     return sum(log_prior)
-

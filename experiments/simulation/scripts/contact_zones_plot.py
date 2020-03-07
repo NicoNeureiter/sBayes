@@ -12,15 +12,15 @@ if __name__ == '__main__':
 
 
     PATH = '../../../' # relative path to contact_zones_directory
-    PATH_SIMULATION = PATH + '/experiments/simulation/'
-    TEST_ZONE_DIRECTORY = 'results/contact_zones/2019-10-21_14-49/'
+    PATH_SIMULATION = PATH + 'experiments/simulation/'
+    TEST_ZONE_DIRECTORY = 'results/contact_zones/2020-02-19_18-59/'
 
     PLOT_PATH = PATH + 'plots/contact_zones/'
     if not os.path.exists(PLOT_PATH): os.makedirs(PLOT_PATH)
 
     # Inheritance and number of runs
-    inheritance = 1
-    inheritances = [0, 1]
+    # inheritance = 1
+    inheritances = [1]
     run = 0
 
     # general parameters for plots
@@ -41,6 +41,9 @@ if __name__ == '__main__':
         mcmc_res = samples2res(samples)
         zones = mcmc_res['zones']
 
+        import numpy as np
+        print(np.mean(zones[0], axis=0))
+
         # Retrieve the sites from the csv and transform into a network
         sites, site_names = get_sites(PATH_SIMULATION + 'data/sites_simulation.csv')
         network = compute_network(sites)
@@ -52,8 +55,8 @@ if __name__ == '__main__':
             ts_posterior_freq=ts_posterior_freq,
             plot_family=True,
             burn_in=burn_in,
-            show_zone_boundaries=True,
-            show_axes=False,
+            show_zone_boundaries=False,
+            show_axes=True,
             x_extend=(1750, 10360),
             y_extend=(400, 11950),
             fname=f'{scenario_plot_path}posterior_frequency_family_i{inheritance}_{run}'
@@ -85,10 +88,10 @@ if __name__ == '__main__':
             fname = f'{scenario_plot_path}minimum spanning tree_i{inheritance}_{run}'
         )
 
-        """
         # Plot trace of likelihood, recall and precision
         plot_trace_lh(
             mcmc_res,
+            steps_per_sample=100,
             burn_in = burn_in,
             true_lh = True,
             fname = f'{scenario_plot_path}trace_likelihood_i{inheritance}_{run}'
@@ -96,6 +99,7 @@ if __name__ == '__main__':
 
         plot_trace_recall_precision(
             mcmc_res,
+            steps_per_sample=100,
             burn_in = burn_in,
             fname = f'{scenario_plot_path}trace_recall_precision_i{inheritance}_{run}'
         )
@@ -107,5 +111,3 @@ if __name__ == '__main__':
             burn_in = burn_in,
             fname = f'{scenario_plot_path}zone_size_over_time_i{inheritance}_{run}'
         )
-
-        """

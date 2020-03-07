@@ -1,6 +1,5 @@
 if __name__ == '__main__':
-    from src.util import load_from, transform_weights_from_log, transform_p_from_log, \
-        read_languages_from_csv, samples2res
+    from src.util import load_from, read_languages_from_csv
 
     from src.preprocessing import compute_network
     from src.postprocessing import compute_dic, match_zones
@@ -57,14 +56,14 @@ if __name__ == '__main__':
         # Zones and p_zones
         for z in range(n_zones):
             mcmc_res['zones'][z].append(samples['sample_zones'][t][z])
-            mcmc_res['p_zones'][z].append(transform_p_from_log(samples['sample_p_zones'][t])[z])
+            mcmc_res['p_zones'][z].append(samples['sample_p_zones'][t][z])
 
         # Weights
-        mcmc_res['weights'].append(transform_weights_from_log(samples['sample_weights'][t]))
+        mcmc_res['weights'].append(samples['sample_weights'][t])
 
         # p_families
         for fam in range(n_families):
-            mcmc_res['p_families'][fam].append(transform_p_from_log(samples['sample_p_families'][t])[fam])
+            mcmc_res['p_families'][fam].append(samples['sample_p_families'][t][fam])
 
         # Likelihood, prior and posterior
         mcmc_res['lh'].append(samples['sample_likelihood'][t])
@@ -164,14 +163,14 @@ if __name__ == '__main__':
         # Zones and p_zones
         for z in range(n_zones):
             mcmc_res['zones'][z].append(samples['sample_zones'][t][z])
-            mcmc_res['p_zones'][z].append(transform_p_from_log(samples['sample_p_zones'][t])[z])
+            mcmc_res['p_zones'][z].append(samples['sample_p_zones'][t][z])
 
         # Weights
         mcmc_res['weights'].append(transform_weights_from_log(samples['sample_weights'][t]))
 
         # p_families
         for fam in range(n_families):
-            mcmc_res['p_families'][fam].append(transform_p_from_log(samples['sample_p_families'][t])[fam])
+            mcmc_res['p_families'][fam].append(samples['sample_p_families'][t][fam])
 
         # Likelihood, prior and posterior
         mcmc_res['lh'].append(samples['sample_likelihood'][t])

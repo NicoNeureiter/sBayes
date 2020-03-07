@@ -1,6 +1,5 @@
 if __name__ == '__main__':
-    from src.util import load_from, transform_weights_from_log, transform_p_from_log, \
-        read_languages_from_csv
+    from src.util import load_from
     from src.preprocessing import compute_network
     from src.postprocessing import compute_dic, match_zones, rank_zones
     from src.plotting import plot_posterior_frequency, plot_trace_lh, plot_trace_recall_precision, \

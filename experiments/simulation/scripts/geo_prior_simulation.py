@@ -9,8 +9,7 @@ import multiprocessing.pool
 import numpy as np
 import os
 
-from src.util import (dump, transform_weights_to_log, transform_p_to_log,
-                      set_experiment_name)
+from src.util import (dump, set_experiment_name)
 from src.preprocessing import (get_sites, compute_network, simulate_assignment_probabilities,
                                estimate_geo_prior_parameters,
                                simulate_zones, features_from_subset,
@@ -276,9 +275,9 @@ if __name__ == '__main__':
             run_stats = zone_sampler.statistics
 
             # Evaluate the likelihood of the true sample
-            weights_sim_log = transform_weights_to_log(weights_sim)
-            p_global_sim_log = transform_p_to_log([p_global_sim])
-            p_zones_sim_log = transform_p_to_log(p_zones_sim)
+            weights_sim_log = weights_sim
+            p_global_sim_log = p_global_sim[np.newaxis, ...]
+            p_zones_sim_log = p_zones_sim
 
             # Zone with index 0 is the relevant (spatially compact), which we want to find when the prior is on
 

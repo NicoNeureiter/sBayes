@@ -9,13 +9,13 @@ import multiprocessing.pool
 import numpy as np
 import os
 
-from src.util import (dump, transform_weights_to_log, transform_p_to_log,
-                      set_experiment_name)
+from src.util import (dump, set_experiment_name, normalize)
 from src.preprocessing import (get_sites, compute_network, simulate_assignment_probabilities,
                                estimate_geo_prior_parameters,
                                simulate_zones, simulate_families,
                                simulate_weights,
                                simulate_features)
+from src.postprocessing import print_operator_statistics, print_operator_statistics_header
 from src.sampling.zone_sampling import ZoneMCMC_generative, Sample
 
 
@@ -61,7 +61,7 @@ logging.info("Experiment: %s", experiment_name)
 ################################
 
 # Number of simulated features and categories
-N_FEATURES_SIM = 30
+N_FEATURES_SIM = 35
 # Some features are binary (40%), some have three and four categories (30%%)
 P_N_CATEGORIES_SIM = {'2': 0.4, '3': 0.3, '4': 0.3}
 logging.info("Simulating %s features.", N_FEATURES_SIM)
@@ -80,7 +80,7 @@ logging.info("Simulated inherited intensity: %s", I_CONTACT_SIM)
 # Number of features, passed as alpha when drawing samples from dirichlet distribution
 # higher values correspond to more features for which the influence of contact/inheritance is strong
 F_GLOBAL_SIM = 1.
-F_CONTACT_SIM = 1.75
+F_CONTACT_SIM = 2.0
 F_INHERITANCE_SIM = 2
 logging.info("Simulated global exposition (number of similar features): %s", F_GLOBAL_SIM)
 logging.info("Simulated exposition in zone (number of similar features): %s", F_CONTACT_SIM)
@@ -131,13 +131,13 @@ features_sim, categories_sim = simulate_features(zones=zones_sim, families=famil
 
 # General
 BURN_IN = 0
-N_STEPS = 200000
+N_STEPS = 20000
 N_SAMPLES = 1000
 N_RUNS = 1
 logging.info("MCMC with %s steps and %s samples (burn-in %s steps)", N_STEPS, N_SAMPLES, BURN_IN)
 
 # Zone sampling
-MIN_SIZE = 5
+MIN_SIZE = 4
 MAX_SIZE = 200
 INITIAL_SIZE = 40
 CONNECTED_ONLY = False
@@ -145,7 +145,7 @@ logging.info("Zones have a minimum size of %s and a maximum size of %s. The init
              MIN_SIZE, MAX_SIZE, INITIAL_SIZE)
 
 # Number of independent chains
-N_CHAINS = 10
+N_CHAINS = 2
 SWAP_PERIOD = 1000
 # Attempted inter-chain swaps after each SWAP_PERIOD
 N_SWAPS = 3
@@ -153,7 +153,7 @@ logging.info("MCMC with %s chains and %s attempted swap(s) after %s steps.", N_C
 
 # Number of zones
 N_ZONES = 1
-logging.info("Number of sampled zones", N_ZONES)
+logging.info("Number of sampled zones; %i", N_ZONES)
 
 # Prior
 # Geo-prior ("uniform", "distance" or "gaussian")
@@ -175,10 +175,11 @@ logging.info("Prior on p_zones: %s ", PRIOR['p_zones']['type'])
 logging.info("Prior on p_families: %s ", PRIOR['p_families']['type'])
 
 # Variance in the proposal distribution for weights, p_global, p_zones, p_families
-VAR_PROPOSAL = {'weights': 0.1,
-                'p_global': 0.1,
-                'p_zones': 0.1,
-                'p_families': 0.1}
+VAR_PROPOSAL = {'weights': 75,
+                'p_global': 75,
+                'p_zones': 75,
+                'p_families': 75
+                }
 
 logging.info("Variance of proposal distribution for weights: %s ", VAR_PROPOSAL['weights'])
 logging.info("Variance of proposal distribution for p_global: %s ", VAR_PROPOSAL['p_global'])
@@ -189,7 +190,8 @@ logging.info("Variance of proposal distribution for p_families: %s ", VAR_PROPOS
 PRIOR['geo']['parameters'] = estimate_geo_prior_parameters(network_sim, PRIOR['geo']['type'])
 
 # Consider inheritance for inference?
-INHERITANCE_TEST = [False, True]
+# INHERITANCE_TEST = [False, True]
+INHERITANCE_TEST = [True]
 logging.info("Inheritance is considered for the inference: %s", INHERITANCE_TEST)
 
 stats = []
@@ -212,7 +214,7 @@ if __name__ == '__main__':
         logging.info("Sample p_families: %s", SAMPLE_P['p_families'])
 
         # Define the operators in the MCMC and the frequency which with they are applied
-        ZONE_STEPS = 0.02
+        ZONE_STEPS = 0.05
 
         if SAMPLE_P['p_global']:
             P_GLOBAL_STEPS = 0.01
@@ -265,25 +267,32 @@ if __name__ == '__main__':
                                                operators=OPERATORS, families=families_sim, chain_swaps=N_SWAPS,
                                                inheritance=i, prior=PRIOR, sample_p=SAMPLE_P, var_proposal=VAR_PROPOSAL)
 
+
+            # EPS = 1e-7
+            # assert np.allclose(a=np.sum(initial_sample.weights, axis=-1), b=1., rtol=EPS), initial_sample.weights.sum(axis=-1)
+            # assert np.allclose(a=np.sum(initial_sample.p_global, axis=-1), b=1., rtol=EPS), initial_sample.p_global.sum(axis=-1)
+            # assert np.allclose(a=np.sum(initial_sample.p_zones, axis=-1), b=1., rtol=EPS), initial_sample.p_zones.sum(axis=-1)
+
             zone_sampler.generate_samples(N_STEPS, N_SAMPLES, BURN_IN)
 
             # Collect statistics
             run_stats = zone_sampler.statistics
 
+            # Print operator stats
+            print('')
+            print_operator_statistics_header()
+            for op_name in OPERATORS:
+                print_operator_statistics(op_name, run_stats)
+
             # Evaluate the likelihood of the true sample
             # If the model includes inheritance use all weights, if not use only the first two weights (global, zone)
-            weights_sim_log = transform_weights_to_log(weights_sim)
-            if i:
-                weights_sim_log = transform_weights_to_log(weights_sim)
-            else:
-                weights_sim_log = transform_weights_to_log(weights_sim[:, :2])
+            if not i:
+                weights_sim = normalize(weights_sim[:, :2])
 
-            p_global_sim_log = transform_p_to_log([p_global_sim])
-            p_zones_sim_log = transform_p_to_log(p_zones_sim)
-            p_families_sim_log = transform_p_to_log(p_families_sim)
+            p_global_sim = p_global_sim[np.newaxis, ...]
 
-            true_sample = Sample(zones=zones_sim, weights=weights_sim_log,
-                                 p_global=p_global_sim_log, p_zones=p_zones_sim_log, p_families=p_families_sim_log)
+            true_sample = Sample(zones=zones_sim, weights=weights_sim,
+                                 p_global=p_global_sim, p_zones=p_zones_sim, p_families=p_families_sim)
 
             true_sample.what_changed = {'lh': {'zones': True, 'weights': True,
                                                'p_global': True, 'p_zones': True, 'p_families': True},

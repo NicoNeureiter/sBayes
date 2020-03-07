@@ -9,8 +9,7 @@ import multiprocessing.pool
 import numpy as np
 import os
 
-from src.util import (dump, transform_weights_to_log, transform_p_to_log,
-                      set_experiment_name)
+from src.util import (dump, set_experiment_name)
 from src.preprocessing import (compute_network, estimate_geo_prior_parameters,
                                get_sites, simulate_zones, simulate_weights,
                                simulate_features, simulate_assignment_probabilities)
@@ -257,9 +256,9 @@ def evaluate_sampling_parameters(params):
         run_stats = zone_sampler.statistics
 
         # Evaluate the likelihood of the true sample
-        weights_sim_log = transform_weights_to_log(weights_sim)
-        p_global_sim_log = transform_p_to_log([p_global_sim])
-        p_zones_sim_log = transform_p_to_log(p_zones_sim)
+        weights_sim_log = weights_sim
+        p_global_sim_log = p_global_sim[np.newaxis, ...]
+        p_zones_sim_log = p_zones_sim
 
         true_sample = Sample(zones=zones_sim, weights=weights_sim_log,
                              p_global=p_global_sim_log, p_zones=p_zones_sim_log, p_families=None)
