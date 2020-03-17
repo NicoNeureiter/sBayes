@@ -394,6 +394,9 @@ def print_operator_statistics(operator_name, mcmc_stats):
     rej = mcmc_stats['reject_operator'][operator_name]
     total = acc + rej
 
+    if total == 0:
+        print('\t'.join(['-']*5))
+
     name_str = str.ljust(operator_name, COL_WIDTHS[0])
     acc_str = str.ljust(str(acc), COL_WIDTHS[1])
     rej_str = str.ljust(str(rej), COL_WIDTHS[2])
