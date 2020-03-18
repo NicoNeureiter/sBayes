@@ -194,9 +194,6 @@ PRIOR['geo']['parameters'] = estimate_geo_prior_parameters(network_sim, PRIOR['g
 INHERITANCE_TEST = [True]
 logging.info("Inheritance is considered for the inference: %s", INHERITANCE_TEST)
 
-stats = []
-samples = []
-
 
 if __name__ == '__main__':
 
@@ -286,13 +283,15 @@ if __name__ == '__main__':
 
             # Evaluate the likelihood of the true sample
             # If the model includes inheritance use all weights, if not use only the first two weights (global, zone)
-            if not i:
-                weights_sim = normalize(weights_sim[:, :2])
+            if i:
+                weights_sim_normed = weights_sim.copy()
+            else:
+                weights_sim_normed = normalize(weights_sim[:, :2])
 
-            p_global_sim = p_global_sim[np.newaxis, ...]
+            p_global_sim_padded = p_global_sim[np.newaxis, ...]
 
-            true_sample = Sample(zones=zones_sim, weights=weights_sim,
-                                 p_global=p_global_sim, p_zones=p_zones_sim, p_families=p_families_sim)
+            true_sample = Sample(zones=zones_sim, weights=weights_sim_normed,
+                                 p_global=p_global_sim_padded, p_zones=p_zones_sim, p_families=p_families_sim)
 
             true_sample.what_changed = {'lh': {'zones': True, 'weights': True,
                                                'p_global': True, 'p_zones': True, 'p_families': True},
@@ -301,15 +300,13 @@ if __name__ == '__main__':
 
             # Save stats about true sample
             run_stats['true_zones'] = zones_sim
-            run_stats['true_weights'] = weights_sim
-            run_stats['true_p_global'] = p_global_sim
+            run_stats['true_weights'] = weights_sim_normed
+            run_stats['true_p_global'] = p_global_sim_padded
             run_stats['true_p_zones'] = p_zones_sim
             run_stats['true_p_families'] = p_families_sim
             run_stats['true_ll'] = zone_sampler.likelihood(true_sample, 0)
             run_stats['true_prior'] = zone_sampler.prior(true_sample, 0)
             run_stats["true_families"] = families_sim
-
-            stats.append(run_stats)
 
             # Save stats to file
             path = TEST_SAMPLING_RESULTS_PATH.format(i=int(i), run=run)
