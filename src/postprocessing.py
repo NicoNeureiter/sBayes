@@ -395,8 +395,8 @@ def print_operator_statistics(operator_name, mcmc_stats):
     total = acc + rej
 
     if total == 0:
-        name_str = str.ljust(operator_name, COL_WIDTHS[0])
-        print('\t'.join([name_str, '-', '-', '-', '-']))
+        row_strings = [operator_name, '-', '-', '-', '-']
+        print('\t'.join([str.ljust(x, COL_WIDTHS[i]) for i, x in enumerate(row_strings)]))
         return
 
     name_str = str.ljust(operator_name, COL_WIDTHS[0])
