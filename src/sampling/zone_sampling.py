@@ -182,9 +182,9 @@ class ZoneMCMC_generative(MCMC_generative):
         # weight_current = weights_current[f_id, w_id]
 
         # Sample new weight from dirichlet distribution with given precision
-        weight_new, q, q_back = self.dirichlet_proposal(weights_current[f_id, :], self.var_proposal_weight)
+        weights_new, q, q_back = self.dirichlet_proposal(weights_current[f_id, :], self.var_proposal_weight)
 
-        sample_new.weights[f_id, :] = weight_new
+        sample_new.weights[f_id, :] = weights_new
         return sample_new, q, q_back
 
     def alter_p_global(self, sample):
@@ -298,7 +298,7 @@ class ZoneMCMC_generative(MCMC_generative):
         # Sample new p from dirichlet distribution with given precision
         p_new, q, q_back = self.dirichlet_proposal(p_current, step_precision=self.var_proposal_p_families)
 
-        sample_new.p_zones[fam_id, f_id, f_cats] = p_new
+        sample_new.p_families[fam_id, f_id, f_cats] = p_new
 
         return sample_new, q, q_back
 
