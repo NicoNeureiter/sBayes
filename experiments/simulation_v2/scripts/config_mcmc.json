@@ -1,0 +1,53 @@
+{
+  "mcmc": {
+    "BURN_IN": 0,
+    "N_STEPS": 20000,
+    "N_SAMPLES": 1000,
+    "N_RUNS": 1,
+    "MIN_SIZE": 4,
+    "MAX_SIZE": 200,
+    "INITIAL_SIZE": 40,
+    "CONNECTED_ONLY": false,
+    "N_CHAINS": 2,
+    "SWAP_PERIOD": 1000,
+    "N_SWAPS": 3,
+    "N_ZONES": 1,
+    "PRIOR": {
+      "geo": {
+        "type": "uniform",
+        "parameters": {}
+      },
+      "weights": {
+        "type": "uniform"
+      },
+      "p_global": {
+        "type": "uniform",
+        "parameters": {}
+      },
+      "p_zones": {
+        "type": "uniform"
+      },
+      "p_families": {
+        "type": "uniform",
+        "parameters": {}}
+    },
+    "VAR_PROPOSAL": {
+      "weights": 75,
+      "p_global": 75,
+      "p_zones": 75,
+      "p_families": 75
+    },
+    "INHERITANCE_TEST": [true],
+    "SAMPLE_P": {
+      "p_global": true,
+      "p_zones": true,
+      "p_families": true
+    },
+    "ZONE_STEPS": 0.05,
+    "P_GLOBAL_STEPS": 0.01,
+    "P_ZONES_STEPS": 0.2,
+    "P_FAMILIES_STEPS": 0.05,
+    "WEIGHT_STEPS": null,
+    "ALL_STEPS": null
+  }
+}

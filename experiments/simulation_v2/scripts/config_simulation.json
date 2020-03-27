@@ -1,0 +1,18 @@
+{
+  "simulation": {
+    "N_FEATURES_SIM": 35,
+    "P_N_CATEGORIES_SIM": {
+      "2": 0.4,
+      "3": 0.3,
+      "4": 0.3
+    },
+    "I_GLOBAL_SIM": 1,
+    "I_CONTACT_SIM": 0.5,
+    "I_INHERITANCE_SIM": 0.25,
+    "F_GLOBAL_SIM": 1,
+    "F_CONTACT_SIM": 2.0,
+    "F_INHERITANCE_SIM": 2,
+    "ZONE": 10,
+    "INHERITANCE_SIM": true
+  }
+}
