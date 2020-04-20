@@ -1,8 +1,13 @@
 {
   "mcmc": {
     "BURN_IN": 0,
+<<<<<<< HEAD
     "N_STEPS": 2000,
     "N_STEPS_INCREASE": 500,
+=======
+    "N_STEPS": 400000,
+    "N_STEPS_INCREASE": 50000,
+>>>>>>> 183793eafdd752df55b8fed2ffc499315e4107f9
     "N_SAMPLES": 1000,
     "N_RUNS": 1,
     "MIN_SIZE": 3,
@@ -22,16 +27,17 @@
         "type": "uniform"
       },
       "p_global": {
-        "type": "uniform",
+        "type": "dirichlet",
         "parameters": {}
       },
       "p_zones": {
         "type": "uniform"
       },
       "p_families": {
-        "type": "uniform",
+        "type": "dirichlet",
         "parameters": {}}
     },
+<<<<<<< HEAD
     "PSEUDOC_DIR_PROPOSAL": {
       "weights": 30,
       "p_global": 30,
@@ -39,12 +45,24 @@
       "p_families": 30
     },
     "INHERITANCE": true,
+=======
+    "VAR_PROPOSAL": {
+      "weights": 0.1,
+      "p_global": 0.1,
+      "p_zones": 0.1,
+      "p_families": 0.1
+    },
+    "INHERITANCE_TEST": null,
+>>>>>>> 183793eafdd752df55b8fed2ffc499315e4107f9
     "SAMPLE_P": {
       "p_global": true,
       "p_zones": true,
       "p_families": true
     },
+<<<<<<< HEAD
 	"LH_PER_ZONE": true,
+=======
+>>>>>>> 183793eafdd752df55b8fed2ffc499315e4107f9
     "ZONE_STEPS": 0.02,
     "P_GLOBAL_STEPS": 0.01,
     "P_ZONES_STEPS": 0.2,
