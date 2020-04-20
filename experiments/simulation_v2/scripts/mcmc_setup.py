@@ -16,11 +16,7 @@ from src.util import dump, normalize
 
 
 class MCMCSetup:
-<<<<<<< HEAD
     def __init__(self, log_path, results_path, network, features, families, label_results="default"):
-=======
-    def __init__(self, log_path, results_path, is_real, network, features, families):
->>>>>>> 183793eafdd752df55b8fed2ffc499315e4107f9
         # Parameters from the simulation or real data
         self.network = network
         self.features = features
@@ -33,13 +29,8 @@ class MCMCSetup:
         self.config = {}
         self.get_parameters()
 
-<<<<<<< HEAD
         # Flag for labelling the results
         self.label_results = label_results
-=======
-        # Flag for switching between real/simulated data
-        self.is_real = is_real
->>>>>>> 183793eafdd752df55b8fed2ffc499315e4107f9
 
     def get_parameters(self):
         with open('config_mcmc.json', 'r') as f:
@@ -102,16 +93,11 @@ class MCMCSetup:
         logging.info("Ratio of p_zones steps: %s", self.config['mcmc']['P_ZONES_STEPS'])
         logging.info("Ratio of p_families steps: %s", self.config['mcmc']['P_FAMILIES_STEPS'])
 
-<<<<<<< HEAD
     def sampling_setup(self, **kwargs):
         if 'inheritance' in kwargs:
             self.config['mcmc']['SAMPLE_P']['p_families'] = kwargs['inheritance']
         else:
             self.config['mcmc']['SAMPLE_P']['p_families'] = self.config['mcmc']['INHERITANCE']
-=======
-    def sampling_setup(self, inheritance_value):
-        self.config['mcmc']['SAMPLE_P']['p_families'] = inheritance_value
->>>>>>> 183793eafdd752df55b8fed2ffc499315e4107f9
 
         # If p_global, p_zones and p_families are True -> use the values from the config.json
         # If they are False -> assign 0
@@ -151,7 +137,6 @@ class MCMCSetup:
 
         return ops
 
-<<<<<<< HEAD
     def sampling_run(self, ops, initial_sample, **kwargs):
         if 'inheritance' in kwargs:
             inheritance_val = kwargs['inheritance']
@@ -162,10 +147,7 @@ class MCMCSetup:
             n_zones_val = kwargs['n_zones']
         else:
             n_zones_val = self.config['mcmc']['N_ZONES']
-=======
-    def sampling_run(self, inheritance_value, ops, initial_sample):
->>>>>>> 183793eafdd752df55b8fed2ffc499315e4107f9
-        # Sampling
+
         cur_zone_sampler = ZoneMCMC_generative(network=self.network, features=self.features,
                                                min_size=self.config['mcmc']['MIN_SIZE'],
                                                max_size=self.config['mcmc']['MAX_SIZE'],
@@ -187,11 +169,7 @@ class MCMCSetup:
                                           self.config['mcmc']['BURN_IN'])
 
         # Evaluate likelihood and prior for each zone alone (makes it possible to rank zones)
-<<<<<<< HEAD
         if self.config['mcmc']['LH_PER_ZONE']:
-=======
-        if self.is_real:
->>>>>>> 183793eafdd752df55b8fed2ffc499315e4107f9
             cur_zone_sampler = contribution_per_zone(cur_zone_sampler)
 
         return cur_zone_sampler
@@ -205,15 +183,9 @@ class MCMCSetup:
                                               'p_global': True, 'p_zones': True, 'p_families': True},
                                        'prior': {'zones': True, 'weights': True,
                                                  'p_global': True, 'p_zones': True, 'p_families': True}}
-<<<<<<< HEAD
 
         return initial_sample
 
-=======
-
-        return initial_sample
-
->>>>>>> 183793eafdd752df55b8fed2ffc499315e4107f9
     @staticmethod
     def print_op_stats(cur_run_stats, ops):
         # Print operator stats
@@ -263,7 +235,6 @@ class MCMCSetup:
         cur_run_stats['true_ll'] = cur_zone_sampler.likelihood(cur_true_sample, 0)
         cur_run_stats['true_prior'] = cur_zone_sampler.prior(cur_true_sample, 0)
         cur_run_stats["true_families"] = self.families
-<<<<<<< HEAD
 
         return cur_run_stats
 
@@ -277,23 +248,10 @@ class MCMCSetup:
             n_zones_val = kwargs['n_zones']
         else:
             n_zones_val = self.config['mcmc']['N_ZONES']
-=======
->>>>>>> 183793eafdd752df55b8fed2ffc499315e4107f9
 
-        return cur_run_stats
-
-    def save_stats(self, cur_run, cur_run_stats,
-                   n=0, inheritance_value=True):
-        # Save stats to file
-<<<<<<< HEAD
         if self.label_results == "i":
             path = self.TEST_SAMPLING_RESULTS_PATH.format(i=int(inheritance_val), run=cur_run)
         else:
             path = self.TEST_SAMPLING_RESULTS_PATH.format(nz=n_zones_val, run=cur_run)
-=======
-        if self.is_real:
-            path = self.TEST_SAMPLING_RESULTS_PATH.format(nz=n, run=cur_run)
-        else:
-            path = self.TEST_SAMPLING_RESULTS_PATH.format(i=int(inheritance_value), run=cur_run)
->>>>>>> 183793eafdd752df55b8fed2ffc499315e4107f9
+
         dump(cur_run_stats, path)
