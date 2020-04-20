@@ -13,6 +13,6 @@
     "F_CONTACT": 2.0,
     "F_INHERITANCE": 2,
     "ZONE": 10,
-    "INHERITANCE": true
+    "INHERITANCE_SIM": true
   }
 }

@@ -57,7 +57,7 @@ class ContactZonesSimulator:
         logging.basicConfig(filename=self.TEST_SAMPLING_LOG_PATH, level=logging.DEBUG)
         logging.getLogger().addHandler(logging.StreamHandler())
         logging.info("Experiment: %s", self.experiment_name)
-        logging.info("Inheritance is simulated: %s", self.config['simulation']['INHERITANCE'])
+        logging.info("Inheritance is simulated: %s", self.config['simulation']['INHERITANCE_SIM'])
 
     def logging_simulation(self):
         logging.info("Simulating %s features.", self.config['simulation']['N_FEATURES'])
@@ -85,7 +85,7 @@ class ContactZonesSimulator:
         self.weights = simulate_weights(f_global=self.config['simulation']['F_GLOBAL'],
                                         f_contact=self.config['simulation']['F_CONTACT'],
                                         f_inheritance=self.config['simulation']['F_INHERITANCE'],
-                                        inheritance=self.config['simulation']['INHERITANCE'],
+                                        inheritance=self.config['simulation']['INHERITANCE_SIM'],
                                         n_features=self.config['simulation']['N_FEATURES'])
 
         # Simulate probabilities for features to belong to categories, globally in zones (and in families if available)
@@ -96,7 +96,7 @@ class ContactZonesSimulator:
                                                 intensity_global=self.config['simulation']['I_GLOBAL'],
                                                 intensity_contact=self.config['simulation']['I_CONTACT'],
                                                 intensity_inheritance=self.config['simulation']['I_INHERITANCE'],
-                                                inheritance=self.config['simulation']['INHERITANCE'])
+                                                inheritance=self.config['simulation']['INHERITANCE_SIM'])
 
         # Simulate features
         # Note: categories are not used in the further MCMC setup
@@ -107,4 +107,4 @@ class ContactZonesSimulator:
                               p_contact=self.p_zones,
                               p_inheritance=self.p_families,
                               weights=self.weights,
-                              inheritance=self.config['simulation']['INHERITANCE'])
+                              inheritance=self.config['simulation']['INHERITANCE_SIM'])
