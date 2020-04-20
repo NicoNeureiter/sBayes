@@ -1,0 +1,22 @@
+INFO:root:Experiment: 2020-04-20_17-30
+INFO:root:Inheritance is considered: True
+INFO:root:100 sites with 36 features imported from ../../south_america/data/features/features.csv. 92 NA value(s) found.
+INFO:root:Import prior information for p_global from ../../south_america/data/p_global//prior_p_global.csv.
+INFO:root:Import prior information for Arawak from ../../south_america/data/p_families/prior_p_families_arawak.csv.
+INFO:root:Import prior information for Panoan from ../../south_america/data/p_families/prior_p_families_panoan.csv.
+INFO:root:Import prior information for Quechuan from ../../south_america/data/p_families/prior_p_families_quechuan.csv.
+INFO:root:Import prior information for Tucanoan from ../../south_america/data/p_families/prior_p_families_tucanoan.csv.
+INFO:root:Import prior information for Tupian from ../../south_america/data/p_families/prior_p_families_tupian.csv.
+INFO:root:MCMC with 4000 steps (+ 1000 increase per extra zone) and 500 samples (burn-in 0 steps)
+INFO:root:Zones have a minimum size of 3 and a maximum size of 50. The initial size is 5.
+INFO:root:MCMC with 8 chains and 3 attempted swap(s) after 1000 steps.
+INFO:root:Number of sampled zones: 8
+INFO:root:Geo-prior: uniform 
+INFO:root:Prior on weights: uniform 
+INFO:root:Prior on p_global: dirichlet 
+INFO:root:Prior on p_zones: uniform 
+INFO:root:Prior on p_families: dirichlet 
+INFO:root:Pseudocounts for tuning the width of the dirichlet proposal distribution for weights: 30 
+INFO:root:Pseudocounts for tuning the width of the dirichlet proposal distribution for p_global: 30 
+INFO:root:Pseudocounts for tuning the width of the dirichlet proposal distribution for p_zones: 30 
+INFO:root:Pseudocounts for tuning the width of the dirichlet proposal distribution for p_families: 30 
