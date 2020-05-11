@@ -14,7 +14,8 @@ from scipy.sparse.csgraph import minimum_spanning_tree
 import igraph
 import math
 from src.model import normalize_weights
-from src.util import (compute_distance, simulate_family_of_size_k, compute_delaunay,
+from src.util import (compute_distance, global_counts_to_dirichlet, family_counts_to_dirichlet,
+                      simulate_family_of_size_k, compute_delaunay,
                       read_feature_occurrence_from_csv, FamilyError)
 import csv
 
