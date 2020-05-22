@@ -1,0 +1,10 @@
+INFO:root:Experiment: 2020-04-21_00-25
+INFO:root:Inheritance is simulated: True
+INFO:root:Simulating 35 features.
+INFO:root:Simulated global intensity: 1
+INFO:root:Simulated contact intensity: 0.5
+INFO:root:Simulated inherited intensity: 0.5
+INFO:root:Simulated global exposition (number of similar features): 1.0
+INFO:root:Simulated exposition in zone (number of similar features): 2.0
+INFO:root:Simulated exposition in family (number of similar features): 2.0
+INFO:root:Simulated zone: 10
