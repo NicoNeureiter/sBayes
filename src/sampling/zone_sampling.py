@@ -72,7 +72,7 @@ class Sample(object):
 class ZoneMCMC_generative(MCMC_generative):
 
     def __init__(self, network, features, min_size, max_size, initial_size, var_proposal,
-                 initial_sample, n_zones=1, connected_only=False, **kwargs):
+                 initial_sample, connected_only=False, **kwargs):
 
         super(ZoneMCMC_generative, self).__init__(**kwargs)
 
@@ -95,7 +95,6 @@ class ZoneMCMC_generative(MCMC_generative):
         self.max_size = max_size
         self.initial_size = initial_size
         self.connected_only = connected_only
-        self.n_zones = n_zones
         self.initial_sample = initial_sample
 
         # Families
@@ -104,9 +103,12 @@ class ZoneMCMC_generative(MCMC_generative):
 
         # Variance of the proposal distribution
         self.var_proposal_weight = var_proposal['weights']
-        self.var_proposal_p_global = var_proposal['p_global']
-        self.var_proposal_p_zones = var_proposal['p_zones']
-        self.var_proposal_p_families = var_proposal['p_families']
+        self.var_proposal_p_global = var_proposal['universal']
+        self.var_proposal_p_zones = var_proposal['contact']
+        try:
+            self.var_proposal_p_families = var_proposal['inheritance']
+        except KeyError:
+            pass
 
         self.compute_lh_per_chain = [
             GenerativeLikelihood() for _ in range(self.n_chains)
@@ -288,9 +290,6 @@ class ZoneMCMC_generative(MCMC_generative):
         fam_id = np.random.choice(range(self.n_families))
         f_id = np.random.choice(range(self.n_features))
 
-
-
-
         # Different features have different numbers of categories
         f_cats = np.where(self.sites_per_category[f_id] != 0)[0]
         p_current = p_families_current[fam_id, f_id, f_cats]
@@ -342,13 +341,13 @@ class ZoneMCMC_generative(MCMC_generative):
         sample_new.zones[z_id, site_removed] = 0
         q = q_back = 1.
 
-        # Set p_zones to the MLE value of the updated zone in the new sample
-        if self.sample_p_zones:
-            # The step changes p_zones (which has an influence on how the lh and the prior look like)
-            sample_new.what_changed['lh']['p_zones'] = sample_new.what_changed['prior']['p_zones'] = True
-            sample.what_changed['lh']['p_zones'] = sample.what_changed['prior']['p_zones'] = True
+        #if self.sample_p_zones:
+        #    # The step changes p_zones (which has an influence on how the lh and the prior look like)
+        #    sample_new.what_changed['lh']['p_zones'] = sample_new.what_changed['prior']['p_zones'] = True
+        #    sample.what_changed['lh']['p_zones'] = sample.what_changed['prior']['p_zones'] = True
 
-            sample_new.p_zones[z_id] = self.set_p_zones_to_mle(sample_new.zones[z_id])
+            # Set p_zones to the MLE value of the updated zone in the new sample
+            # sample_new.p_zones[z_id] = self.set_p_zones_to_mle(sample_new.zones[z_id])
 
         return sample_new, q, q_back
 
@@ -394,13 +393,13 @@ class ZoneMCMC_generative(MCMC_generative):
         sample_new.zones[z_id, site_new] = 1
         q = q_back = 1.
 
-        # Set p_zones to the MLE value of the updated zone in the new sample
         if self.sample_p_zones:
             # The step changes p_zones (which has an influence on how the lh and the prior look like)
             sample_new.what_changed['lh']['p_zones'] = sample_new.what_changed['prior']['p_zones'] = True
             sample.what_changed['lh']['p_zones'] = sample.what_changed['prior']['p_zones'] = True
 
-            sample_new.p_zones[z_id] = self.set_p_zones_to_mle(sample_new.zones[z_id])
+            # Set p_zones to the MLE value of the updated zone in the new sample
+            # sample_new.p_zones[z_id] = self.set_p_zones_to_mle(sample_new.zones[z_id])
         return sample_new, q, q_back
 
     def shrink_zone(self, sample):
@@ -436,13 +435,14 @@ class ZoneMCMC_generative(MCMC_generative):
         sample_new.zones[z_id, site_removed] = 0
         q = q_back = 1.
 
-        # Set p_zones to the MLE value of the updated zone in the new sample
         if self.sample_p_zones:
+
             # The step changes p_zones (which has an influence on how the lh and the prior look like)
             sample_new.what_changed['lh']['p_zones'] = sample_new.what_changed['prior']['p_zones'] = True
             sample.what_changed['lh']['p_zones'] = sample.what_changed['prior']['p_zones'] = True
 
-            sample_new.p_zones[z_id] = self.set_p_zones_to_mle(sample_new.zones[z_id])
+            # Set p_zones to the MLE value of the updated zone in the new sample
+            # sample_new.p_zones[z_id] = self.set_p_zones_to_mle(sample_new.zones[z_id])
 
         return sample_new, q, q_back
 
@@ -455,6 +455,9 @@ class ZoneMCMC_generative(MCMC_generative):
             np.array: The generated initial zones.
                 shape(n_zones, n_sites)
         """
+        # If there are no zones, return empty matrix
+        if self.n_zones == 0:
+            return np.zeros((self.n_zones, self.n), bool)
 
         occupied = np.zeros(self.n, bool)
         initial_zones = np.zeros((self.n_zones, self.n), bool)
@@ -576,7 +579,7 @@ class ZoneMCMC_generative(MCMC_generative):
         """
         initial_p_global = np.zeros((1, self.n_features, self.features.shape[2]))
 
-        # B: Use p_families from a previous run
+        # B: Use p_global from a previous run
         if self.initial_sample.p_global is not None:
             initial_p_global = self.initial_sample.p_global
 
@@ -585,7 +588,7 @@ class ZoneMCMC_generative(MCMC_generative):
             l_per_cat = np.sum(self.features, axis=0)
             p_global = normalize(l_per_cat)
 
-            # If one of the p_global values is 0 balance the p_array
+            # If one of the p_global values is 0 balance the p_array, such that none of the p's is exactly 0
             for p in range(len(p_global)):
 
                 # Check for nonzero p_idx
@@ -619,9 +622,10 @@ class ZoneMCMC_generative(MCMC_generative):
         l_per_cat = np.sum(features_zone, axis=0)
         p_zones = normalize(l_per_cat)
 
-        # The probabilities of categories without data are set to 0 (or -inf in log space)
-        sites_per_category = np.count_nonzero(self.features, axis=0)
-        p_zones[sites_per_category == 0] = 0.
+        # The probabilities of categories without data are set to 0
+        # Sampling no-longer in log space. Not needed anymore.
+        # sites_per_category = np.count_nonzero(self.features, axis=0)
+        # p_zones[sites_per_category == 0] = 0.
 
         return p_zones
 

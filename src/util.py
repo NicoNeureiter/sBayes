@@ -166,17 +166,15 @@ def zones_autosimilarity(zones, t):
     return np.mean(sim_norm)
 
 
-def read_features_from_csv(file_location, log=True):
+def read_features_from_csv(file):
     """This is a helper function to import data (sites, features, family membership,...) from a csv file
-        Args:
-            file_location(str): file location of the csv file
-            log (bool): write information on importing the features to the log-file?
-        Returns:
-            (dict, dict, np.array, dict, dict, np.array, dict) :
-            The language date including sites, site names, all features, feature names and category names per feature,
-            as well as family membership and family names
+    Args:
+        file (str): file location of the csv file
+    Returns:
+        (dict, dict, np.array, dict, dict, np.array, dict, str) :
+        The language date including sites, site names, all features, feature names and state names per feature,
+        as well as family membership and family names and log information
     """
-    file = file_location + "features.csv"
     columns = []
     feature_names_ordered = []
     with open(file, 'rU') as f:
@@ -267,10 +265,12 @@ def read_features_from_csv(file_location, log=True):
 
     family_names = {'external': family_names_ordered,
                     'internal': list(range(0, len(family_names_ordered)))}
-    if log:
-        logging.info("%s sites with %s features imported from %s. %s NA value(s) found.", len(site_names['internal']),
-                     len(feature_names['internal']), file, na_number)
-    return sites, site_names, features, feature_names, category_names, families, family_names
+    log = \
+        str(len(site_names['internal'])) + " sites with " + \
+        str(len(feature_names['internal'])) + " features read from " + \
+        file + ". " + str(na_number) + " NA value(s) found."
+
+    return sites, site_names, features, feature_names, category_names, families, family_names, log
 
 
 def write_languages_to_csv(features, sites, families, file):
@@ -396,7 +396,7 @@ def read_feature_occurrence_from_csv(file):
     return occurr, category_names, feature_names
 
 
-def family_counts_to_dirichlet(counts, categories):
+def inheritance_counts_to_dirichlet(counts, categories):
     """This is a helper function transform the family counts to alpha values that
     are then used to define a dirichlet distribution
 
@@ -415,36 +415,34 @@ def family_counts_to_dirichlet(counts, categories):
         for feat in range(n_feat):
             cat = categories[feat]
 
-            alpha = counts[fam, feat, cat]
-            # Add 1 to alpha values (1,1,...1 is a uniform prior)
-            alpha = alpha + 1
+            # Add 1 to count values (1,1,...1 is a uniform prior)
+            pseudocounts = counts[fam, feat, cat] + 1
 
-            dirichlet[fam].append(stats.dirichlet(alpha))
+            dirichlet[fam].append(stats.dirichlet(pseudocounts))
 
     return dirichlet
 
-def global_counts_to_dirichlet(counts, categories):
-    """This is a helper function transform the global counts to alpha values that
-    are then used to define dirichlet distributions
+
+def universal_counts_to_dirichlet(counts, states):
+    """This is a helper function to transform universal pseudocounts to alpha values that
+    are then passed to define dirichlet distributions
 
     Args:
-        counts(np.array): the global counts
-            shape(n_features, n_categories)
-        categories(list): categories per feature
+        counts(np.array): the universal pseudocounts
+                    shape(n_features, states)
+        states(list): states/categories per feature
     Returns:
-        list: the dirichlet distributions, neatly stored in a dict
+        list: a dirichlet distribution derived from pseudocounts, neatly stored in a dict
     """
 
     n_feat, n_cat = counts.shape
     dirichlet = []
 
     for feat in range(n_feat):
-        cat = categories[feat]
-
-        alpha = counts[feat, cat]
+        cat = states[feat]
         # Add 1 to alpha values (1,1,...1 is a uniform prior)
-        alpha = alpha + 1
-        dirichlet.append(stats.dirichlet(alpha))
+        pseudocounts = counts[feat, cat] + 1
+        dirichlet.append(stats.dirichlet(pseudocounts))
 
     return dirichlet
 
@@ -627,12 +625,14 @@ def samples2res_old(samples):
     return mcmc_res
 
 
-def samples2res(samples):
+def samples2res(samples, ground_truth, per_zone=False):
     """
     Stores the output of the MCMC contained in samples in a simple data container (dict).
     The returned data container facilitates the analysis of the results (e.g. plotting).
     Args:
-        samples (list): samples
+        samples (dict): samples
+        ground_truth (bool): is there a ground truth in the data, i.e. are these simulation results?
+        per_zone (bool): is the likelihood /posterior estimated per single zones?
     """
 
     n_zones = samples['sample_zones'][0].shape[0]
@@ -641,16 +641,22 @@ def samples2res(samples):
     mcmc_res = {
         'lh': [],
         'prior': [],
-        'recall': [],
-        'precision': [],
         'posterior': [],
         'zones': [[] for _ in range(n_zones)],
         'weights': [],
         'p_global': [],
         'p_zones': [[] for _ in range(n_zones)],
-        'true_zones': [],
         'n_zones': n_zones,
     }
+    if ground_truth:
+        mcmc_res['true_zones'] = []
+        mcmc_res['true_zones'] = []
+        mcmc_res['recall'] = []
+        mcmc_res['precision'] = []
+
+    if per_zone:
+        mcmc_res['lh_single_zones'] = [[] for _ in range(n_zones)]
+        mcmc_res['posterior_single_zones'] = [[] for _ in range(n_zones)]
 
     # Collect true sample
     if 'true_zones' in samples.keys():
@@ -661,11 +667,7 @@ def samples2res(samples):
         mcmc_res['true_p_zones'] = samples['true_p_zones']
 
     if 'true_families' in samples.keys():
-        if samples['sample_p_families'][0] is not None:
-            n_families = samples['sample_p_families'][0].shape[0]
-        else:
-            n_families = 0
-        mcmc_res['p_families'] = [[] for _ in range(n_families)]
+
         mcmc_res['true_families'] = samples['true_families']
         mcmc_res['true_p_families'] = samples['true_p_families']
 
@@ -674,19 +676,24 @@ def samples2res(samples):
         true_posterior = samples['true_ll'] + samples['true_prior']
         mcmc_res['true_posterior'] = true_posterior
 
-
-
     for t in range(len(samples['sample_zones'])):
 
         # Zones and p_zones
         for z in range(n_zones):
             mcmc_res['zones'][z].append(samples['sample_zones'][t][z])
-            mcmc_res['p_zones'][z].append(samples['sample_p_zones'][t][z])
+#            mcmc_res['p_zones'][z].append(samples['sample_p_zones'][t][z])
 
         # Weights
         mcmc_res['weights'].append(samples['sample_weights'][t])
 
         if 'true_families' in samples.keys():
+            if samples['sample_p_families'][0] is not None:
+                n_families = samples['sample_p_families'][0].shape[0]
+            else:
+                n_families = 0
+
+            mcmc_res['p_families'] = [[] for _ in range(n_families)]
+
             # p_families
             for fam in range(n_families):
                 mcmc_res['p_families'][fam].append(samples['sample_p_families'][t][fam])
@@ -699,15 +706,26 @@ def samples2res(samples):
         mcmc_res['posterior'].append(posterior)
 
         # Recall and precision
-        sample_z = samples['sample_zones'][t][0]
-        n_true = np.sum(true_z)
+        if ground_truth:
 
-        intersections = np.minimum(sample_z, true_z)
-        total_recall = np.sum(intersections, axis=0) / n_true
-        mcmc_res['recall'].append(total_recall)
+            sample_z = samples['sample_zones'][t][0]
+            n_true = np.sum(true_z)
 
-        precision = np.sum(intersections, axis=0) / np.sum(sample_z, axis=0)
-        mcmc_res['precision'].append(precision)
+            intersections = np.minimum(sample_z, true_z)
+            total_recall = np.sum(intersections, axis=0) / n_true
+            mcmc_res['recall'].append(total_recall)
+
+            precision = np.sum(intersections, axis=0) / np.sum(sample_z, axis=0)
+            mcmc_res['precision'].append(precision)
+
+        if per_zone:
+
+            # Likelihood and posterior of single zones
+            for z in range(n_zones):
+                mcmc_res['lh_single_zones'][z].append(samples['sample_lh_single_zones'][t][z])
+                posterior_single_zone = samples['sample_lh_single_zones'][t][z] + samples['sample_prior_single_zones'][t][z]
+                mcmc_res['posterior_single_zones'][z].append(posterior_single_zone)
+
     np.set_printoptions(suppress=True)
 
     return mcmc_res
@@ -952,3 +970,24 @@ def mle_weights(samples):
     """
     counts = np.sum(samples, axis=0)
     return normalize(counts)
+
+
+def assign_na(features, n_na):
+    """ Randomly assign NAs to features. Makes the simulated data more realistic. A feature is NA if for one
+    site a feature is 0 in all categories
+    Args:
+        features(np.ndarray): binary feature array
+            shape: (sites, features, categories)
+        n_na: number of NAs added
+    returns: features(np.ndarray): binary feature array, with shape = (sites, features, categories)
+    """
+
+    features = features.astype(float)
+    # Choose a random site and feature and set to None
+    for _ in range(n_na):
+
+        na_site = np.random.choice(a=features.shape[0], size=1)
+        na_feature = np.random.choice(a=features.shape[1], size=1)
+        features[na_site, na_feature, :] = 0
+
+    return features
