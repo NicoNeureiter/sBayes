@@ -31,7 +31,6 @@
 		  "Slavic": "../data/prior_inheritance/slavic_counts.csv",
 		  "Turkish": "../data/prior_inheritance/turkish_counts.csv"
 	  } 
-	},
-	"MAP" : "some_map_data"
+	}
  }
 }

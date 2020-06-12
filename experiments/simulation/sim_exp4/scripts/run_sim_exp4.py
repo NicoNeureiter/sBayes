@@ -1,19 +1,19 @@
-from src.experiment_setup import InitializeExperiment
-from src.simulation import SimulateContactAreas
-from src.mcmc_setup import MCMCSetup
+from src.experiment_setup import Experiment
+from src.simulation import Simulation
+from src.mcmc_setup import MCMC
 
 
 if __name__ == '__main__':
 
     # 1. Initialize the experiment
-    exp = InitializeExperiment()
+    exp = Experiment()
     exp.load_config()
-    exp.log_experiment()
+    exp.log()
 
     # 2. Simulate contact areas
-    simca = SimulateContactAreas(experiment=exp)
-    simca.run_simulation()
-    simca.log_simulation()
+    sim = Simulation(experiment=exp)
+    sim.run_simulation()
+    sim.log_()
 
     # Iterate over different setups (priors)
     PRIOR_UNIVERSAL = [False, True]
@@ -22,7 +22,7 @@ if __name__ == '__main__':
         exp.config['mcmc']['PRIOR']['universal'] = "from_simulated_counts" if P else "uniform"
 
         # 3. Configure MCMC
-        mc = MCMCSetup(data=simca, experiment=exp)
+        mc = MCMC(data=sim, experiment=exp)
         mc.log_setup()
 
         # Rerun experiment to check for consistency

@@ -1,0 +1,22 @@
+Experiment: 2020-06-10_19-38
+File location for results: ../results/2020-06-10_19-38/
+
+
+SIMULATION
+##########################################
+951 locations read from ../simulation/sites.csv
+Inheritance is simulated: True
+Simulated features: 35
+Simulated intensity for universal pressure: 1.0
+Simulated intensity for contact: 3.0
+Simulated intensity for inheritance: 2.0
+Simulated level of entropy for universal pressure: 1.0
+Simulated level of entropy for contact: 0.25
+Simulated level of entropy for inheritance: 0.1
+Simulated area: 10
+
+
+MCMC SETUP
+##########################################
+MCMC with 2000 steps and 1000 samples (burn-in 0 steps)
+Areas have a minimum size of 3 and a maximum size of 50.

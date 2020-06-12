@@ -1,16 +1,16 @@
-from src.experiment_setup import InitializeExperiment
-from src.simulation import SimulateContactAreas
-from src.mcmc_setup import MCMCSetup
+from src.experiment_setup import Experiment
+from src.simulation import Simulation
+from src.mcmc_setup import MCMC
 
 if __name__ == '__main__':
 
     # 1. Initialize the experiment
-    exp = InitializeExperiment()
-    exp.load_config()
+    exp = Experiment()
+    exp.load_config(config_file='../config/config.json')
     exp.log_experiment()
 
     # 2. Simulate contact areas
-    simca = SimulateContactAreas(experiment=exp)
+    simca = Simulation(experiment=exp)
     simca.run_simulation()
     simca.log_simulation()
 
@@ -22,7 +22,7 @@ if __name__ == '__main__':
         exp.config['mcmc']['N_AREAS'] = N
 
         # 3. Define MCMC
-        mc = MCMCSetup(data=simca, experiment=exp)
+        mc = MCMC(data=simca, experiment=exp)
         mc.log_setup()
 
         # Rerun experiment to check for consistency
@@ -35,4 +35,4 @@ if __name__ == '__main__':
 
             # 6. Log sampling statistics and save samples to file
             mc.log_statistics()
-            mc.save_samples(file_info="n", run=run)
+            mc.save_samples()

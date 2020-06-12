@@ -1,0 +1,20 @@
+Experiment: 2020-06-10_18-32
+File location for results: ../results/2020-06-10_18-32/
+
+
+SIMULATION
+##########################################
+951 locations read from ../data/sites_simulation.csv
+Inheritance is simulated: False
+Simulated features: 35
+Simulated intensity for universal pressure: 1.0
+Simulated intensity for contact: 1.25
+Simulated intensity for inheritance: None
+Simulated exposition to universal pressure: 1.0
+Simulated exposition to contact: 1.5
+Simulated exposition to inheritance: None
+Simulated area: 4
+
+
+MCMC SETUP
+##########################################

@@ -1,6 +1,6 @@
 {
   "simulation": {
-	"sites_file": "../data/sites_simulation.csv",
+	"SITES": "../simulation/sites.csv",
     "N_FEATURES": 35,
     "P_N_CATEGORIES": {
       "2": 0.4,
@@ -8,11 +8,11 @@
       "4": 0.3
     },
     "I_GLOBAL": 1.0,
-	"I_INHERITANCE": 0.1, 
-	"I_CONTACT":0.25,
+	"I_INHERITANCE": 2.0,
+	"I_CONTACT": 3.0,
     "E_GLOBAL": 1.0,
-	"E_INHERITANCE": 2.0,
-	"E_CONTACT": 3.0,
+	"E_INHERITANCE": 0.1, 
+	"E_CONTACT": 0.25,
     "INHERITANCE": true,
 	"AREA": 10
   }, 
@@ -22,9 +22,8 @@
     "N_STEPS": 2000,
     "N_SAMPLES": 1000,
     "N_RUNS": 1,
-    "MIN_SIZE_AREA": 3,
-    "MAX_SIZE_AREA": 50,
-    "INITIAL_SIZE_AREA": 5,
+    "MIN_M": 3,
+    "MAX_M": 50,
     "N_CHAINS": 3,
     "N_AREAS": 1,
     "PRIOR": {
@@ -47,5 +46,7 @@
       "contact": "TBD",
 	  "inheritance": "TBD"
     }
-  } 
+  }, 
+  "results": {
+    "FILE_INFO": "i"}  
 }
