@@ -71,8 +71,8 @@ class Sample(object):
 
 class ZoneMCMC_generative(MCMC_generative):
 
-    def __init__(self, network, features, min_size, max_size, initial_size, var_proposal,
-                 initial_sample, connected_only=False, **kwargs):
+    def __init__(self, network, features, min_size, max_size, var_proposal,
+                 initial_sample, connected_only=False, initial_size=5, **kwargs):
 
         super(ZoneMCMC_generative, self).__init__(**kwargs)
 

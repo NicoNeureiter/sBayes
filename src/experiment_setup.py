@@ -13,8 +13,8 @@ import warnings
 from src.util import set_experiment_name
 
 
-class InitializeExperiment:
-    def __init__(self, experiment_name="default", path_results="default"):
+class Experiment:
+    def __init__(self, experiment_name="default"):
 
         # Naming and shaming
         if experiment_name == "default":
@@ -22,33 +22,27 @@ class InitializeExperiment:
         else:
             self.experiment_name = experiment_name
 
-        # File location for results
-        if path_results == "default":
-            self.path_results = '../results/{experiment}/'. \
-                format(experiment=self.experiment_name)
-        else:
-            self.path_results = '{loc}/{experiment}/'. \
-                format(loc=path_results, experiment=self.experiment_name)
-
-        if not os.path.exists(self.path_results):
-            os.makedirs(self.path_results)
-
         self.config_file = None
         self.config = {}
+        self.path_results = None
 
-    def load_config(self, config_file="default"):
+    def load_config(self, config_file):
 
         # Get parameters from config_file
-        if config_file == "default":
-            self.config_file = '../config/config.json'
-        else:
-            self.config_file = config_file
+        self.config_file = config_file
 
         # Read config file
         self.read_config()
 
         # Verify config
         self.verify_config()
+
+        # Set results path
+        self.path_results = '{path}/{experiment}/'. \
+            format(path=self.config['results']['RESULTS_PATH'], experiment=self.experiment_name)
+
+        if not os.path.exists(self.path_results):
+            os.makedirs(self.path_results)
 
     def read_config(self):
         with open(self.config_file, 'r') as f:
@@ -139,38 +133,31 @@ class InitializeExperiment:
             self.config['mcmc']['N_STEPS'] = 30000
         # Steps discarded as burn-in
         if 'BURN_IN' not in self.config['mcmc']:
-            self.config['mcmc']['BURN_IN'] = 1000
-        # Increase of steps per additional area
-        if 'N_STEPS_INCREASE' not in self.config['mcmc']:
-            self.config['mcmc']['N_STEPS_INCREASE'] = 0.
+            self.config['mcmc']['BURN_IN'] = 5000
         # Number of samples
         if 'N_SAMPLES' not in self.config['mcmc']:
             self.config['mcmc']['N_SAMPLES'] = 1000
         # Number of runs
         if 'N_RUNS' not in self.config['mcmc']:
             self.config['mcmc']['N_RUNS'] = 1
-        # Minimum, maximum and initial size of areas
-        if 'MIN_SIZE_AREA' not in self.config['mcmc']:
-            self.config['mcmc']['MIN_SIZE_AREA'] = 3
-        if 'MAX_SIZE_AREA' not in self.config['mcmc']:
-            self.config['mcmc']['MAX_SIZE_AREA'] = 200
-        if 'INITIAL_SIZE_AREA' not in self.config['mcmc']:
-            self.config['mcmc']['INITIAL_SIZE_AREA'] = 10
+        # Minimum, maximum size of areas
+        if 'MIN_M' not in self.config['mcmc']:
+            self.config['mcmc']['MIN_M'] = 3
+        if 'MAX_M' not in self.config['mcmc']:
+            self.config['mcmc']['MAX_M'] = 200
         # Number of parallel Markov chains
         if 'N_CHAINS' not in self.config['mcmc']:
             self.config['mcmc']['N_CHAINS'] = 5
-        # Steps per attempted chain swap
+        # Steps between two attempted chain swaps
         if 'SWAP_PERIOD' not in self.config['mcmc']:
             self.config['mcmc']['SWAP_PERIOD'] = 1000
         # Number of attempted chain swaps
         if 'N_SWAPS' not in self.config['mcmc']:
             self.config['mcmc']['N_SWAPS'] = 3
-        # Compute the likelihood per area?
-        if 'LH_PER_AREA' not in self.config['mcmc']:
-            self.config['mcmc']['LH_PER_AREA'] = False
-        # Areas must be connected in the Delaunay?
-        if 'CONNECTED_ONLY' not in self.config['mcmc']:
-            self.config['mcmc']['CONNECTED_ONLY'] = False
+        if 'NEIGHBOR_DIST' not in self.config['mcmc']:
+            self.config['mcmc']['NEIGHBOR_DIST'] = "euclidean"
+        if 'LAMBDA_GEO_PRIOR' not in self.config['mcmc']:
+            self.config['mcmc']['LAMBDA_GEO_PRIOR'] = "auto_tune"
 
         # Precision of the proposal distribution
         # PROPOSAL_PRECISION is in config --> check for consistency
@@ -251,6 +238,17 @@ class InitializeExperiment:
                                                 "universal": 0.05,
                                                 "contact": 0.2,
                                                 "inheritance": 0.00}
+
+        if 'results' in self.config:
+            if 'RESULTS_PATH' not in self.config['results']:
+                self.config['results']['RESULTS_PATH'] = "../results"
+            if 'FILE_INFO' not in self.config['results']:
+                self.config['results']['FILE_INFO'] = "n"
+
+        else:
+            self.config['results'] = {}
+            self.config['results']['RESULTS_PATH'] = "../results"
+            self.config['results']['FILE_INFO'] = "n"
 
     def log_experiment(self):
         log_path = self.path_results + 'experiment.log'

@@ -258,7 +258,7 @@ def match_zones(mcmc_res):
     return mcmc_res
 
 
-def contribution_per_zone(mcmc_sampler):
+def contribution_per_area(mcmc_sampler):
     """Evaluate the contribution of each zone to the lh and the posterior in each sample
     Args:
         mcmc_sampler(MCMC_generative): MCMC sampler for generative model (including samples)

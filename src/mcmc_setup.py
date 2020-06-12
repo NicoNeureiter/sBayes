@@ -8,12 +8,12 @@ from __future__ import absolute_import, division, print_function, unicode_litera
 import logging
 import numpy as np
 
-from src.postprocessing import contribution_per_zone, log_operator_statistics, log_operator_statistics_header
+from src.postprocessing import contribution_per_area, log_operator_statistics, log_operator_statistics_header
 from src.sampling.zone_sampling import Sample, ZoneMCMC_generative
 from src.util import dump, normalize, universal_counts_to_dirichlet, inheritance_counts_to_dirichlet
 
 
-class MCMCSetup:
+class MCMC:
     def __init__(self, data, experiment):
 
         # Retrieve the data
@@ -88,18 +88,12 @@ class MCMCSetup:
         logging.info("MCMC SETUP")
         logging.info("##########################################")
 
-        if self.config['mcmc']['N_STEPS_INCREASE'] == 0:
-            logging.info("MCMC with %s steps and %s samples (burn-in %s steps)",
-                         self.config['mcmc']['N_STEPS'], self.config['mcmc']['N_SAMPLES'],
-                         self.config['mcmc']['BURN_IN'])
-        else:
-            logging.info("MCMC with %s steps (+ %s increase per extra zone) and %s samples (burn-in %s steps)",
-                         self.config['mcmc']['N_STEPS'], self.config['mcmc']['N_SAMPLES'],
-                         self.config['mcmc']['N_STEPS_INCREASE'], self.config['mcmc']['BURN_IN'])
+        logging.info("MCMC with %s steps and %s samples (burn-in %s steps)",
+                     self.config['mcmc']['N_STEPS'], self.config['mcmc']['N_SAMPLES'],
+                     self.config['mcmc']['BURN_IN'])
 
-        logging.info("Areas have a minimum size of %s and a maximum size of %s. The initial size is %s.",
-                     self.config['mcmc']['MIN_SIZE_AREA'], self.config['mcmc']['MAX_SIZE_AREA'],
-                     self.config['mcmc']['INITIAL_SIZE_AREA'])
+        logging.info("Areas have a minimum size of %s and a maximum size of %s.",
+                     self.config['mcmc']['MIN_M'], self.config['mcmc']['MAX_M'])
         logging.info("MCMC with %s chains and %s attempted swap(s) after %s steps.",
                      self.config['mcmc']['N_CHAINS'], self.config['mcmc']['N_SWAPS'],
                      self.config['mcmc']['SWAP_PERIOD'])
@@ -142,15 +136,13 @@ class MCMCSetup:
                'alter_p_families': self.config['mcmc']['STEPS']['inheritance']}
         self.ops = ops
 
-    def sample(self, initial_sample=None):
+    def sample(self, initial_sample=None, lh_per_area=False):
         initial_sample = self.initialize_sample(initial_sample)
 
         self.sampler = ZoneMCMC_generative(network=self.data.network, features=self.data.features,
-                                           min_size=self.config['mcmc']['MIN_SIZE_AREA'],
-                                           max_size=self.config['mcmc']['MAX_SIZE_AREA'],
-                                           initial_size=self.config['mcmc']['INITIAL_SIZE_AREA'],
+                                           min_size=self.config['mcmc']['MIN_M'],
+                                           max_size=self.config['mcmc']['MAX_M'],
                                            n_zones=self.config['mcmc']['N_AREAS'],
-                                           connected_only=self.config['mcmc']['CONNECTED_ONLY'],
                                            n_chains=self.config['mcmc']['N_CHAINS'],
                                            initial_sample=initial_sample,
                                            swap_period=self.config['mcmc']['SWAP_PERIOD'],
@@ -165,8 +157,8 @@ class MCMCSetup:
                                       self.config['mcmc']['BURN_IN'])
 
         # Evaluate likelihood and prior for each zone alone (makes it possible to rank zones)
-        if self.config['mcmc']['LH_PER_AREA']:
-            self.sampler = contribution_per_zone(self.sampler)
+        if lh_per_area:
+            self.sampler = contribution_per_area(self.sampler)
 
         self.samples = self.sampler.statistics
 
@@ -227,17 +219,17 @@ class MCMCSetup:
         self.samples['true_prior'] = self.sampler.prior(ground_truth_sample, 0)
         self.samples["true_families"] = self.data.families
 
-    def save_samples(self, file_info="default", run=1):
-        if file_info == "default":
-            file_info = "n"
+    def save_samples(self, run=1):
+        file_info = self.config['results']['FILE_INFO']
+
         if file_info == "n":
             outfile = self.path_results + 'contact_areas_n{n}_{run}.pkl'
             path = outfile.format(n=self.config['mcmc']['N_AREAS'], run=run)
 
-        elif file_info == "sz":
-            outfile = self.path_results + 'contact_areas_s{s}_z{z}_{run}.pkl'
+        elif file_info == "s":
+            outfile = self.path_results + 'contact_areas_s{s}_a{a}_{run}.pkl'
             path = outfile.format(s=self.config['simulation']['STRENGTH'],
-                                  z=self.config['simulation']['AREA'], run=run)
+                                  a=self.config['simulation']['AREA'], run=run)
 
         elif file_info == "i":
             outfile = self.path_results + 'contact_areas_i{i}_{run}.pkl'
@@ -248,5 +240,5 @@ class MCMCSetup:
             p = 0 if self.config['mcmc']['PRIOR']['universal']['type'] == "uniform" else 1
             path = outfile.format(p=p, run=run)
         else:
-            raise ValueError("file_info must be 'n', 'sz', 'i', 'p' or default")
+            raise ValueError("file_info must be 'n', 's', 'i' or 'p'")
         dump(self.samples, path)

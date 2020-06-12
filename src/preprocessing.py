@@ -45,9 +45,9 @@ def read_sites(file, retrieve_family=False, retrieve_subset=False):
         x = csv_as_dict.pop('x')
         y = csv_as_dict.pop('y')
         name = csv_as_dict.pop('name')
-        cz = csv_as_dict.pop('cz')
+        cz = csv_as_dict.pop('area')
     except KeyError:
-        raise KeyError('The csv  must contain columns "x", "y", "name", "cz')
+        raise KeyError('The csv  must contain columns "x", "y", "name", "area')
 
     locations = np.zeros((len(name), 2))
     seq_id = []
@@ -370,14 +370,14 @@ def simulate_families(fam_id, sites_sim):
     return families
 
 
-def simulate_weights(e_universal, e_contact,  inheritance, n_features, e_inheritance=None):
+def simulate_weights(i_universal, i_contact,  inheritance, n_features, i_inheritance=None):
     """ Simulates weights for all features, that is the influence of global bias, inheritance and contact on the feature.
     Args:
-        e_universal (float): controls the number of features for which the influence of universal pressure is high,
+        i_universal (float): controls the number of features for which the influence of universal pressure is high,
             passed as alpha when drawing samples from a dirichlet distribution
-        e_contact(float): controls the number of features for which the influence of contact is high,
+        i_contact(float): controls the number of features for which the influence of contact is high,
             passed as alpha when drawing samples from a dirichlet distribution
-        e_inheritance: controls the number of features for which the influence of inheritance is high,
+        i_inheritance: controls the number of features for which the influence of inheritance is high,
             passed as alpha when drawing samples from a dirichlet distribution, only relevant if inheritance = True
         inheritance: Is inheritance evaluated/simulated?
         n_features: Simulate weights for how many features?
@@ -386,17 +386,17 @@ def simulate_weights(e_universal, e_contact,  inheritance, n_features, e_inherit
         """
     # Define alpha values which control the influence of contact (and inheritance if available) when simulating features
     if inheritance:
-        alpha_sim = [e_universal, e_contact, e_inheritance]
+        alpha_sim = [i_universal, i_contact, i_inheritance]
     else:
-        alpha_sim = [e_universal, e_contact]
+        alpha_sim = [i_universal, i_contact]
 
     # columns in weights: global, contact, (inheritance if available)
     weights = np.random.dirichlet(alpha_sim, n_features)
     return weights
 
 
-def simulate_assignment_probabilities(n_features, p_number_categories, inheritance, areas, i_contact,
-                                      i_universal, i_inheritance=None, families=None):
+def simulate_assignment_probabilities(n_features, p_number_categories, inheritance, areas, e_contact,
+                                      e_universal, e_inheritance=None, families=None):
     """ Simulates the categories and then the assignment probabilities to categories in areas, families and universally
 
        Args:
@@ -407,9 +407,9 @@ def simulate_assignment_probabilities(n_features, p_number_categories, inheritan
                 shape(n_areas, n_sites)
            families(np.array): assignment of sites to families
                 shape(n_families, n_sites)
-           i_universal (float): controls the intensity of the simulated universal pressure
-           i_contact(float): controls the intensity of the simulated contact effect in the areas
-           i_inheritance(float): controls the intensity of the simulated inheritance in the families
+           e_universal (float): controls the entropy of the simulated universal pressure
+           e_contact(float): controls the entropy of the simulated contact effect in the areas
+           e_inheritance(float): controls the entropy of the simulated inheritance in the families
        Returns:
            (np.array, np.array, np.array): The assignment probabilities (universal, areal, inheritance) per feature
        """
@@ -435,11 +435,11 @@ def simulate_assignment_probabilities(n_features, p_number_categories, inheritan
         cat_f = n_categories[f]
 
         # Universal assignment
-        alpha_p_universal = [i_universal] * cat_f
+        alpha_p_universal = [e_universal] * cat_f
         p_universal[f, range(cat_f)] = np.random.dirichlet(alpha_p_universal, size=1)
 
         # Assignment in areas
-        alpha_p_contact = [i_contact] * cat_f
+        alpha_p_contact = [e_contact] * cat_f
         for z in range(n_areas):
 
             p_contact[z, f, range(cat_f)] = np.random.dirichlet(alpha_p_contact, size=1)
@@ -456,7 +456,7 @@ def simulate_assignment_probabilities(n_features, p_number_categories, inheritan
             cat_f = n_categories[f]
 
             # Assignment in families
-            alpha_p_inheritance = [i_inheritance] * cat_f
+            alpha_p_inheritance = [e_inheritance] * cat_f
 
             for fam in range(n_families):
                 p_inheritance[fam, f, range(cat_f)] = np.random.dirichlet(alpha_p_inheritance, size=1)

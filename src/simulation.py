@@ -20,13 +20,13 @@ from src.preprocessing import (compute_network, read_sites,
                                counts_from_complement)
 
 
-class SimulateContactAreas:
+class Simulation:
     def __init__(self, experiment):
 
         self.path_log = experiment.path_results + 'experiment.log'
         self.config = experiment.config
 
-        self.sites_file = experiment.config['simulation']['sites_file']
+        self.sites_file = experiment.config['simulation']['SITES']
         self.log_read_sites = None
 
         # Simulated parameters
@@ -57,9 +57,9 @@ class SimulateContactAreas:
         logging.info("Simulated intensity for universal pressure: %s", self.config['simulation']['I_UNIVERSAL'])
         logging.info("Simulated intensity for contact: %s", self.config['simulation']['I_CONTACT'])
         logging.info("Simulated intensity for inheritance: %s", self.config['simulation']['I_INHERITANCE'])
-        logging.info("Simulated exposition to universal pressure: %s", self.config['simulation']['E_UNIVERSAL'])
-        logging.info("Simulated exposition to contact: %s", self.config['simulation']['E_CONTACT'])
-        logging.info("Simulated exposition to inheritance: %s", self.config['simulation']['E_INHERITANCE'])
+        logging.info("Simulated level of entropy for universal pressure: %s", self.config['simulation']['E_UNIVERSAL'])
+        logging.info("Simulated level of entropy for contact: %s", self.config['simulation']['E_CONTACT'])
+        logging.info("Simulated level of entropy for inheritance: %s", self.config['simulation']['E_INHERITANCE'])
         logging.info("Simulated area: %s", self.config['simulation']['AREA'])
 
     def run_simulation(self):
@@ -82,9 +82,9 @@ class SimulateContactAreas:
             self.families = None
 
         # Simulate weights, i.e. the influence of universal pressure, contact and inheritance on each feature
-        self.weights = simulate_weights(e_universal=self.config['simulation']['E_UNIVERSAL'],
-                                        e_contact=self.config['simulation']['E_CONTACT'],
-                                        e_inheritance=self.config['simulation']['E_INHERITANCE'],
+        self.weights = simulate_weights(i_universal=self.config['simulation']['I_UNIVERSAL'],
+                                        i_contact=self.config['simulation']['I_CONTACT'],
+                                        i_inheritance=self.config['simulation']['I_INHERITANCE'],
                                         inheritance=self.inheritance,
                                         n_features=self.config['simulation']['N_FEATURES'])
 
@@ -94,9 +94,9 @@ class SimulateContactAreas:
             = simulate_assignment_probabilities(n_features=self.config['simulation']['N_FEATURES'],
                                                 p_number_categories=self.config['simulation']['P_N_CATEGORIES'],
                                                 areas=self.areas, families=self.families,
-                                                i_universal=self.config['simulation']['I_UNIVERSAL'],
-                                                i_contact=self.config['simulation']['I_CONTACT'],
-                                                i_inheritance=self.config['simulation']['I_INHERITANCE'],
+                                                e_universal=self.config['simulation']['E_UNIVERSAL'],
+                                                e_contact=self.config['simulation']['E_CONTACT'],
+                                                e_inheritance=self.config['simulation']['E_INHERITANCE'],
                                                 inheritance=self.inheritance)
 
         # Simulate features
