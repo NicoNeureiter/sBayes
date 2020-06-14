@@ -24,13 +24,11 @@ class MCMC_generative(metaclass=_abc.ABCMeta):
 
 
         statistics (dict): Container for a set of statistics about the sampling run.
-
-    [1]  Altekar, Gautam, et al. "Parallel metropolis coupled Markov chain Monte Carlo for Bayesian phylogenetic inference." Bioinformatics 20.3 (2004): 407-415.
     """
 
-    def __init__(self, operators, inheritance, families, prior, sample_p,
-                 known_initial_weights=None, known_initial_zones=None, n_chains=4, swap_period=1000, chain_swaps=1,
-                 show_screen_log=False):
+    def __init__(self, operators, inheritance, families, prior, n_zones, chain_swaps, n_chains, swap_period,
+                 sample_alpha=True, sample_beta=True, sample_gamma=True, known_initial_weights=None,
+                 known_initial_zones=None, show_screen_log=False):
 
         # Sampling attributes
         self.n_chains = n_chains
@@ -38,7 +36,10 @@ class MCMC_generative(metaclass=_abc.ABCMeta):
         self.chain_swaps = chain_swaps
         self.chain_idx = list(range(self.n_chains))
 
+        # Number of zones
+        self.n_zones = n_zones
 
+        # For testing: wights or zones are known
         self.known_initial_weights = known_initial_weights
         self.known_initial_zones = known_initial_zones
 
@@ -52,14 +53,20 @@ class MCMC_generative(metaclass=_abc.ABCMeta):
         # Prior
         self.geo_prior = prior['geo']
         self.prior_weights = prior['weights']
-        self.prior_p_global = prior['p_global']
-        self.prior_p_zones = prior['p_zones']
-        self.prior_p_families = prior['p_families']
+        self.prior_p_global = prior['universal']
+        self.prior_p_zones = prior['contact']
+        try:
+            self.prior_p_families = prior['inheritance']
+        except KeyError:
+            pass
 
         # Sample the probabilities of categories (global, in zones and in families)?
-        self.sample_p_global = sample_p['p_global']
-        self.sample_p_zones = sample_p['p_zones']
-        self.sample_p_families = sample_p['p_families']
+        self.sample_p_global = sample_alpha
+        self.sample_p_zones = sample_gamma
+        if self.inheritance:
+            self.sample_p_families = sample_beta
+        else:
+            self.sample_p_families = False
 
         # Initialize statistics
         self.statistics = {'sample_id': [],
@@ -152,6 +159,17 @@ class MCMC_generative(metaclass=_abc.ABCMeta):
             # Compute the (log)-likelihood and the prior for each sample
             self._ll[c] = self.likelihood(sample[c], c)
             self._prior[c] = self.prior(sample[c], c)
+
+        # Probability of operators is different if there are zero zones
+        if self.n_zones == 0:
+
+            operator_names = [f.__name__ for f in self.fn_operators]
+            zone_op = [operator_names.index('alter_p_zones'), operator_names.index('shrink_zone'),
+                       operator_names.index('grow_zone'), operator_names.index('swap_zone')]
+
+            for op in zone_op:
+                self.p_operators[op] = 0.
+            self.p_operators = [p / sum(self.p_operators) for p in self.p_operators]
 
         # Probability of operators in burn-in is different to post-burn-in
         p_operators_post_burn_in = list(self.p_operators)
@@ -302,7 +320,9 @@ class MCMC_generative(metaclass=_abc.ABCMeta):
 
         ll_ratio = ll_new - ll_prev
         try:
-            log_q_ratio = _math.log(q / q_back)
+            with _np.errstate(divide='ignore'):
+                log_q_ratio = _math.log(q / q_back)
+
         except ZeroDivisionError:
             log_q_ratio = _math.inf
 

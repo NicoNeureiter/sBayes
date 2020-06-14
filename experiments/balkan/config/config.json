@@ -1,0 +1,36 @@
+{
+  "mcmc": {
+    "BURN_IN": 0,
+    "N_STEPS": 2000,
+    "N_STEPS_INCREASE": 500,
+    "N_SAMPLES": 1000,
+    "N_RUNS": 1,
+    "MIN_SIZE_AREA": 3,
+    "MAX_SIZE_AREA": 50,
+    "INITIAL_SIZE_AREA": 5,
+    "N_CHAINS": 3,
+    "SWAP_PERIOD": 1000,
+    "N_SWAPS": 3,
+    "PRIOR": {
+      "geo": "uniform",
+      "weights": "uniform",
+      "universal": "from_counts",
+	  "inheritance": "from_counts",
+	  "contact": "uniform"
+    },
+    "INHERITANCE": true,
+	"N_AREAS": "TBD"
+  },
+  "data":{
+    "FEATURES" : "../data/features/features.csv",
+    "PRIOR" : {
+	  "universal": "../data/prior_universal/universal_counts.csv",
+	  "inheritance": { 
+		  "Greek": "../data/prior_inheritance/greek_counts.csv",
+		  "Romance": "../data/prior_inheritance/romance_counts.csv",
+		  "Slavic": "../data/prior_inheritance/slavic_counts.csv",
+		  "Turkish": "../data/prior_inheritance/turkish_counts.csv"
+	  } 
+	}
+ }
+}

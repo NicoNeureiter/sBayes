@@ -5,10 +5,8 @@ from __future__ import absolute_import, division, print_function, \
     unicode_literals
 
 import numpy as np
-from scipy import sparse
 import scipy.stats as spstats
 from scipy.sparse.csgraph import minimum_spanning_tree
-from scipy.stats import poisson
 
 from src.util import compute_delaunay, n_smallest_distances
 
@@ -51,7 +49,6 @@ def compute_global_likelihood(features, sample_p_global, p_global=None):
 
         # Compute the feature likelihood vector (for all sites in zone)
         lh_global[:, i_f] = f.dot(p_glob[i_f, :])
-
 
     return lh_global
 
@@ -306,6 +303,11 @@ class GenerativeLikelihood(object):
                 else:
                     family_lh = self.family_lh
 
+            # No inheritance, no family assignment and family likelihood
+            else:
+                family_assignment = None
+                family_lh = None
+
             ##################
             # Zone
             ##################
@@ -328,8 +330,7 @@ class GenerativeLikelihood(object):
                     # assert np.allclose(a=np.sum(p_zones, axis=-1), b=1., rtol=EPS)
                     zone_lh = compute_zone_likelihood(features=features, zones=zones, sample_p_zones=True,
                                                       p_zones=p_zones)
-                    #zone_lh_not_sampled = compute_zone_likelihood(features=features, zones=zones, sample_p_zones=False)
-                    #print(np.sum(np.log(zone_lh)), np.sum(np.log(zone_lh_not_sampled)), "compare")
+
                 else:
                     zone_lh = compute_zone_likelihood(features=features, zones=zones, sample_p_zones=False)
 
@@ -450,9 +451,10 @@ class GenerativePrior(object):
                 else:
                     raise ValueError('geo_prior must be either "uniform", "gaussian" or "distance"')
 
-                if "magnification_factor" in geo_prior_meta['parameters']:
-                    geo_prior = geo_prior * geo_prior_meta['parameters']['magnification_factor']
-                    self.geo_prior = geo_prior
+                # if "magnification_factor" in geo_prior_meta['parameters']:
+                #    geo_prior = geo_prior * geo_prior_meta['parameters']['magnification_factor']
+
+                self.geo_prior = geo_prior
 
             else:
                 geo_prior = self.geo_prior
@@ -472,15 +474,15 @@ class GenerativePrior(object):
                 if prior_p_global_meta['type'] == "uniform":
                     prior_p_global = 0.
 
-                elif prior_p_global_meta['type'] == "dirichlet":
+                elif prior_p_global_meta['type'] == "pseudocounts":
 
                     prior_p_global = prior_p_global_dirichlet(
                             p_global=sample.p_global,
-                            dirichlet=prior_p_global_meta['parameters']['dirichlet'],
-                            categories=prior_p_global_meta['parameters']['categories'])
+                            dirichlet=prior_p_global_meta['dirichlet'],
+                            categories=prior_p_global_meta['states'])
 
                 else:
-                    raise ValueError('prior_p_families must be "uniform" or "dirichlet')
+                    raise ValueError('Prior for universal pressures must be "uniform" or "pseudocounts')
 
                 self.prior_p_global = prior_p_global
 
@@ -503,20 +505,22 @@ class GenerativePrior(object):
                     if prior_p_families_meta['type'] == "uniform":
                         prior_p_families = 0.
 
-                    elif prior_p_families_meta['type'] == "dirichlet":
+                    elif prior_p_families_meta['type'] == "pseudocounts":
 
                         prior_p_families = prior_p_families_dirichlet(
                             p_families=sample.p_families,
-                            dirichlet=prior_p_families_meta['parameters']['dirichlet'],
-                            categories=prior_p_families_meta['parameters']['categories'])
+                            dirichlet=prior_p_families_meta['dirichlet'],
+                            categories=prior_p_families_meta['states'])
 
                     else:
-                        raise ValueError('prior_p_families must be "uniform" or "dirichlet')
+                        raise ValueError('prior_p_families must be "uniform" or "pseudocounts')
 
                     self.prior_p_families = prior_p_families
 
                 else:
                     prior_p_families = self.prior_p_families
+            else:
+                prior_p_families = None
 
             if inheritance:
                 log_prior = geo_prior + prior_weights + prior_p_global + prior_p_zones + prior_p_families
@@ -563,6 +567,9 @@ def geo_prior_gaussian(zones: np.array, network: dict, cov: np.array):
         elif len(locations) == 2:
             i1, i2 = n_smallest_distances(dist_mat, n=1, return_idx=True)
 
+        else:
+            raise ValueError("Too few locations to compute distance.")
+
         diffs = locations[i1] - locations[i2]
         prior_z = spstats.multivariate_normal.logpdf(diffs, mean=[0, 0], cov=cov)
         log_prior = np.append(log_prior, prior_z)
@@ -598,6 +605,8 @@ def geo_prior_distance(zones: np.array, network: dict, scale: float):
 
         elif len(locations) == 2:
             distances = n_smallest_distances(dist_mat, n=1, return_idx=False)
+        else:
+            raise ValueError("Too few locations to compute distance.")
 
         log_prior = spstats.expon.logpdf(distances, loc=0, scale=scale)
 

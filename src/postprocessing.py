@@ -216,7 +216,6 @@ def match_zones(mcmc_res):
     zone_samples = samples_list_to_array(mcmc_res['zones'], samples_type="zone")
     lh_zone_samples = samples_list_to_array(mcmc_res['lh_single_zones'], samples_type="lh")
     posterior_zone_samples = samples_list_to_array(mcmc_res['posterior_single_zones'], samples_type="posterior")
-
     n_samples, n_sites, n_zones = zone_samples.shape
 
     s_sum = np.zeros((n_sites, n_zones))
@@ -248,7 +247,6 @@ def match_zones(mcmc_res):
     zone_samples = np.swapaxes(zone_samples, 1, 2)
 
     for z in range(len(zone_samples)):
-
         reordered_zones.append(zone_samples[z][:][matching_list[z]])
         reordered_lh.append(lh_zone_samples[z][matching_list[z]])
         reordered_posterior.append(posterior_zone_samples[z][matching_list[z]])
@@ -260,7 +258,7 @@ def match_zones(mcmc_res):
     return mcmc_res
 
 
-def contribution_per_zone(mcmc_sampler):
+def contribution_per_area(mcmc_sampler):
     """Evaluate the contribution of each zone to the lh and the posterior in each sample
     Args:
         mcmc_sampler(MCMC_generative): MCMC sampler for generative model (including samples)
@@ -379,25 +377,26 @@ def unnest_marginal_lh(samples_in):
 
 
 COL_WIDTHS = [20, 8, 8, 8, 10]
-def print_operator_statistics_header():
+
+
+def log_operator_statistics_header():
     name_header = str.ljust('OPERATOR', COL_WIDTHS[0])
     acc_header = str.ljust('ACCEPTS', COL_WIDTHS[1])
     rej_header = str.ljust('REJECTS', COL_WIDTHS[2])
     total_header = str.ljust('TOTAL', COL_WIDTHS[3])
     acc_rate_header = 'ACC. RATE'
 
-    print('\t'.join([name_header, acc_header, rej_header, total_header, acc_rate_header]))
+    return '\t'.join([name_header, acc_header, rej_header, total_header, acc_rate_header])
 
 
-def print_operator_statistics(operator_name, mcmc_stats):
+def log_operator_statistics(operator_name, mcmc_stats):
     acc = mcmc_stats['accept_operator'][operator_name]
     rej = mcmc_stats['reject_operator'][operator_name]
     total = acc + rej
 
     if total == 0:
         row_strings = [operator_name, '-', '-', '-', '-']
-        print('\t'.join([str.ljust(x, COL_WIDTHS[i]) for i, x in enumerate(row_strings)]))
-        return
+        return '\t'.join([str.ljust(x, COL_WIDTHS[i]) for i, x in enumerate(row_strings)])
 
     name_str = str.ljust(operator_name, COL_WIDTHS[0])
     acc_str = str.ljust(str(acc), COL_WIDTHS[1])
@@ -405,4 +404,4 @@ def print_operator_statistics(operator_name, mcmc_stats):
     total_str = str.ljust(str(total), COL_WIDTHS[3])
     acc_rate_str = '%.2f%%' % (100*acc/total)
 
-    print('\t'.join([name_str, acc_str, rej_str, total_str, acc_rate_str]))
+    return '\t'.join([name_str, acc_str, rej_str, total_str, acc_rate_str])

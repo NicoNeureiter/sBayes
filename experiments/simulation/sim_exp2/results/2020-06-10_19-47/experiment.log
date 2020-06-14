@@ -1,0 +1,85 @@
+Experiment: 2020-06-10_19-47
+File location for results: ../results/2020-06-10_19-47/
+
+
+SIMULATION
+##########################################
+951 locations read from ../simulation/sites.csv
+Inheritance is simulated: True
+Simulated features: 35
+Simulated intensity for universal pressure: 1.0
+Simulated intensity for contact: 3.0
+Simulated intensity for inheritance: 2.0
+Simulated level of entropy for universal pressure: 1.0
+Simulated level of entropy for contact: 0.25
+Simulated level of entropy for inheritance: 0.1
+Simulated area: 10
+
+
+MCMC SETUP
+##########################################
+MCMC with 2000 steps and 1000 samples (burn-in 0 steps)
+Areas have a minimum size of 3 and a maximum size of 50.
+MCMC with 3 chains and 3 attempted swap(s) after 1000 steps.
+Number of sampled areas: 1
+Geo-prior: uniform 
+Prior on weights: uniform 
+Prior on universal pressure (alpha): uniform 
+Prior on inheritance (beta): uniform 
+Prior on contact (gamma): uniform 
+Pseudocounts for tuning the width of the proposal distribution for weights: 30 
+Pseudocounts for tuning the width of the proposal distribution for universal pressure (alpha): 30 
+Pseudocounts for tuning the width of the proposal distribution for areas (gamma): 30 
+Inheritance is considered for inference: False
+Ratio of areal steps (growing, shrinking, swapping areas): 0.05
+Ratio of weight steps (changing weights): 0.7
+Ratio of universal steps (changing alpha) : 0.05
+Ratio of inheritance steps (changing beta): 0.0
+Ratio of contact steps (changing gamma): 0.2
+
+
+MCMC STATISTICS
+##########################################
+OPERATOR            	ACCEPTS 	REJECTS 	TOTAL   	ACC. RATE
+shrink_zone         	19      	62      	81      	23.46%
+grow_zone           	28      	47      	75      	37.33%
+swap_zone           	17      	145     	162     	10.49%
+alter_weights       	3969    	282     	4251    	93.37%
+alter_p_global      	29      	265     	294     	9.86%
+alter_p_zones       	781     	356     	1137    	68.69%
+alter_p_families    	-       	-       	-       	-         
+
+
+MCMC SETUP
+##########################################
+MCMC with 2000 steps and 1000 samples (burn-in 0 steps)
+Areas have a minimum size of 3 and a maximum size of 50.
+MCMC with 3 chains and 3 attempted swap(s) after 1000 steps.
+Number of sampled areas: 1
+Geo-prior: uniform 
+Prior on weights: uniform 
+Prior on universal pressure (alpha): uniform 
+Prior on inheritance (beta): uniform 
+Prior on contact (gamma): uniform 
+Pseudocounts for tuning the width of the proposal distribution for weights: 30 
+Pseudocounts for tuning the width of the proposal distribution for universal pressure (alpha): 30 
+Pseudocounts for tuning the width of the proposal distribution for inheritance (beta): 30 
+Pseudocounts for tuning the width of the proposal distribution for areas (gamma): 30 
+Inheritance is considered for inference: True
+Ratio of areal steps (growing, shrinking, swapping areas): 0.05
+Ratio of weight steps (changing weights): 0.65
+Ratio of universal steps (changing alpha) : 0.05
+Ratio of inheritance steps (changing beta): 0.05
+Ratio of contact steps (changing gamma): 0.2
+
+
+MCMC STATISTICS
+##########################################
+OPERATOR            	ACCEPTS 	REJECTS 	TOTAL   	ACC. RATE
+shrink_zone         	9       	69      	78      	11.54%
+grow_zone           	32      	50      	82      	39.02%
+swap_zone           	16      	116     	132     	12.12%
+alter_weights       	2819    	1112    	3931    	71.71%
+alter_p_global      	41      	261     	302     	13.58%
+alter_p_zones       	739     	433     	1172    	63.05%
+alter_p_families    	162     	141     	303     	53.47%

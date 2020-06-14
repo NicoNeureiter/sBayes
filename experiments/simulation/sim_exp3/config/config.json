@@ -1,0 +1,44 @@
+{
+  "simulation": {
+	"SITES": "../data/sites_simulation.csv",
+    "N_FEATURES": 35,
+    "P_N_CATEGORIES": {
+      "2": 0.4,
+      "3": 0.3,
+      "4": 0.3
+    },
+    "E_UNIVERSAL": 1.0,
+	"E_CONTACT":0.25,
+    "I_UNIVERSAL": 1.0,
+	"I_CONTACT": 3.0,
+    "INHERITANCE": false,
+	"AREA": [2, 5, 7, 9]
+  }, 
+  "mcmc": {
+    "BURN_IN": 0,
+	"N_AREAS": "TBD",
+    "N_STEPS": 2000,
+    "N_SAMPLES": 1000,
+    "N_RUNS": 1,
+    "MIN_M": 3,
+    "MAX_M": 50,
+    "PRIOR": {
+      "geo": "uniform",
+      "weights": "uniform",
+      "universal": "uniform",
+	  "contact": "uniform"
+    },
+    "INHERITANCE": false,
+	"PROPOSAL_PRECISION": {
+      "weights": 30,
+      "universal": 30,
+      "contact": 30
+    },
+	"STEPS": {
+	  "area": 0.05,
+      "weights": 0.7,
+      "universal": 0.05,
+      "contact": 0.2
+    }
+  } 
+}
