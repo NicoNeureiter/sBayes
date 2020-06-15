@@ -2,7 +2,7 @@ from itertools import permutations
 import numpy as np
 import math
 from scipy.special import logsumexp
-from src.sampling.zone_sampling import ZoneMCMC_generative, Sample
+from sbayes.sampling.zone_sampling import ZoneMCMC_generative, Sample
 
 
 

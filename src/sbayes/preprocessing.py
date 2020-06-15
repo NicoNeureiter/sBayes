@@ -6,8 +6,8 @@ import csv
 import numpy as np
 import igraph
 
-from src.model import normalize_weights
-from src.util import (compute_distance, compute_delaunay,
+from sbayes.model import normalize_weights
+from sbayes.util import (compute_distance, compute_delaunay,
                       read_feature_occurrence_from_csv)
 
 EPS = np.finfo(float).eps

@@ -8,9 +8,9 @@ from __future__ import absolute_import, division, print_function, unicode_litera
 import logging
 import numpy as np
 
-from src.postprocessing import contribution_per_area, log_operator_statistics, log_operator_statistics_header
-from src.sampling.zone_sampling import Sample, ZoneMCMC_generative
-from src.util import dump, normalize, universal_counts_to_dirichlet, inheritance_counts_to_dirichlet
+from sbayes.postprocessing import contribution_per_area, log_operator_statistics, log_operator_statistics_header
+from sbayes.sampling.zone_sampling import Sample, ZoneMCMC_generative
+from sbayes.util import dump, normalize, universal_counts_to_dirichlet, inheritance_counts_to_dirichlet
 
 
 class MCMC:

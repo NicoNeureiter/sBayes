@@ -14,7 +14,11 @@ setup(
     packages=find_packages(where='src'),
     package_dir={'': 'src'},
     platforms='any',
-    install_requires=[],
+    install_requires=[
+        "numpy",
+        "scipy",
+        "matplotlib",
+        "python-igraph",],
     entry_points={
         'console_scripts': [
             'sbayes = sbayes.cli:main',
