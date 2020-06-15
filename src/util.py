@@ -177,7 +177,7 @@ def read_features_from_csv(file):
     """
     columns = []
     feature_names_ordered = []
-    with open(file, 'rU') as f:
+    with open(file, 'rU', encoding="utf-8") as f:
         reader = csv.reader(f)
         for row in reader:
             if columns:
@@ -285,7 +285,7 @@ def write_languages_to_csv(features, sites, families, file):
     """
     families = families.transpose(1, 0)
 
-    with open(file, mode='w', newline='') as csv_file:
+    with open(file, mode='w', encoding='utf-8') as csv_file:
         f_names = list(range(features.shape[1]))
         csv_names = ['f' + str(f) for f in f_names]
         csv_names = ["name", "x", "y", "family"] + csv_names
@@ -316,7 +316,7 @@ def write_feature_occurrence_to_csv(occurr, categories, file):
         file(str): output csv file
     """
 
-    with open(file, mode='w', newline='') as csv_file:
+    with open(file, mode='w', encoding='utf-8') as csv_file:
         features = list(range(occurr.shape[0]))
         feature_names = ['f' + str(f) for f in features]
         cats = list(range(occurr.shape[1]))
@@ -348,7 +348,7 @@ def read_feature_occurrence_from_csv(file):
     """
     columns = []
     cat_names = []
-    with open(file, 'rU') as f:
+    with open(file, 'rU', encoding='utf-8') as f:
         reader = csv.reader(f)
         for row in reader:
             if columns:
