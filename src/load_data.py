@@ -13,7 +13,7 @@ from src.preprocessing import (compute_network,
                                read_universal_counts)
 
 
-class DataLoader:
+class Data:
     def __init__(self, experiment):
 
         self.path_results = experiment.path_results

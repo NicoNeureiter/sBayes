@@ -1,16 +1,16 @@
 {
   "simulation": {
-  	"sites_file": "../data/sites_simulation.csv",
+  	"SITES": "../data/sites.csv",
 	"N_FEATURES": 35,
     "P_N_CATEGORIES": {
       "2": 0.4,
       "3": 0.3,
       "4": 0.3
     },
-    "I_UNIVERSAL": 1.0,
-	"I_CONTACT":0.3,
     "E_UNIVERSAL": 1.0,
-	"E_CONTACT": 2.0,
+	"E_CONTACT":0.3,
+    "I_UNIVERSAL": 1.0,
+	"I_CONTACT": 2.0,
     "INHERITANCE": false,
 	"SUBSET": true,
 	"AREA": 4
@@ -18,12 +18,10 @@
   "mcmc": {
     "BURN_IN": 0,
     "N_STEPS": 2000,
-    "N_STEPS_INCREASE": 500,
     "N_SAMPLES": 1000,
     "N_RUNS": 1,
-    "MIN_SIZE_AREA": 3,
-    "MAX_SIZE_AREA": 50,
-    "INITIAL_SIZE_AREA": 5,
+    "MIN_M": 3,
+    "MAX_M": 50,
     "N_CHAINS": 8,
     "SWAP_PERIOD": 1000,
     "N_SWAPS": 3,
@@ -46,5 +44,7 @@
       "universal": 0.05,
       "contact": 0.2
     }
-  } 
+  },
+  "results": {
+    "FILE_INFO": "p"}  
 }

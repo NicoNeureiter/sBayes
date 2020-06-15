@@ -1,21 +1,23 @@
-from src.experiment_setup import InitializeExperiment
-from src.load_data import DataLoader
-from src.mcmc_setup import MCMCSetup
+from src.experiment_setup import Experiment
+from src.load_data import Data
+from src.mcmc_setup import MCMC
 
 if __name__ == '__main__':
 
     # 1. Initialize the experiment
-    exp = InitializeExperiment()
-    exp.load_config()
+    exp = Experiment()
+    exp.load_config(config_file='../config/config.json')
     exp.log_experiment()
 
     # 2. Load Data
-    dat = DataLoader(experiment=exp)
+    dat = Data(experiment=exp)
     # Features
     dat.load_features()
     # Counts for priors
     dat.load_universal_counts()
     dat.load_inheritance_counts()
+
+    # Log
     dat.log_loading()
 
     NUMBER_AREAS = range(1, 8)
@@ -29,7 +31,7 @@ if __name__ == '__main__':
             exp.config['mcmc']['N_AREAS'] = N
 
             # 3. Configure MCMC
-            mc = MCMCSetup(data=dat, experiment=exp)
+            mc = MCMC(data=dat, experiment=exp)
             mc.log_setup()
 
             # 4. Sample from posterior

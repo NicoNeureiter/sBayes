@@ -53,6 +53,7 @@ def read_sites(file, retrieve_family=False, retrieve_subset=False):
     seq_id = []
 
     for i in range(len(name)):
+
         # Define location tuples
         locations[i, 0] = float(x[i])
         locations[i, 1] = float(y[i])
@@ -61,7 +62,7 @@ def read_sites(file, retrieve_family=False, retrieve_subset=False):
         # name could be any unique identifier, sequential id are integers from 0 to len(name)
         seq_id.append(i)
 
-    cz = [int(i) for i in cz]
+    cz = [int(i.replace('', '0')) for i in cz]
     sites = {'locations': locations,
              'id': seq_id,
              'cz': cz,
@@ -70,7 +71,7 @@ def read_sites(file, retrieve_family=False, retrieve_subset=False):
     if retrieve_family:
         try:
             families = csv_as_dict.pop('family')
-            family = [int(f) for f in families]
+            family = [int(f.replace('', '0')) for f in families]
             sites['family'] = family
 
         except KeyError:
@@ -79,7 +80,7 @@ def read_sites(file, retrieve_family=False, retrieve_subset=False):
     if retrieve_subset:
         try:
             subsets = csv_as_dict.pop('subset')
-            subset = [int(s) for s in subsets]
+            subset = [int(s.replace('', '0')) for s in subsets]
             sites['subset'] = subset
 
         except KeyError:

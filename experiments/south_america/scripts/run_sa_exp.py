@@ -6,17 +6,20 @@ if __name__ == '__main__':
 
     # 1. Initialize the experiment
     exp = Experiment()
-    exp.load_config()
-    exp.log()
+    exp.load_config(config_file='../config/config.json')
+    exp.log_experiment()
 
     # 2. Load Data
     dat = Data(experiment=exp)
     # Features
     dat.load_features()
+
     # Counts for priors
     dat.load_universal_counts()
     dat.load_inheritance_counts()
-    dat.log()
+
+    # Log
+    dat.log_loading()
 
     NUMBER_AREAS = range(1, 8)
     initial_sample = None
