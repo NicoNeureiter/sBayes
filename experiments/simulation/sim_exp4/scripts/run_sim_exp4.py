@@ -7,13 +7,13 @@ if __name__ == '__main__':
 
     # 1. Initialize the experiment
     exp = Experiment()
-    exp.load_config()
-    exp.log()
+    exp.load_config(config_file='../config/config.json')
+    exp.log_experiment()
 
     # 2. Simulate contact areas
     sim = Simulation(experiment=exp)
     sim.run_simulation()
-    sim.log_()
+    sim.log_simulation()
 
     # Iterate over different setups (priors)
     PRIOR_UNIVERSAL = [False, True]
@@ -35,4 +35,4 @@ if __name__ == '__main__':
 
             # 6. Log sampling statistics and save samples to file
             mc.log_statistics()
-            mc.save_samples(file_info="p", run=run)
+            mc.save_samples(run=run)

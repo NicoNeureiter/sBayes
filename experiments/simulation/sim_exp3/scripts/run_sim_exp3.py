@@ -10,9 +10,9 @@ if __name__ == '__main__':
     exp.log_experiment()
 
     # 2. Simulate contact areas
-    simca = Simulation(experiment=exp)
-    simca.run_simulation()
-    simca.log_simulation()
+    sim = Simulation(experiment=exp)
+    sim.run_simulation()
+    sim.log_simulation()
 
     # Iterate over different setups (different number of areas)
     NUMBER_AREAS = range(1, 8)
@@ -22,7 +22,7 @@ if __name__ == '__main__':
         exp.config['mcmc']['N_AREAS'] = N
 
         # 3. Define MCMC
-        mc = MCMC(data=simca, experiment=exp)
+        mc = MCMC(data=sim, experiment=exp)
         mc.log_setup()
 
         # Rerun experiment to check for consistency

@@ -1,6 +1,6 @@
 {
   "simulation": {
-	"SITES": "../data/sites_simulation.csv",
+	"SITES": "../data/sites.csv",
     "N_FEATURES": 35,
     "P_N_CATEGORIES": {
       "2": 0.4,
@@ -40,5 +40,8 @@
       "universal": 0.05,
       "contact": 0.2
     }
-  } 
+  }
+  ,
+  "results": {
+    "FILE_INFO": "n"}  
 }
