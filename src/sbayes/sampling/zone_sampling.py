@@ -8,9 +8,9 @@ import numpy as np
 
 import scipy.stats as spstats
 
-from src.sampling.mcmc_generative import MCMC_generative
-from src.model import GenerativeLikelihood, GenerativePrior
-from src.util import get_neighbours, balance_p_array, normalize
+from sbayes.sampling.mcmc_generative import MCMC_generative
+from sbayes.model import GenerativeLikelihood, GenerativePrior
+from sbayes.util import get_neighbours, balance_p_array, normalize
 
 
 class Sample(object):

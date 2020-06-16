@@ -10,7 +10,7 @@ from __future__ import absolute_import, division, print_function, unicode_litera
 import logging
 import numpy as np
 
-from src.preprocessing import (compute_network, read_sites,
+from sbayes.preprocessing import (compute_network, read_sites,
                                simulate_assignment_probabilities,
                                simulate_families,
                                simulate_features,

@@ -8,7 +8,7 @@ import numpy as np
 import scipy.stats as spstats
 from scipy.sparse.csgraph import minimum_spanning_tree
 
-from src.util import compute_delaunay, n_smallest_distances
+from sbayes.util import compute_delaunay, n_smallest_distances
 
 EPS = np.finfo(float).eps
 

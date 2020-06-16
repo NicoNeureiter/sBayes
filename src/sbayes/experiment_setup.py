@@ -10,7 +10,7 @@ import logging
 import os
 import warnings
 
-from src.util import set_experiment_name
+from sbayes.util import set_experiment_name
 
 
 class Experiment:

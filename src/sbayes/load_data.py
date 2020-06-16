@@ -7,8 +7,8 @@ from __future__ import absolute_import, division, print_function, unicode_litera
 
 import logging
 
-from src.util import read_features_from_csv
-from src.preprocessing import (compute_network,
+from sbayes.util import read_features_from_csv
+from sbayes.preprocessing import (compute_network,
                                read_inheritance_counts,
                                read_universal_counts)
 
