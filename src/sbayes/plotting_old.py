@@ -9,9 +9,9 @@ import matplotlib as mpl
 import matplotlib.pyplot as plt
 import matplotlib.ticker as mtick
 
-from sbayes.util import zones_autosimilarity, add_edge, compute_delaunay, colorline, compute_mst_posterior
-from sbayes.util import bounding_box, round_int, linear_rescale, round_single_int, round_multiple_ints
-from sbayes.preprocessing import compute_network
+from src.util import zones_autosimilarity, add_edge, compute_delaunay, colorline, compute_mst_posterior
+from src.util import bounding_box, round_int, linear_rescale, round_single_int, round_multiple_ints
+from src.preprocessing import compute_network
 from scipy.stats import gamma, linregress
 from scipy.spatial import Delaunay
 from scipy.sparse.csgraph import minimum_spanning_tree

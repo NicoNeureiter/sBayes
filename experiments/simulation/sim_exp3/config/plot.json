@@ -1,0 +1,12 @@
+{
+  "input": {
+    "path_results": "../results",
+    "path_data": "../data",
+    "run": 0,
+    "scenarios": [1]
+  },
+  "general": {
+    "post_freq_lines": [0.7, 0.5, 0.3],
+    "burn_in": 0.4
+  }
+}
