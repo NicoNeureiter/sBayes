@@ -17,11 +17,24 @@ import matplotlib.pyplot as plt
 from matplotlib.collections import LineCollection
 import logging
 
+
 EPS = np.finfo(float).eps
 
 
 class FamilyError(Exception):
     pass
+
+
+def format_area_as_bitstring(area):
+    """Format the given area as a compact bit-string."""
+    area_str = area.astype(int).astype(str)
+    return ''.join(area_str)
+
+
+def format_area_columns(areas):
+    """Format the given array of areas as tap-separated bit-strings."""
+    area_columns = map(format_area_as_bitstring, areas)
+    return '\t'.join(area_columns)
 
 
 def compute_distance(a, b):
@@ -52,6 +65,7 @@ def dump(data, path):
 def load_from(path):
     """Load and return data from the given path (using pickle)."""
     with open(path, 'rb') as dump_file:
+
         return pickle.load(dump_file)
 
 
@@ -625,110 +639,207 @@ def samples2res_old(samples):
     return mcmc_res
 
 
-def samples2res(samples, ground_truth, per_zone=False):
+def samples2file(samples, data, config, path_parameters, path_areas):
     """
-    Stores the output of the MCMC contained in samples in a simple data container (dict).
-    The returned data container facilitates the analysis of the results (e.g. plotting).
+    Writes the MCMC to two text files, one for MCMC parameters and one for areas.
+
     Args:
         samples (dict): samples
-        ground_truth (bool): is there a ground truth in the data, i.e. are these simulation results?
-        per_zone (bool): is the likelihood /posterior estimated per single zones?
+        data (Data): object of class data (features, priors, ...)
+        config(dict): config information
+        path_parameters (str): file path for stats txt
+        path_areas (str): file path for areas txt
     """
 
-    n_zones = samples['sample_zones'][0].shape[0]
+    # Ground truth (for simulated data only)
+    ground_truth = None
+    true_area = None
 
-    # Define output format for estimated samples
-    mcmc_res = {
-        'lh': [],
-        'prior': [],
-        'posterior': [],
-        'zones': [[] for _ in range(n_zones)],
-        'weights': [],
-        'p_global': [],
-        'p_zones': [[] for _ in range(n_zones)],
-        'n_zones': n_zones,
-    }
-    if ground_truth:
-        mcmc_res['true_zones'] = []
-        mcmc_res['true_zones'] = []
-        mcmc_res['recall'] = []
-        mcmc_res['precision'] = []
+    if data.is_simulated:
+        ground_truth = dict()
+        ground_truth['Sample'] = ''
+        ground_truth['posterior'] = samples['true_prior'] * samples['true_ll']
+        ground_truth['likelihood'] = samples['true_ll']
+        ground_truth['prior'] = samples['true_prior']
 
-    if per_zone:
-        mcmc_res['lh_single_zones'] = [[] for _ in range(n_zones)]
-        mcmc_res['posterior_single_zones'] = [[] for _ in range(n_zones)]
+        for f in range(len(data.feature_names['external'])):
+            # universal pressure
+            w_universal_name = 'w_universal_' + str(data.feature_names['external'][f])
+            ground_truth[w_universal_name] = samples['true_weights'][f][0]
 
-    # Collect true sample
-    if 'true_zones' in samples.keys():
-        true_z = np.any(samples['true_zones'], axis=0)
-        mcmc_res['true_zones'] = samples['true_zones']
-        mcmc_res['true_weights'] = samples['true_weights']
-        mcmc_res['true_p_global'] = samples['true_p_global']
-        mcmc_res['true_p_zones'] = samples['true_p_zones']
+            # contact
+            w_contact_name = 'w_contact_' + str(data.feature_names['external'][f])
+            ground_truth[w_contact_name] = samples['true_weights'][f][1]
 
-    if 'true_families' in samples.keys():
+            # inheritance
+            if config['mcmc']['INHERITANCE']:
+                w_inheritance_name = 'w_inheritance_' + str(data.feature_names['external'][f])
+                ground_truth[w_inheritance_name] = samples['true_weights'][f][2]
 
-        mcmc_res['true_families'] = samples['true_families']
-        mcmc_res['true_p_families'] = samples['true_p_families']
+        # alpha
+        for f in range(len(data.feature_names['external'])):
+            for st in range(len(data.state_names['external'][f])):
+                feature_name = 'alpha_' + str(data.feature_names['external'][f])\
+                               + '_' + str(data.state_names['external'][f][st])
+                ground_truth[feature_name] = samples['true_p_global'][0][f][st]
 
-    if 'true_ll' in samples.keys():
-        mcmc_res['true_lh'] = samples['true_ll']
-        true_posterior = samples['true_ll'] + samples['true_prior']
-        mcmc_res['true_posterior'] = true_posterior
+        # gamma
+        for a in range(config['mcmc']['N_AREAS']):
+            for f in range(len(data.feature_names['external'])):
+                for st in range(len(data.state_names['external'][f])):
+                    feature_name = 'gamma_' + 'a' + str(a + 1) \
+                                   + '_' + str(data.feature_names['external'][f]) + '_' \
+                                   + str(data.state_names['external'][f][st])
+                    ground_truth[feature_name] = samples['true_p_zones'][a][f][st]
 
-    for t in range(len(samples['sample_zones'])):
+        # beta
+        if config['mcmc']['INHERITANCE']:
+            for fam in range(len(data.family_names['external'])):
+                for f in range(len(data.feature_names['external'])):
+                    for st in range(len(data.state_names['external'][f])):
+                        feature_name = 'beta_' + str(data.family_names['external'][fam]) \
+                                       + '_' + str(data.feature_names['external'][f]) \
+                                       + '_' + str(data.state_names['external'][f][st])
 
-        # Zones and p_zones
-        for z in range(n_zones):
-            mcmc_res['zones'][z].append(samples['sample_zones'][t][z])
-#            mcmc_res['p_zones'][z].append(samples['sample_p_zones'][t][z])
+                        ground_truth[feature_name] = samples['true_p_families'][fam][f][st]
 
-        # Weights
-        mcmc_res['weights'].append(samples['sample_weights'][t])
+        true_area = format_area_columns(samples['true_zones'])
 
-        if 'true_families' in samples.keys():
-            if samples['sample_p_families'][0] is not None:
-                n_families = samples['sample_p_families'][0].shape[0]
-            else:
-                n_families = 0
+    # Results
+    parameters = []
+    areas = []
+    steps_per_sample = config['mcmc']['N_STEPS'] / config['mcmc']['N_SAMPLES']
+    column_names = ['Sample', 'posterior', 'likelihood', 'prior']
 
-            mcmc_res['p_families'] = [[] for _ in range(n_families)]
+    for s in range(len(samples['sample_zones'])):
+        row = dict()
+        row['Sample'] = int(s * steps_per_sample)
+        row['posterior'] = samples['sample_prior'][s] * samples['sample_likelihood'][s]
+        row['likelihood'] = samples['sample_likelihood'][s]
+        row['prior'] = samples['sample_prior'][s]
 
-            # p_families
-            for fam in range(n_families):
-                mcmc_res['p_families'][fam].append(samples['sample_p_families'][t][fam])
+        # Areas
+        areas.append(format_area_columns(samples['sample_zones'][s]))
 
-        # Likelihood, prior and posterior
-        mcmc_res['lh'].append(samples['sample_likelihood'][t])
-        mcmc_res['prior'].append(samples['sample_prior'][t])
+        # weights
+        for f in range(len(data.feature_names['external'])):
+            # universal pressure
+            w_universal_name = 'w_universal_' + str(data.feature_names['external'][f])
+            if w_universal_name not in column_names:
+                column_names += [w_universal_name]
 
-        posterior = samples['sample_likelihood'][t] + samples['sample_prior'][t]
-        mcmc_res['posterior'].append(posterior)
+            row[w_universal_name] = samples['sample_weights'][s][f][0]
+
+            # contact
+            w_contact_name = 'w_contact_' + str(data.feature_names['external'][f])
+            if w_contact_name not in column_names:
+                column_names += [w_contact_name]
+            row[w_contact_name] = samples['sample_weights'][s][f][1]
+
+            # inheritance
+            if config['mcmc']['INHERITANCE']:
+                w_inheritance_name = 'w_inheritance_' + str(data.feature_names['external'][f])
+                if w_inheritance_name not in column_names:
+                    column_names += [w_inheritance_name]
+                row[w_inheritance_name] = samples['sample_weights'][s][f][2]
+
+        # alpha
+        for f in range(len(data.feature_names['external'])):
+            for st in range(len(data.state_names['external'][f])):
+                feature_name = 'alpha_' + str(data.feature_names['external'][f])\
+                               + '_' + str(data.state_names['external'][f][st])
+                if feature_name not in column_names:
+                    column_names += [feature_name]
+                row[feature_name] = samples['sample_p_global'][s][0][f][st]
+
+        # gamma
+        for a in range(config['mcmc']['N_AREAS']):
+            for f in range(len(data.feature_names['external'])):
+                for st in range(len(data.state_names['external'][f])):
+                    feature_name = 'gamma_' + 'a' + str(a+1)\
+                                   + '_' + str(data.feature_names['external'][f]) + '_' \
+                                   + str(data.state_names['external'][f][st])
+                    if feature_name not in column_names:
+                        column_names += [feature_name]
+                    row[feature_name] = samples['sample_p_zones'][s][a][f][st]
+
+        # beta
+        if config['mcmc']['INHERITANCE']:
+            for fam in range(len(data.family_names['external'])):
+                for f in range(len(data.feature_names['external'])):
+                    for st in range(len(data.state_names['external'][f])):
+                        feature_name = 'beta_' + str(data.family_names['external'][fam])\
+                                       + '_' + str(data.feature_names['external'][f])\
+                                       + '_' + str(data.state_names['external'][f][st])
+                        if feature_name not in column_names:
+                            column_names += [feature_name]
+
+                        row[feature_name] = samples['sample_p_families'][s][fam][f][st]
 
         # Recall and precision
-        if ground_truth:
-
-            sample_z = samples['sample_zones'][t][0]
+        if ground_truth is not None:
+            sample_z = samples['sample_zones'][s][0]
+            true_z = np.any(samples['true_zones'], axis=0)
             n_true = np.sum(true_z)
-
             intersections = np.minimum(sample_z, true_z)
             total_recall = np.sum(intersections, axis=0) / n_true
-            mcmc_res['recall'].append(total_recall)
-
             precision = np.sum(intersections, axis=0) / np.sum(sample_z, axis=0)
-            mcmc_res['precision'].append(precision)
 
-        if per_zone:
+            if 'recall' not in column_names:
+                column_names += ['recall']
+            row['recall'] = total_recall
 
-            # Likelihood and posterior of single zones
-            for z in range(n_zones):
-                mcmc_res['lh_single_zones'][z].append(samples['sample_lh_single_zones'][t][z])
-                posterior_single_zone = samples['sample_lh_single_zones'][t][z] + samples['sample_prior_single_zones'][t][z]
-                mcmc_res['posterior_single_zones'][z].append(posterior_single_zone)
+            if 'precision' not in column_names:
+                column_names += ['precision']
+            row['precision'] = precision
 
-    np.set_printoptions(suppress=True)
+        # Single areas
+        if 'sample_lh_single_zones' in samples.keys():
+            for a in range(config['mcmc']['N_AREAS']):
+                lh_name = 'lh_a' + str(a+1)
+                prior_name = 'prior_a' + str(a+1)
+                posterior_name = 'post_a' + str(a+1)
 
-    return mcmc_res
+                if lh_name not in column_names:
+                    column_names += [lh_name]
+
+                row[lh_name] = samples['sample_lh_single_zones'][s][a]
+
+                if prior_name not in column_names:
+                    column_names += [prior_name]
+                row[prior_name] = samples['sample_prior_single_zones'][s][a]
+
+                if posterior_name not in column_names:
+                    column_names += [posterior_name]
+                row[posterior_name] = samples['sample_posterior_single_zones'][s][a]
+
+        parameters.append(row)
+
+    try:
+        with open(path_parameters, 'w', newline='') as file:
+            writer = csv.DictWriter(file, fieldnames=column_names, delimiter='\t')
+            writer.writeheader()
+            for row in parameters:
+                writer.writerow(row)
+
+            if true_area is not None:
+                writer.writerow({"Sample": "Ground truth"})
+                writer.writerow(ground_truth)
+
+    except IOError:
+        print("I/O error")
+
+    try:
+        with open(path_areas, 'w', newline='') as file:
+            for a in areas:
+                file.write(a + '\n')
+            if ground_truth is not None:
+                file.write("Ground truth\n")
+                file.write(true_area)
+            file.close()
+
+    except IOError:
+        print("I/O error")
 
 
 def linear_rescale(value, old_min, old_max, new_min, new_max):

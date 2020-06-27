@@ -272,7 +272,13 @@ def simulate_features(areas,  p_universal, p_contact, weights, inheritance, p_in
     for cat in cats:
             features_cat[:, :, cat] = np.where(features == cat, 1, 0)
 
-    return features_cat, cats_per_feature
+    feature_names = {'external': ['f' + str(f+1) for f in range(features_cat.shape[1])],
+                     'internal': [f for f in range(features_cat.shape[1])]}
+
+    state_names = {'external': cats_per_feature,
+                   'internal': cats_per_feature}
+
+    return features_cat, cats_per_feature, feature_names, state_names
 
 
 def sample_categorical(p):
@@ -368,7 +374,9 @@ def simulate_families(fam_id, sites_sim):
     for k, z_id in enumerate(sites_in_families.values()):
         families[k, z_id] = 1
 
-    return families
+    family_names = {'external': ['fam' + str(s + 1) for s in range(families.shape[0])],
+                    'internal': [s for s in range(families.shape[0])]}
+    return families, family_names
 
 
 def simulate_weights(i_universal, i_contact,  inheritance, n_features, i_inheritance=None):
@@ -519,7 +527,6 @@ def read_universal_counts(feature_names, category_names, file):
             if category_names['external'][f] != category_names_file['external'][f]:
                 out = "The state names for feature " + str(f + 1) + " in " + str(file) \
                         + " differ from those used in features."
-                print(category_names['external'][f], category_names_file['external'][f])
                 raise ValueError(out)
 
             if feature_names['internal'][f] != feature_names_file['internal'][f]:
@@ -620,7 +627,6 @@ def read_inheritance_counts(family_names, feature_names, category_names, files):
                 if category_names['external'][f] != category_names_file['external'][f]:
                     out = "The external category names for feature " + str(f+1) + " in " + str(file) \
                           + " differ from those used in features."
-                    print(category_names['external'][f], category_names_file['external'][f])
                     raise ValueError(out)
 
                 if feature_names['internal'][f] != feature_names_file['internal'][f]:

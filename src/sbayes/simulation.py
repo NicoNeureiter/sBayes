@@ -31,7 +31,6 @@ class Simulation:
 
         # Simulated parameters
         self.sites = None
-        self.site_names = None
         self.network = None
         self.areas = None
         self.features = None
@@ -44,6 +43,14 @@ class Simulation:
         self.inheritance = None
         self.subset = None
         self.prior_universal = None
+
+        self.feature_names = None
+        self.state_names = None
+        self.family_names = None
+        self.site_names = None
+
+        # Is a simulation
+        self.is_simulated = True
 
     def log_simulation(self):
         logging.basicConfig(format='%(message)s', filename=self.path_log, level=logging.DEBUG)
@@ -77,7 +84,7 @@ class Simulation:
 
         # Simulate families
         if self.inheritance:
-            self.families = simulate_families(fam_id=1, sites_sim=self.sites)
+            self.families, self.family_names = simulate_families(fam_id=1, sites_sim=self.sites)
         else:
             self.families = None
 
@@ -100,7 +107,7 @@ class Simulation:
                                                 inheritance=self.inheritance)
 
         # Simulate features
-        self.features, self.states = \
+        self.features, self.states, self.feature_names, self.state_names = \
             simulate_features(areas=self.areas,
                               families=self.families,
                               p_universal=self.p_universal,

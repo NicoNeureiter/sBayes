@@ -8,9 +8,11 @@ from __future__ import absolute_import, division, print_function, unicode_litera
 import logging
 import numpy as np
 
-from sbayes.postprocessing import contribution_per_area, log_operator_statistics, log_operator_statistics_header
+from sbayes.postprocessing import (contribution_per_area, log_operator_statistics,
+                                   log_operator_statistics_header, match_areas, rank_areas)
 from sbayes.sampling.zone_sampling import Sample, ZoneMCMC_generative
-from sbayes.util import dump, normalize, universal_counts_to_dirichlet, inheritance_counts_to_dirichlet
+from sbayes.util import (dump, normalize, universal_counts_to_dirichlet,
+                         inheritance_counts_to_dirichlet, samples2file)
 
 
 class MCMC:
@@ -136,7 +138,7 @@ class MCMC:
                'alter_p_families': self.config['mcmc']['STEPS']['inheritance']}
         self.ops = ops
 
-    def sample(self, initial_sample=None, lh_per_area=False):
+    def sample(self, initial_sample=None, lh_per_area=True):
         initial_sample = self.initialize_sample(initial_sample)
 
         self.sampler = ZoneMCMC_generative(network=self.data.network, features=self.data.features,
@@ -220,25 +222,34 @@ class MCMC:
         self.samples["true_families"] = self.data.families
 
     def save_samples(self, run=1):
+
+        self.samples = match_areas(self.samples)
+        self.samples = rank_areas(self.samples)
+
         file_info = self.config['results']['FILE_INFO']
+        parameters = self.path_results + 'stats'
+        areas = self.path_results + 'areas'
 
         if file_info == "n":
-            outfile = self.path_results + 'contact_areas_n{n}_{run}.pkl'
-            path = outfile.format(n=self.config['mcmc']['N_AREAS'], run=run)
+            path_params = parameters + '_n{n}_{run}.txt'.format(n=self.config['mcmc']['N_AREAS'], run=run)
+            path_areas = areas + '_n{n}_{run}.txt'.format(n=self.config['mcmc']['N_AREAS'], run=run)
 
         elif file_info == "s":
-            outfile = self.path_results + 'contact_areas_s{s}_a{a}_{run}.pkl'
-            path = outfile.format(s=self.config['simulation']['STRENGTH'],
-                                  a=self.config['simulation']['AREA'], run=run)
+            path_params = parameters + '_s{s}_a{a}_{run}.txt'.format(s=self.config['simulation']['STRENGTH'],
+                                                               a=self.config['simulation']['AREA'], run=run)
+            path_areas = areas + '_s{s}_a{a}_{run}.txt'.format(s=self.config['simulation']['STRENGTH'],
+                                                               a=self.config['simulation']['AREA'], run=run)
 
         elif file_info == "i":
-            outfile = self.path_results + 'contact_areas_i{i}_{run}.pkl'
-            path = outfile.format(i=int(self.config['mcmc']['INHERITANCE']), run=run)
+            path_params = parameters + '_i{i}_{run}.txt'.format(i=int(self.config['mcmc']['INHERITANCE']), run=run)
+            path_areas = areas + '_i{i}_{run}.txt'.format(i=int(self.config['mcmc']['INHERITANCE']), run=run)
 
         elif file_info == "p":
-            outfile = self.path_results + 'contact_areas_p{p}_{run}.pkl'
+
             p = 0 if self.config['mcmc']['PRIOR']['universal']['type'] == "uniform" else 1
-            path = outfile.format(p=p, run=run)
+            path_params = parameters + '_p{p}_{run}.txt'.format(p=p, run=run)
+            path_areas = areas + '_p{p}_{run}.txt'.format(p=p, run=run)
         else:
             raise ValueError("file_info must be 'n', 's', 'i' or 'p'")
-        dump(self.samples, path)
+
+        samples2file(self.samples, self.data, self.config, path_params, path_areas)
