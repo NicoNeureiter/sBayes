@@ -11,13 +11,13 @@ import logging
 import numpy as np
 
 from sbayes.preprocessing import (compute_network, read_sites,
-                               simulate_assignment_probabilities,
-                               simulate_families,
-                               simulate_features,
-                               simulate_weights,
-                               simulate_areas,
-                               subset_features,
-                               counts_from_complement)
+                                  simulate_assignment_probabilities,
+                                  simulate_families,
+                                  simulate_features,
+                                  simulate_weights,
+                                  simulate_areas,
+                                  subset_features,
+                                  counts_from_complement)
 
 
 class Simulation:
@@ -77,6 +77,7 @@ class Simulation:
         self.sites, self.site_names, self.log_read_sites = read_sites(file=self.sites_file,
                                                                       retrieve_family=self.inheritance,
                                                                       retrieve_subset=self.subset)
+
         self.network = compute_network(self.sites)
 
         # Simulate areas
@@ -98,13 +99,13 @@ class Simulation:
         # Simulate probabilities for features to be universally preferred,
         # passed through contact (and inherited if available)
         self.p_universal, self.p_contact, self.p_inheritance \
-            = simulate_assignment_probabilities(n_features=self.config['simulation']['N_FEATURES'],
-                                                p_number_categories=self.config['simulation']['P_N_CATEGORIES'],
-                                                areas=self.areas, families=self.families,
-                                                e_universal=self.config['simulation']['E_UNIVERSAL'],
+            = simulate_assignment_probabilities(e_universal=self.config['simulation']['E_UNIVERSAL'],
                                                 e_contact=self.config['simulation']['E_CONTACT'],
                                                 e_inheritance=self.config['simulation']['E_INHERITANCE'],
-                                                inheritance=self.inheritance)
+                                                inheritance=self.inheritance,
+                                                n_features=self.config['simulation']['N_FEATURES'],
+                                                p_number_categories=self.config['simulation']['P_N_CATEGORIES'],
+                                                areas=self.areas, families=self.families,)
 
         # Simulate features
         self.features, self.states, self.feature_names, self.state_names = \

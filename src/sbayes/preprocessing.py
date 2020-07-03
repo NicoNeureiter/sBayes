@@ -35,7 +35,10 @@ def read_sites(file, retrieve_family=False, retrieve_subset=False):
         for row in reader:
             if columns:
                 for i, value in enumerate(row):
-                    columns[i].append(value)
+                    if len(value) < 1:
+                        columns[i].append(0)
+                    else:
+                        columns[i].append(value)
             else:
                 # first row
                 columns = [[value] for value in row]
@@ -45,7 +48,7 @@ def read_sites(file, retrieve_family=False, retrieve_subset=False):
         x = csv_as_dict.pop('x')
         y = csv_as_dict.pop('y')
         name = csv_as_dict.pop('name')
-        cz = csv_as_dict.pop('area')
+        area = csv_as_dict.pop('area')
     except KeyError:
         raise KeyError('The csv  must contain columns "x", "y", "name", "area')
 
@@ -62,26 +65,23 @@ def read_sites(file, retrieve_family=False, retrieve_subset=False):
         # name could be any unique identifier, sequential id are integers from 0 to len(name)
         seq_id.append(i)
 
-    cz = [int(i.replace('', '0')) for i in cz]
     sites = {'locations': locations,
              'id': seq_id,
-             'cz': cz,
+             'area': [int(z) for z in area],
              'names': name}
 
     if retrieve_family:
         try:
             families = csv_as_dict.pop('family')
-            family = [int(f.replace('', '0')) for f in families]
-            sites['family'] = family
+            sites['family'] = [int(f) for f in families]
 
         except KeyError:
             KeyError('The csv does not contain family information, i.e. a "family" column')
 
     if retrieve_subset:
         try:
-            subsets = csv_as_dict.pop('subset')
-            subset = [int(s.replace('', '0')) for s in subsets]
-            sites['subset'] = subset
+            subset = csv_as_dict.pop('subset')
+            sites['subset'] = [int(s) for s in subset]
 
         except KeyError:
             KeyError('The csv does not contain subset information, i.e. a "subset" column')
@@ -316,16 +316,16 @@ def simulate_areas(area_id, sites_sim):
 
     # Retrieve areas
     sites_in_area = {}
-    cz = np.asarray(sites_sim['cz'])
+    area = np.asarray(sites_sim['area'])
 
     # For single area
     if isinstance(area_id, int):
-        sites_in_area[area_id] = np.where(cz == area_id)[0].tolist()
+        sites_in_area[area_id] = np.where(area == area_id)[0].tolist()
 
     # For multiple areas
     elif isinstance(area_id, tuple) and all(isinstance(x, int) for x in area_id):
             for z in area_id:
-                sites_in_area[z] = np.where(cz == z)[0].tolist()
+                sites_in_area[z] = np.where(area == z)[0].tolist()
     else:
         raise ValueError('area_id must be int or a tuple of int')
 
@@ -404,8 +404,8 @@ def simulate_weights(i_universal, i_contact,  inheritance, n_features, i_inherit
     return weights
 
 
-def simulate_assignment_probabilities(n_features, p_number_categories, inheritance, areas, e_contact,
-                                      e_universal, e_inheritance=None, families=None):
+def simulate_assignment_probabilities(n_features, p_number_categories, inheritance, areas, e_universal,
+                                      e_contact, e_inheritance=None, families=None):
     """ Simulates the categories and then the assignment probabilities to categories in areas, families and universally
 
        Args:

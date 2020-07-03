@@ -11,11 +11,8 @@ from math import sqrt, floor, ceil
 import datetime
 import csv
 import os
-import random
-from scipy.special import logsumexp
 import matplotlib.pyplot as plt
 from matplotlib.collections import LineCollection
-import logging
 
 
 EPS = np.finfo(float).eps
@@ -25,24 +22,35 @@ class FamilyError(Exception):
     pass
 
 
-def format_area_as_bitstring(area):
+def encode_area(area):
     """Format the given area as a compact bit-string."""
-    area_str = area.astype(int).astype(str)
-    return ''.join(area_str)
+    area_s = area.astype(int).astype(str)
+    return ''.join(area_s)
+
+
+def decode_area(area_str):
+    """Read a bit-string and parse it into an area array."""
+    return np.array(list(area_str)).astype(int).astype(bool)
 
 
 def format_area_columns(areas):
-    """Format the given array of areas as tap-separated bit-strings."""
-    area_columns = map(format_area_as_bitstring, areas)
-    return '\t'.join(area_columns)
+    """Format the given array of areas as tab separated strings."""
+    areas_encoded = map(encode_area, areas)
+    return '\t'.join(areas_encoded)
+
+
+def parse_area_columns(areas_encoded):
+    """Read tab-separated area encodings into a two-dimensional area array."""
+    areas_decoded = map(decode_area, areas_encoded.split('\t'))
+    return np.array(list(areas_decoded))
 
 
 def compute_distance(a, b):
     """ This function computes the Euclidean distance between two points a and b
 
     Args:
-        a (array): The x and y coordinates of a point in a metric CRS.
-        b (array): The x and y coordinates of a point in a metric CRS.
+        a (list): The x and y coordinates of a point in a metric CRS.
+        b (list): The x and y coordinates of a point in a metric CRS.
 
     Returns:
         float: Distance between a and b
@@ -221,7 +229,7 @@ def read_features_from_csv(file):
 
     # sites
     locations = np.zeros((len(l_id), 2))
-    id = []
+    site_id = []
 
     for i in range(len(l_id)):
         # Define location tuples
@@ -230,10 +238,10 @@ def read_features_from_csv(file):
 
         # The order in the list maps name to id and id to name
         # name could be any unique identifier, id is an integer from 0 to len(name)
-        id.append(i)
+        site_id.append(i)
 
     sites = {'locations': locations,
-             'id': id,
+             'id': site_id,
              'cz': None,
              'names': name}
     site_names = {'external': l_id,
@@ -501,58 +509,6 @@ def mkpath(path):
         touch(path)
 
 
-def simulate_family_of_size_k(k, net, already_occupied=None, grow_families=True):
-    """ This function forms a family of size k, either by
-    randomly selecting sites in a network or growing regions in space (similar to grow_zone_of_size_k)
-    Args:
-        k (int): The size of the family i.e. the number of sites in the family.
-        net: dict of network
-        already_occupied (np.array): All sites already assigned to a family or to a zone (boolean)
-
-    Returns:
-        np.array: The newly formed family (boolean).
-        np.array: all nodes in the network already assigned to a family or a zone (boolean).
-    """
-    n_sites = len(net['vertices'])
-    if already_occupied is None:
-        already_occupied = np.zeros(n_sites, bool)
-
-    # Initialize the family
-    family = np.zeros(n_sites, bool)
-
-    # Find all sites that already belong to a family or a zone (sites_occupied) and those that don't (sites_free)
-    sites_occupied = np.nonzero(already_occupied)[0]
-    sites_free = set(range(n_sites)) - set(sites_occupied)
-
-    # Grow families
-    if grow_families:
-        # Take a random free site and use it as seed for the new family
-        try:
-            i = random.sample(sites_free, 1)[0]
-            family[i] = already_occupied[i] = 1
-        except ValueError:
-            print('No more free sites to grow family.')
-
-        # Grow the zone if possible
-        for _ in range(k - 1):
-
-            # todo: self.adj_mat
-            neighbours = get_neighbours(family, already_occupied, net['adj_mat'])
-            if not np.any(neighbours):
-                print('No more free sites to grow family.')
-
-            # Add a neighbour to the zone
-            site_new = random.choice(neighbours.nonzero()[0])
-            family[site_new] = already_occupied[site_new] = 1
-
-    # Assign random points to families
-    else:
-        i = random.sample(sites_free, k)
-        family[i] = already_occupied[i] = 1
-
-    return family, already_occupied
-
-
 def add_edge(edges, edge_nodes, coords, i, j):
     """
     Add an edge between the i-th and j-th points, if not in edges already
@@ -571,75 +527,7 @@ def add_edge(edges, edge_nodes, coords, i, j):
     edge_nodes.append(coords[[i, j]])
 
 
-def samples2res_old(samples):
-    """
-    Stores the output of the MCMC contained in samples in a simple data container (dict).
-    The returned data container facilitates the analysis of the results (e.g. plotting).
-    Args:
-        samples (list): samples
-    """
-
-    n_zones = samples['sample_zones'][0].shape[0]
-
-    # Define output format for estimated samples
-    mcmc_res = {
-        'lh': [],
-        'prior': [],
-        'recall': [],
-        'precision': [],
-        'posterior': [],
-        'zones': [[] for _ in range(n_zones)],
-        'weights': [],
-        'p_global': [],
-        'p_zones': [[] for _ in range(n_zones)],
-        'true_zones': [],
-        'n_zones': n_zones,
-    }
-
-    # Collect true sample
-    true_z = np.any(samples['true_zones'], axis=0)
-    mcmc_res['true_zones'].append(true_z)
-    mcmc_res['true_weights'] = samples['true_weights']
-    mcmc_res['true_p_global'] = samples['true_p_global']
-    mcmc_res['true_p_zones'] = samples['true_p_zones']
-
-    mcmc_res['true_lh'] = samples['true_ll']
-    true_posterior = samples['true_ll'] + samples['true_prior']
-    mcmc_res['true_posterior'] = true_posterior
-
-    for t in range(len(samples['sample_zones'])):
-
-        # Zones and p_zones
-        for z in range(n_zones):
-            mcmc_res['zones'][z].append(samples['sample_zones'][t][z])
-            # mcmc_res['p_zones'][z].append(transform_p_from_log(samples['sample_p_zones'][t])[z])
-
-        # Weights
-        mcmc_res['weights'].append(samples['sample_weights'][t])
-
-        # Likelihood, prior and posterior
-        mcmc_res['lh'].append(samples['sample_likelihood'][t])
-        mcmc_res['prior'].append(samples['sample_prior'][t])
-
-        posterior = samples['sample_likelihood'][t] + samples['sample_prior'][t]
-        mcmc_res['posterior'].append(posterior)
-
-        # Recall and precision
-        sample_z = samples['sample_zones'][t][0]
-        n_true = np.sum(true_z)
-
-        intersections = np.minimum(sample_z, true_z)
-        total_recall = np.sum(intersections, axis=0) / n_true
-        mcmc_res['recall'].append(total_recall)
-
-        precision = np.sum(intersections, axis=0) / np.sum(sample_z, axis=0)
-        mcmc_res['precision'].append(precision)
-    np.set_printoptions(suppress=True)
-
-    return mcmc_res
-
-
-def samples2file(samples, data, config, path_parameters, path_areas):
+def samples2file(samples, data, config, paths):
     """
     Writes the MCMC to two text files, one for MCMC parameters and one for areas.
 
@@ -647,63 +535,89 @@ def samples2file(samples, data, config, path_parameters, path_areas):
         samples (dict): samples
         data (Data): object of class data (features, priors, ...)
         config(dict): config information
-        path_parameters (str): file path for stats txt
-        path_areas (str): file path for areas txt
+        paths(dict): file path for stats, areas and ground truth
     """
 
-    # Ground truth (for simulated data only)
-    ground_truth = None
-    true_area = None
-
+    # Write ground truth to file (for simulated data only)
     if data.is_simulated:
-        ground_truth = dict()
-        ground_truth['Sample'] = ''
-        ground_truth['posterior'] = samples['true_prior'] * samples['true_ll']
-        ground_truth['likelihood'] = samples['true_ll']
-        ground_truth['prior'] = samples['true_prior']
+        gt_col_names = ['posterior', 'likelihood', 'prior']
 
+        gt = dict()
+        gt['posterior'] = samples['true_prior'] + samples['true_ll']
+        gt['likelihood'] = samples['true_ll']
+        gt['prior'] = samples['true_prior']
+
+        # weights
         for f in range(len(data.feature_names['external'])):
             # universal pressure
             w_universal_name = 'w_universal_' + str(data.feature_names['external'][f])
-            ground_truth[w_universal_name] = samples['true_weights'][f][0]
+            if w_universal_name not in gt_col_names:
+                gt_col_names += [w_universal_name]
+            gt[w_universal_name] = samples['true_weights'][f][0]
 
             # contact
             w_contact_name = 'w_contact_' + str(data.feature_names['external'][f])
-            ground_truth[w_contact_name] = samples['true_weights'][f][1]
+            if w_contact_name not in gt_col_names:
+                gt_col_names += [w_contact_name]
+            gt[w_contact_name] = samples['true_weights'][f][1]
 
             # inheritance
             if config['mcmc']['INHERITANCE']:
                 w_inheritance_name = 'w_inheritance_' + str(data.feature_names['external'][f])
-                ground_truth[w_inheritance_name] = samples['true_weights'][f][2]
+                if w_inheritance_name not in gt_col_names:
+                    gt_col_names += [w_inheritance_name]
+                gt[w_inheritance_name] = samples['true_weights'][f][2]
 
         # alpha
         for f in range(len(data.feature_names['external'])):
             for st in range(len(data.state_names['external'][f])):
                 feature_name = 'alpha_' + str(data.feature_names['external'][f])\
                                + '_' + str(data.state_names['external'][f][st])
-                ground_truth[feature_name] = samples['true_p_global'][0][f][st]
+                if feature_name not in gt_col_names:
+                    gt_col_names += [feature_name]
+                gt[feature_name] = samples['true_p_global'][0][f][st]
 
         # gamma
-        for a in range(config['mcmc']['N_AREAS']):
+        for a in range(len(data.areas)):
             for f in range(len(data.feature_names['external'])):
                 for st in range(len(data.state_names['external'][f])):
                     feature_name = 'gamma_' + 'a' + str(a + 1) \
                                    + '_' + str(data.feature_names['external'][f]) + '_' \
                                    + str(data.state_names['external'][f][st])
-                    ground_truth[feature_name] = samples['true_p_zones'][a][f][st]
+                    if feature_name not in gt_col_names:
+                        gt_col_names += [feature_name]
+                    gt[feature_name] = samples['true_p_zones'][a][f][st]
 
         # beta
-        if config['mcmc']['INHERITANCE']:
+        if config['simulation']['INHERITANCE']:
             for fam in range(len(data.family_names['external'])):
                 for f in range(len(data.feature_names['external'])):
                     for st in range(len(data.state_names['external'][f])):
                         feature_name = 'beta_' + str(data.family_names['external'][fam]) \
                                        + '_' + str(data.feature_names['external'][f]) \
                                        + '_' + str(data.state_names['external'][f][st])
+                        if feature_name not in gt_col_names:
+                            gt_col_names += [feature_name]
+                        gt[feature_name] = samples['true_p_families'][fam][f][st]
 
-                        ground_truth[feature_name] = samples['true_p_families'][fam][f][st]
+        true_areas = format_area_columns(samples['true_zones'])
 
-        true_area = format_area_columns(samples['true_zones'])
+        try:
+            with open(paths['gt'], 'w', newline='') as file:
+                writer = csv.DictWriter(file, fieldnames=gt_col_names, delimiter='\t')
+                writer.writeheader()
+                writer.writerow(gt)
+
+        except IOError:
+            print("I/O error")
+
+        try:
+            with open(paths['gt_areas'], 'w', newline='') as file:
+                file.write(true_areas)
+                file.close()
+
+        except IOError:
+            print("I/O error")
 
     # Results
     parameters = []
@@ -714,7 +628,7 @@ def samples2file(samples, data, config, path_parameters, path_areas):
     for s in range(len(samples['sample_zones'])):
         row = dict()
         row['Sample'] = int(s * steps_per_sample)
-        row['posterior'] = samples['sample_prior'][s] * samples['sample_likelihood'][s]
+        row['posterior'] = samples['sample_prior'][s] + samples['sample_likelihood'][s]
         row['likelihood'] = samples['sample_likelihood'][s]
         row['prior'] = samples['sample_prior'][s]
 
@@ -777,7 +691,7 @@ def samples2file(samples, data, config, path_parameters, path_areas):
                         row[feature_name] = samples['sample_p_families'][s][fam][f][st]
 
         # Recall and precision
-        if ground_truth is not None:
+        if data.is_simulated:
             sample_z = samples['sample_zones'][s][0]
             true_z = np.any(samples['true_zones'], axis=0)
             n_true = np.sum(true_z)
@@ -816,26 +730,19 @@ def samples2file(samples, data, config, path_parameters, path_areas):
         parameters.append(row)
 
     try:
-        with open(path_parameters, 'w', newline='') as file:
+        with open(paths['parameters'], 'w', newline='') as file:
             writer = csv.DictWriter(file, fieldnames=column_names, delimiter='\t')
             writer.writeheader()
             for row in parameters:
                 writer.writerow(row)
 
-            if true_area is not None:
-                writer.writerow({"Sample": "Ground truth"})
-                writer.writerow(ground_truth)
-
     except IOError:
         print("I/O error")
 
     try:
-        with open(path_areas, 'w', newline='') as file:
+        with open(paths['areas'], 'w', newline='') as file:
             for a in areas:
                 file.write(a + '\n')
-            if ground_truth is not None:
-                file.write("Ground truth\n")
-                file.write(true_area)
             file.close()
 
     except IOError:
@@ -847,7 +754,7 @@ def linear_rescale(value, old_min, old_max, new_min, new_max):
     Function to linear rescale a number to a new range
 
     Args:
-         n (float): number to rescale
+         value (float): number to rescale
          old_min (float): old minimum of value range
          old_max (float): old maximum of value range
          new_min (float): new minimum of value range
@@ -855,45 +762,6 @@ def linear_rescale(value, old_min, old_max, new_min, new_max):
     """
 
     return (new_max - new_min) / (old_max - old_min) * (value - old_max) + old_max
-
-
-def round_int_old(n, mode='up', offset=0):
-    """
-    Function to round an integer for the calculation of axes limits.
-    For example:
-    up: 113 -> 120, 3456 -> 3500
-    down: 113 -> 110, 3456 -> 3450
-
-    Args:
-         n (int): integer number to round
-         mode (str): round 'up' or 'down'
-         offset (int): adding offset to rounded number
-    """
-
-    if mode != 'up' and mode != 'down':
-        raise Exception('unknown mode')
-        # raise Exception(f'Unknown mode: "{mode}". Use either "up" or "down".')
-
-    n = int(n) if isinstance(n, float) else n
-    n_digits = len(str(n)) if n > 0 else len(str(n)) - 1
-
-    # special rules for 1 and 2 digit numbers
-    if n_digits == 1:
-        n_rounded = 0 if mode == 'down' else 10
-
-    elif n_digits == 2:
-        n_rounded = (n // 10) * 10 if mode == 'down' else (n // 10 + 1) * 10
-
-    else:
-        convertor = 10 ** (n_digits - 2)
-        if mode == 'up':
-            n_rounded = ceil(n / convertor) * convertor
-            n_rounded += offset * convertor
-        if mode == 'down':
-            n_rounded = floor(n / convertor) * convertor
-            n_rounded -= offset * convertor
-
-    return n_rounded
 
 
 def round_single_int(n, mode='up', position=2, offset=1):
@@ -934,7 +802,6 @@ def round_single_int(n, mode='up', position=2, offset=1):
         else:
             assert (position == 2)
             n_rounded = n - offset if mode == 'down' else n + offset
-
 
     else:
         if not position == n_digits:
@@ -988,10 +855,6 @@ def round_int(n, mode='up', offset=0):
          offset (int): adding offset to rounded number
     """
 
-    if mode != 'up' and mode != 'down':
-        raise Exception('unkown mode')
-        # raise Exception(f'Unknown mode: "{mode}". Use either "up" or "down".')
-
     n = int(n) if isinstance(n, float) else n
     convertor = 10 ** (len(str(offset)) - 1)
 
@@ -1005,21 +868,18 @@ def round_int(n, mode='up', offset=0):
         if mode == 'down':
             n_rounded = floor(n / convertor) * convertor
             n_rounded -= offset
-
+        else:
+            raise Exception('unkown mode')
     else: # number is smaller than offset (can be negative)
         if n >= 0:
             n_rounded = offset + convertor if mode == 'up' else -offset
-        else: # for negative numbers we use round_int with inversed mode and the positive number
-            print('inverse case')
+        else:
+            # for negative numbers we use round_int with inversed mode and the positive number
             inverse_mode = 'up' if mode == 'down' else 'down'
             n_rounded = round_int(abs(n), inverse_mode, offset)
             n_rounded = - n_rounded
 
     return n_rounded
-
-def compute_mst_posterior(mcmc_res):
-
-    return
 
 
 def colorline(ax, x, y, z=None, cmap=plt.get_cmap('copper'), norm=plt.Normalize(0.0, 1.0), linewidth=3, alpha=1.0):
