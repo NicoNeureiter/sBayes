@@ -7,11 +7,12 @@ from __future__ import absolute_import, division, print_function, unicode_litera
 
 import logging
 import numpy as np
+import os
 
 from sbayes.postprocessing import (contribution_per_area, log_operator_statistics,
                                    log_operator_statistics_header, match_areas, rank_areas)
 from sbayes.sampling.zone_sampling import Sample, ZoneMCMC_generative
-from sbayes.util import (dump, normalize, universal_counts_to_dirichlet,
+from sbayes.util import (normalize, universal_counts_to_dirichlet,
                          inheritance_counts_to_dirichlet, samples2file)
 
 
@@ -80,7 +81,6 @@ class MCMC:
             self.config['mcmc']['PRIOR']['inheritance'] = {'type': "pseudocounts",
                                                            'dirichlet': dirichlet,
                                                            'states': self.data.prior_inheritance['states']}
-        print(self.config['mcmc']['PRIOR']['inheritance'])
 
     def log_setup(self):
 
@@ -140,7 +140,6 @@ class MCMC:
 
     def sample(self, initial_sample=None, lh_per_area=True):
         initial_sample = self.initialize_sample(initial_sample)
-
         self.sampler = ZoneMCMC_generative(network=self.data.network, features=self.data.features,
                                            min_size=self.config['mcmc']['MIN_M'],
                                            max_size=self.config['mcmc']['MAX_M'],
@@ -227,29 +226,39 @@ class MCMC:
         self.samples = rank_areas(self.samples)
 
         file_info = self.config['results']['FILE_INFO']
-        parameters = self.path_results + 'stats'
-        areas = self.path_results + 'areas'
 
         if file_info == "n":
-            path_params = parameters + '_n{n}_{run}.txt'.format(n=self.config['mcmc']['N_AREAS'], run=run)
-            path_areas = areas + '_n{n}_{run}.txt'.format(n=self.config['mcmc']['N_AREAS'], run=run)
+            fi = 'n{n}'.format(n=self.config['mcmc']['N_AREAS'])
 
         elif file_info == "s":
-            path_params = parameters + '_s{s}_a{a}_{run}.txt'.format(s=self.config['simulation']['STRENGTH'],
-                                                               a=self.config['simulation']['AREA'], run=run)
-            path_areas = areas + '_s{s}_a{a}_{run}.txt'.format(s=self.config['simulation']['STRENGTH'],
-                                                               a=self.config['simulation']['AREA'], run=run)
+            fi = 's{s}_a{a}'.format(s=self.config['simulation']['STRENGTH'],
+                                    a=self.config['simulation']['AREA'])
 
         elif file_info == "i":
-            path_params = parameters + '_i{i}_{run}.txt'.format(i=int(self.config['mcmc']['INHERITANCE']), run=run)
-            path_areas = areas + '_i{i}_{run}.txt'.format(i=int(self.config['mcmc']['INHERITANCE']), run=run)
+            fi = 'i{i}'.format(i=int(self.config['mcmc']['INHERITANCE']))
 
         elif file_info == "p":
-
             p = 0 if self.config['mcmc']['PRIOR']['universal']['type'] == "uniform" else 1
-            path_params = parameters + '_p{p}_{run}.txt'.format(p=p, run=run)
-            path_areas = areas + '_p{p}_{run}.txt'.format(p=p, run=run)
+            fi = 'p{p}'.format(p=p)
+
         else:
             raise ValueError("file_info must be 'n', 's', 'i' or 'p'")
 
-        samples2file(self.samples, self.data, self.config, path_params, path_areas)
+        run = '_{run}'.format(run=run)
+        pth = self.path_results + fi + '/'
+        ext = '.txt'
+        gt_pth = pth + 'ground_truth/'
+
+        paths = {'parameters': pth + 'stats_' + fi + run + ext,
+                 'areas': pth + 'areas_' + fi + run + ext,
+                 'gt': gt_pth + 'stats' + ext,
+                 'gt_areas': gt_pth + 'areas' + ext}
+
+        if not os.path.exists(pth):
+            os.makedirs(pth)
+
+        if self.data.is_simulated:
+            if not os.path.exists(gt_pth):
+                os.makedirs(gt_pth)
+
+        samples2file(self.samples, self.data, self.config, paths)
