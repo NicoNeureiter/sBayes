@@ -25,7 +25,7 @@ def read_sites(file, retrieve_family=False, retrieve_subset=False):
         retrieve_family(boolean): retrieve family assignments from the csv
         retrieve_subset(boolean): retrieve assignment to subsets from the csv
     Returns:
-        dict, list: a dictionary containing the location tuple (x,y), the id and information about contact zones
+        dict, list: a dictionary containing the location tuples (x,y), the id and information about contact zones
             of each point the mapping between name and id is by position
     """
 
