@@ -9,7 +9,7 @@ import matplotlib as mpl
 import matplotlib.pyplot as plt
 import matplotlib.ticker as mtick
 
-from sbayes.util import zones_autosimilarity, add_edge, compute_delaunay, colorline, compute_mst_posterior
+from sbayes.util import zones_autosimilarity, add_edge, compute_delaunay, colorline # compute_mst_posterior
 from sbayes.util import bounding_box, round_int, linear_rescale, round_single_int, round_multiple_ints
 from sbayes.preprocessing import compute_network
 from scipy.stats import gamma, linregress
@@ -30,6 +30,7 @@ from copy import deepcopy
 import geopandas as gpd
 from itertools import compress
 import os
+import seaborn as sns
 from scipy.special import logsumexp
 os.environ["PROJ_LIB"] = "C:/Users/ranacher/Anaconda3/Library/share"
 plt.style.use('seaborn-paper')
@@ -2656,3 +2657,100 @@ def plot_correspondence_table(sites, fname, sites_in_zone=None, ncol=3):
 
     else:
         fig.savefig(f"{fname}.{pp['save_format']}", bbox_inches='tight', dpi=400, format=pp['save_format'])
+
+
+def get_corner_points(n, offset=0.5 * np.pi):
+    """Generate corner points of a equal sided ´n-eck´."""
+    angles = np.linspace(0, 2*np.pi, n, endpoint=False) + offset
+    return np.array([np.cos(angles), np.sin(angles)]).T
+
+
+def fill_outside(polygon, color, ax=None):
+    """Fill the area outside the given polygon with ´color´.
+
+    Args:
+        polygon (np.array): The polygon corners in a numpy array.
+            shape: (n_corners, 2)
+        color (str or tuple): The fill color.
+    """
+    if ax is None:
+        ax = plt.gca()
+
+    n_corners = polygon.shape[0]
+    i_left = np.argmin(polygon[:, 0])
+    i_right = np.argmax(polygon[:, 0])
+
+    # Find corners of bottom face
+    i = i_left
+    bot_x = [polygon[i, 0]]
+    bot_y = [polygon[i, 1]]
+    while i % n_corners != i_right:
+        i += 1
+        bot_x.append(polygon[i, 0])
+        bot_y.append(polygon[i, 1])
+
+    # Find corners of top face
+    i = i_left
+    top_x = [polygon[i, 0]]
+    top_y = [polygon[i, 1]]
+    while i % n_corners != i_right:
+        i -= 1
+        top_x.append(polygon[i, 0])
+        top_y.append(polygon[i, 1])
+
+    ymin, ymax = ax.get_ylim()
+    plt.fill_between(bot_x, ymin, bot_y, color=color)
+    plt.fill_between(top_x, ymax, top_y, color=color)
+
+
+def plot_weights(samples, labels=None, ax=None):
+    """Plot a set of weight vectors in a 2D representation of the probability simplex.
+
+    Args:
+        samples (np.array): Sampled weight vectors to plot.
+        labels (list[str]): Labels for each weight dimension.
+        ax (plt.Axis): The pyplot axis.
+    """
+    if ax is None:
+        ax = plt.gca()
+    n_samples, n_weights = samples.shape
+
+    # Compute corners
+    corners = get_corner_points(n_weights)
+
+    # Project and plot the data
+    samples_projected = samples.dot(corners)
+    sns.kdeplot(*samples_projected.T, shade=True, shade_lowest=False)
+    plt.scatter(*samples_projected.T, color='k', lw=0)
+
+    # Draw simplex and crop outside
+    plt.fill(*corners.T, edgecolor='k', fill=False)
+    fill_outside(corners, color='w', ax=ax)
+
+    if labels is not None:
+        for xy, label in zip(corners, labels):
+            plt.annotate(label, xy)
+
+    plt.axis('equal')
+    plt.axis('off')
+    plt.tight_layout(0)
+    plt.show()
+
+
+def plot_parameters_ridge(samples):
+    """Creates a ridge plot for parameters with two states
+
+   Args:
+       samples (np.array): Sampled parameters
+            shape(n_samples, 2)
+   """
+
+    n_samples, n_states = samples.shape
+
+    if n_states != 2:
+        raise ValueError("Only applicable for parameters with two states")
+
+    ridge_plt = sns.kdeplot(samples.T[0], shade=True, clip=(0.0, 1.0),
+                            alpha=0.2, lw=.5, bw='scott')
+    ridge_plt.set(xlim=(0, 1))
+    plt.show()
