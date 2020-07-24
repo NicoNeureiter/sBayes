@@ -71,7 +71,6 @@ class Data:
     def log_loading(self):
         log_path = self.path_results + 'experiment.log'
         logging.basicConfig(format='%(message)s', filename=log_path, level=logging.DEBUG)
-        logging.getLogger().addHandler(logging.StreamHandler())
         logging.info("\n")
         logging.info("DATA IMPORT")
         logging.info("##########################################")

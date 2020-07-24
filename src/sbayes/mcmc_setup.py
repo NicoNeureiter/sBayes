@@ -83,7 +83,7 @@ class MCMC:
     def log_setup(self):
 
         logging.basicConfig(format='%(message)s', filename=self.path_log, level=logging.DEBUG)
-        logging.getLogger().addHandler(logging.StreamHandler())
+
         logging.info("\n")
         logging.info("MCMC SETUP")
         logging.info("##########################################")
@@ -163,8 +163,6 @@ class MCMC:
         self.samples = self.sampler.statistics
 
     def log_statistics(self):
-        logging.basicConfig(format='%(message)s', filename=self.path_log, level=logging.DEBUG)
-        logging.getLogger().addHandler(logging.StreamHandler())
         logging.info("\n")
         logging.info("MCMC STATISTICS")
         logging.info("##########################################")
