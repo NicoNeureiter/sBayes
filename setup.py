@@ -17,8 +17,7 @@ setup(
     install_requires=[
         "numpy",
         "scipy",
-        "matplotlib",
-        "python-igraph",],
+        "matplotlib",],
     entry_points={
         'console_scripts': [
             'sbayes = sbayes.cli:main',
