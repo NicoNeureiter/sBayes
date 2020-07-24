@@ -111,6 +111,7 @@ class ZoneMCMC_generative(MCMC_generative):
             pass
 
         self.compute_lh_per_chain = [
+            # GenerativeLikelihood(features, self.inheritance, self.families) for _ in range(self.n_chains)
             GenerativeLikelihood() for _ in range(self.n_chains)
         ]
 
@@ -341,6 +342,11 @@ class ZoneMCMC_generative(MCMC_generative):
         sample_new.zones[z_id, site_removed] = 0
         q = q_back = 1.
 
+        # Compute transition probabilities
+        back_neighbours = get_neighbours(zone_current, occupied, self.adj_mat)
+        q = 1. / np.count_nonzero(neighbours)
+        q_back = 1. / np.count_nonzero(back_neighbours)
+
         #if self.sample_p_zones:
         #    # The step changes p_zones (which has an influence on how the lh and the prior look like)
         #    sample_new.what_changed['lh']['p_zones'] = sample_new.what_changed['prior']['p_zones'] = True
@@ -391,7 +397,11 @@ class ZoneMCMC_generative(MCMC_generative):
 
         site_new = _random.choice(neighbours.nonzero()[0])
         sample_new.zones[z_id, site_new] = 1
-        q = q_back = 1.
+
+        # Transition probability when growing
+        q = 1 / np.count_nonzero(neighbours)
+        # Back-probability (shrinking)
+        q_back = 1 / (current_size + 1)
 
         if self.sample_p_zones:
             # The step changes p_zones (which has an influence on how the lh and the prior look like)
@@ -434,6 +444,14 @@ class ZoneMCMC_generative(MCMC_generative):
         site_removed = _random.choice(removal_candidates)
         sample_new.zones[z_id, site_removed] = 0
         q = q_back = 1.
+
+        # Transition probability when shrinking.
+        q = 1 / len(removal_candidates)
+        # Back-probability (growing)
+        zone_new = sample_new.zones[z_id]
+        occupied_new = np.any(sample_new.zones, axis=0)
+        back_neighbours = get_neighbours(zone_new, occupied_new, self.adj_mat)
+        q_back = 1 / np.count_nonzero(back_neighbours)
 
         if self.sample_p_zones:
 
@@ -832,3 +850,5 @@ class ZoneMCMC_generative(MCMC_generative):
 
         return fn_operators, p_operators
 
+    def log_sample_statistics(self, sample, c, sample_id):
+        super(ZoneMCMC_generative, self).log_sample_statistics(sample, c, sample_id)
