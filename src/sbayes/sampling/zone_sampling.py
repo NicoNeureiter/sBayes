@@ -407,6 +407,8 @@ class ZoneMCMC_generative(MCMC_generative):
 
             # Set p_zones to the MLE value of the updated zone in the new sample
             # sample_new.p_zones[z_id] = self.set_p_zones_to_mle(sample_new.zones[z_id])
+        #Todo: remove once back probability works properly
+        q = q_back = 1.
         return sample_new, q, q_back
 
     def shrink_zone(self, sample):
@@ -440,8 +442,7 @@ class ZoneMCMC_generative(MCMC_generative):
         removal_candidates = self.get_removal_candidates(zone_current)
         site_removed = _random.choice(removal_candidates)
         sample_new.zones[z_id, site_removed] = 0
-        q = q_back = 1.
-
+        
         # Transition probability when shrinking.
         q = 1 / len(removal_candidates)
         # Back-probability (growing)
@@ -458,7 +459,8 @@ class ZoneMCMC_generative(MCMC_generative):
 
             # Set p_zones to the MLE value of the updated zone in the new sample
             # sample_new.p_zones[z_id] = self.set_p_zones_to_mle(sample_new.zones[z_id])
-
+        # Todo: remove once back probability works properly
+        q = q_back = 1.
         return sample_new, q, q_back
 
     def generate_initial_zones(self):
