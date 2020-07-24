@@ -16,8 +16,8 @@
   }, 
   "mcmc": {
     "BURN_IN": 0,
-    "N_STEPS": 2000,
-    "N_SAMPLES": 1000,
+    "N_STEPS": 1000000,
+    "N_SAMPLES": 10000,
     "N_RUNS": 1,
     "MIN_M": 3,
     "MAX_M": 50,
@@ -34,15 +34,15 @@
       "contact": "uniform"
 	},
 	"PROPOSAL_PRECISION": {
-      "weights": 30,
-      "universal": 30,
-      "contact": 30
+      "weights": 20,
+      "universal": 70,
+      "contact": 20
     },
 	"STEPS": {
 	  "area": 0.05,
-      "weights": 0.7,
+      "weights": 0.5,
       "universal": 0.05,
-      "contact": 0.2
+      "contact": 0.4
     }
   },
   "results": {
