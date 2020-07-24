@@ -205,34 +205,31 @@ def samples_array_to_list(samples_in, samples_type):
     return samples_out
 
 
-def match_zones(mcmc_res):
-    """Align zones and single zone lh and posterior in (possibly) different chains.
+def match_areas(samples):
+    """Align areas and single area lh and priors from(possibly) different chains.
     Args:
-        mcmc_res (dict): the output from the MCMC neatly collected in a dict
+        samples (dict): samples from the MCMC
     Returns:
-        perm_list(list): Resulting matching.
+        matched_samples(list): Resulting matching.
     """
-    # Change structure
-    zone_samples = samples_list_to_array(mcmc_res['zones'], samples_type="zone")
-    lh_zone_samples = samples_list_to_array(mcmc_res['lh_single_zones'], samples_type="lh")
-    posterior_zone_samples = samples_list_to_array(mcmc_res['posterior_single_zones'], samples_type="posterior")
-    n_samples, n_sites, n_zones = zone_samples.shape
 
-    s_sum = np.zeros((n_sites, n_zones))
+    area_samples = np.array([np.array(s) for s in samples['sample_zones']])
+    area_samples = np.swapaxes(area_samples, 1, 2)
+
+    n_samples, n_sites, n_areas = area_samples.shape
+    s_sum = np.zeros((n_sites, n_areas))
 
     # All potential permutations of cluster labels
-    perm = list(permutations(range(n_zones)))
-    i = 1
+    perm = list(permutations(range(n_areas)))
     matching_list = []
-    for s in zone_samples:
-        i += 1
-        # print(i)
+    for s in area_samples:
 
         def clustering_agreement(p):
 
             """In how many sites does the permutation 'p'
             match the previous sample?
             """
+
             return np.sum(s_sum * s[:, p])
 
         best_match = max(perm, key=clustering_agreement)
@@ -241,21 +238,32 @@ def match_zones(mcmc_res):
 
     # Reorder chains according to matching
     reordered_zones = []
-    reordered_lh = []
-    reordered_posterior = []
 
-    zone_samples = np.swapaxes(zone_samples, 1, 2)
+    for z in range(len(samples['sample_zones'])):
+        reordered_zones.append(samples['sample_zones'][z][:][matching_list[z]])
 
-    for z in range(len(zone_samples)):
-        reordered_zones.append(zone_samples[z][:][matching_list[z]])
-        reordered_lh.append(lh_zone_samples[z][matching_list[z]])
-        reordered_posterior.append(posterior_zone_samples[z][matching_list[z]])
+    samples['sample_zones'] = reordered_zones
 
-    mcmc_res['zones'] = samples_array_to_list(reordered_zones, samples_type="zone")
-    mcmc_res['lh_single_zones'] = samples_array_to_list(reordered_lh, samples_type="lh")
-    mcmc_res['posterior_single_zones'] = samples_array_to_list(reordered_posterior, samples_type="posterior")
+    # Likelihood and prior of single areas
+    try:
+        reordered_lh = []
+        reordered_prior = []
+        reordered_posterior = []
 
-    return mcmc_res
+        for z in range(len(samples['sample_zones'])):
+
+            reordered_lh.append([samples['sample_lh_single_zones'][z][i] for i in matching_list[z]])
+            reordered_prior.append([samples['sample_prior_single_zones'][z][i] for i in matching_list[z]])
+            reordered_posterior.append([samples['sample_posterior_single_zones'][z][i] for i in matching_list[z]])
+
+        samples['sample_lh_single_zones'] = reordered_lh
+        samples['sample_prior_single_zones'] = reordered_prior
+        samples['sample_posterior_single_zones'] = reordered_posterior
+
+    except KeyError:
+        pass
+
+    return samples
 
 
 def contribution_per_area(mcmc_sampler):
@@ -268,6 +276,7 @@ def contribution_per_area(mcmc_sampler):
     stats = mcmc_sampler.statistics
     stats['sample_lh_single_zones'] = []
     stats['sample_prior_single_zones'] = []
+    stats['sample_posterior_single_zones'] = []
 
     # Iterate over all samples
     for s in range(len(stats['sample_zones'])):
@@ -292,42 +301,47 @@ def contribution_per_area(mcmc_sampler):
         # Save stats about single zones
         stats['sample_lh_single_zones'].append(log_lh)
         stats['sample_prior_single_zones'].append(log_prior)
+        stats['sample_posterior_single_zones'].append(log_lh + log_prior)
 
     mcmc_sampler.statistics = stats
     return mcmc_sampler
 
 
-def rank_zones(mcmc_res, rank_by, burn_in):
-    """ Rank the contribution of each zone to the likelihood or the posterior
+def rank_areas(samples):
+    """ Rank the contribution of each area to the posterior
         Args:
-            mcmc_res (dict): the output from the MCMC neatly collected in a dict
-            rank_by(str): statistics for ranking (either "lh" or "posterior")
-            burn_in: (float): First n% of samples are burn-in
+            samples (dict): samples from the MCMC
+
         Returns:
-            dict: the ordered mcmc_res
-            np.ndarray: the probability of each zone compared to the other zones (in log-space)
+            dict: the ordered samples
+
             """
-    end_bi = math.ceil(len(mcmc_res['zones']) * burn_in)
-    if rank_by == "lh":
-        cont = np.asarray(mcmc_res['lh_single_zones'])[:, end_bi:]
 
-    elif rank_by == "posterior":
-        cont = np.asarray(mcmc_res['posterior_single_zones'])[:, end_bi:]
-
-    else:
-        raise ValueError('"rank_type" must be "lh" or "posterior')
-
-    to_rank = np.mean(cont, axis=1)
-    p_total = logsumexp(to_rank)
-
-    # p_per zone in log-space
-    p_per_zone = to_rank[np.argsort(-to_rank)] - p_total
+    post_per_area = np.asarray(samples['sample_posterior_single_zones'])
+    to_rank = np.mean(post_per_area, axis=0)
     ranked = np.argsort(-to_rank)
-    mcmc_res['zones'] = [mcmc_res['zones'][r] for r in ranked]
-    mcmc_res['lh_single_zones'] = [mcmc_res['lh_single_zones'][r] for r in ranked]
-    mcmc_res['posterior_single_zones'] = [mcmc_res['posterior_single_zones'][r] for r in ranked]
 
-    return mcmc_res, p_per_zone
+    # probability per area in log-space
+    # p_total = logsumexp(to_rank)
+    # p = to_rank[np.argsort(-to_rank)] - p_total
+
+    ranked_areas = []
+    ranked_lh = []
+    ranked_prior = []
+    ranked_posterior = []
+
+    for i in range(len(samples['sample_zones'])):
+        ranked_areas.append(samples['sample_zones'][i][ranked])
+        ranked_lh.append([samples['sample_lh_single_zones'][i][r] for r in ranked])
+        ranked_prior.append([samples['sample_prior_single_zones'][i][r] for r in ranked])
+        ranked_posterior.append([samples['sample_posterior_single_zones'][i][r] for r in ranked])
+
+    samples['sample_zones'] = ranked_areas
+    samples['sample_lh_single_zones'] = ranked_lh
+    samples['sample_prior_single_zones'] = ranked_prior
+    samples['sample_posterior_single_zones'] = ranked_posterior
+
+    return samples
 
 
 # # deprecated

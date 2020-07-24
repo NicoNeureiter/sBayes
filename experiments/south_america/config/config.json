@@ -4,6 +4,7 @@
     "N_STEPS": 2000,
     "N_SAMPLES": 1000,
     "N_RUNS": 1,
+	"N_AREAS": "TBD",
     "MIN_M": 3,
     "MAX_M": 50,
     "N_CHAINS": 3,
@@ -16,8 +17,7 @@
 	  "inheritance": "from_counts",
 	  "contact": "uniform"
     },
-    "INHERITANCE": true,
-	"N_AREAS": "TBD"
+    "INHERITANCE": false
   },
   "data":{
     "FEATURES" : "../data/features/features.csv",

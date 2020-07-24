@@ -43,6 +43,9 @@ class Data:
         self.prior_universal = {}
         self.prior_inheritance = {}
 
+        # Not a simulation
+        self.is_simulated = False
+
     def load_features(self):
         self.sites, self.site_names, self.features, self.feature_names, \
             self.state_names, self.families, self.family_names, self.log_load_features = \

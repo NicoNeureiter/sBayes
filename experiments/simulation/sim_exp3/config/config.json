@@ -1,6 +1,6 @@
 {
   "simulation": {
-	"SITES": "../data/sites.csv",
+	"SITES": "data/sites.csv",
     "N_FEATURES": 35,
     "P_N_CATEGORIES": {
       "2": 0.4,
@@ -17,10 +17,11 @@
   "mcmc": {
     "BURN_IN": 0,
 	"N_AREAS": "TBD",
-    "N_STEPS": 2000,
-    "N_SAMPLES": 1000,
-    "N_RUNS": 1,
+    "N_STEPS": 100000,
+    "N_SAMPLES": 2000,
+    "N_RUNS": 3,
     "MIN_M": 3,
+	"N_CHAINS": 6, 
     "MAX_M": 50,
     "PRIOR": {
       "geo": "uniform",

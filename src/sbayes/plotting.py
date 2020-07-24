@@ -9,7 +9,7 @@ import matplotlib as mpl
 import matplotlib.pyplot as plt
 import matplotlib.ticker as mtick
 
-from sbayes.util import zones_autosimilarity, add_edge, compute_delaunay, colorline, compute_mst_posterior
+from sbayes.util import zones_autosimilarity, add_edge, compute_delaunay, colorline # compute_mst_posterior
 from sbayes.util import bounding_box, round_int, linear_rescale, round_single_int, round_multiple_ints
 from sbayes.preprocessing import compute_network
 from scipy.stats import gamma, linregress
@@ -30,6 +30,8 @@ from copy import deepcopy
 import geopandas as gpd
 from itertools import compress
 import os
+import seaborn as sns
+from scipy.special import logsumexp
 os.environ["PROJ_LIB"] = "C:/Users/ranacher/Anaconda3/Library/share"
 plt.style.use('seaborn-paper')
 plt.tight_layout()
@@ -1103,65 +1105,115 @@ def plot_posterior_zoom(mcmc_res, sites, burn_in=0.2, x_extend=None, size=25, si
             plt.close(fig)
 
 
-def plot_posterior_map(mcmc_res, sites, post_freq_lines, burn_in=0.2, x_extend=None, simulated_data=False,
-                       experiment=None, y_extend=None, lh=None, frame_offset=None, lh_single_zones=False, flamingo=False,
-                       show_axes=True, size=25, size_line=3, labels=False, families=None, family_names=None,
-                       bg_map=False, proj4=None, geojson_map=None, family_alpha_shape=None,
-                       subset=False, return_correspondence=False,
-                       geo_json_river=None, label_languages=False, add_overview=False, simulated_family=False,
-                       x_extend_overview=None, y_extend_overview=None, fname='mst_posterior'):
+def plot_posterior_map(mcmc_res, sites, post_freq_lines, burn_in=0.2, x_extend=None, y_extend=None, simulated_data=False,
+                       experiment=None,  bg_map=False, proj4=None, geojson_map=None, geo_json_river=None, subset=False,
+                       lh_single_zones=False, flamingo=False, simulated_family=False, size=25, size_line=3,
+                       label_languages=False, add_overview=False, x_extend_overview=None, y_extend_overview=None,
+                       frame_offset=None, show_axes=True,
+                       families=None, family_names=None,
+                       family_alpha_shape=None, return_correspondence=False,
+                       fname='mst_posterior'):
     """ This function creates a scatter plot of all sites in the posterior distribution. The color of a site reflects
     its frequency in the posterior
 
     Args:
-        mcmc_res (dict): the output from the MCMC neatly collected in a dict
-        net (dict): The full network containing all sites.
-        nz (int): For multiple zones: which zone should be plotted? If -1, plot all.
-        burn_in (float): Percentage of first samples which is discarded as burn-in
-        label_languages(int): Show a label for the languages?
-        show_zone_bbox (boolean): Adds box(es) with annotation to zone(s)
-        flamingo(boolean): Is there a flamingo?
-        post_freq_lines (list): How often does a line have to be in the posterior to appear in the plot?
-        size (int): size of points
-        cmap (matplotlib.cm): colormap for posterior frequency of points
-        fname (str): a path followed by a the name of the file
+        mcmc_res (dict): the MCMC samples neatly collected in a dict
+        sites (dict): a dictionary containing the location tuples (x,y) and the id of each site
+        post_freq_lines (list): threshold values for lines
+                                e.g. [0.7, 0.5, 0.3] will display three different line categories:
+                                - a thick line for edges which are in more than 70% of the posterior
+                                - a medium-thick line for edges between 50% and 70% in the posterior
+                                - and a thin line for edges between 30% and 50% in the posterior
+        burn_in (float): Fraction of samples, which are discarded as burn-in
+        x_extend (tuple): (min, max)-extend of the map in x-direction (longitude) --> Olga: move to config
+        y_extend (tuple): (min, max)-extend of the map in y-direction (latitude) --> and move to config
+        simulated_data(bool): are the plots for real-world or simulated data?
+        experiment(str): either "sa" or "balkan", will load different plotting parameters. Olga: Should go to plotting
+                         config file instead.
+        bg_map (bool: Plot a background map? --> Olga: to config
+        geojson_map(str): File path to geoJSON background map --> Olga: to config
+        proj4(str): Coordinate reference system of the language data. --> Olga: Should go to config. or could be passed as meta data to the sites.
+        geo_json_river(str): File path to river data. --> Olga: should go to config
+        subset(boolean): Is there a subset in the data, which should be displayed differently?
+                         Only relevant for one experiment. --> Olga Should go to config
+        lh_single_zones(bool): Add box containing information about the likelihood of single areas to the plot?
+        flamingo(bool): Sort of a joke. Does one area have the shape of a flamingo. If yes use flamingo colors for plotting.
+        simulated_family(bool): Only for simulated data. Are families also simulated?
+        size(float): Size of the dots (languages) in the plot --> Olga: move to config.
+        size_line(float): Line thickness. Gives in combination with post_freq_lines the line thickness of the edges in an area
+                          Olga -> should go to config.
+        label_languages(bool): Label the languages in areas?
+        add_overview(bool): Add an overview map?
+        x_extend_overview(tuple): min, max)-extend of the overview map in x-direction (longitude) --> Olga: config
+        y_extend_overview(tuple): min, max)-extend of the overview map in y-direction (latitude) --> Olga: config
+        families(np.array): a boolean assignment of sites to families
+            shape(n_families, n_sites)
+        family_names(dict): a dict comprising both the external (Arawak, Chinese, French, ...) and internal (0,1,2...)
+                            family names
+        family_alpha_shape(float): controls how far languages of the same family have to be apart to be grouped
+                                   into a single alpha shape (for display only)  --> Olga: config
+        fname (str): a path of the output file.
+        return_correspondence(bool): return the labels of all languages which are shown in the map
+                                    --> Olga: I think this can be solved differently, with a seprate function.
+        show_axes(bool): show x- and y- axis? --> I think we can hardcode this to false.
+        frame_offset(float): offset of x and y- axis --> If show_axes is False this is not needed anymore
+
     """
 
-    # general plotting parameters
+    # Is the function used for simulated data or real-world data? Both require different plotting parameters.
+    # for Olga: should go to config file
     if simulated_data:
         pp = get_plotting_params(plot_type="plot_posterior_map_simulated")
 
+    # if for real world-data: South America or Balkans?
+    # for Olga: plotting parameters in pp should be defined in the config file. Can go.
     else:
         if experiment == "sa":
             pp = get_plotting_params(plot_type="plot_posterior_map_sa")
         if experiment == "balkan":
             pp = get_plotting_params(plot_type="plot_posterior_map_balkan")
 
+    # Initialize the plot
+    # Needed in every plot
     plt.rcParams["axes.linewidth"] = pp['frame_width']
     fig, ax = plt.subplots(figsize=(pp['fig_width'], pp['fig_height']), constrained_layout=True)
 
+    # Does the plot have a background map?
+    # Could go to extra function (add_background_map), which is only called if relevant
     if bg_map:
+
+        # If yes, the user needs to define a valid spatial coordinate reference system(proj4)
+        # and provide background map data
         if proj4 is None and geojson_map is None:
             raise Exception('If you want to use a map provide a geojson and a crs')
 
+        # Adds the geojson map provided by user as background map
         world = gpd.read_file(geojson_map)
         world = world.to_crs(proj4)
         world.plot(ax=ax, color='w', edgecolor='black', zorder=-100000)
 
+        # The user can also provide river data. Looks good on a map :)
         if geo_json_river is not None:
 
             rivers = gpd.read_file(geo_json_river)
             rivers = rivers.to_crs(proj4)
             rivers.plot(ax=ax, color=None, edgecolor="skyblue", zorder=-10000)
 
-    # getting zones data from mcmc results
+    # Get the areas from the samples
+    # Needed in every plot
     zones = mcmc_res['zones']
 
+    # This is only valid for one single experiment
+    # where we perform the analysis on a biased subset.
+    # The following lines of code selects only those sites which are in the subset
+    # Low priority: could go to a separate function
     if subset:
-        # subsetting the sites
+
+        # Get sites in subset
         is_in_subset = [x == 1 for x in sites['subset']]
         sites_all = deepcopy(sites)
 
+        # Get the relevant information for all sites in the subset (ids, names, ..)
         for key in sites.keys():
 
             if type(sites[key]) == list:
@@ -1170,20 +1222,26 @@ def plot_posterior_map(mcmc_res, sites, post_freq_lines, burn_in=0.2, x_extend=N
             else:
                 sites[key] = sites[key][is_in_subset, :]
 
+    # This computes the Delaunay triangulation of the sites
+    # Needed in every plot
     net = compute_network(sites)
     locations, dist_mat = net['locations'], net['dist_mat']
 
-    # plotting all points
+    # Plots all languages on the map
+    # Needed in every plot
+    # Could go together with all the other stuff that's always done to a separate function
     cmap, _ = get_cmap(0.5, name='YlOrRd', lower_ts=1.2)
     ax.scatter(*locations.T, s=size, c=[cmap(0)], alpha=1, linewidth=0)
 
+    # Again only for this one experiment with a subset
+    # could go to subset function. Low priority.
     if subset:
-        # plot all points not in the subset
+        # plot all points not in the subset in light grey
         not_in_subset = np.logical_not(is_in_subset)
         other_locations = sites_all['locations'][not_in_subset]
         ax.scatter(*other_locations.T, s=size, c=[cmap(0)], alpha=1, linewidth=0)
 
-        # add boundary of subset to plot
+        # Add a visual bounding box to the map to show the location of the subset on the map
         x_coords, y_coords = locations.T
         offset = 100
         x_min, x_max = min(x_coords) - offset, max(x_coords) + offset
@@ -1193,61 +1251,85 @@ def plot_posterior_map(mcmc_res, sites, post_freq_lines, burn_in=0.2, x_extend=N
         bbox = mpl.patches.Rectangle((x_min, y_min), bbox_width, bbox_height, ec='grey', fill=False,
                                      lw=1.5, linestyle='-.')
         ax.add_patch(bbox)
+        # Adds a small label that reads "Subset"
         ax.text(x_max, y_max+200, 'Subset', fontsize=18, color='#000000')
 
-    # plotting minimum spanningtree for each zone
     leg_zones = []
 
+    # Adds an info box showing the likelihood of each area
+    # Could go to a separate function
     if lh_single_zones:
         extra = patches.Rectangle((0, 0), 1, 1, fc="w", fill=False, edgecolor='none', linewidth=0)
         leg_zones.append(extra)
 
+    # This iterates over all areas in the posterior and plots each with a different color (minimum spanning tree)
     all_labels = []
     for i, zone in enumerate(zones):
-
+        # The colors for each area could go to the config file
         zone_colors = ['#1b9e77', '#d95f02', '#7570b3', '#e7298a', '#66a61e', '#e6ab02', '#a6761d', '#666666']
+        # This is actually sort of a joke: if one area has the shape of a flamingo, use a flamingo colour for it
+        #  in the map. Anyway, colors should go to the config. If can be removed.
         if flamingo:
             flamingo_color = '#F48AA7'
             c = flamingo_color if len(zones) == 1 else zone_colors[i]
         else:
             c = zone_colors[i]
-
+        # Same here: when simulating families, one has the shape of a banana. If so, use banana color.
+        # Should go to the config. If can be removed.
         if simulated_family:
             banana_color = '#f49f1c'
             c = banana_color if len(zones) == 1 else zone_colors[i]
 
+        # This function visualizes each area (edges of the minimum spanning tree that appear
+        # in the posterior according to thresholds set in post_freq_lines
+        # I think it makes sense to redo this function. I'll do the same annotating before.
         is_in_zone = add_minimum_spanning_tree_new(ax, zone, locations, dist_mat, burn_in, post_freq_lines,
                                                    size=size, size_line=size_line, color=c)
+        # This adds small lines to the legend (one legend entry per area)
         line = Line2D([0], [0], color=c, lw=6, linestyle='-')
         leg_zones.append(line)
 
+        # Again, this is only relevant for simulated data and should go into a separate function
         if simulated_data:
             try:
+                # Adds a bounding box for the ground truth areas showing if the algorithm has correctly identified them
+
                 add_zone_boundary(ax, locations, net, mcmc_res['true_zones'][i], alpha=0.001, color='#000000')
             except:
                 continue
 
-        # annotating languages
+        # Labels the languages in the areas
+        # Should go into a separate function
         if label_languages:
+            # Find all languages in areas
             loc_in_zone = locations[is_in_zone, :]
             labels_in_zone = list(compress(sites['id'], is_in_zone))
             all_labels.append(labels_in_zone)
 
             for l in range(len(loc_in_zone)):
-
+                # add a label at a spatial offset of 20000 and 10000. Rather than hard-coding it,
+                # this might go into the config.
                 x, y = loc_in_zone[l]
                 x += 20000
                 y += 10000
+                # Same with the font size for annotations. Should probably go to the config.
                 anno_opts = dict(xy=(x, y), fontsize=14, color=c)
                 ax.annotate(labels_in_zone[l]+1, **anno_opts)
 
+    # This is actually the beginning of a series of functions that add a small legend
+    # displaying what the line thickness corresponds to.
+    # Could go to a separate function
     leg_line_width = []
     line_width_label = []
     post_freq_lines.sort(reverse=True)
 
+    # Iterates over all threshold values in post_freq_lines and for each adds one
+    # legend entry in a neutral color (black)
     for k in range(len(post_freq_lines)):
         line = Line2D([0], [0], color="black", lw=size_line * post_freq_lines[k], linestyle='-')
         leg_line_width.append(line)
+
+        # Adds legend text.
         prop_l = int(post_freq_lines[k] * 100)
 
         if k == 0:
@@ -1257,31 +1339,41 @@ def plot_posterior_map(mcmc_res, sites, post_freq_lines, burn_in=0.2, x_extend=N
             prop_s = int(post_freq_lines[k-1] * 100)
             line_width_label.append(f'$\geq${prop_l}% and $<${prop_s}%')
 
+    # This adds an overview map to the main map
+    # Could go into a separate function
     if add_overview:
-
+        # All hard-coded parameters (width, height, lower_left, ... could go to the config file.
         axins = inset_axes(ax, width=3.8, height=4, bbox_to_anchor=pp['overview_position'],
                            loc='lower left', bbox_transform=ax.transAxes)
         axins.tick_params(labelleft=False, labelbottom=False, length=0)
 
+        # Map extend of the overview map
+        # x_extend_overview and y_extend_overview --> to config
         axins.set_xlim(x_extend_overview)
         axins.set_ylim(y_extend_overview)
 
+        # Again, this function needs map data to display in the overview map.
         if proj4 is not None and geojson_map is not None:
 
             world = gpd.read_file(geojson_map)
             world = world.to_crs(proj4)
             world.plot(ax=axins, color='w', edgecolor='black', zorder=-100000)
 
+        # add overview to the map
         axins.scatter(*locations.T, s=size/2, c=[cmap(0)], alpha=1, linewidth=0)
-        #add_posterior_frequency_points(axins, zones, locations, ts_low_frequency, cmap, norm, nz=nz, burn_in=burn_in, size=size/2)
 
-
-        # add bounding box of plot
+        # adds a bounding box around the overview map
         bbox_width = x_extend[1] - x_extend[0]
         bbox_height = y_extend[1] - y_extend[0]
         bbox = mpl.patches.Rectangle((x_extend[0], y_extend[0]), bbox_width, bbox_height, ec='k', fill=False, linestyle='-')
         axins.add_patch(bbox)
 
+    # Depending on the background (sa, balkan, simulated), we want to place additional legend entries
+    # at different positions in the map in order not to block map content and best use the available space.
+    # This should rather go to the config file.
+    # Unfortunately, positions have to be provided in map units, which makes things a bit opaque.
+    # Once in the config, the functions below can go.
+    # for Sa map
     if experiment =="sa":
         x_unit = (x_extend[1] - x_extend[0]) / 100
         y_unit = (y_extend[1] - y_extend[0]) / 100
@@ -1293,7 +1385,7 @@ def plot_posterior_map(mcmc_res, sites, post_freq_lines, burn_in=0.2, x_extend=N
                 x_unit * 25, y_unit * 100,
                 color="white"
             ))
-
+    # for Balkan map
     if experiment == "balkan":
         x_unit = (x_extend[1] - x_extend[0]) / 100
         y_unit = (y_extend[1] - y_extend[0]) / 100
@@ -1307,6 +1399,7 @@ def plot_posterior_map(mcmc_res, sites, post_freq_lines, burn_in=0.2, x_extend=N
         ax.axhline(y_extend[0] + y_unit * 56, 0.02, 0.20, lw=1.5, color="black")
         ax.axhline(y_extend[0] + y_unit * 72, 0.02, 0.20, lw=1.5, color="black")
 
+    # for simulated data
     if simulated_data:
         x_unit = (x_extend[1] - x_extend[0])/100
         y_unit = (y_extend[1] - y_extend[0])/100
@@ -1317,47 +1410,54 @@ def plot_posterior_map(mcmc_res, sites, post_freq_lines, burn_in=0.2, x_extend=N
                 y_unit*30,
                 color="white"
             ))
-
+        # The legend looks a bit different, as it has to show both the inferred areas and the ground truth
         ax.annotate("INFERRED", (x_extend[0] + x_unit*3, y_extend[0] + y_unit*23), fontsize=20)
         ax.annotate("GROUND TRUTH", (x_extend[0] + x_unit*38.5, y_extend[0] + y_unit*23), fontsize=20)
         ax.axvline(x_extend[0] + x_unit*37, 0.05, 0.18, lw=2, color="black")
 
+    # If families and family names are provided, this adds an overlay color for all language families in the map
+    # including a legend entry.
+    # Should go to a separate function
+
     if families is not None and family_names is not None:
-        print("howdi")
+        # Family colors, should probably go to config
         #family_colors = ['#377eb8', '#4daf4a', '#984ea3', '#a65628', '#f781bf', '#999999', '#ffff33', '#e41a1c', '#ff7f00']
         family_colors = ['#b3e2cd', '#f1e2cc', '#cbd5e8', '#f4cae4', '#e6f5c9', '#d3d3d3']
-        family_leg = []
 
-        # handles for legend
+        # Initialize empty legend handle
         handles = []
+
+        # Iterate over all family names
         for i, family in enumerate(family_names['external']):
             # print(i, family)
 
-            # plot points belonging to family
+            # Find all languages belonging to a family
             is_in_family = families[i] == 1
             family_locations = locations[is_in_family,:]
             family_color = family_colors[i]
 
-            # debugging stuff
-            # print(f'Number of points in family {family_locations.shape}')
+            # Adds a color overlay for each language in a family
             ax.scatter(*family_locations.T, s=size*15, c=family_color, alpha=1, linewidth=0, zorder=-i, label=family)
 
             family_fill, family_border = family_color, family_color
 
-            # language family has to have at least 3 members
+            # For languages with more than three members: instead of one dot per language,
+            # combine several languages in an alpha shape (a polygon)
             if family_alpha_shape is not None and np.count_nonzero(is_in_family) > 3:
                 alpha_shape = compute_alpha_shapes([is_in_family], net, family_alpha_shape)
 
-                # making sure that the polygon is not empty
+                # making sure that the alpha shape is not empty
                 if not alpha_shape.is_empty:
                     smooth_shape = alpha_shape.buffer(40000, resolution=16, cap_style=1, join_style=1, mitre_limit=5.0)
                     patch = PolygonPatch(smooth_shape, fc=family_fill, ec=family_border, lw=1, ls='-', alpha=1, fill=True, zorder=-i)
                     leg_family = ax.add_patch(patch)
 
-            # Add the legend handle
+            # Add legend handle
             handle = Patch(facecolor=family_color, edgecolor=family_color, label=family)
             handles.append(handle)
 
+            # (Hard-coded) parameters should probably go to config
+            # Defines the legend for families
             legend_families = ax.legend(
                 handles=handles,
                 title='Language family',
@@ -1373,6 +1473,11 @@ def plot_posterior_map(mcmc_res, sites, post_freq_lines, burn_in=0.2, x_extend=N
             )
             ax.add_artist(legend_families)
 
+    # Again this adds alpha shapes for families for simulated data.
+    # I think the reason why this was coded separately, is that many of the parameters
+    # change compared to real world-data
+    # Should probably be handled in the config file instead
+    # and should be merged with adding families as seen above
     if simulated_family:
         families = mcmc_res['true_families']
         family_colors = ['#add8e6', '#f1e2cc', '#cbd5e8', '#f4cae4', '#e6f5c9']
@@ -1398,6 +1503,7 @@ def plot_posterior_map(mcmc_res, sites, post_freq_lines, burn_in=0.2, x_extend=N
                 handle = Patch(facecolor=family_color, edgecolor=family_color, label="simulated family")
                 handles.append(handle)
 
+        # Define the legend
         legend_families = ax.legend(
                 handles=handles,
                 title_fontsize=16,
@@ -1413,15 +1519,26 @@ def plot_posterior_map(mcmc_res, sites, post_freq_lines, burn_in=0.2, x_extend=N
         )
         ax.add_artist(legend_families)
 
+    # If likelihood for single areas are displayed: add legend entries with likelihood information per area
     if lh_single_zones:
         def scientific(x):
             b = int(np.log10(x))
             a = x / 10**b
             return '%.2f \cdot 10^{%i}' % (a, b)
 
-        # Legend for zone labels
+        # Legend for area labels
         zone_labels = ["         probability of area"]
-        for i, exp in enumerate(lh):
+
+        # This assumes that the likelihoods for single areas (lh_a1, lh_a2, lh_a3, ...)
+        # have been collected in mcmc_res under the key shown below
+        post_per_area = np.asarray(mcmc_res['sample_posterior_single_areas'])
+        to_rank = np.mean(post_per_area, axis=0)
+
+        # probability per area in log-space
+        p_total = logsumexp(to_rank)
+        p = to_rank[np.argsort(-to_rank)] - p_total
+
+        for i, exp in enumerate(p):
             lh_value = np.exp(exp)
             # print(lh_value)
             lh_value = scientific(lh_value)
@@ -1432,7 +1549,7 @@ def plot_posterior_map(mcmc_res, sites, post_freq_lines, burn_in=0.2, x_extend=N
         for i,_ in enumerate(zones):
             zone_labels.append(f'$Z_{i + 1}$')
 
-
+    # Define legend
     legend_zones = ax.legend(
         leg_zones,
         zone_labels,
@@ -1450,6 +1567,7 @@ def plot_posterior_map(mcmc_res, sites, post_freq_lines, burn_in=0.2, x_extend=N
     legend_zones._legend_box.align = "left"
     ax.add_artist(legend_zones)
 
+    # Defines the legend entry for Line width
     legend_line_width = ax.legend(
         leg_line_width,
         line_width_label,
@@ -1468,6 +1586,7 @@ def plot_posterior_map(mcmc_res, sites, post_freq_lines, burn_in=0.2, x_extend=N
     legend_line_width._legend_box.align = "left"
     ax.add_artist(legend_line_width)
 
+    # for simulated data: add a legend entry in the shape of a little polygon for ground truth
     if simulated_data:
         class TrueZone(object):
             pass
@@ -1486,9 +1605,11 @@ def plot_posterior_map(mcmc_res, sites, post_freq_lines, burn_in=0.2, x_extend=N
                 handlebox.add_artist(patch)
                 return patch
 
+        # if families are simulated too add a little colored polygon for ground truth families
         if simulated_family:
             pp['poly_legend_position'] = (pp['poly_legend_position'][0], pp['poly_legend_position'][1] + 0.05)
 
+        # define legend
         legend_true_zones = ax.legend([TrueZone()], ['simulated area\n(bounding polygon)'],
                                       handler_map={TrueZone: TrueZoneHandler()},
                                       bbox_to_anchor=pp['poly_legend_position'],
@@ -1503,12 +1624,16 @@ def plot_posterior_map(mcmc_res, sites, post_freq_lines, burn_in=0.2, x_extend=N
 
         ax.add_artist(legend_true_zones)
 
-    # styling the axes
+    # styling the axes, might be hardcoded
+
     style_axes(ax, locations, show=show_axes, offset=frame_offset, x_extend=x_extend, y_extend=y_extend)
 
+    # Save the plot
     fig.savefig(f"{fname}.{pp['save_format']}", bbox_inches='tight', dpi=400, format=pp['save_format'])
     plt.close(fig)
 
+    # Should the labels displayed in the map be returned? These are later added as a separate legend (
+    # outside this hell of a function)
     if return_correspondence and label_languages:
         return all_labels
 
@@ -2532,3 +2657,100 @@ def plot_correspondence_table(sites, fname, sites_in_zone=None, ncol=3):
 
     else:
         fig.savefig(f"{fname}.{pp['save_format']}", bbox_inches='tight', dpi=400, format=pp['save_format'])
+
+
+def get_corner_points(n, offset=0.5 * np.pi):
+    """Generate corner points of a equal sided ´n-eck´."""
+    angles = np.linspace(0, 2*np.pi, n, endpoint=False) + offset
+    return np.array([np.cos(angles), np.sin(angles)]).T
+
+
+def fill_outside(polygon, color, ax=None):
+    """Fill the area outside the given polygon with ´color´.
+
+    Args:
+        polygon (np.array): The polygon corners in a numpy array.
+            shape: (n_corners, 2)
+        color (str or tuple): The fill color.
+    """
+    if ax is None:
+        ax = plt.gca()
+
+    n_corners = polygon.shape[0]
+    i_left = np.argmin(polygon[:, 0])
+    i_right = np.argmax(polygon[:, 0])
+
+    # Find corners of bottom face
+    i = i_left
+    bot_x = [polygon[i, 0]]
+    bot_y = [polygon[i, 1]]
+    while i % n_corners != i_right:
+        i += 1
+        bot_x.append(polygon[i, 0])
+        bot_y.append(polygon[i, 1])
+
+    # Find corners of top face
+    i = i_left
+    top_x = [polygon[i, 0]]
+    top_y = [polygon[i, 1]]
+    while i % n_corners != i_right:
+        i -= 1
+        top_x.append(polygon[i, 0])
+        top_y.append(polygon[i, 1])
+
+    ymin, ymax = ax.get_ylim()
+    plt.fill_between(bot_x, ymin, bot_y, color=color)
+    plt.fill_between(top_x, ymax, top_y, color=color)
+
+
+def plot_weights(samples, labels=None, ax=None):
+    """Plot a set of weight vectors in a 2D representation of the probability simplex.
+
+    Args:
+        samples (np.array): Sampled weight vectors to plot.
+        labels (list[str]): Labels for each weight dimension.
+        ax (plt.Axis): The pyplot axis.
+    """
+    if ax is None:
+        ax = plt.gca()
+    n_samples, n_weights = samples.shape
+
+    # Compute corners
+    corners = get_corner_points(n_weights)
+
+    # Project and plot the data
+    samples_projected = samples.dot(corners)
+    sns.kdeplot(*samples_projected.T, shade=True, shade_lowest=False)
+    plt.scatter(*samples_projected.T, color='k', lw=0)
+
+    # Draw simplex and crop outside
+    plt.fill(*corners.T, edgecolor='k', fill=False)
+    fill_outside(corners, color='w', ax=ax)
+
+    if labels is not None:
+        for xy, label in zip(corners, labels):
+            plt.annotate(label, xy)
+
+    plt.axis('equal')
+    plt.axis('off')
+    plt.tight_layout(0)
+    plt.show()
+
+
+def plot_parameters_ridge(samples):
+    """Creates a ridge plot for parameters with two states
+
+   Args:
+       samples (np.array): Sampled parameters
+            shape(n_samples, 2)
+   """
+
+    n_samples, n_states = samples.shape
+
+    if n_states != 2:
+        raise ValueError("Only applicable for parameters with two states")
+
+    ridge_plt = sns.kdeplot(samples.T[0], shade=True, clip=(0.0, 1.0),
+                            alpha=0.2, lw=.5, bw='scott')
+    ridge_plt.set(xlim=(0, 1))
+    plt.show()

@@ -11,13 +11,13 @@ import logging
 import numpy as np
 
 from sbayes.preprocessing import (compute_network, read_sites,
-                               simulate_assignment_probabilities,
-                               simulate_families,
-                               simulate_features,
-                               simulate_weights,
-                               simulate_areas,
-                               subset_features,
-                               counts_from_complement)
+                                  simulate_assignment_probabilities,
+                                  simulate_families,
+                                  simulate_features,
+                                  simulate_weights,
+                                  simulate_areas,
+                                  subset_features,
+                                  counts_from_complement)
 
 
 class Simulation:
@@ -31,7 +31,6 @@ class Simulation:
 
         # Simulated parameters
         self.sites = None
-        self.site_names = None
         self.network = None
         self.areas = None
         self.features = None
@@ -44,6 +43,14 @@ class Simulation:
         self.inheritance = None
         self.subset = None
         self.prior_universal = None
+
+        self.feature_names = None
+        self.state_names = None
+        self.family_names = None
+        self.site_names = None
+
+        # Is a simulation
+        self.is_simulated = True
 
     def log_simulation(self):
         logging.basicConfig(format='%(message)s', filename=self.path_log, level=logging.DEBUG)
@@ -70,6 +77,7 @@ class Simulation:
         self.sites, self.site_names, self.log_read_sites = read_sites(file=self.sites_file,
                                                                       retrieve_family=self.inheritance,
                                                                       retrieve_subset=self.subset)
+
         self.network = compute_network(self.sites)
 
         # Simulate areas
@@ -77,7 +85,7 @@ class Simulation:
 
         # Simulate families
         if self.inheritance:
-            self.families = simulate_families(fam_id=1, sites_sim=self.sites)
+            self.families, self.family_names = simulate_families(fam_id=1, sites_sim=self.sites)
         else:
             self.families = None
 
@@ -91,16 +99,16 @@ class Simulation:
         # Simulate probabilities for features to be universally preferred,
         # passed through contact (and inherited if available)
         self.p_universal, self.p_contact, self.p_inheritance \
-            = simulate_assignment_probabilities(n_features=self.config['N_FEATURES'],
-                                                p_number_categories=self.config['P_N_CATEGORIES'],
-                                                areas=self.areas, families=self.families,
-                                                e_universal=self.config['E_UNIVERSAL'],
+            = simulate_assignment_probabilities(e_universal=self.config['E_UNIVERSAL'],
                                                 e_contact=self.config['E_CONTACT'],
                                                 e_inheritance=self.config['E_INHERITANCE'],
-                                                inheritance=self.inheritance)
+                                                inheritance=self.inheritance,
+                                                n_features=self.config['N_FEATURES'],
+                                                p_number_categories=self.config['P_N_CATEGORIES'],
+                                                areas=self.areas, families=self.families,)
 
         # Simulate features
-        self.features, self.states = \
+        self.features, self.states, self.feature_names, self.state_names = \
             simulate_features(areas=self.areas,
                               families=self.families,
                               p_universal=self.p_universal,
