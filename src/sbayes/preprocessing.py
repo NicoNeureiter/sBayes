@@ -4,7 +4,6 @@ from __future__ import absolute_import, division, print_function, \
     unicode_literals
 import csv
 import numpy as np
-import igraph
 
 from sbayes.model import normalize_weights
 from sbayes.util import (compute_distance, compute_delaunay,
@@ -117,14 +116,6 @@ def compute_network(sites, subset=None):
         # Adjacency Matrix
         adj_mat = delaunay.tocsr()
 
-        # Graph
-        g = igraph.Graph()
-        g.add_vertices(vertices)
-
-        for e in edges:
-            dist = compute_distance(edges[e[0]], edges[e[1]])
-            g.add_edge(e[0], e[1], weight=dist)
-
         # Distance matrix
         diff = sites['locations'][:, None] - sites['locations']
         dist_mat = np.linalg.norm(diff, axis=-1)
@@ -136,7 +127,6 @@ def compute_network(sites, subset=None):
                'adj_mat': adj_mat,
                'n': len(vertices),
                'm': edges.shape[0],
-               'graph': g,
                'dist_mat': dist_mat,
                }
 
@@ -153,14 +143,6 @@ def compute_network(sites, subset=None):
         # Adjacency Matrix
         adj_mat = delaunay.tocsr()
 
-        # Graph
-        g = igraph.Graph()
-        g.add_vertices(vertices)
-
-        for e in edges:
-            dist = compute_distance(edges[e[0]], edges[e[1]])
-            g.add_edge(e[0], e[1], weight=dist)
-
         # Distance matrix
         diff = locations[:, None] - locations
         dist_mat = np.linalg.norm(diff, axis=-1)
@@ -174,7 +156,6 @@ def compute_network(sites, subset=None):
                'adj_mat': adj_mat,
                'n': len(vertices),
                'm': edges.shape[0],
-               'graph': g,
                'dist_mat': dist_mat,
                }
     return net
@@ -191,8 +172,8 @@ def subset_features(features, subset):
             np.array: The feature subset
                 shape(n_sub_sites, n_features, n_categories)
     """
-    sub_idx = np.nonzero(subset)[0]
-    return features[sub_idx, :, :]
+    # sub_idx = np.nonzero(subset)[0]
+    return features[subset, :, :]
 
 
 def simulate_features(areas,  p_universal, p_contact, weights, inheritance, p_inheritance=None, families=None):
@@ -436,13 +417,12 @@ def simulate_assignment_probabilities(n_features, p_number_categories, inheritan
         cat_f = n_categories[f]
 
         # Universal assignment
-        alpha_p_universal = [e_universal] * cat_f
+        alpha_p_universal = np.full(shape=cat_f, fill_value=e_universal)
         p_universal[f, range(cat_f)] = np.random.dirichlet(alpha_p_universal, size=1)
 
         # Assignment in areas
-        alpha_p_contact = [e_contact] * cat_f
+        alpha_p_contact = np.full(shape=cat_f, fill_value=e_contact)
         for z in range(n_areas):
-
             p_contact[z, f, range(cat_f)] = np.random.dirichlet(alpha_p_contact, size=1)
 
     # Simulate Inheritance?

@@ -72,7 +72,7 @@ class Sample(object):
 class ZoneMCMC_generative(MCMC_generative):
 
     def __init__(self, network, features, min_size, max_size, var_proposal,
-                 initial_sample, connected_only=False, initial_size=5, **kwargs):
+                 initial_sample, initial_size=5, **kwargs):
 
         super(ZoneMCMC_generative, self).__init__(**kwargs)
 
@@ -85,16 +85,14 @@ class ZoneMCMC_generative(MCMC_generative):
         self.network = network
         self.adj_mat = network['adj_mat']
         self.locations = network['locations']
-        self.graph = network['graph']
 
         # Sampling
         self.n = self.adj_mat.shape[0]
 
-        # Zone size / connectedness /initial sample
+        # Zone size /initial sample
         self.min_size = min_size
         self.max_size = max_size
         self.initial_size = initial_size
-        self.connected_only = connected_only
         self.initial_sample = initial_sample
 
         # Families
@@ -800,8 +798,7 @@ class ZoneMCMC_generative(MCMC_generative):
         return sample
 
     def get_removal_candidates(self, zone):
-        """Finds sites which can be removed from the given zone. If connectedness is
-        required (connected_only = True), only non-cut vertices are returned.
+        """Finds sites which can be removed from the given zone.
 
         Args:
             zone (np.array): The zone for which removal candidates are found.
@@ -809,25 +806,7 @@ class ZoneMCMC_generative(MCMC_generative):
         Returns:
             (list): Index-list of removal candidates.
         """
-        zone_idx = zone.nonzero()[0]
-        size = len(zone_idx)
-
-        if not self.connected_only:
-            # If connectedness is not required, all nodes are candidates.
-            return zone_idx
-
-        else:
-            # Compute non cut-vertices (can be removed while keeping zone connected).
-            g_zone = self.graph.induced_subgraph(zone_idx)
-            # assert g_zone.is_connected()
-
-            cut_vs_idx = g_zone.cut_vertices()
-            if len(cut_vs_idx) == size:
-                return []
-
-            cut_vertices = g_zone.vs[cut_vs_idx]['name']
-
-            return [v for v in zone_idx if v not in cut_vertices]
+        return zone.nonzero()[0]
 
     class ZoneError(Exception):
         pass
