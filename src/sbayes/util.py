@@ -3,19 +3,21 @@
 from __future__ import absolute_import, division, print_function, \
     unicode_literals
 import pickle
-import numpy as np
-import scipy.spatial as spatial
-import scipy.stats as stats
-from scipy.sparse import csr_matrix
-from math import sqrt, floor, ceil
 import datetime
 import csv
 import os
 import random
-from scipy.special import logsumexp
+from math import sqrt, floor, ceil
+import doctest
+import logging
+
+import numpy as np
+import scipy.spatial as spatial
+from scipy.special import betaln
+import scipy.stats as stats
+from scipy.sparse import csr_matrix
 import matplotlib.pyplot as plt
 from matplotlib.collections import LineCollection
-import logging
 
 EPS = np.finfo(float).eps
 
@@ -991,3 +993,26 @@ def assign_na(features, n_na):
         features[na_site, na_feature, :] = 0
 
     return features
+
+
+def log_binom(n, k):
+    """Compute the logarithm of (n choos k), i.e. the binomial coefficient of n and k.
+
+    Args:
+        n (int or np.array): Populations size..
+        k (int or np.array): Sample size.
+    Returns:
+        double: log(n choose k)
+
+    == Usage ===
+    >>> log_binom(10, np.arange(3))
+    array([0.        , 2.30258509, 3.80666249])
+    >>> log_binom(np.arange(1, 4), 1)
+    array([0.        , 0.69314718, 1.09861229])
+    """
+    return -betaln(1 + n - k, 1 + k) - np.log(n + 1)
+
+
+if __name__ == "__main__":
+    import doctest
+    doctest.testmod()

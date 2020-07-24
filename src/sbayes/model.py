@@ -8,7 +8,7 @@ import numpy as np
 import scipy.stats as spstats
 from scipy.sparse.csgraph import minimum_spanning_tree
 
-from sbayes.util import compute_delaunay, n_smallest_distances
+from sbayes.util import compute_delaunay, n_smallest_distances, log_binom
 
 EPS = np.finfo(float).eps
 
@@ -162,7 +162,6 @@ def normalize_weights(weights, assignment):
             np.array: the weight_per site
                 shape(n_sites, n_features, 3)
     """
-
     weights_per_site = weights * assignment[:, np.newaxis, :]
     return weights_per_site / weights_per_site.sum(axis=2, keepdims=True)
 
@@ -407,6 +406,7 @@ class GenerativeLikelihood(object):
 class GenerativePrior(object):
 
     def __init__(self):
+        self.size_prior = None
         self.geo_prior = None
         self.prior_weights = None
         self.prior_p_global = None
@@ -435,6 +435,14 @@ class GenerativePrior(object):
 
             # Weights must sum to one
             # assert np.allclose(a=np.sum(weights, axis=-1), b=1., rtol=EPS)
+
+            # Zone-size prior
+            if self.size_prior is None or sample.what_changed['prior']['zones']:
+                # size_prior = evaluate_size_prior(sample.zones)
+                size_prior = 0.
+                self.size_prior = size_prior
+            else:
+                size_prior = self.size_prior
 
             # Geo Prior
             if self.geo_prior is None or sample.what_changed['prior']['zones']:
@@ -522,10 +530,9 @@ class GenerativePrior(object):
             else:
                 prior_p_families = None
 
+            log_prior = size_prior + geo_prior + prior_weights + prior_p_global + prior_p_zones
             if inheritance:
-                log_prior = geo_prior + prior_weights + prior_p_global + prior_p_zones + prior_p_families
-            else:
-                log_prior = geo_prior + prior_weights + prior_p_global + prior_p_zones
+                log_prior += prior_p_families
 
             # The step is completed. Everything is up-to-date.
             sample.what_changed['prior']['zones'] = False
@@ -539,6 +546,29 @@ class GenerativePrior(object):
             return log_prior
 
 
+def evaluate_size_prior(zones):
+    """This function computes the prior probability of a set of zones, based on
+    the number of languages in each zone.
+
+    Args:
+        zones (np.array): boolean array representing the current zone.
+            shape: (n_zones, n_sites)
+    Returns:
+        float: log-probability of the zone sizes.
+    """
+    n_zones, n_sites = zones.shape
+    sizes = np.sum(zones, axis=-1)
+
+    # P(size)   =   uniform
+    # TODO It would be quite natural to allow informative priors here.
+    logp = 0.
+
+    # P(zone | size)   =   1 / |{zones of size k}|   =   1 / (n choose k)
+    logp += -np.sum(log_binom(n_sites, sizes))
+
+    return logp
+
+
 def geo_prior_gaussian(zones: np.array, network: dict, cov: np.array):
     """
     This function computes the two-dimensional Gaussian geo-prior for all edges in the zone
@@ -548,7 +578,7 @@ def geo_prior_gaussian(zones: np.array, network: dict, cov: np.array):
         cov (np.array): Covariance matrix of the multivariate gaussian (estimated from the data)
 
     Returns:
-        float: the geo-prior of the zones
+        float: the log geo-prior of the zones
     """
     log_prior = np.ndarray([])
     for z in zones:
