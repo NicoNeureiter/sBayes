@@ -1,12 +1,14 @@
-from src.experiment_setup import Experiment
-from src.simulation import Simulation
-from src.mcmc_setup import MCMC
+from sbayes.experiment_setup import Experiment
+from sbayes.simulation import Simulation
+from sbayes.mcmc_setup import MCMC
 
 if __name__ == '__main__':
+    import os
 
+    print(os.getcwd())
     # 1. Initialize the experiment
     exp = Experiment()
-    exp.load_config(config_file='../config/config.json')
+    exp.load_config(config_file='config/config.json')
     exp.log_experiment()
 
     # 2. Simulate contact areas

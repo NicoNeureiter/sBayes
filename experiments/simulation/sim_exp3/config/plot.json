@@ -1,12 +1,29 @@
 {
   "input": {
-    "path_results": "../results",
+    "experiment": null,
+    "proj4": null,
+    "geo_json_river": null,
+    "geojson_map": null,
+    "path_results": "../results/2020-07-02_18-43",
     "path_data": "../data",
-    "run": 0,
+    "run": 4,
     "scenarios": [1]
   },
+
   "general": {
     "post_freq_lines": [0.7, 0.5, 0.3],
-    "burn_in": 0.4
+    "burn_in": 0.4,
+    "subset": false
+  },
+
+  "graphic": {
+    "x_extend": [1750, 10360],
+    "y_extend": [400, 11950],
+    "x_extend_overview": null,
+    "y_extend_overview": null,
+    "bg_map": false,
+    "size": 25,
+    "size_line": 3,
+    "family_alpha_shape": null
   }
 }
