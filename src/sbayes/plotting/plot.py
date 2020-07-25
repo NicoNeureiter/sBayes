@@ -36,6 +36,8 @@ class Plot:
         self.sites = None
         self.site_names = None
         self.network = None
+        self.locations = None
+        self.dist_mat = None
 
         # Input ground truth areas and stats (for simulation)
         if self.is_simulation:
@@ -55,6 +57,9 @@ class Plot:
         # Read config file
         self.read_config()
 
+        # Convert lists to tuples
+        self.convert_config(self.config)
+
         # Verify config
         self.verify_config()
 
@@ -69,6 +74,15 @@ class Plot:
     def read_config(self):
         with open(self.config_file, 'r') as f:
             self.config = json.load(f)
+
+    @staticmethod
+    def convert_config(d):
+        for k, v in d.items():
+            if isinstance(v, dict):
+                Plot.convert_config(v)
+            else:
+                if k != 'scenarios' and k != 'post_freq_lines' and type(v) == list:
+                    d[k] = tuple(v)
 
     def verify_config(self):
         pass
@@ -92,6 +106,7 @@ class Plot:
     def read_data(self, data_path):
         self.sites, self.site_names, _ = read_sites(data_path)
         self.network = compute_network(self.sites)
+        self.locations, self.dist_mat = self.network['locations'], self.network['dist_mat']
 
     # Read areas
     # Read the data from the files:

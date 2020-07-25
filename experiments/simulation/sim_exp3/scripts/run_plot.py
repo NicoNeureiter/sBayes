@@ -25,10 +25,7 @@ if __name__ == '__main__':
 
         # Make a number zones plot (plot_posterior_map)
         plt.number_zones(
-            plt.results,
-            plt.sites,
-            post_freq_lines=plt.config['general']['post_freq_lines'],
-            burn_in=plt.config['general']['burn_in'],
+            post_freq_lines=[0.7, 0.5, 0.3],
+            burn_in=0.4,
             lh_single_zones=False,
-            simulated_data=True,
             fname=current_path + '/number_zones_plot')
