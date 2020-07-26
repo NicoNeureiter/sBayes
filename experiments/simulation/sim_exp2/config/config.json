@@ -19,12 +19,12 @@
   "mcmc": {
     "BURN_IN": 0,
 	"INHERITANCE": "TBD",
-    "N_STEPS": 2000,
-    "N_SAMPLES": 1000,
+    "N_STEPS": 1000000,
+    "N_SAMPLES": 10000,
     "N_RUNS": 1,
     "MIN_M": 3,
-    "MAX_M": 50,
-    "N_CHAINS": 3,
+    "MAX_M": 200,
+    "N_CHAINS": 7,
     "N_AREAS": 1,
     "PRIOR": {
       "geo":"uniform",
