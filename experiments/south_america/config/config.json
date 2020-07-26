@@ -25,9 +25,9 @@
     },
 	"STEPS": {
 	  "area": 0.05,
-      "weights": 0.5,
+      "weights": 0.45,
       "universal": 0.05,
-      "contact": 0.45,
+      "contact": 0.4,
 	  "inheritance": 0.05
     },
     "INHERITANCE": true
