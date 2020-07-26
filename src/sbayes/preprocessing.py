@@ -169,7 +169,7 @@ def subset_features(features, subset):
             subset(list): boolean assignment of sites to subset
 
         Returns:
-            np.array: The feature subset
+            np.array: The subset
                 shape(n_sub_sites, n_features, n_categories)
     """
     sub = np.array(subset, dtype=bool)
