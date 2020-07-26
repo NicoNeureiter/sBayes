@@ -173,6 +173,7 @@ def subset_features(features, subset):
                 shape(n_sub_sites, n_features, n_categories)
     """
     sub = np.array(subset, dtype=bool)
+    print(sub, "sub")
     return features[sub, :, :]
 
 
