@@ -172,8 +172,8 @@ def subset_features(features, subset):
             np.array: The feature subset
                 shape(n_sub_sites, n_features, n_categories)
     """
-    # sub_idx = np.nonzero(subset)[0]
-    return features[subset, :, :]
+    sub = np.array(subset, dtype=bool)
+    return features[sub, :, :]
 
 
 def simulate_features(areas,  p_universal, p_contact, weights, inheritance, p_inheritance=None, families=None):

@@ -129,4 +129,5 @@ class Simulation:
             self.network = compute_network(sites=self.sites, subset=self.sites['subset'])
             sub_idx = np.nonzero(self.sites['subset'])[0]
             self.areas = self.areas[np.newaxis, 0, sub_idx]
+
             self.features = subset_features(features=self.features, subset=self.sites['subset'])
