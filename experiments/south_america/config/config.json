@@ -33,15 +33,15 @@
     "INHERITANCE": true
   },
   "data":{
-    "FEATURES" : "../data/features/features.csv",
+    "FEATURES" : "data/features/features.csv",
     "PRIOR" : {
-	  "universal": "../data/prior_universal/universal_counts.csv",
+	  "universal": "data/prior_universal/universal_counts.csv",
 	  "inheritance": { 
-		  "Arawak": "../data/prior_inheritance/arawak_counts.csv",
-		  "Panoan": "../data/prior_inheritance/panoan_counts.csv",
-		  "Quechuan": "../data/prior_inheritance/quechuan_counts.csv",
-		  "Tucanoan": "../data/prior_inheritance/tucanoan_counts.csv",
-		  "Tupian": "../data/prior_inheritance/tupian_counts.csv"
+		  "Arawak": "data/prior_inheritance/arawak_counts.csv",
+		  "Panoan": "data/prior_inheritance/panoan_counts.csv",
+		  "Quechuan": "data/prior_inheritance/quechuan_counts.csv",
+		  "Tucanoan": "data/prior_inheritance/tucanoan_counts.csv",
+		  "Tupian": "data/prior_inheritance/tupian_counts.csv"
 	  } 
 	}
  }

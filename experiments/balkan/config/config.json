@@ -34,14 +34,14 @@
 	"N_AREAS": "TBD"
   },
   "data":{
-    "FEATURES" : "../data/features/features.csv",
+    "FEATURES" : "data/features/features.csv",
     "PRIOR" : {
-	  "universal": "../data/prior_universal/universal_counts.csv",
+	  "universal": "data/prior_universal/universal_counts.csv",
 	  "inheritance": { 
-		  "Greek": "../data/prior_inheritance/greek_counts.csv",
-		  "Romance": "../data/prior_inheritance/romance_counts.csv",
-		  "Slavic": "../data/prior_inheritance/slavic_counts.csv",
-		  "Turkish": "../data/prior_inheritance/turkish_counts.csv"
+		  "Greek": "data/prior_inheritance/greek_counts.csv",
+		  "Romance": "data/prior_inheritance/romance_counts.csv",
+		  "Slavic": "data/prior_inheritance/slavic_counts.csv",
+		  "Turkish": "data/prior_inheritance/turkish_counts.csv"
 	  } 
 	}
  }
