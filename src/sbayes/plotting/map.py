@@ -47,6 +47,7 @@ class Map(Plot):
         self.map_parameters = {}
         self.leg_zones = []
         self.all_labels = []
+        self.zone_labels = []
 
         self.leg_line_width = []
         self.line_width_label = []
@@ -373,7 +374,6 @@ class Map(Plot):
     ##############################################################
     # Visualization functions for plot_posterior_map
     ##############################################################
-
     def add_color(self, i, flamingo, simulated_family):
         # The colors for each area could go to the config file
         # zone_colors = ['#1b9e77', '#d95f02', '#7570b3', '#e7298a', '#66a61e', '#e6ab02', '#a6761d', '#666666']
@@ -444,9 +444,140 @@ class Map(Plot):
                 except IndexError:
                     continue
 
+    # TODO: This function should be rewritten in a nicer way; probably split into two functions,
+    #  or find a better way of dividing things into simulated and real
+    def color_families(self, family_array, colors, families=None):
+        # Initialize empty legend handle
+        handles = []
+
+        # Iterate over all family names
+        for i, family in enumerate(family_array):
+
+            family_color = colors[i]
+            family_fill, family_border = family_color, family_color
+
+            # For simulated data
+            if self.is_simulation:
+                alpha_shape = self.compute_alpha_shapes([is_in_family], self.config['graphic']['family_alpha_shape'])
+                smooth_shape = alpha_shape.buffer(60, resolution=16, cap_style=1, join_style=1, mitre_limit=5.0)
+                patch = PolygonPatch(smooth_shape, fc=family_fill, ec=family_border, lw=1, ls='-', alpha=1, fill=True,
+                                     zorder=-i)
+                self.ax.add_patch(patch)
+
+                # Add legend handle
+                handle = Patch(facecolor=family_color, edgecolor=family_color, label="simulated family")
+
+                handles.append(handle)
+
+            # For real data
+            else:
+                # Find all languages belonging to a family
+                is_in_family = families[i] == 1
+                family_locations = self.locations[is_in_family, :]
+
+                # Adds a color overlay for each language in a family
+                self.ax.scatter(*family_locations.T, s=self.config['graphic']['size'] * 15, c=family_color, alpha=1,
+                                linewidth=0, zorder=-i,
+                                label=family)
+
+                # For languages with more than three members: instead of one dot per language,
+                # combine several languages in an alpha shape (a polygon)
+                if self.config['graphic']['family_alpha_shape'] is not None and np.count_nonzero(is_in_family) > 3:
+                    alpha_shape = self.compute_alpha_shapes([is_in_family],
+                                                            self.config['graphic']['family_alpha_shape'])
+
+                    # making sure that the alpha shape is not empty
+                    if not alpha_shape.is_empty:
+                        smooth_shape = alpha_shape.buffer(40000, resolution=16, cap_style=1, join_style=1,
+                                                          mitre_limit=5.0)
+                        patch = PolygonPatch(smooth_shape, fc=family_fill, ec=family_border, lw=1, ls='-', alpha=1,
+                                             fill=True, zorder=-i)
+                        leg_family = self.ax.add_patch(patch)
+
+                # Add legend handle
+                handle = Patch(facecolor=family_color, edgecolor=family_color, label=family)
+
+                handles.append(handle)
+
+        # Olga: can we pass the parameters in a different way?
+        # title_fontsize and fontsize are reversed, is that correct?
+        if self.is_simulation:
+            # Define the legend
+            legend_families = self.ax.legend(
+                handles=handles,
+                title_fontsize=16,
+                fontsize=18,
+                frameon=True,
+                edgecolor='#ffffff',
+                framealpha=1,
+                ncol=1,
+                columnspacing=1,
+                handletextpad=2.3,
+                loc='upper left',
+                bbox_to_anchor=self.map_parameters['family_legend_position']
+            )
+            self.ax.add_artist(legend_families)
+
+        else:
+            # (Hard-coded) parameters should probably go to config
+            # Defines the legend for families
+            legend_families = self.ax.legend(
+                handles=handles,
+                title='Language family',
+                title_fontsize=18,
+                fontsize=16,
+                frameon=True,
+                edgecolor='#ffffff',
+                framealpha=1,
+                ncol=1,
+                columnspacing=1,
+                loc='upper left',
+                bbox_to_anchor=self.map_parameters['family_legend_position']
+            )
+            self.ax.add_artist(legend_families)
+
+
     ##############################################################
     # Legend functions for plot_posterior_map
     ##############################################################
+
+    def define_legend(self):
+        legend_zones = self.ax.legend(
+            self.leg_zones,
+            self.zone_labels,
+            title_fontsize=18,
+            title='Contact areas',
+            frameon=True,
+            edgecolor='#ffffff',
+            framealpha=1,
+            fontsize=16,
+            ncol=1,
+            columnspacing=1,
+            loc='upper left',
+            bbox_to_anchor=self.map_parameters['area_legend_position']
+        )
+        legend_zones._legend_box.align = "left"
+        self.ax.add_artist(legend_zones)
+
+        # Defines the legend entry for Line width
+        legend_line_width = self.ax.legend(
+            self.leg_line_width,
+            self.line_width_label,
+            title_fontsize=18,
+            title='Frequency of edge in posterior',
+            frameon=True,
+            edgecolor='#ffffff',
+            framealpha=1,
+            fontsize=16,
+            ncol=1,
+            columnspacing=1,
+            loc='upper left',
+            bbox_to_anchor=self.map_parameters['freq_legend_position']
+        )
+
+        legend_line_width._legend_box.align = "left"
+        self.ax.add_artist(legend_line_width)
+
 
     def add_main_legend(self, post_freq_lines):
         # This is actually the beginning of a series of functions that add a small legend
@@ -570,11 +701,36 @@ class Map(Plot):
                                      linestyle='-')
         axins.add_patch(bbox)
 
+    # Helper function
+    @staticmethod
+    def scientific(x):
+        b = int(np.log10(x))
+        a = x / 10 ** b
+        return '%.2f \cdot 10^{%i}' % (a, b)
+
+    def add_likelihood_legend(self):
+        # Legend for area labels
+        self.zone_labels = ["         probability of area"]
+
+        # This assumes that the likelihoods for single areas (lh_a1, lh_a2, lh_a3, ...)
+        # have been collected in mcmc_res under the key shown below
+        post_per_area = np.asarray(self.results['likelihood_single_areas'])
+        to_rank = np.mean(post_per_area, axis=0)
+
+        # probability per area in log-space
+        p_total = logsumexp(to_rank)
+        p = to_rank[np.argsort(-to_rank)] - p_total
+
+        for i, exp in enumerate(p):
+            lh_value = np.exp(exp)
+            # print(lh_value)
+            lh_value = Map.scientific(lh_value)
+            self.zone_labels.append(f'$Z_{i + 1}: \, \;\;\; {lh_value}$')
+
     ##############################################################
     # Additional things for plot_posterior_map
     # (likelihood info box, background map, subset related stuff)
     ##############################################################
-
     # Add background map
     def add_background_map(self, ax):
         # If yes, the user needs to define a valid spatial coordinate reference system(proj4)
@@ -659,7 +815,6 @@ class Map(Plot):
         if lh_single_zones:
             self.add_likelihood_info()
 
-
     ##############################################################
     # This is the plot_posterior_map function from plotting_old
     ##############################################################
@@ -695,7 +850,7 @@ class Map(Plot):
                 bg_map (bool: Plot a background map? --> Olga: to config: DONE
                 geojson_map(str): File path to geoJSON background map --> Olga: to config: DONE
                 proj4(str): Coordinate reference system of the language data. --> Olga: Should go to config: DONE
-                or could be passed as meta data to the sites: TODO
+                or could be passed as meta data to the sites
                 geo_json_river(str): File path to river data. --> Olga: should go to config: DONE
                 subset(boolean): Is there a subset in the data, which should be displayed differently?
                                  Only relevant for one experiment. --> Olga Should go to config: DONE
@@ -719,7 +874,6 @@ class Map(Plot):
                 return_correspondence(bool): return the labels of all languages which are shown in the map
                                             --> Olga: I think this can be solved differently, with a separate function: TODO
                 show_axes(bool): show x- and y- axis? --> I think we can hardcode this to false: DONE
-                TODO: change the function style_axes
                 frame_offset(float): offset of x and y- axis --> If show_axes is False this is not needed anymore: DONE
 
             """
@@ -759,16 +913,14 @@ class Map(Plot):
         self.check_additional_parameters(lh_single_zones)
 
         ##############################################################
-        # Visualization functions
+        # Visualization
         ##############################################################
-
         # This iterates over all areas in the posterior and plots each with a different color (minimum spanning tree)
         self.visualize_areas(flamingo, simulated_family, burn_in, post_freq_lines, label_languages)
 
         ##############################################################
-        # Legend functions
+        # Legend
         ##############################################################
-
         # Add a small legend displaying what the line thickness corresponds to.
         self.add_main_legend(post_freq_lines)
 
@@ -786,67 +938,16 @@ class Map(Plot):
             # Olga: this needs testing (not sure if 'axins' should be global variable or not)
             self.add_overview_map()
 
-
+        ##############################################################
+        # Families
+        ##############################################################
         # If families and family names are provided, this adds an overlay color for all language families in the map
         # including a legend entry.
         # Should go to a separate function
-
         if families is not None and family_names is not None:
-            # Family colors, should probably go to config
-            # family_colors = ['#377eb8', '#4daf4a', '#984ea3', '#a65628', '#f781bf', '#999999', '#ffff33', '#e41a1c', '#ff7f00']
-            family_colors = ['#b3e2cd', '#f1e2cc', '#cbd5e8', '#f4cae4', '#e6f5c9', '#d3d3d3']
-
-            # Initialize empty legend handle
-            handles = []
-
-            # Iterate over all family names
-            for i, family in enumerate(family_names['external']):
-                # print(i, family)
-
-                # Find all languages belonging to a family
-                is_in_family = families[i] == 1
-                family_locations = self.locations[is_in_family, :]
-                family_color = family_colors[i]
-
-                # Adds a color overlay for each language in a family
-                self.ax.scatter(*family_locations.T, s=self.config['graphic']['size'] * 15, c=family_color, alpha=1, linewidth=0, zorder=-i,
-                           label=family)
-
-                family_fill, family_border = family_color, family_color
-
-                # For languages with more than three members: instead of one dot per language,
-                # combine several languages in an alpha shape (a polygon)
-                if self.config['graphic']['family_alpha_shape'] is not None and np.count_nonzero(is_in_family) > 3:
-                    alpha_shape = self.compute_alpha_shapes([is_in_family], self.config['graphic']['family_alpha_shape'])
-
-                    # making sure that the alpha shape is not empty
-                    if not alpha_shape.is_empty:
-                        smooth_shape = alpha_shape.buffer(40000, resolution=16, cap_style=1, join_style=1,
-                                                          mitre_limit=5.0)
-                        patch = PolygonPatch(smooth_shape, fc=family_fill, ec=family_border, lw=1, ls='-', alpha=1,
-                                             fill=True, zorder=-i)
-                        leg_family = self.ax.add_patch(patch)
-
-                # Add legend handle
-                handle = Patch(facecolor=family_color, edgecolor=family_color, label=family)
-                handles.append(handle)
-
-                # (Hard-coded) parameters should probably go to config
-                # Defines the legend for families
-                legend_families = self.ax.legend(
-                    handles=handles,
-                    title='Language family',
-                    title_fontsize=18,
-                    fontsize=16,
-                    frameon=True,
-                    edgecolor='#ffffff',
-                    framealpha=1,
-                    ncol=1,
-                    columnspacing=1,
-                    loc='upper left',
-                    bbox_to_anchor=self.map_parameters['family_legend_position']
-                )
-                self.ax.add_artist(legend_families)
+            self.color_families(family_names['external'],
+                                self.config['graphic']['family_colors'],
+                                families=families)
 
         # Again this adds alpha shapes for families for simulated data.
         # I think the reason why this was coded separately, is that many of the parameters
@@ -854,112 +955,26 @@ class Map(Plot):
         # Should probably be handled in the config file instead
         # and should be merged with adding families as seen above
         if simulated_family:
-            families = self.results['true_families']
-            family_colors = ['#add8e6', '#f1e2cc', '#cbd5e8', '#f4cae4', '#e6f5c9']
-            # handles for legend
-            handles = []
-            for i, is_in_family in enumerate(families):
-                # plot points belonging to family
+            self.color_families(self.results['true_families'],
+                                self.config['graphic']['true_family_colors'])
 
-                family_color = family_colors[i]
-
-                # family_alpha_shape = 0.001
-                family_fill = family_color
-                family_border = family_color
-                alpha_shape = self.compute_alpha_shapes([is_in_family], self.config['graphic']['family_alpha_shape'])
-                smooth_shape = alpha_shape.buffer(60, resolution=16, cap_style=1, join_style=1, mitre_limit=5.0)
-                # smooth_shape = alpha_shape
-                patch = PolygonPatch(smooth_shape, fc=family_fill, ec=family_border, lw=1, ls='-', alpha=1, fill=True,
-                                     zorder=-i)
-                self.ax.add_patch(patch)
-
-                # adding legend handle
-                handle = Patch(facecolor=family_color, edgecolor=family_color, label="simulated family")
-                handles.append(handle)
-
-            # Define the legend
-            legend_families = self.ax.legend(
-                handles=handles,
-                title_fontsize=16,
-                fontsize=18,
-                frameon=True,
-                edgecolor='#ffffff',
-                framealpha=1,
-                ncol=1,
-                columnspacing=1,
-                handletextpad=2.3,
-                loc='upper left',
-                bbox_to_anchor=self.map_parameters['family_legend_position']
-            )
-            self.ax.add_artist(legend_families)
-
+        ##############################################################
+        # Likelihood (legend)
+        ##############################################################
         # If likelihood for single areas are displayed: add legend entries with likelihood information per area
         if lh_single_zones:
-            def scientific(x):
-                b = int(np.log10(x))
-                a = x / 10 ** b
-                return '%.2f \cdot 10^{%i}' % (a, b)
-
-            # Legend for area labels
-            zone_labels = ["         probability of area"]
-
-            # This assumes that the likelihoods for single areas (lh_a1, lh_a2, lh_a3, ...)
-            # have been collected in mcmc_res under the key shown below
-            post_per_area = np.asarray(self.results['likelihood_single_areas'])
-            to_rank = np.mean(post_per_area, axis=0)
-
-            # probability per area in log-space
-            p_total = logsumexp(to_rank)
-            p = to_rank[np.argsort(-to_rank)] - p_total
-
-            for i, exp in enumerate(p):
-                lh_value = np.exp(exp)
-                # print(lh_value)
-                lh_value = scientific(lh_value)
-                zone_labels.append(f'$Z_{i + 1}: \, \;\;\; {lh_value}$')
+            self.add_likelihood_legend()
 
         else:
-            zone_labels = []
             for i, _ in enumerate(self.results['zones']):
-                zone_labels.append(f'$Z_{i + 1}$')
+                self.zone_labels.append(f'$Z_{i + 1}$')
 
         # Define legend
-        legend_zones = self.ax.legend(
-            self.leg_zones,
-            zone_labels,
-            title_fontsize=18,
-            title='Contact areas',
-            frameon=True,
-            edgecolor='#ffffff',
-            framealpha=1,
-            fontsize=16,
-            ncol=1,
-            columnspacing=1,
-            loc='upper left',
-            bbox_to_anchor=self.map_parameters['area_legend_position']
-        )
-        legend_zones._legend_box.align = "left"
-        self.ax.add_artist(legend_zones)
+        self.define_legend()
 
-        # Defines the legend entry for Line width
-        legend_line_width = self.ax.legend(
-            self.leg_line_width,
-            self.line_width_label,
-            title_fontsize=18,
-            title='Frequency of edge in posterior',
-            frameon=True,
-            edgecolor='#ffffff',
-            framealpha=1,
-            fontsize=16,
-            ncol=1,
-            columnspacing=1,
-            loc='upper left',
-            bbox_to_anchor=self.map_parameters['freq_legend_position']
-        )
-
-        legend_line_width._legend_box.align = "left"
-        self.ax.add_artist(legend_line_width)
-
+        ##############################################################
+        # The following rest of the code is not rewritten yet
+        ##############################################################
         # for simulated data: add a legend entry in the shape of a little polygon for ground truth
         if self.is_simulation:
             class TrueZone(object):
