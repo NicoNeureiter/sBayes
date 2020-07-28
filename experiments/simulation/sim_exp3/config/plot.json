@@ -19,7 +19,12 @@
     "bg_map": false,
     "size": 25,
     "size_line": 3,
-    "family_alpha_shape": null
+    "family_alpha_shape": null,
+    "family_colors": ["#b3e2cd", "#f1e2cc", "#cbd5e8", "#f4cae4", "#e6f5c9", "#d3d3d3"],
+    "true_family_colors": ["#add8e6", "#f1e2cc", "#cbd5e8", "#f4cae4", "#e6f5c9"],
+    "zone_colors": ["#1b9e77", "#d95f02", "#7570b3", "#e7298a", "#66a61e", "#e6ab02", "#a6761d", "#666666"],
+    "flamingo_color": "#f48aa7",
+    "banana_color": "#f49f1c"
   },
 
   "plot_type": {
@@ -87,5 +92,11 @@
       "fig_height": 8,
       "color_burn_in": "grey"
     }
+  },
+
+  "overview": {
+    "width": 3.8,
+    "height": 4,
+    "location": "lower left"
   }
 }
