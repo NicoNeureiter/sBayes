@@ -637,6 +637,13 @@ def samples2file(samples, data, config, paths):
         # Areas
         areas.append(format_area_columns(samples['sample_zones'][s]))
 
+        # Area sizes
+        for i, area in enumerate(samples['sample_zones'][s]):
+            col_name = f'size_a{i}'
+            if col_name not in column_names:
+                column_names.append(col_name)
+            row[col_name] = np.count_nonzero(area)
+
         # weights
         for f in range(len(data.feature_names['external'])):
             # universal pressure
@@ -728,6 +735,7 @@ def samples2file(samples, data, config, paths):
                 if posterior_name not in column_names:
                     column_names += [posterior_name]
                 row[posterior_name] = samples['sample_posterior_single_zones'][s][a]
+
 
         parameters.append(row)
 
@@ -967,7 +975,7 @@ def assign_na(features, n_na):
 
 
 def log_binom(n, k):
-    """Compute the logarithm of (n choos k), i.e. the binomial coefficient of n and k.
+    """Compute the logarithm of (n choose k), i.e. the binomial coefficient of n and k.
 
     Args:
         n (int or np.array): Populations size..
