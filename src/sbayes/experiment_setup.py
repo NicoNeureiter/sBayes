@@ -177,15 +177,15 @@ class Experiment:
         # PROPOSAL_PRECISION is not in config --> use default values
         else:
             if not self.config['mcmc']['INHERITANCE']:
-                self.config['mcmc']['PROPOSAL_PRECISION'] = {"weights": 30,
-                                                             "universal": 30,
-                                                             "contact": 30,
+                self.config['mcmc']['PROPOSAL_PRECISION'] = {"weights": 15,
+                                                             "universal": 40,
+                                                             "contact": 20,
                                                              "inheritance": None}
             else:
-                self.config['mcmc']['PROPOSAL_PRECISION'] = {"weights": 30,
-                                                             "universal": 30,
-                                                             "contact": 30,
-                                                             "inheritance": 30}
+                self.config['mcmc']['PROPOSAL_PRECISION'] = {"weights": 15,
+                                                             "universal": 40,
+                                                             "contact": 20,
+                                                             "inheritance": 20}
 
         # Steps per operator
         # STEPS is in config --> check for consistency
@@ -228,15 +228,15 @@ class Experiment:
         if 'STEPS' not in self.config['mcmc'] or not steps_complete:
             if self.config['mcmc']['INHERITANCE']:
                 self.config['mcmc']['STEPS'] = {"area": 0.05,
-                                                "weights": 0.65,
+                                                "weights": 0.4,
                                                 "universal": 0.05,
-                                                "contact": 0.2,
-                                                "inheritance": 0.05}
+                                                "contact": 0.4,
+                                                "inheritance": 0.1}
             else:
                 self.config['mcmc']['STEPS'] = {"area": 0.05,
-                                                "weights": 0.7,
+                                                "weights": 0.45,
                                                 "universal": 0.05,
-                                                "contact": 0.2,
+                                                "contact": 0.45,
                                                 "inheritance": 0.00}
 
         if 'results' in self.config:
