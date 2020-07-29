@@ -22,11 +22,11 @@ if __name__ == '__main__':
         # Update config information according to the current setup
         exp.config['mcmc']['INHERITANCE'] = I
         exp.config['mcmc']['PROPOSAL_PRECISION'] = {
-            "weights": 30, "universal": 30, "contact": 30, "inheritance": 30} if I else {
-            "weights": 30, "universal": 30, "contact": 30, "inheritance": None}
+            "weights": 20, "universal": 70, "contact": 20, "inheritance": 30} if I else {
+            "weights": 20, "universal": 70, "contact": 20, "inheritance": None}
         exp.config['mcmc']['STEPS'] = {
-            "area": 0.05, "weights": 0.65, "universal": 0.05, "contact": 0.2, "inheritance": 0.05} if I else {
-            "area": 0.05, "weights": 0.7, "universal": 0.05, "contact": 0.2, "inheritance": 0.0}
+            "area": 0.05, "weights": 0.45, "universal": 0.05, "contact": 0.4, "inheritance": 0.05} if I else {
+            "area": 0.05, "weights": 0.5, "universal": 0.05, "contact": 0.4, "inheritance": 0.0}
 
         # 3. Define MCMC
         mc = MCMC(data=sim, experiment=exp)

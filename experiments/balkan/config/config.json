@@ -1,13 +1,13 @@
 {
   "mcmc": {
     "BURN_IN": 0,
-    "N_STEPS": 2000,
-    "N_SAMPLES": 1000,
+    "N_STEPS": 1000000,
+    "N_SAMPLES": 10000,
     "N_RUNS": 1,
-    "MIN_M": 3,
+    "MIN_M": 5,
     "MAX_M": 20,
     "INITIAL_SIZE_AREA": 3,
-    "N_CHAINS": 3,
+    "N_CHAINS": 5,
     "SWAP_PERIOD": 1000,
     "N_SWAPS": 3,
     "PRIOR": {
@@ -17,18 +17,31 @@
 	  "inheritance": "from_counts",
 	  "contact": "uniform"
     },
+	"PROPOSAL_PRECISION": {
+      "weights": 20,
+      "universal": 70,
+      "contact": 20,
+	  "inheritance": 30
+    },
+	"STEPS": {
+	  "area": 0.05,
+      "weights": 0.45,
+      "universal": 0.05,
+      "contact": 0.4,
+	  "inheritance": 0.05
+    },
     "INHERITANCE": true,
 	"N_AREAS": "TBD"
   },
   "data":{
-    "FEATURES" : "../data/features/features.csv",
+    "FEATURES" : "data/features/features.csv",
     "PRIOR" : {
-	  "universal": "../data/prior_universal/universal_counts.csv",
+	  "universal": "data/prior_universal/universal_counts.csv",
 	  "inheritance": { 
-		  "Greek": "../data/prior_inheritance/greek_counts.csv",
-		  "Romance": "../data/prior_inheritance/romance_counts.csv",
-		  "Slavic": "../data/prior_inheritance/slavic_counts.csv",
-		  "Turkish": "../data/prior_inheritance/turkish_counts.csv"
+		  "Greek": "data/prior_inheritance/greek_counts.csv",
+		  "Romance": "data/prior_inheritance/romance_counts.csv",
+		  "Slavic": "data/prior_inheritance/slavic_counts.csv",
+		  "Turkish": "data/prior_inheritance/turkish_counts.csv"
 	  } 
 	}
  }

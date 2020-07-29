@@ -7,7 +7,7 @@ import numpy as np
 
 from sbayes.model import normalize_weights
 from sbayes.util import (compute_distance, compute_delaunay,
-                      read_feature_occurrence_from_csv)
+                         read_feature_occurrence_from_csv)
 
 EPS = np.finfo(float).eps
 
@@ -169,11 +169,11 @@ def subset_features(features, subset):
             subset(list): boolean assignment of sites to subset
 
         Returns:
-            np.array: The feature subset
+            np.array: The subset
                 shape(n_sub_sites, n_features, n_categories)
     """
-    # sub_idx = np.nonzero(subset)[0]
-    return features[subset, :, :]
+    sub = np.array(subset, dtype=bool)
+    return features[sub, :, :]
 
 
 def simulate_features(areas,  p_universal, p_contact, weights, inheritance, p_inheritance=None, families=None):

@@ -19,8 +19,8 @@ class Data:
         self.path_results = experiment.path_results
         self.experiment_name = experiment.experiment_name
 
-        # File locations
-        self.features_file = experiment.config['data']['FEATURES']
+        # Config file
+        self.config = experiment.config
         self.universal_counts_file = experiment.config['data']['PRIOR']['universal']
         self.inheritance_counts_files = experiment.config['data']['PRIOR']['inheritance']
 
@@ -49,7 +49,7 @@ class Data:
     def load_features(self):
         self.sites, self.site_names, self.features, self.feature_names, \
             self.state_names, self.families, self.family_names, self.log_load_features = \
-            read_features_from_csv(file=self.features_file)
+            read_features_from_csv(file=self.config['data']['FEATURES'])
         self.network = compute_network(self.sites)
 
     def load_universal_counts(self):
@@ -57,7 +57,7 @@ class Data:
         counts, states, self.log_load_universal_counts = \
             read_universal_counts(feature_names=self.feature_names,
                                   category_names=self.state_names,
-                                  file=self.universal_counts_file)
+                                  file=self.config['data']['PRIOR']['universal'])
 
         self.prior_universal = {'counts': counts,
                                 'states': states}
@@ -67,7 +67,7 @@ class Data:
             read_inheritance_counts(family_names=self.family_names,
                                     feature_names=self.feature_names,
                                     category_names=self.state_names,
-                                    files=self.inheritance_counts_files)
+                                    files=self.config['data']['PRIOR']['inheritance'])
         self.prior_inheritance = {'counts': counts,
                                   'states': states}
 
