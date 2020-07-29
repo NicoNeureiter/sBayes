@@ -6,7 +6,7 @@ if __name__ == '__main__':
 
     # 1. Initialize the experiment
     exp = Experiment()
-    exp.load_config(config_file='config/config.json')
+    exp.load_config(config_file='config.json')
     exp.log_experiment()
 
     # 2. Simulate contact areas

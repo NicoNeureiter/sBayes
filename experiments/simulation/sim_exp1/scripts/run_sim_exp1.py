@@ -8,7 +8,7 @@ if __name__ == '__main__':
 
     # 1. Initialize the experiment
     exp = Experiment()
-    exp.load_config(config_file='config/config.json')
+    exp.load_config(config_file='config.json')
     exp.log_experiment()
 
     # When simulating iterate over different setups (different areas and strengths of contact)
