@@ -2737,20 +2737,25 @@ def plot_weights(samples, labels=None, ax=None):
     plt.show()
 
 
-def plot_parameters_ridge(samples):
+def plot_parameters_ridge(samples, ax=None):
     """Creates a ridge plot for parameters with two states
 
    Args:
        samples (np.array): Sampled parameters
             shape(n_samples, 2)
    """
-
+    if ax is None:
+        ax = plt.gca()
     n_samples, n_states = samples.shape
 
     if n_states != 2:
         raise ValueError("Only applicable for parameters with two states")
 
-    ridge_plt = sns.kdeplot(samples.T[0], shade=True, clip=(0.0, 1.0),
-                            alpha=0.2, lw=.5, bw='scott')
+    # ridge_plt = sns.kdeplot(samples.T[0], shade=True, clip=(0.0, 1.0),
+    #                         alpha=0.2, lw=.5, bw='scott')
+    ridge_plt = sns.distplot(samples.T[0], hist=False, kde=True, rug=True,
+                             kde_kws=dict(shade=True, clip=(0.0, 1.0),
+                                          alpha=0.3, lw=.5, bw='scott'),
+                             rug_kws=dict(color='k'))
     ridge_plt.set(xlim=(0, 1))
     plt.show()
