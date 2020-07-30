@@ -396,9 +396,9 @@ class ZoneMCMC_generative(MCMC_generative):
         sample_new.zones[z_id, site_new] = 1
 
         # Transition probability when growing
-        q = 1 / np.count_nonzero(neighbours)
+        # q = 1 / np.count_nonzero(neighbours)
         # Back-probability (shrinking)
-        q_back = 1 / (current_size + 1)
+        # q_back = 1 / (current_size + 1)
 
         if self.sample_p_zones:
             # The step changes p_zones (which has an influence on how the lh and the prior look like)
@@ -444,12 +444,12 @@ class ZoneMCMC_generative(MCMC_generative):
         sample_new.zones[z_id, site_removed] = 0
         
         # Transition probability when shrinking.
-        q = 1 / len(removal_candidates)
+        # q = 1 / len(removal_candidates)
         # Back-probability (growing)
         zone_new = sample_new.zones[z_id]
         occupied_new = np.any(sample_new.zones, axis=0)
         back_neighbours = get_neighbours(zone_new, occupied_new, self.adj_mat)
-        q_back = 1 / np.count_nonzero(back_neighbours)
+        # q_back = 1 / np.count_nonzero(back_neighbours)
 
         if self.sample_p_zones:
 
