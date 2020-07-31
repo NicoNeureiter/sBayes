@@ -1,28 +1,28 @@
 {
   "simulation": {
-	"SITES": "data/sites.csv",
-    "N_FEATURES": 35,
+	"SITES": "data/sites_small.csv",
+    "N_FEATURES": 10,
     "P_N_CATEGORIES": {
-      "2": 0.4,
-      "3": 0.3,
-      "4": 0.3
+      "2": 1.0
     },
     "E_UNIVERSAL": 1.0,
 	"E_CONTACT":0.25,
     "I_UNIVERSAL": 1.0,
 	"I_CONTACT": 3.0,
     "INHERITANCE": false,
-	"AREA": [2, 5, 7, 9]
+	"AREA": []
   }, 
   "mcmc": {
     "BURN_IN": 0,
-	"N_AREAS": 3,
-    "N_STEPS": 100000,
-    "N_SAMPLES": 5000,
+	"N_AREAS": 1,
+    "N_STEPS": 5000000,
+    "N_SAMPLES":  1000,
     "N_RUNS": 1,
-    "MIN_M": 3,
-	"N_CHAINS": 8, 
-    "MAX_M": 200,
+	"N_CHAINS": 1,
+    "SWAP_PERIOD": 1000000000000,
+    "CHAIN_SWAPS": 0,
+    "MIN_M": 1,
+    "MAX_M": 10,
     "PRIOR": {
       "geo": "uniform",
       "weights": "uniform",
@@ -33,5 +33,5 @@
   }
   ,
   "results": {
-    "FILE_INFO": "n"}  
+    "FILE_INFO": "n"}
 }
