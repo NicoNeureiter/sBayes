@@ -240,8 +240,11 @@ def simulate_features(areas,  p_universal, p_contact, weights, inheritance, p_in
 
         # Sample from the categorical distribution defined by lh_feature
         features[:, i_feat] = sample_categorical(lh_feature.T)
-
+    import pandas as pd
+    pd.DataFrame(features).to_csv("features_data_challenge.csv",)
+    print(features.shape, "dksjvn")
     # Categories per feature
+
     cats_per_feature = []
     for f in features.transpose():
 
