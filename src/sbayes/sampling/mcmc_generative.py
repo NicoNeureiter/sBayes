@@ -204,13 +204,14 @@ class MCMC_generative(metaclass=_abc.ABCMeta):
                                                sample_id=int(i_step/steps_per_sample))
 
                 # Exchange chains at fixed intervals
-                if i_step % self.swap_period == 0:
+                if (i_step+1) % self.swap_period == 0:
                     self.swap_chains(sample)
 
                 # Print work status and likelihood at fixed intervals
                 if i_step % 1000 == 0:
                     print(i_step, ' steps taken')
                     print(self.likelihood(sample[self.chain_idx[0]], self.chain_idx[0]), "Likelihood")
+                    # print('size0 =', 'sum(sample[self.chain_idx[0]].zones[0]))
 
                 # Log the last sample of the first chain
                 if i_step % (n_steps-1) == 0 and i_step != 0:
@@ -220,9 +221,10 @@ class MCMC_generative(metaclass=_abc.ABCMeta):
         self.statistics['sampling_time'] = t_end - t_start
         self.statistics['time_per_sample'] = (t_end - t_start) / n_samples
         self.statistics['acceptance_ratio'] = (self.statistics['accepted_steps'] / n_steps)
-        self.statistics['swap_ratio'] = (self.statistics['accepted_swaps'] / self.statistics['n_swaps'])
-
-        return
+        if self.statistics['n_swaps'] > 0:
+            self.statistics['swap_ratio'] = (self.statistics['accepted_swaps'] / self.statistics['n_swaps'])
+        else:
+            self.statistics['swap_ratio'] = 0
 
     def swap_chains(self, sample):
 
@@ -328,6 +330,7 @@ class MCMC_generative(metaclass=_abc.ABCMeta):
 
         prior_ratio = prior_new - prior_prev
         mh_ratio = (ll_ratio * temperature) - log_q_ratio + prior_ratio
+
         return mh_ratio
 
     def log_sample_statistics(self, sample, c, sample_id):

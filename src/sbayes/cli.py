@@ -26,12 +26,13 @@ def run_experiment(experiment, data, run, initial_sample=None):
     return mcmc.samples['last_sample']
 
 
-def main():
-    parser = argparse.ArgumentParser(
-        description="An MCMC algorithm to identify contact zones")
-    parser.add_argument("config", nargs="?", type=Path,
-                        help="The JSON configuration file")
-    args = parser.parse_args()
+def main(args=None):
+    if args is None:
+        parser = argparse.ArgumentParser(
+            description="An MCMC algorithm to identify contact zones")
+        parser.add_argument("config", nargs="?", type=Path,
+                            help="The JSON configuration file")
+        args = parser.parse_args()
 
     # 0. Ask for config file via files-dialog, if not provided as argument.
     config = args.config
