@@ -72,7 +72,7 @@ class Sample(object):
 class ZoneMCMC_generative(MCMC_generative):
 
     def __init__(self, network, features, min_size, max_size, var_proposal,
-                 initial_sample, connected_only=False, initial_size=5, **kwargs):
+                 initial_sample, **kwargs):
 
         super(ZoneMCMC_generative, self).__init__(**kwargs)
 
@@ -85,16 +85,13 @@ class ZoneMCMC_generative(MCMC_generative):
         self.network = network
         self.adj_mat = network['adj_mat']
         self.locations = network['locations']
-        self.graph = network['graph']
 
         # Sampling
         self.n = self.adj_mat.shape[0]
 
-        # Zone size / connectedness /initial sample
+        # Zone size /initial sample
         self.min_size = min_size
         self.max_size = max_size
-        self.initial_size = initial_size
-        self.connected_only = connected_only
         self.initial_sample = initial_sample
 
         # Families
@@ -111,6 +108,7 @@ class ZoneMCMC_generative(MCMC_generative):
             pass
 
         self.compute_lh_per_chain = [
+            # GenerativeLikelihood(features, self.inheritance, self.families) for _ in range(self.n_chains)
             GenerativeLikelihood() for _ in range(self.n_chains)
         ]
 
@@ -341,6 +339,11 @@ class ZoneMCMC_generative(MCMC_generative):
         sample_new.zones[z_id, site_removed] = 0
         q = q_back = 1.
 
+        # Compute transition probabilities
+        back_neighbours = get_neighbours(zone_current, occupied, self.adj_mat)
+        q = 1. / np.count_nonzero(neighbours)
+        q_back = 1. / np.count_nonzero(back_neighbours)
+
         #if self.sample_p_zones:
         #    # The step changes p_zones (which has an influence on how the lh and the prior look like)
         #    sample_new.what_changed['lh']['p_zones'] = sample_new.what_changed['prior']['p_zones'] = True
@@ -391,7 +394,11 @@ class ZoneMCMC_generative(MCMC_generative):
 
         site_new = _random.choice(neighbours.nonzero()[0])
         sample_new.zones[z_id, site_new] = 1
-        q = q_back = 1.
+
+        # Transition probability when growing
+        q = 1 / np.count_nonzero(neighbours)
+        # Back-probability (shrinking)
+        q_back = 1 / (current_size + 1)
 
         if self.sample_p_zones:
             # The step changes p_zones (which has an influence on how the lh and the prior look like)
@@ -400,6 +407,8 @@ class ZoneMCMC_generative(MCMC_generative):
 
             # Set p_zones to the MLE value of the updated zone in the new sample
             # sample_new.p_zones[z_id] = self.set_p_zones_to_mle(sample_new.zones[z_id])
+        #Todo: remove once back probability works properly
+        q = q_back = 1.
         return sample_new, q, q_back
 
     def shrink_zone(self, sample):
@@ -433,7 +442,14 @@ class ZoneMCMC_generative(MCMC_generative):
         removal_candidates = self.get_removal_candidates(zone_current)
         site_removed = _random.choice(removal_candidates)
         sample_new.zones[z_id, site_removed] = 0
-        q = q_back = 1.
+        
+        # Transition probability when shrinking.
+        q = 1 / len(removal_candidates)
+        # Back-probability (growing)
+        zone_new = sample_new.zones[z_id]
+        occupied_new = np.any(sample_new.zones, axis=0)
+        back_neighbours = get_neighbours(zone_new, occupied_new, self.adj_mat)
+        q_back = 1 / np.count_nonzero(back_neighbours)
 
         if self.sample_p_zones:
 
@@ -443,7 +459,8 @@ class ZoneMCMC_generative(MCMC_generative):
 
             # Set p_zones to the MLE value of the updated zone in the new sample
             # sample_new.p_zones[z_id] = self.set_p_zones_to_mle(sample_new.zones[z_id])
-
+        # Todo: remove once back probability works properly
+        q = q_back = 1.
         return sample_new, q, q_back
 
     def generate_initial_zones(self):
@@ -455,6 +472,7 @@ class ZoneMCMC_generative(MCMC_generative):
             np.array: The generated initial zones.
                 shape(n_zones, n_sites)
         """
+
         # If there are no zones, return empty matrix
         if self.n_zones == 0:
             return np.zeros((self.n_zones, self.n), bool)
@@ -473,25 +491,29 @@ class ZoneMCMC_generative(MCMC_generative):
 
         not_initialized = range(n_generated, self.n_zones)
 
-        # A: The zones that are not initialized yet are grown
-        # When growing many zones, some can get stuck due to an unfavourable seed.
-        # That's why we perform several attempts to initialize them.
-        grow_attempts = 0
+        # A: The areas that are not initialized yet are grown
+        # When there are already many areas, new ones can get stuck due to an unfavourable seed.
+        # That's why we perform several attempts to initialize areas
+        attempts = 0
+        max_attempts = 1000
+
         while True:
             for i in not_initialized:
                 try:
-                    g = self.grow_zone_of_size_k(self.initial_size, occupied)
+                    initial_size = _random.randrange(self.min_size, int(self.max_size/2))
+                    g = self.grow_zone_of_size_k(initial_size, occupied)
 
                 except self.ZoneError:
-                        # Might be due to an unfavourable seed
-                        if grow_attempts < 15:
-                            grow_attempts += 1
-                            not_initialized = range(n_generated, self.n_zones)
-                            break
-                        # Seems there is not enough sites to grow n_zones of size k
-                        else:
-                            raise ValueError("Seems there are not enough sites (%i) to grow %i zones of size %i" %
-                                             (self.n, self.n_zones, self.initial_size))
+                    # Might be due to an unfavourable seed
+
+                    if attempts < max_attempts:
+                        attempts += 1
+                        not_initialized = range(n_generated, self.n_zones)
+                        break
+                    # Seems there is not enough sites to grow n_zones of size k
+                    else:
+                        raise ValueError("Failed to add additional area. Try fewer areas"
+                                         "or set initial_sample to None")
                 n_generated += 1
                 initial_zones[i, :] = g[0]
                 occupied = g[1]
@@ -521,6 +543,7 @@ class ZoneMCMC_generative(MCMC_generative):
         # Find all sites that already belong to a zone (sites_occupied) and those that don't (sites_free)
         sites_occupied = np.nonzero(already_in_zone)[0]
         sites_free = set(range(n_sites)) - set(sites_occupied)
+
 
         # Take a random free site and use it as seed for the new zone
         try:
@@ -782,8 +805,7 @@ class ZoneMCMC_generative(MCMC_generative):
         return sample
 
     def get_removal_candidates(self, zone):
-        """Finds sites which can be removed from the given zone. If connectedness is
-        required (connected_only = True), only non-cut vertices are returned.
+        """Finds sites which can be removed from the given zone.
 
         Args:
             zone (np.array): The zone for which removal candidates are found.
@@ -791,25 +813,7 @@ class ZoneMCMC_generative(MCMC_generative):
         Returns:
             (list): Index-list of removal candidates.
         """
-        zone_idx = zone.nonzero()[0]
-        size = len(zone_idx)
-
-        if not self.connected_only:
-            # If connectedness is not required, all nodes are candidates.
-            return zone_idx
-
-        else:
-            # Compute non cut-vertices (can be removed while keeping zone connected).
-            g_zone = self.graph.induced_subgraph(zone_idx)
-            # assert g_zone.is_connected()
-
-            cut_vs_idx = g_zone.cut_vertices()
-            if len(cut_vs_idx) == size:
-                return []
-
-            cut_vertices = g_zone.vs[cut_vs_idx]['name']
-
-            return [v for v in zone_idx if v not in cut_vertices]
+        return zone.nonzero()[0]
 
     class ZoneError(Exception):
         pass
@@ -832,3 +836,5 @@ class ZoneMCMC_generative(MCMC_generative):
 
         return fn_operators, p_operators
 
+    def log_sample_statistics(self, sample, c, sample_id):
+        super(ZoneMCMC_generative, self).log_sample_statistics(sample, c, sample_id)

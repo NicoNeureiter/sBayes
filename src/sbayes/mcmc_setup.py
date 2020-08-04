@@ -7,10 +7,13 @@ from __future__ import absolute_import, division, print_function, unicode_litera
 
 import logging
 import numpy as np
+import os
 
-from sbayes.postprocessing import contribution_per_area, log_operator_statistics, log_operator_statistics_header
+from sbayes.postprocessing import (contribution_per_area, log_operator_statistics,
+                                   log_operator_statistics_header, match_areas, rank_areas)
 from sbayes.sampling.zone_sampling import Sample, ZoneMCMC_generative
-from sbayes.util import dump, normalize, universal_counts_to_dirichlet, inheritance_counts_to_dirichlet
+from sbayes.util import (normalize, universal_counts_to_dirichlet,
+                         inheritance_counts_to_dirichlet, samples2file)
 
 
 class MCMC:
@@ -78,12 +81,11 @@ class MCMC:
             self.config['mcmc']['PRIOR']['inheritance'] = {'type': "pseudocounts",
                                                            'dirichlet': dirichlet,
                                                            'states': self.data.prior_inheritance['states']}
-        print(self.config['mcmc']['PRIOR']['inheritance'])
 
     def log_setup(self):
 
         logging.basicConfig(format='%(message)s', filename=self.path_log, level=logging.DEBUG)
-        logging.getLogger().addHandler(logging.StreamHandler())
+
         logging.info("\n")
         logging.info("MCMC SETUP")
         logging.info("##########################################")
@@ -136,9 +138,8 @@ class MCMC:
                'alter_p_families': self.config['mcmc']['STEPS']['inheritance']}
         self.ops = ops
 
-    def sample(self, initial_sample=None, lh_per_area=False):
+    def sample(self, initial_sample=None, lh_per_area=True):
         initial_sample = self.initialize_sample(initial_sample)
-
         self.sampler = ZoneMCMC_generative(network=self.data.network, features=self.data.features,
                                            min_size=self.config['mcmc']['MIN_M'],
                                            max_size=self.config['mcmc']['MAX_M'],
@@ -163,8 +164,6 @@ class MCMC:
         self.samples = self.sampler.statistics
 
     def log_statistics(self):
-        logging.basicConfig(format='%(message)s', filename=self.path_log, level=logging.DEBUG)
-        logging.getLogger().addHandler(logging.StreamHandler())
         logging.info("\n")
         logging.info("MCMC STATISTICS")
         logging.info("##########################################")
@@ -220,25 +219,44 @@ class MCMC:
         self.samples["true_families"] = self.data.families
 
     def save_samples(self, run=1):
+
+        self.samples = match_areas(self.samples)
+        self.samples = rank_areas(self.samples)
+
         file_info = self.config['results']['FILE_INFO']
 
         if file_info == "n":
-            outfile = self.path_results + 'contact_areas_n{n}_{run}.pkl'
-            path = outfile.format(n=self.config['mcmc']['N_AREAS'], run=run)
+            fi = 'n{n}'.format(n=self.config['mcmc']['N_AREAS'])
 
         elif file_info == "s":
-            outfile = self.path_results + 'contact_areas_s{s}_a{a}_{run}.pkl'
-            path = outfile.format(s=self.config['simulation']['STRENGTH'],
-                                  a=self.config['simulation']['AREA'], run=run)
+            fi = 's{s}_a{a}'.format(s=self.config['simulation']['STRENGTH'],
+                                    a=self.config['simulation']['AREA'])
 
         elif file_info == "i":
-            outfile = self.path_results + 'contact_areas_i{i}_{run}.pkl'
-            path = outfile.format(i=int(self.config['mcmc']['INHERITANCE']), run=run)
+            fi = 'i{i}'.format(i=int(self.config['mcmc']['INHERITANCE']))
 
         elif file_info == "p":
-            outfile = self.path_results + 'contact_areas_p{p}_{run}.pkl'
             p = 0 if self.config['mcmc']['PRIOR']['universal']['type'] == "uniform" else 1
-            path = outfile.format(p=p, run=run)
+            fi = 'p{p}'.format(p=p)
+
         else:
             raise ValueError("file_info must be 'n', 's', 'i' or 'p'")
-        dump(self.samples, path)
+
+        run = '_{run}'.format(run=run)
+        pth = self.path_results + fi + '/'
+        ext = '.txt'
+        gt_pth = pth + 'ground_truth/'
+
+        paths = {'parameters': pth + 'stats_' + fi + run + ext,
+                 'areas': pth + 'areas_' + fi + run + ext,
+                 'gt': gt_pth + 'stats' + ext,
+                 'gt_areas': gt_pth + 'areas' + ext}
+
+        if not os.path.exists(pth):
+            os.makedirs(pth)
+
+        if self.data.is_simulated:
+            if not os.path.exists(gt_pth):
+                os.makedirs(gt_pth)
+
+        samples2file(self.samples, self.data, self.config, paths)

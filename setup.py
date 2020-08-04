@@ -6,7 +6,7 @@ setup(
     description="MCMC algorithms to identify linguistic contact zones",
     author="Peter Ranacher",
     author_email="peter.ranacher@geo.uzh.ch",
-    long_description=open('README.md').read(),
+    #long_description=open('README.md').read(),
     long_description_content_type='text/markdown',
     keywords='data linguistics',
     license='???',
@@ -17,8 +17,7 @@ setup(
     install_requires=[
         "numpy",
         "scipy",
-        "matplotlib",
-        "python-igraph",],
+        "matplotlib",],
     entry_points={
         'console_scripts': [
             'sbayes = sbayes.cli:main',
