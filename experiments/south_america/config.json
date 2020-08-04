@@ -1,0 +1,48 @@
+{
+  "mcmc": {
+    "BURN_IN": 0,
+    "N_STEPS": 1000000,
+    "N_SAMPLES": 10000,
+    "N_RUNS": 1,
+	"N_AREAS": "TBD",
+    "MIN_M": 3,
+    "MAX_M": 60,
+    "N_CHAINS": 7,
+    "SWAP_PERIOD": 1000,
+    "N_SWAPS": 3,
+    "PRIOR": {
+      "geo": "uniform",
+      "weights": "uniform",
+      "universal": "from_counts",
+	  "inheritance": "from_counts",
+	  "contact": "uniform"
+    },
+	"PROPOSAL_PRECISION": {
+      "weights": 20,
+      "universal": 70,
+      "contact": 20,
+	  "inheritance": 30
+    },
+	"STEPS": {
+	  "area": 0.05,
+      "weights": 0.45,
+      "universal": 0.05,
+      "contact": 0.4,
+	  "inheritance": 0.05
+    },
+    "INHERITANCE": true
+  },
+  "data":{
+    "FEATURES" : "data/features/features.csv",
+    "PRIOR" : {
+	  "universal": "data/prior_universal/universal_counts.csv",
+	  "inheritance": { 
+		  "Arawak": "data/prior_inheritance/arawak_counts.csv",
+		  "Panoan": "data/prior_inheritance/panoan_counts.csv",
+		  "Quechuan": "data/prior_inheritance/quechuan_counts.csv",
+		  "Tucanoan": "data/prior_inheritance/tucanoan_counts.csv",
+		  "Tupian": "data/prior_inheritance/tupian_counts.csv"
+	  } 
+	}
+ }
+}

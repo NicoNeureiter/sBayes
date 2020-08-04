@@ -256,6 +256,7 @@ class MCMC:
             os.makedirs(pth)
 
         if self.data.is_simulated:
+            self.eval_ground_truth()
             if not os.path.exists(gt_pth):
                 os.makedirs(gt_pth)
 

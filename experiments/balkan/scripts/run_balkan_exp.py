@@ -1,12 +1,12 @@
-from src.experiment_setup import Experiment
-from src.load_data import Data
-from src.mcmc_setup import MCMC
+from sbayes.experiment_setup import Experiment
+from sbayes.load_data import Data
+from sbayes.mcmc_setup import MCMC
 
 if __name__ == '__main__':
 
     # 1. Initialize the experiment
     exp = Experiment()
-    exp.load_config(config_file='../config/config.json')
+    exp.load_config(config_file='config.json')
     exp.log_experiment()
 
     # 2. Load Data

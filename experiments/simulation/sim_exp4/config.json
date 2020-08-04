@@ -1,48 +1,50 @@
 {
   "simulation": {
-	"SITES": "data/sites.csv",
-    "N_FEATURES": 35,
+  	"SITES": "data/sites.csv",
+	"N_FEATURES": 35,
     "P_N_CATEGORIES": {
       "2": 0.4,
       "3": 0.3,
       "4": 0.3
     },
     "E_UNIVERSAL": 1.0,
-	"E_CONTACT":0.25,
+	"E_CONTACT":0.3,
     "I_UNIVERSAL": 1.0,
-	"I_CONTACT": 3.0,
+	"I_CONTACT": 2.0,
     "INHERITANCE": false,
-	"AREA": [2, 5, 7, 9]
+	"SUBSET": true,
+	"AREA": 4
   }, 
   "mcmc": {
     "BURN_IN": 0,
-	"N_AREAS": "TBD",
-    "N_STEPS": 100000,
-    "N_SAMPLES": 2000,
-    "N_RUNS": 3,
+    "N_STEPS": 1000000,
+    "N_SAMPLES": 10000,
+    "N_RUNS": 1,
     "MIN_M": 3,
-	"N_CHAINS": 6, 
-    "MAX_M": 50,
+    "MAX_M": 200,
+    "N_CHAINS": 8,
+    "SWAP_PERIOD": 1000,
+    "N_SWAPS": 3,
     "PRIOR": {
       "geo": "uniform",
       "weights": "uniform",
-      "universal": "uniform",
+      "universal": "TBD",
 	  "contact": "uniform"
     },
     "INHERITANCE": false,
+	"N_AREAS": 1,
 	"PROPOSAL_PRECISION": {
-      "weights": 30,
-      "universal": 30,
-      "contact": 30
+      "weights": 20,
+      "universal": 70,
+      "contact": 20
     },
 	"STEPS": {
 	  "area": 0.05,
-      "weights": 0.7,
+      "weights": 0.5,
       "universal": 0.05,
-      "contact": 0.2
+      "contact": 0.4
     }
-  }
-  ,
+  },
   "results": {
-    "FILE_INFO": "n"}  
+    "FILE_INFO": "p"}  
 }

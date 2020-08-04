@@ -14,7 +14,7 @@ from sbayes.util import set_experiment_name
 
 
 class Experiment:
-    def __init__(self, experiment_name="default"):
+    def __init__(self, experiment_name="default", config_file=None, logging=False):
 
         # Naming and shaming
         if experiment_name == "default":
@@ -24,7 +24,14 @@ class Experiment:
 
         self.config_file = None
         self.config = {}
+        self.base_directory = None
         self.path_results = None
+
+        if config_file is not None:
+            self.load_config(config_file)
+
+        if logging:
+            self.log_experiment()
 
     def load_config(self, config_file):
 
@@ -38,21 +45,49 @@ class Experiment:
         self.verify_config()
 
         # Set results path
-        self.path_results = '{path}/{experiment}/'. \
-            format(path=self.config['results']['RESULTS_PATH'], experiment=self.experiment_name)
+        self.path_results = '{path}/{experiment}/'.format(
+            path=self.config['results']['RESULTS_PATH'],
+            experiment=self.experiment_name
+        )
+
+        # Compile relative paths, to be relative to config file
+        self.base_directory = os.path.dirname(config_file)
+        # self.path_results = self.fix_path(self.path_results)
+        # if self.is_simulation():
+        #     self.config['simulation']['SITES'] = self.fix_path(self.config['simulation']['SITES'])
 
         if not os.path.exists(self.path_results):
             os.makedirs(self.path_results)
+
+    def fix_path(self, path):
+        """Make sure that the provided path is either absolute or relative to
+        the config file directory.
+
+        Args:
+            path (str): The original path (absolute or relative).
+
+        Returns:
+            str: The fixed path.
+         """
+        path = path.strip()
+        if os.path.isabs(path):
+            print('-')
+            return path
+        else:
+            print('+')
+            return os.path.join(self.base_directory, path)
 
     def read_config(self):
         with open(self.config_file, 'r') as f:
             self.config = json.load(f)
 
+    def is_simulation(self):
+        return 'simulation' in self.config
+
     def verify_config(self):
 
         # SIMULATION
-        if 'simulation' in self.config:
-
+        if self.is_simulation():
             # Does the simulation part of the config file provide all required simulation parameters?
             # Simulate inheritance?
             if 'INHERITANCE' not in self.config['simulation']:
@@ -177,15 +212,15 @@ class Experiment:
         # PROPOSAL_PRECISION is not in config --> use default values
         else:
             if not self.config['mcmc']['INHERITANCE']:
-                self.config['mcmc']['PROPOSAL_PRECISION'] = {"weights": 30,
-                                                             "universal": 30,
-                                                             "contact": 30,
+                self.config['mcmc']['PROPOSAL_PRECISION'] = {"weights": 15,
+                                                             "universal": 40,
+                                                             "contact": 20,
                                                              "inheritance": None}
             else:
-                self.config['mcmc']['PROPOSAL_PRECISION'] = {"weights": 30,
-                                                             "universal": 30,
-                                                             "contact": 30,
-                                                             "inheritance": 30}
+                self.config['mcmc']['PROPOSAL_PRECISION'] = {"weights": 15,
+                                                             "universal": 40,
+                                                             "contact": 20,
+                                                             "inheritance": 20}
 
         # Steps per operator
         # STEPS is in config --> check for consistency
@@ -228,15 +263,15 @@ class Experiment:
         if 'STEPS' not in self.config['mcmc'] or not steps_complete:
             if self.config['mcmc']['INHERITANCE']:
                 self.config['mcmc']['STEPS'] = {"area": 0.05,
-                                                "weights": 0.65,
+                                                "weights": 0.4,
                                                 "universal": 0.05,
-                                                "contact": 0.2,
-                                                "inheritance": 0.05}
+                                                "contact": 0.4,
+                                                "inheritance": 0.1}
             else:
                 self.config['mcmc']['STEPS'] = {"area": 0.05,
-                                                "weights": 0.7,
+                                                "weights": 0.45,
                                                 "universal": 0.05,
-                                                "contact": 0.2,
+                                                "contact": 0.45,
                                                 "inheritance": 0.00}
 
         if 'results' in self.config:
