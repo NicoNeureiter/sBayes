@@ -1,7 +1,11 @@
 {
   "input": {
-    "path_results": "../results/2020-07-02_18-43",
+    "path_results": "../results/test_data/south_america/n3",
     "path_data": "../data",
+    "path_areas": "../results/test_data/south_america/n3/areas_n3_0.txt",
+    "path_stats": "../results/test_data/south_america/n3/stats_n3_0.txt",
+    "path_ground_truth_areas": null,
+    "path_ground_truth_stats": null,
     "experiment": null,
     "subset": false,
     "proj4": null,

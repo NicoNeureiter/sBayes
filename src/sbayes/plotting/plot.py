@@ -2,12 +2,16 @@
 
 Defines general functions which are used in the child classes Trace and Map
 Manages loading of input data, config files and the general graphic parameters of the plots
-This class is not used for plotting itself
 """
 
 import csv
 import json
 import os
+from statistics import median
+
+import matplotlib.pyplot as plt
+import numpy as np
+import seaborn as sns
 
 from sbayes.preprocessing import compute_network, read_sites
 from sbayes.util import parse_area_columns
@@ -28,9 +32,18 @@ class Plot:
         self.path_data = None
         self.path_plots = None
 
+        self.path_areas = None
+        self.path_stats = None
+
+        if self.is_simulation:
+            self.path_ground_truth_areas = None
+            self.path_ground_truth_stats = None
+
         # Input areas and stats
         self.areas = []
         self.stats = []
+
+        self.number_features = 0
 
         # Input sites, site_names, network
         self.sites = None
@@ -45,6 +58,10 @@ class Plot:
 
         # Dictionary with all the input results
         self.results = {}
+
+        # Needed for the weights and parameters plotting
+        plt.style.use('seaborn-paper')
+        plt.tight_layout()
 
     ####################################
     # Configure the parameters
@@ -67,6 +84,13 @@ class Plot:
         self.path_results = self.config['input']['path_results']
         self.path_data = self.config['input']['path_data']
         self.path_plots = self.config['input']['path_results'] + '/plots'
+
+        self.path_areas = self.config['input']['path_areas']
+        self.path_stats = self.config['input']['path_stats']
+
+        if self.is_simulation:
+            self.path_ground_truth_areas = self.config['input']['path_ground_truth_areas']
+            self.path_ground_truth_stats = self.config['input']['path_ground_truth_stats']
 
         if not os.path.exists(self.path_plots):
             os.makedirs(self.path_plots)
@@ -272,21 +296,189 @@ class Plot:
     def read_results(self, current_scenario):
 
         # Read areas
-        areas_path = f"{self.path_results}/n{self.config['input']['run']}/" \
-                     f"areas_n{self.config['input']['run']}_{current_scenario}.txt"
-        self.areas = self.read_areas(areas_path)
+        # areas_path = f"{self.path_results}/n{self.config['input']['run']}/" \
+        #              f"areas_n{self.config['input']['run']}_{current_scenario}.txt"
+        self.areas = self.read_areas(self.path_areas)
         self.results['zones'] = self.areas
 
         # Read stats
-        stats_path = f"{self.path_results}/n{self.config['input']['run']}/" \
-                     f"stats_n{self.config['input']['run']}_{current_scenario}.txt"
-        self.read_stats(stats_path, self.is_simulation)
+        # stats_path = f"{self.path_results}/n{self.config['input']['run']}/" \
+        #             f"stats_n{self.config['input']['run']}_{current_scenario}.txt"
+        # stats_path = self.path_results + '/n4/stats_n1_0.txt'
+        self.read_stats(self.path_stats, self.is_simulation)
 
         # Read ground truth files
         if self.is_simulation:
-            areas_ground_truth_path = f"{self.path_results}/n{self.config['input']['run']}/ground_truth/areas.txt"
-            self.areas_ground_truth = self.read_areas(areas_ground_truth_path)
+            # areas_ground_truth_path = f"{self.path_results}/n{self.config['input']['run']}/ground_truth/areas.txt"
+            self.areas_ground_truth = self.read_areas(self.path_ground_truth_areas)
             self.results['true_zones'] = self.areas_ground_truth
 
-            stats_ground_truth_path = f"{self.path_results}/n{self.config['input']['run']}/ground_truth/stats.txt"
-            self.read_stats(stats_ground_truth_path, self.is_simulation)
+            # stats_ground_truth_path = f"{self.path_results}/n{self.config['input']['run']}/ground_truth/stats.txt"
+            self.read_stats(self.path_ground_truth_stats, self.is_simulation)
+
+    ####################################
+    # Probability simplex, grid plot
+    ####################################
+    @staticmethod
+    def get_corner_points(n, offset=0.5 * np.pi):
+        """Generate corner points of a equal sided ´n-eck´."""
+        angles = np.linspace(0, 2 * np.pi, n, endpoint=False) + offset
+        return np.array([np.cos(angles), np.sin(angles)]).T
+
+    @staticmethod
+    def fill_outside(polygon, color, ax=None):
+        """Fill the area outside the given polygon with ´color´.
+
+        Args:
+            polygon (np.array): The polygon corners in a numpy array.
+                shape: (n_corners, 2)
+            color (str or tuple): The fill color.
+        """
+        if ax is None:
+            ax = plt.gca()
+
+        n_corners = polygon.shape[0]
+        i_left = np.argmin(polygon[:, 0])
+        i_right = np.argmax(polygon[:, 0])
+
+        # Find corners of bottom face
+        i = i_left
+        bot_x = [polygon[i, 0]]
+        bot_y = [polygon[i, 1]]
+        while i % n_corners != i_right:
+            i += 1
+            bot_x.append(polygon[i, 0])
+            bot_y.append(polygon[i, 1])
+
+        # Find corners of top face
+        i = i_left
+        top_x = [polygon[i, 0]]
+        top_y = [polygon[i, 1]]
+        while i % n_corners != i_right:
+            i -= 1
+            top_x.append(polygon[i, 0])
+            top_y.append(polygon[i, 1])
+
+        ymin, ymax = ax.get_ylim()
+        plt.fill_between(bot_x, ymin, bot_y, color=color)
+        plt.fill_between(top_x, ymax, top_y, color=color)
+
+    # Transform weights into needed format
+    # By default plot feature 1
+    def transform_input_weights(self, feature):
+        universal_array = []
+        contact_array = []
+        inheritance_array = []
+
+        for key in self.results['weights']:
+            if key.endswith('F' + str(feature)) or key.endswith('f' + str(feature)):
+                if 'universal' in key:
+                    universal_array = self.results['weights'][key]
+                elif 'contact' in key:
+                    contact_array = self.results['weights'][key]
+                elif 'inheritance' in key:
+                    inheritance_array = self.results['weights'][key]
+
+        weights = np.column_stack([universal_array, contact_array, inheritance_array]).astype(np.float)
+        contact_median = median(contact_array)
+
+        return weights, contact_median
+
+    # Sort weights by median contact
+    def get_median_contact(self):
+        sorted_feature_indexes = {}
+        sorted_weights = {}
+        for i in range(1, 36):
+            samples, contact_median = self.transform_input_weights(i)
+            sorted_feature_indexes[contact_median] = [i, samples]
+
+        # Sort by median, from highest to lowest
+        for key in sorted(sorted_feature_indexes, reverse=True):
+            # print(key, sorted_feature_indexes[key][0], sorted_feature_indexes[key][1])
+            sorted_weights[sorted_feature_indexes[key][0]] = sorted_feature_indexes[key][1]
+
+        return sorted_weights
+
+    # Probability simplex (for one feature)
+    def plot_weights(self, samples, feature, labels=None, ax=None):
+        """Plot a set of weight vectors in a 2D representation of the probability simplex.
+
+        Args:
+            samples (np.array): Sampled weight vectors to plot.
+            labels (list[str]): Labels for each weight dimension.
+            ax (plt.Axis): The pyplot axis.
+        """
+
+        if ax is None:
+            ax = plt.gca()
+        n_samples, n_weights = samples.shape
+
+        # Compute corners
+        corners = Plot.get_corner_points(n_weights)
+
+        # Project and plot the data
+        samples_projected = samples.dot(corners)
+
+        # Blueish background (ridge stuff?) commented out
+        # sns.kdeplot(*samples_projected.T, shade=True, shade_lowest=False)
+        plt.title('F' + str(feature), loc='left', fontdict={'fontweight': 'bold'})
+        # print('Feature ' + str(feature))
+
+        plt.scatter(*samples_projected.T, color='k', lw=0, alpha=0.2)
+
+        # Draw simplex and crop outside
+        plt.fill(*corners.T, edgecolor='k', fill=False)
+        Plot.fill_outside(corners, color='w', ax=ax)
+
+        if labels is not None:
+            for xy, label in zip(corners, labels):
+                plt.annotate(label, xy)
+
+        plt.axis('equal')
+        plt.axis('off')
+        plt.tight_layout(0)
+        plt.plot()
+
+    # Find number of features
+    # def find_num_features(self):
+    #     for key in self.results['weights']:
+    #         num = re.search('[0-9]+', key)
+    #         if num:
+    #             if int(num.group(0)) > self.number_features:
+    #                 self.number_features = int(num.group(0))
+
+    # Make a grid with all features (sorted by median contact)
+    # By now we assume number of features to be 35; later this should be rewritten for any number of features
+    # using find_num_features
+    def plot_weights_grid(self, labels=None):
+        sorted_weights = self.get_median_contact()
+
+        fig, axs = plt.subplots(5, 7, figsize=(15, 15))
+        fig.subplots_adjust(hspace=0.5)
+
+        position = 1
+        for feature in sorted_weights:
+            plt.subplot(5, 7, position)
+            self.plot_weights(sorted_weights[feature], feature=feature, labels=labels)
+            position += 1
+
+        fig.savefig(self.path_plots + '/grid.png')
+
+    # This is not changed yet
+    def plot_parameters_ridge(self, samples):
+        """Creates a ridge plot for parameters with two states
+
+       Args:
+           samples (np.array): Sampled parameters
+                shape(n_samples, 2)
+       """
+
+        n_samples, n_states = samples.shape
+
+        if n_states != 2:
+            raise ValueError("Only applicable for parameters with two states")
+
+        ridge_plt = sns.kdeplot(samples.T[0], shade=True, clip=(0.0, 1.0),
+                                alpha=0.2, lw=.5, bw='scott')
+        ridge_plt.set(xlim=(0, 1))
+        plt.show()
