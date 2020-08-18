@@ -415,16 +415,18 @@ class Plot:
 
         # Compute corners
         corners = Plot.get_corner_points(n_weights)
+        # Bounding box
+        xmin, ymin = np.min(corners, axis=0)
+        xmax, ymax = np.max(corners, axis=0)
 
-        # Project and plot the data
+        # Project the samples
         samples_projected = samples.dot(corners)
 
-        # Blueish background (ridge stuff?) commented out
-        # sns.kdeplot(*samples_projected.T, shade=True, shade_lowest=False)
+        # Density and scatter plot
         plt.title('F' + str(feature), loc='left', fontdict={'fontweight': 'bold'})
-        # print('Feature ' + str(feature))
-
-        plt.scatter(*samples_projected.T, color='k', lw=0, alpha=0.2)
+        sns.kdeplot(*samples_projected.T, shade=True, shade_lowest=True, cut=20, n_levels=100,
+                    clip=([xmin, xmax], [ymin, ymax]))
+        plt.scatter(*samples_projected.T, color='k', lw=0, s=1, alpha=0.2)
 
         # Draw simplex and crop outside
         plt.fill(*corners.T, edgecolor='k', fill=False)
@@ -432,7 +434,8 @@ class Plot:
 
         if labels is not None:
             for xy, label in zip(corners, labels):
-                plt.annotate(label, xy)
+                xy *= 1.05  # Stretch, s.t. labels don't overlap with corners
+                plt.text(*xy, label, ha='center', va='center')
 
         plt.axis('equal')
         plt.axis('off')
