@@ -282,7 +282,7 @@ class Experiment:
 
         else:
             self.config['results'] = {}
-            self.config['results']['RESULTS_PATH'] = "../results"
+            self.config['results']['RESULTS_PATH'] = "results"
             self.config['results']['FILE_INFO'] = "n"
 
     def log_experiment(self):

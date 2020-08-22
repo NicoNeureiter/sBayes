@@ -1,6 +1,8 @@
 from sbayes.experiment_setup import Experiment
 from sbayes.load_data import Data
 from sbayes.mcmc_setup import MCMC
+import os
+
 
 if __name__ == '__main__':
 

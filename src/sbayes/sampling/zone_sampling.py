@@ -663,7 +663,6 @@ class ZoneMCMC_generative(MCMC_generative):
             l_per_cat = np.sum(self.features, axis=0)
             p_global = normalize(l_per_cat)
 
-            # If one of the p_global values is 0 balance the p_array, such that none of the p's is exactly 0
             for p in range(len(p_global)):
 
                 # Check for nonzero p_idx

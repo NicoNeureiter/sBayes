@@ -7,7 +7,7 @@
 	"N_AREAS": "TBD",
     "MIN_M": 3,
     "MAX_M": 60,
-    "N_CHAINS": 7,
+    "N_CHAINS": 6,
     "SWAP_PERIOD": 1000,
     "N_SWAPS": 3,
     "PRIOR": {

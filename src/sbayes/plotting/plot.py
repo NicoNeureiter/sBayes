@@ -10,18 +10,20 @@ import os
 from statistics import median
 
 import matplotlib.pyplot as plt
+from matplotlib.colors import ListedColormap
 import numpy as np
 import seaborn as sns
+import math
 
 from sbayes.preprocessing import compute_network, read_sites
-from sbayes.util import parse_area_columns
+from sbayes.util import parse_area_columns, read_features_from_csv
 
 
 class Plot:
-    def __init__(self, simulation=False):
+    def __init__(self, simulated_data=False):
 
         # Flag for simulation
-        self.is_simulation = simulation
+        self.is_simulation = simulated_data
 
         # Config variables
         self.config = {}
@@ -45,7 +47,7 @@ class Plot:
 
         self.number_features = 0
 
-        # Input sites, site_names, network
+        # Input sites, site_names, network, ...
         self.sites = None
         self.site_names = None
         self.network = None
@@ -56,7 +58,7 @@ class Plot:
         if self.is_simulation:
             self.areas_ground_truth = []
 
-        # Dictionary with all the input results
+        # Dictionary with all the MCMC results
         self.results = {}
 
         # Needed for the weights and parameters plotting
@@ -126,9 +128,13 @@ class Plot:
         return current_run_path
 
     # Read sites, site_names, network
-    # Read the data from the file sites.csv
-    def read_data(self, data_path):
-        self.sites, self.site_names, _ = read_sites(data_path)
+    def read_data(self):
+
+        if self.is_simulation:
+            self.sites, self.site_names, _ = read_sites(self.path_data)
+        else:
+            self.sites, self.site_names, _, _ , _, _, _, _ = read_features_from_csv(self.path_data)
+
         self.network = compute_network(self.sites)
         self.locations, self.dist_mat = self.network['locations'], self.network['dist_mat']
 
@@ -223,6 +229,7 @@ class Plot:
             true_posterior, true_likelihood, true_prior, \
             true_weights, true_alpha, true_beta, true_gamma
 
+
     # Helper function for read_stats
     # Bind all statistics together into the dictionary self.results
     def bind_stats(self, txt_path, posterior, likelihood, prior,
@@ -230,7 +237,7 @@ class Plot:
                    posterior_single_zones, likelihood_single_zones, prior_single_zones,
                    recall, precision,
                    true_posterior, true_likelihood, true_prior,
-                   true_weights, true_alpha, true_beta, true_gamma):
+                   true_weights, true_alpha, true_beta, true_gamma, feature_names):
 
         if 'ground_truth' in txt_path:
             self.results['true_posterior'] = true_posterior
@@ -254,6 +261,7 @@ class Plot:
             self.results['prior_single_zones'] = prior_single_zones
             self.results['recall'] = recall
             self.results['precision'] = precision
+            self.results['feature_names'] = feature_names
 
     # Read stats
     # Read the results from the files:
@@ -286,9 +294,15 @@ class Plot:
                     recall, precision, true_posterior, true_likelihood, true_prior, \
                         true_weights, true_alpha, true_beta, true_gamma = Plot.read_simulation_stats(txt_path, lines)
 
+        # Names of distinct features
+        feature_names = []
+        for key in weights:
+            if 'universal' in key:
+                feature_names.append(str(key).rsplit('_', 1)[1])
+
         self.bind_stats(txt_path, posterior, likelihood, prior, weights, alpha, beta, gamma, posterior_single_zones,
                         likelihood_single_zones, prior_single_zones, recall, precision, true_posterior,
-                        true_likelihood, true_prior, true_weights, true_alpha, true_beta, true_gamma)
+                        true_likelihood, true_prior, true_weights, true_alpha, true_beta, true_gamma, feature_names)
 
     # Read results
     # Call all the previous functions
@@ -306,7 +320,6 @@ class Plot:
         #             f"stats_n{self.config['input']['run']}_{current_scenario}.txt"
         # stats_path = self.path_results + '/n4/stats_n1_0.txt'
         self.read_stats(self.path_stats, self.is_simulation)
-
         # Read ground truth files
         if self.is_simulation:
             # areas_ground_truth_path = f"{self.path_results}/n{self.config['input']['run']}/ground_truth/areas.txt"
@@ -364,47 +377,124 @@ class Plot:
         plt.fill_between(top_x, ymax, top_y, color=color)
 
     # Transform weights into needed format
-    # By default plot feature 1
-    def transform_input_weights(self, feature):
+    def transform_weights(self, feature, b_in):
+
         universal_array = []
         contact_array = []
         inheritance_array = []
 
-        for key in self.results['weights']:
-            if key.endswith('F' + str(feature)) or key.endswith('f' + str(feature)):
-                if 'universal' in key:
-                    universal_array = self.results['weights'][key]
-                elif 'contact' in key:
-                    contact_array = self.results['weights'][key]
-                elif 'inheritance' in key:
-                    inheritance_array = self.results['weights'][key]
+        sample_dict = self.results['weights']
 
-        weights = np.column_stack([universal_array, contact_array, inheritance_array]).astype(np.float)
-        contact_median = median(contact_array)
+        for key in sample_dict:
+            if 'universal' in key and str(feature) in key:
+                universal_array = sample_dict[key][b_in:]
+            elif 'contact' in key and str(feature) in key:
+                contact_array = sample_dict[key][b_in:]
+            elif 'inheritance' in key and str(feature) in key:
+                inheritance_array = sample_dict[key][b_in:]
 
-        return weights, contact_median
+        if self.is_simulation:
 
-    # Sort weights by median contact
-    def get_median_contact(self):
-        sorted_feature_indexes = {}
-        sorted_weights = {}
-        for i in range(1, 36):
-            samples, contact_median = self.transform_input_weights(i)
-            sorted_feature_indexes[contact_median] = [i, samples]
+            true_universal = []
+            true_contact = []
+            true_inheritance = []
 
-        # Sort by median, from highest to lowest
-        for key in sorted(sorted_feature_indexes, reverse=True):
-            # print(key, sorted_feature_indexes[key][0], sorted_feature_indexes[key][1])
-            sorted_weights[sorted_feature_indexes[key][0]] = sorted_feature_indexes[key][1]
+            true_dict = self.results['true_weights']
 
-        return sorted_weights
+            for key in true_dict:
+                if 'universal' in key and str(feature) in key:
+                     true_universal = true_dict[key]
+                elif 'contact' in key and str(feature) in key:
+                    true_contact = true_dict[key]
+                elif 'inheritance' in key and str(feature) in key:
+                    true_inheritance = true_dict[key]
+
+            ground_truth = np.array([true_universal, true_contact, true_inheritance]).astype(np.float)
+        else:
+            ground_truth = None
+        sample = np.column_stack([universal_array, contact_array, inheritance_array]).astype(np.float)
+
+        return sample,  ground_truth
+
+    def transform_probability_vectors(self, feature, parameter, b_in):
+
+        if "alpha" in parameter:
+            sample_dict = self.results['alpha']
+        elif "beta" in parameter:
+            sample_dict = self.results['beta']
+        elif "gamma" in parameter:
+            sample_dict = self.results['gamma']
+        else:
+            raise ValueError("parameter must be alpha, beta or gamma")
+
+        p_dict = {}
+        states = []
+
+        for key in sample_dict:
+            if str(feature + '_') in key and parameter in key:
+                state = str(key).rsplit('_', 1)[1]
+                p_dict[state] = sample_dict[key][b_in:]
+                states.append(state)
+
+        sample = np.column_stack([p_dict[s] for s in p_dict]).astype(np.float)
+
+        if self.is_simulation:
+            if "alpha" in parameter:
+                true_dict = self.results['true_alpha']
+            elif "beta" in parameter:
+                true_dict = self.results['true_beta']
+            elif "gamma" in parameter:
+                true_dict = self.results['true_gamma']
+            else:
+                raise ValueError("parameter must alpha, beta or gamma")
+            if sample_dict.keys() != true_dict.keys():
+                raise KeyError("dict keys do not match")
+
+            true_prob = []
+
+            for key in true_dict:
+                if str(feature + '_') in key and parameter in key:
+                    true_prob.append(true_dict[key])
+        else:
+            true_prob = None
+        return sample, np.array(true_prob).astype(np.float), states
+
+# Sort weights by median contact
+    def get_parameters(self, b_in, parameter="weights"):
+
+        par = {}
+        true_par = {}
+        states = {}
+
+        for i in self.results['feature_names']:
+            if parameter == "weights":
+                p, true_p = self.transform_weights(feature=i, b_in=b_in)
+                par[i] = p
+                true_par[i] = true_p
+
+            elif "alpha" in parameter or "beta" in parameter or "gamma" in parameter:
+                p, true_p, state = self.transform_probability_vectors(feature=i, parameter=parameter, b_in=b_in)
+
+                par[i] = p
+                true_par[i] = true_p
+                states[i] = state
+
+        return par, true_par, states
+
+    def sort_by_weights(self, w):
+        sort_by = {}
+        for i in self.results['feature_names']:
+            sort_by[i] = median(w[i][:, 1])
+        ordering = sorted(sort_by, key=sort_by.get, reverse=True)
+        return ordering
 
     # Probability simplex (for one feature)
-    def plot_weights(self, samples, feature, labels=None, ax=None):
+    def plot_weights(self, samples, feature, true_weights=None, labels=None, ax=None):
         """Plot a set of weight vectors in a 2D representation of the probability simplex.
 
         Args:
             samples (np.array): Sampled weight vectors to plot.
+            true_weights (np.array): true weight vectors (only for simulated data)
             labels (list[str]): Labels for each weight dimension.
             ax (plt.Axis): The pyplot axis.
         """
@@ -422,19 +512,28 @@ class Plot:
         # Project the samples
         samples_projected = samples.dot(corners)
 
+        # color map
+        cmap = sns.cubehelix_palette(light=1,  start=.5, rot=-.75, as_cmap=True)
+
         # Density and scatter plot
-        plt.title('F' + str(feature), loc='left', fontdict={'fontweight': 'bold'})
-        sns.kdeplot(*samples_projected.T, shade=True, shade_lowest=True, cut=20, n_levels=100,
-                    clip=([xmin, xmax], [ymin, ymax]))
-        plt.scatter(*samples_projected.T, color='k', lw=0, s=1, alpha=0.2)
+        plt.title(str(feature), loc='left', fontdict={'fontweight': 'bold'})
+        x = samples_projected.T[0]
+        y = samples_projected.T[1]
+        sns.kdeplot(x, y, shade=True, shade_lowest=True, cut=30, n_levels=100,
+                    clip=([xmin, xmax], [ymin, ymax]), cmap=cmap)
+        plt.scatter(x, y, color='k', lw=0, s=1, alpha=0.2)
 
         # Draw simplex and crop outside
         plt.fill(*corners.T, edgecolor='k', fill=False)
         Plot.fill_outside(corners, color='w', ax=ax)
 
+        if true_weights is not None:
+            true_projected = true_weights.dot(corners)
+            plt.scatter(*true_projected.T, color="#ed1696", lw=0, s=100, marker="*")
+
         if labels is not None:
             for xy, label in zip(corners, labels):
-                xy *= 1.05  # Stretch, s.t. labels don't overlap with corners
+                xy *= 1.08  # Stretch, s.t. labels don't overlap with corners
                 plt.text(*xy, label, ha='center', va='center')
 
         plt.axis('equal')
@@ -442,6 +541,84 @@ class Plot:
         plt.tight_layout(0)
         plt.plot()
 
+    def plot_probability_vectors(self, samples, feature, true_p=None, labels=None, ax=None):
+        """Plot a set of weight vectors in a 2D representation of the probability simplex.
+
+        Args:
+            samples (np.array): Sampled weight vectors to plot.
+            true_weights (np.array): true weight vectors (only for simulated data)
+            labels (list[str]): Labels for each weight dimension.
+            ax (plt.Axis): The pyplot axis.
+        """
+
+        if ax is None:
+            ax = plt.gca()
+        n_samples, n_p = samples.shape
+        # color map
+        cmap = sns.cubehelix_palette(light=1, start=.5, rot=-.75, as_cmap=True)
+        if n_p == 2:
+            plt.title(str(feature), loc='left', fontdict={'fontweight': 'bold'})
+            x = samples.T[0]
+            print(x)
+            y = np.zeros(n_samples)
+            sns.distplot(x, rug=True, hist=False, kde_kws={"shade": True, "lw": 0, "clip": (0, 1)}, color="g",
+                         rug_kws={"color": "k", "alpha": 0.01, "height": 0.03})
+            #sns.kdeplot(x, shade=True, color="r", clip=(0, 1))
+            #plt.scatter(x, y, color='k', lw=0, s=1, alpha=0.2)
+            #plt.axhline(y=0, color='k', linestyle='-', lw=0.5, xmin=0, xmax=1)
+            plt.plot([0, 1], [0,0], c="k", lw=0.5)
+            plt.xlim(0, 1)
+            plt.axis('off')
+
+            ax.axes.get_yaxis().set_visible(False)
+            #ax.annotate('', xy=(0, -0.5), xytext=(1, -0.1),
+            #            arrowprops=dict(arrowstyle="-", color='b'))
+
+
+            if true_p is not None:
+                plt.scatter(true_p[0], 0, color="#ed1696", lw=0, s=100, marker="*")
+
+            if labels is not None:
+                for x, label in enumerate(labels):
+                    plt.text(x, -0.5, label, ha='center', va='top')
+
+        elif n_p > 2:
+        # Compute corners
+            corners = Plot.get_corner_points(n_p)
+            # Bounding box
+            xmin, ymin = np.min(corners, axis=0)
+            xmax, ymax = np.max(corners, axis=0)
+
+            # Project the samples
+            samples_projected = samples.dot(corners)
+
+            # Density and scatter plot
+            plt.title(str(feature), loc='left', fontdict={'fontweight': 'bold'})
+            x = samples_projected.T[0]
+            y = samples_projected.T[1]
+            sns.kdeplot(x, y, shade=True, shade_lowest=True, cut=30, n_levels=100,
+                    clip=([xmin, xmax], [ymin, ymax]), cmap=cmap)
+            plt.scatter(x, y, color='k', lw=0, s=1, alpha=0.05)
+
+            # Draw simplex and crop outside
+
+            plt.fill(*corners.T, edgecolor='k', fill=False)
+            Plot.fill_outside(corners, color='w', ax=ax)
+
+            if true_p is not None:
+                true_projected = true_p.dot(corners)
+                plt.scatter(*true_projected.T, color="#ed1696", lw=0, s=100, marker="*")
+
+            if labels is not None:
+                for xy, label in zip(corners, labels):
+                    xy *= 1.08  # Stretch, s.t. labels don't overlap with corners
+                    plt.text(*xy, label, ha='center', va='center')
+
+            plt.axis('equal')
+            plt.axis('off')
+            plt.tight_layout(0)
+
+        plt.plot()
     # Find number of features
     # def find_num_features(self):
     #     for key in self.results['weights']:
@@ -454,34 +631,60 @@ class Plot:
     # By now we assume number of features to be 35; later this should be rewritten for any number of features
     # using find_num_features
     def plot_weights_grid(self, labels=None):
-        sorted_weights = self.get_median_contact()
 
-        fig, axs = plt.subplots(5, 7, figsize=(15, 15))
+        weights, true_weights, _ = self.get_parameters(parameter="weights", b_in=5000)
+        ordering = self.sort_by_weights(weights)
+
+        n_plots = 4
+        n_col = 4
+        n_row = math.ceil(n_plots/n_col)
+
+        fig, axs = plt.subplots(n_row, n_col, figsize=(15, 5))
         fig.subplots_adjust(hspace=0.5)
 
         position = 1
-        for feature in sorted_weights:
-            plt.subplot(5, 7, position)
-            self.plot_weights(sorted_weights[feature], feature=feature, labels=labels)
+
+        features = ordering[:n_plots]
+
+        for f in features:
+            plt.subplot(n_row, n_col, position)
+            self.plot_weights(weights[f], feature=f, true_weights=true_weights[f], labels=labels)
+            print(position, "of", n_plots, "plots finished")
             position += 1
 
-        fig.savefig(self.path_plots + '/grid.png')
+            fig.savefig(self.path_plots + '/weights_grid.pdf', dpi=400, format="pdf")
 
     # This is not changed yet
-    def plot_parameters_ridge(self, samples):
+    def plot_probability_grid(self, p_name="gamma_a1", labels=None):
         """Creates a ridge plot for parameters with two states
 
        Args:
            samples (np.array): Sampled parameters
                 shape(n_samples, 2)
+           p_vec (str): name of parameter vector (either alpha, beta_familiy_* or gamma)
        """
+        weights, true_weights, _ = self.get_parameters(parameter="weights", b_in=5000)
+        ordering = self.sort_by_weights(weights)
 
-        n_samples, n_states = samples.shape
+        p, true_p, states = self.get_parameters(parameter=p_name, b_in=5000)
 
-        if n_states != 2:
-            raise ValueError("Only applicable for parameters with two states")
+        n_plots = 4
+        n_col = 4
+        n_row = math.ceil(n_plots / n_col)
 
-        ridge_plt = sns.kdeplot(samples.T[0], shade=True, clip=(0.0, 1.0),
-                                alpha=0.2, lw=.5, bw='scott')
-        ridge_plt.set(xlim=(0, 1))
-        plt.show()
+        fig, axs = plt.subplots(n_row, n_col, figsize=(15, 5))
+        fig.subplots_adjust(hspace=0.5)
+
+        position = 1
+
+        features = ordering[:n_plots]
+
+        for f in features:
+
+            plt.subplot(n_row, n_col, position)
+            self.plot_probability_vectors(p[f], feature=f, true_p=true_p[f], labels=states[f])
+            print(position, "of", n_plots, "plots finished")
+            position += 1
+
+        fig.savefig(self.path_plots + '/prob_grid.pdf', dpi=400, format="pdf")
+
