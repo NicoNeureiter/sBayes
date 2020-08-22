@@ -238,30 +238,23 @@ def match_areas(samples):
 
     # Reorder chains according to matching
     reordered_zones = []
+    reordered_p_zones = []
+    reordered_lh = []
+    reordered_prior = []
+    reordered_posterior = []
 
-    for z in range(len(samples['sample_zones'])):
-        reordered_zones.append(samples['sample_zones'][z][:][matching_list[z]])
+    for s in range(len(samples['sample_zones'])):
+        reordered_zones.append(samples['sample_zones'][s][:][matching_list[s]])
+        reordered_p_zones.append(samples['sample_p_zones'][s][matching_list][s])
+        reordered_lh.append([samples['sample_lh_single_zones'][s][i] for i in matching_list[s]])
+        reordered_prior.append([samples['sample_prior_single_zones'][s][i] for i in matching_list[s]])
+        reordered_posterior.append([samples['sample_posterior_single_zones'][s][i] for i in matching_list[s]])
 
     samples['sample_zones'] = reordered_zones
-
-    # Likelihood and prior of single areas
-    try:
-        reordered_lh = []
-        reordered_prior = []
-        reordered_posterior = []
-
-        for z in range(len(samples['sample_zones'])):
-
-            reordered_lh.append([samples['sample_lh_single_zones'][z][i] for i in matching_list[z]])
-            reordered_prior.append([samples['sample_prior_single_zones'][z][i] for i in matching_list[z]])
-            reordered_posterior.append([samples['sample_posterior_single_zones'][z][i] for i in matching_list[z]])
-
-        samples['sample_lh_single_zones'] = reordered_lh
-        samples['sample_prior_single_zones'] = reordered_prior
-        samples['sample_posterior_single_zones'] = reordered_posterior
-
-    except KeyError:
-        pass
+    samples['sample_p_zones'] = reordered_p_zones
+    samples['sample_lh_single_zones'] = reordered_lh
+    samples['sample_prior_single_zones'] = reordered_prior
+    samples['sample_posterior_single_zones'] = reordered_posterior
 
     return samples
 
@@ -329,17 +322,22 @@ def rank_areas(samples):
     ranked_lh = []
     ranked_prior = []
     ranked_posterior = []
+    ranked_p_areas = []
+    print(samples['sample_p_zones'][0].shape, "before")
 
-    for i in range(len(samples['sample_zones'])):
-        ranked_areas.append(samples['sample_zones'][i][ranked])
-        ranked_lh.append([samples['sample_lh_single_zones'][i][r] for r in ranked])
-        ranked_prior.append([samples['sample_prior_single_zones'][i][r] for r in ranked])
-        ranked_posterior.append([samples['sample_posterior_single_zones'][i][r] for r in ranked])
+    for s in range(len(samples['sample_zones'])):
+        ranked_areas.append(samples['sample_zones'][s][ranked])
+        ranked_lh.append([samples['sample_lh_single_zones'][s][r] for r in ranked])
+        ranked_prior.append([samples['sample_prior_single_zones'][s][r] for r in ranked])
+        ranked_posterior.append([samples['sample_posterior_single_zones'][s][r] for r in ranked])
+        ranked_p_areas.append(samples['sample_p_zones'][s][ranked])
 
     samples['sample_zones'] = ranked_areas
     samples['sample_lh_single_zones'] = ranked_lh
     samples['sample_prior_single_zones'] = ranked_prior
     samples['sample_posterior_single_zones'] = ranked_posterior
+    samples['sample_p_zones'] = ranked_p_areas
+    print(samples['sample_p_zones'][0].shape, "after")
 
     return samples
 

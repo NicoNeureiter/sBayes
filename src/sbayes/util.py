@@ -190,6 +190,42 @@ def zones_autosimilarity(zones, t):
     return np.mean(sim_norm)
 
 
+# Encoding
+def encode_states(features_in):
+
+        state_names = {'external': [],
+                       'internal': []}
+        features_enc = []
+        for f in np.swapaxes(features_in, 0, 1):
+            states_ext = list(np.unique(f))
+            states_int = []
+            if "" in states_ext:
+                states_ext.remove("")
+
+            s_idx = 0
+            for s in list(states_ext):
+                f = np.where(f == s, s_idx, f)
+                states_int.append(s_idx)
+                s_idx += 1
+            state_names['external'].append(states_ext)
+            state_names['internal'].append(states_int)
+            features_enc.append(f)
+
+        features_enc = np.column_stack([f for f in features_enc])
+        enc_states = list(np.unique(features_enc))
+
+        features_bin = []
+        na_number = 0
+        for cat in enc_states:
+            if cat == "":
+                na_number = np.count_nonzero(np.where(features_enc == cat, 1, 0))
+            else:
+                cat_axis = np.expand_dims(np.where(features_enc == cat, 1, 0), axis=2)
+                features_bin.append(cat_axis)
+
+        return np.concatenate(features_bin, axis=2), state_names, na_number
+
+
 def read_features_from_csv(file):
     """This is a helper function to import data (sites, features, family membership,...) from a csv file
     Args:
@@ -250,33 +286,11 @@ def read_features_from_csv(file):
                   'internal': list(range(0, len(l_id)))}
 
     # features
-    features_with_cat = np.ndarray.transpose(np.array([csv_as_dict[i] for i in feature_names_ordered]))
-    cat_names = np.unique(features_with_cat)
-    features_cat = []
-    na_number = 0
-    for cat in cat_names:
-        if cat == "":
-            na_number = np.count_nonzero(np.where(features_with_cat == cat, 1, 0))
+    features_s = np.ndarray.transpose(np.array([csv_as_dict[i] for i in feature_names_ordered]))
+    features, state_names, na_number = encode_states(features_s)
 
-        else:
-            cat_axis = np.expand_dims(np.where(features_with_cat == cat, 1, 0), axis=2)
-            features_cat.append(cat_axis)
-    features = np.concatenate(features_cat, axis=2)
     feature_names = {'external': feature_names_ordered,
                      'internal': list(range(0, len(feature_names_ordered)))}
-
-    # categories per feature
-    category_names_ordered = []
-
-    for f in features_with_cat.transpose():
-        cat_per_feature = []
-        for cat in cat_names:
-            if cat in f and cat != "":
-                cat_per_feature.append(cat)
-        category_names_ordered.append(cat_per_feature)
-
-    category_names = {'external': category_names_ordered,
-                      'internal': [list(range(0, len(c))) for c in category_names_ordered]}
 
     # family
     family_names_ordered = np.unique(family).tolist()
@@ -294,7 +308,7 @@ def read_features_from_csv(file):
         str(len(feature_names['internal'])) + " features read from " + \
         file + ". " + str(na_number) + " NA value(s) found."
 
-    return sites, site_names, features, feature_names, category_names, families, family_names, log
+    return sites, site_names, features, feature_names, state_names, families, family_names, log
 
 
 def write_languages_to_csv(features, sites, families, file):
@@ -370,8 +384,10 @@ def read_feature_occurrence_from_csv(file):
             The occurrence of each feature, either as relative frequencies or counts, together with feature
             and category names
     """
+
     columns = []
-    cat_names = []
+    names = []
+
     with open(file, 'rU', encoding='utf-8') as f:
         reader = csv.reader(f)
         for row in reader:
@@ -380,44 +396,64 @@ def read_feature_occurrence_from_csv(file):
                     columns[i].append(value)
             else:
                 # first row
-                cat_names = [value for value in row]
+                names = [value for value in row]
                 columns = [[value] for value in row]
     csv_as_dict = {c[0]: c[1:] for c in columns}
 
     try:
         feature_names_ordered = csv_as_dict.pop('feature')
-        cat_names.remove('feature')
+        names.remove('feature')
 
     except KeyError:
         raise KeyError('The csv must contain column "feature"')
-    occurr = np.zeros((len(feature_names_ordered), len(cat_names)))
+
+    occurr = np.zeros((len(feature_names_ordered), len(names)))
 
     feature_names = {'external': feature_names_ordered,
                      'internal': list(range(0, len(feature_names_ordered)))}
 
-    cat_names = np.unique(cat_names)
+    names = np.unique(names)
 
-    cat_names_ordered = [[] for _ in range(len(feature_names_ordered))]
-    for c in range(len(cat_names)):
-        row = csv_as_dict[cat_names[c]]
+    state_names_ordered = [[] for _ in range(len(feature_names_ordered))]
+    for c in range(len(names)):
+        row = csv_as_dict[names[c]]
 
         # Handle missing data
         for f in range(len(row)):
             try:
                 row[f] = float(row[f])
-                cat_names_ordered[f].append(cat_names[c])
+                state_names_ordered[f].append(names[c])
 
             except ValueError:
                 if row[f] == '':
                     row[f] = 0
                 else:
                     raise ValueError("Frequencies must be numeric!")
+
         occurr[:, c] = row
 
-    category_names = {'external': cat_names_ordered,
-                      'internal': [list(range(0, len(c))) for c in cat_names_ordered]}
+    state_names = {'external': state_names_ordered,
+                   'internal': [list(range(0, len(c))) for c in state_names_ordered]}
 
-    return occurr, category_names, feature_names
+    return occurr, list(names), state_names, feature_names,
+
+
+def tighten_counts(counts, state_names, count_names):
+
+    # Tighten count matrix
+        max_n_states = max([len(s) for s in state_names['external']])
+
+        counts_tight = []
+        for f in range(len(counts)):
+            c = np.zeros(max_n_states)
+            for s in range(len(state_names['external'][f])):
+                external = state_names['external'][f][s]
+                internal = state_names['internal'][f][s]
+                idx = count_names.index(external)
+                c[internal] = counts[f][idx]
+            counts_tight.append(c)
+
+        return np.row_stack([c for c in counts_tight]).astype(int)
 
 
 def inheritance_counts_to_dirichlet(counts, categories):
@@ -668,36 +704,40 @@ def samples2file(samples, data, config, paths):
 
         # alpha
         for f in range(len(data.feature_names['external'])):
-            for st in range(len(data.state_names['external'][f])):
+            for st in data.state_names['external'][f]:
                 feature_name = 'alpha_' + str(data.feature_names['external'][f])\
-                               + '_' + str(data.state_names['external'][f][st])
+                               + '_' + str(st)
+                idx = data.state_names['external'][f].index(st)
                 if feature_name not in column_names:
                     column_names += [feature_name]
-                row[feature_name] = samples['sample_p_global'][s][0][f][st]
+                row[feature_name] = samples['sample_p_global'][s][0][f][idx]
 
         # gamma
         for a in range(config['mcmc']['N_AREAS']):
             for f in range(len(data.feature_names['external'])):
-                for st in range(len(data.state_names['external'][f])):
+                for st in data.state_names['external'][f]:
                     feature_name = 'gamma_' + 'a' + str(a+1)\
                                    + '_' + str(data.feature_names['external'][f]) + '_' \
-                                   + str(data.state_names['external'][f][st])
+                                   + str(st)
+                    idx = data.state_names['external'][f].index(st)
+
                     if feature_name not in column_names:
                         column_names += [feature_name]
-                    row[feature_name] = samples['sample_p_zones'][s][a][f][st]
+                    row[feature_name] = samples['sample_p_zones'][s][a][f][idx]
 
         # beta
         if config['mcmc']['INHERITANCE']:
             for fam in range(len(data.family_names['external'])):
                 for f in range(len(data.feature_names['external'])):
-                    for st in range(len(data.state_names['external'][f])):
+                    for st in data.state_names['external'][f]:
                         feature_name = 'beta_' + str(data.family_names['external'][fam])\
                                        + '_' + str(data.feature_names['external'][f])\
-                                       + '_' + str(data.state_names['external'][f][st])
+                                       + '_' + str(st)
+                        idx = data.state_names['external'][f].index(st)
                         if feature_name not in column_names:
                             column_names += [feature_name]
 
-                        row[feature_name] = samples['sample_p_families'][s][fam][f][st]
+                        row[feature_name] = samples['sample_p_families'][s][fam][f][idx]
 
         # Recall and precision
         if data.is_simulated:
@@ -735,7 +775,6 @@ def samples2file(samples, data, config, paths):
                 if posterior_name not in column_names:
                     column_names += [posterior_name]
                 row[posterior_name] = samples['sample_posterior_single_zones'][s][a]
-
 
         parameters.append(row)
 
