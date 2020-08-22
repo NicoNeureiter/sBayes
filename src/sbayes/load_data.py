@@ -54,22 +54,22 @@ class Data:
 
     def load_universal_counts(self):
 
-        counts, states, self.log_load_universal_counts = \
+        counts, self.log_load_universal_counts = \
             read_universal_counts(feature_names=self.feature_names,
-                                  category_names=self.state_names,
+                                  state_names=self.state_names,
                                   file=self.config['data']['PRIOR']['universal'])
 
         self.prior_universal = {'counts': counts,
-                                'states': states}
+                                'states': self.state_names['internal']}
 
     def load_inheritance_counts(self):
-        counts, states, self.log_load_inheritance_counts = \
+        counts, self.log_load_inheritance_counts = \
             read_inheritance_counts(family_names=self.family_names,
                                     feature_names=self.feature_names,
-                                    category_names=self.state_names,
+                                    state_names=self.state_names,
                                     files=self.config['data']['PRIOR']['inheritance'])
         self.prior_inheritance = {'counts': counts,
-                                  'states': states}
+                                  'states': self.state_names['internal']}
 
     def log_loading(self):
         log_path = self.path_results + 'experiment.log'
