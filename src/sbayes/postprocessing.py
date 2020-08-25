@@ -212,7 +212,7 @@ def match_areas(samples):
     Returns:
         matched_samples(list): Resulting matching.
     """
-    print("Matching areas ...")
+
     area_samples = np.array([np.array(s) for s in samples['sample_zones']])
     area_samples = np.swapaxes(area_samples, 1, 2)
 
@@ -243,25 +243,35 @@ def match_areas(samples):
     reordered_prior = []
     reordered_posterior = []
 
+    print("Matching areas ...")
     for s in range(len(samples['sample_zones'])):
         reordered_zones.append(samples['sample_zones'][s][:][matching_list[s]])
     samples['sample_zones'] = reordered_zones
+    del reordered_zones
 
+    print("Matching p areas ...")
     for s in range(len(samples['sample_p_zones'])):
         reordered_p_zones.append(samples['sample_p_zones'][s][matching_list][s])
     samples['sample_p_zones'] = reordered_p_zones
+    del reordered_p_zones
 
+    print("Matching areal lh ...")
     for s in range(len(samples['sample_lh_single_zones'])):
         reordered_lh.append([samples['sample_lh_single_zones'][s][i] for i in matching_list[s]])
     samples['sample_lh_single_zones'] = reordered_lh
+    del reordered_lh
 
+    print("Matching areal prior ...")
     for s in range(len(samples['sample_prior_single_zones'])):
         reordered_prior.append([samples['sample_prior_single_zones'][s][i] for i in matching_list[s]])
     samples['sample_prior_single_zones'] = reordered_prior
+    del reordered_prior
 
+    print("Matching areal posterior...")
     for s in range(len(samples['sample_posterior_single_zones'])):
         reordered_posterior.append([samples['sample_posterior_single_zones'][s][i] for i in matching_list[s]])
     samples['sample_posterior_single_zones'] = reordered_posterior
+    del reordered_posterior
 
     return samples
 
@@ -316,7 +326,7 @@ def rank_areas(samples):
             dict: the ordered samples
 
             """
-    print("Ranking areas ...")
+
     post_per_area = np.asarray(samples['sample_posterior_single_zones'])
     to_rank = np.mean(post_per_area, axis=0)
     ranked = np.argsort(-to_rank)
@@ -331,25 +341,34 @@ def rank_areas(samples):
     ranked_posterior = []
     ranked_p_areas = []
 
+    print("Ranking areas ...")
     for s in range(len(samples['sample_zones'])):
         ranked_areas.append(samples['sample_zones'][s][ranked])
     samples['sample_zones'] = ranked_areas
+    del ranked_areas
 
+    print("Ranking lh areas ...")
     for s in range(len(samples['sample_lh_single_zones'])):
         ranked_lh.append([samples['sample_lh_single_zones'][s][r] for r in ranked])
     samples['sample_lh_single_zones'] = ranked_lh
 
+    print("Ranking prior areas ...")
     for s in range(len(samples['sample_prior_single_zones'])):
         ranked_prior.append([samples['sample_prior_single_zones'][s][r] for r in ranked])
     samples['sample_prior_single_zones'] = ranked_prior
+    del ranked_prior
 
+    print("Ranking posterior areas ...")
     for s in range(len(samples['sample_posterior_single_zones'])):
         ranked_posterior.append([samples['sample_posterior_single_zones'][s][r] for r in ranked])
     samples['sample_posterior_single_zones'] = ranked_posterior
+    del ranked_posterior
 
+    print("Ranking p areas ...")
     for s in range(len(samples['sample_p_zones'])):
         ranked_p_areas.append(samples['sample_p_zones'][s][ranked])
     samples['sample_p_zones'] = ranked_p_areas
+    del ranked_p_areas
 
     return samples
 
