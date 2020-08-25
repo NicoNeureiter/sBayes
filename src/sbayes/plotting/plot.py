@@ -534,7 +534,7 @@ class Plot:
         if labels is not None:
             for xy, label in zip(corners, labels):
                 xy *= 1.08  # Stretch, s.t. labels don't overlap with corners
-                plt.text(*xy, label, ha='center', va='center')
+                plt.text(*xy, label, ha='center', va='center', fontdict={'fontsize': 16})
 
         plt.axis('equal')
         plt.axis('off')
@@ -573,13 +573,12 @@ class Plot:
             #ax.annotate('', xy=(0, -0.5), xytext=(1, -0.1),
             #            arrowprops=dict(arrowstyle="-", color='b'))
 
-
             if true_p is not None:
                 plt.scatter(true_p[0], 0, color="#ed1696", lw=0, s=100, marker="*")
 
             if labels is not None:
                 for x, label in enumerate(labels):
-                    plt.text(x, -0.5, label, ha='center', va='top')
+                    plt.text(x, -0.5, label, ha='center', va='top', fontdict={'fontsize': 16})
 
         elif n_p > 2:
         # Compute corners
@@ -611,7 +610,7 @@ class Plot:
             if labels is not None:
                 for xy, label in zip(corners, labels):
                     xy *= 1.08  # Stretch, s.t. labels don't overlap with corners
-                    plt.text(*xy, label, ha='center', va='center')
+                    plt.text(*xy, label, ha='center', va='center', fontdict={'fontsize': 16})
 
             plt.axis('equal')
             plt.axis('off')
