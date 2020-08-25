@@ -212,7 +212,7 @@ def match_areas(samples):
     Returns:
         matched_samples(list): Resulting matching.
     """
-
+    print("Matching areas ...")
     area_samples = np.array([np.array(s) for s in samples['sample_zones']])
     area_samples = np.swapaxes(area_samples, 1, 2)
 
@@ -316,7 +316,7 @@ def rank_areas(samples):
             dict: the ordered samples
 
             """
-
+    print("Ranking areas ...")
     post_per_area = np.asarray(samples['sample_posterior_single_zones'])
     to_rank = np.mean(post_per_area, axis=0)
     ranked = np.argsort(-to_rank)

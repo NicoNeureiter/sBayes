@@ -750,7 +750,7 @@ def samples2file(samples, data, config, paths):
         config(dict): config information
         paths(dict): file path for stats, areas and ground truth
     """
-
+    print("Writing results to file ...")
     # Write ground truth to file (for simulated data only)
     if data.is_simulated:
 
@@ -803,7 +803,6 @@ def samples2file(samples, data, config, paths):
 
     except IOError:
         print("I/O error")
-
 
 
 def linear_rescale(value, old_min, old_max, new_min, new_max):
