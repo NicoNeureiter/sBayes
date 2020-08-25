@@ -245,15 +245,22 @@ def match_areas(samples):
 
     for s in range(len(samples['sample_zones'])):
         reordered_zones.append(samples['sample_zones'][s][:][matching_list[s]])
-        reordered_p_zones.append(samples['sample_p_zones'][s][matching_list][s])
-        reordered_lh.append([samples['sample_lh_single_zones'][s][i] for i in matching_list[s]])
-        reordered_prior.append([samples['sample_prior_single_zones'][s][i] for i in matching_list[s]])
-        reordered_posterior.append([samples['sample_posterior_single_zones'][s][i] for i in matching_list[s]])
-
     samples['sample_zones'] = reordered_zones
+
+    for s in range(len(samples['sample_p_zones'])):
+        reordered_p_zones.append(samples['sample_p_zones'][s][matching_list][s])
     samples['sample_p_zones'] = reordered_p_zones
+
+    for s in range(len(samples['sample_lh_single_zones'])):
+        reordered_lh.append([samples['sample_lh_single_zones'][s][i] for i in matching_list[s]])
     samples['sample_lh_single_zones'] = reordered_lh
+
+    for s in range(len(samples['sample_prior_single_zones'])):
+        reordered_prior.append([samples['sample_prior_single_zones'][s][i] for i in matching_list[s]])
     samples['sample_prior_single_zones'] = reordered_prior
+
+    for s in range(len(samples['sample_posterior_single_zones'])):
+        reordered_posterior.append([samples['sample_posterior_single_zones'][s][i] for i in matching_list[s]])
     samples['sample_posterior_single_zones'] = reordered_posterior
 
     return samples
@@ -323,21 +330,26 @@ def rank_areas(samples):
     ranked_prior = []
     ranked_posterior = []
     ranked_p_areas = []
-    print(samples['sample_p_zones'][0].shape, "before")
 
     for s in range(len(samples['sample_zones'])):
         ranked_areas.append(samples['sample_zones'][s][ranked])
-        ranked_lh.append([samples['sample_lh_single_zones'][s][r] for r in ranked])
-        ranked_prior.append([samples['sample_prior_single_zones'][s][r] for r in ranked])
-        ranked_posterior.append([samples['sample_posterior_single_zones'][s][r] for r in ranked])
-        ranked_p_areas.append(samples['sample_p_zones'][s][ranked])
-
     samples['sample_zones'] = ranked_areas
+
+    for s in range(len(samples['sample_lh_single_zones'])):
+        ranked_lh.append([samples['sample_lh_single_zones'][s][r] for r in ranked])
     samples['sample_lh_single_zones'] = ranked_lh
+
+    for s in range(len(samples['sample_prior_single_zones'])):
+        ranked_prior.append([samples['sample_prior_single_zones'][s][r] for r in ranked])
     samples['sample_prior_single_zones'] = ranked_prior
+
+    for s in range(len(samples['sample_posterior_single_zones'])):
+        ranked_posterior.append([samples['sample_posterior_single_zones'][s][r] for r in ranked])
     samples['sample_posterior_single_zones'] = ranked_posterior
+
+    for s in range(len(samples['sample_p_zones'])):
+        ranked_p_areas.append(samples['sample_p_zones'][s][ranked])
     samples['sample_p_zones'] = ranked_p_areas
-    print(samples['sample_p_zones'][0].shape, "after")
 
     return samples
 

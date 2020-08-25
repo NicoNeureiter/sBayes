@@ -220,8 +220,8 @@ class MCMC:
 
     def save_samples(self, run=1):
 
-        # self.samples = match_areas(self.samples)
-        # self.samples = rank_areas(self.samples)
+        self.samples = match_areas(self.samples)
+        self.samples = rank_areas(self.samples)
 
         file_info = self.config['results']['FILE_INFO']
 

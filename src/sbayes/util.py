@@ -638,7 +638,7 @@ def collect_areas_for_writing(s, samples):
 
 
 def collect_row_for_writing(s, samples, data, config, steps_per_sample):
-    print("I am the new one baby")
+    print("I am the brand new one baby")
     row = dict()
     column_names = ['Sample', 'posterior', 'likelihood', 'prior']
     row['Sample'] = int(s * steps_per_sample)
