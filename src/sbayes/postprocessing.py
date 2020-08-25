@@ -247,31 +247,26 @@ def match_areas(samples):
     for s in range(len(samples['sample_zones'])):
         reordered_zones.append(samples['sample_zones'][s][:][matching_list[s]])
     samples['sample_zones'] = reordered_zones
-    del reordered_zones
 
     print("Matching p areas ...")
     for s in range(len(samples['sample_p_zones'])):
-        reordered_p_zones.append(samples['sample_p_zones'][s][matching_list][s])
+        reordered_p_zones.append(samples['sample_p_zones'][s][matching_list[s]])
     samples['sample_p_zones'] = reordered_p_zones
-    del reordered_p_zones
 
     print("Matching areal lh ...")
     for s in range(len(samples['sample_lh_single_zones'])):
         reordered_lh.append([samples['sample_lh_single_zones'][s][i] for i in matching_list[s]])
     samples['sample_lh_single_zones'] = reordered_lh
-    del reordered_lh
 
     print("Matching areal prior ...")
     for s in range(len(samples['sample_prior_single_zones'])):
         reordered_prior.append([samples['sample_prior_single_zones'][s][i] for i in matching_list[s]])
     samples['sample_prior_single_zones'] = reordered_prior
-    del reordered_prior
 
     print("Matching areal posterior...")
     for s in range(len(samples['sample_posterior_single_zones'])):
         reordered_posterior.append([samples['sample_posterior_single_zones'][s][i] for i in matching_list[s]])
     samples['sample_posterior_single_zones'] = reordered_posterior
-    del reordered_posterior
 
     return samples
 
