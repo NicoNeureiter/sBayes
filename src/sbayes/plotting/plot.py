@@ -516,7 +516,7 @@ class Plot:
         cmap = sns.cubehelix_palette(light=1,  start=.5, rot=-.75, as_cmap=True)
 
         # Density and scatter plot
-        plt.title(str(feature), loc='left', fontdict={'fontweight': 'bold'})
+        plt.title(str(feature), loc='center', fontdict={'fontweight': 'bold', 'fontsize': 20})
         x = samples_projected.T[0]
         y = samples_projected.T[1]
         sns.kdeplot(x, y, shade=True, shade_lowest=True, cut=30, n_levels=100,
@@ -557,9 +557,8 @@ class Plot:
         # color map
         cmap = sns.cubehelix_palette(light=1, start=.5, rot=-.75, as_cmap=True)
         if n_p == 2:
-            plt.title(str(feature), loc='left', fontdict={'fontweight': 'bold'})
+            #plt.title(str(feature), loc='center', fontdict={'fontweight': 'bold', 'fontsize': 20})
             x = samples.T[0]
-            print(x)
             y = np.zeros(n_samples)
             sns.distplot(x, rug=True, hist=False, kde_kws={"shade": True, "lw": 0, "clip": (0, 1)}, color="g",
                          rug_kws={"color": "k", "alpha": 0.01, "height": 0.03})
@@ -593,7 +592,7 @@ class Plot:
             samples_projected = samples.dot(corners)
 
             # Density and scatter plot
-            plt.title(str(feature), loc='left', fontdict={'fontweight': 'bold'})
+            # plt.title(str(feature), loc='center', fontdict={'fontweight': 'bold', 'fontsize': 20})
             x = samples_projected.T[0]
             y = samples_projected.T[1]
             sns.kdeplot(x, y, shade=True, shade_lowest=True, cut=30, n_levels=100,
@@ -640,8 +639,6 @@ class Plot:
         n_row = math.ceil(n_plots/n_col)
 
         fig, axs = plt.subplots(n_row, n_col, figsize=(15, 5))
-        fig.subplots_adjust(hspace=0.5)
-
         position = 1
 
         features = ordering[:n_plots]
@@ -652,7 +649,8 @@ class Plot:
             print(position, "of", n_plots, "plots finished")
             position += 1
 
-            fig.savefig(self.path_plots + '/weights_grid.pdf', dpi=400, format="pdf")
+        plt.subplots_adjust(wspace=0.2, hspace=0.2)
+        fig.savefig(self.path_plots + '/weights_grid.pdf', dpi=400, format="pdf")
 
     # This is not changed yet
     def plot_probability_grid(self, p_name="gamma_a1", labels=None):
@@ -673,7 +671,6 @@ class Plot:
         n_row = math.ceil(n_plots / n_col)
 
         fig, axs = plt.subplots(n_row, n_col, figsize=(15, 5))
-        fig.subplots_adjust(hspace=0.5)
 
         position = 1
 
@@ -685,6 +682,8 @@ class Plot:
             self.plot_probability_vectors(p[f], feature=f, true_p=true_p[f], labels=states[f])
             print(position, "of", n_plots, "plots finished")
             position += 1
+
+        plt.subplots_adjust(wspace=0.2, hspace=0.2)
 
         fig.savefig(self.path_plots + '/prob_grid.pdf', dpi=400, format="pdf")
 
