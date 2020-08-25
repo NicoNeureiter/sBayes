@@ -638,7 +638,7 @@ def collect_areas_for_writing(s, samples):
 
 
 def collect_row_for_writing(s, samples, data, config, steps_per_sample):
-
+    print("I am the new one baby")
     row = dict()
     column_names = ['Sample', 'posterior', 'likelihood', 'prior']
     row['Sample'] = int(s * steps_per_sample)
@@ -803,7 +803,6 @@ def samples2file(samples, data, config, paths):
 
     except IOError:
         print("I/O error")
-
 
 
 
