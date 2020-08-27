@@ -312,7 +312,8 @@ class Plot:
         # Read areas
         # areas_path = f"{self.path_results}/n{self.config['input']['run']}/" \
         #              f"areas_n{self.config['input']['run']}_{current_scenario}.txt"
-        self.areas = self.read_areas(self.path_areas)
+        #todo fix reading areas
+        self.areas = None #self.read_areas(self.path_areas)
         self.results['zones'] = self.areas
 
         # Read stats
@@ -377,23 +378,26 @@ class Plot:
         plt.fill_between(top_x, ymax, top_y, color=color)
 
     # Transform weights into needed format
-    def transform_weights(self, feature, b_in):
+    def transform_weights(self, feature, b_in, gt=False):
 
-        universal_array = []
-        contact_array = []
-        inheritance_array = []
+        if not gt:
+            universal_array = []
+            contact_array = []
+            inheritance_array = []
+            sample_dict = self.results['weights']
 
-        sample_dict = self.results['weights']
+            for key in sample_dict:
+                if 'universal' in key and str(feature) in key:
+                    universal_array = sample_dict[key][b_in:]
+                elif 'contact' in key and str(feature) in key:
+                    contact_array = sample_dict[key][b_in:]
+                elif 'inheritance' in key and str(feature) in key:
+                    inheritance_array = sample_dict[key][b_in:]
 
-        for key in sample_dict:
-            if 'universal' in key and str(feature) in key:
-                universal_array = sample_dict[key][b_in:]
-            elif 'contact' in key and str(feature) in key:
-                contact_array = sample_dict[key][b_in:]
-            elif 'inheritance' in key and str(feature) in key:
-                inheritance_array = sample_dict[key][b_in:]
+            sample = np.column_stack([universal_array, contact_array, inheritance_array]).astype(np.float)
+            return sample
 
-        if self.is_simulation:
+        else:
 
             true_universal = []
             true_contact = []
@@ -403,42 +407,38 @@ class Plot:
 
             for key in true_dict:
                 if 'universal' in key and str(feature) in key:
-                     true_universal = true_dict[key]
+                    true_universal = true_dict[key]
                 elif 'contact' in key and str(feature) in key:
                     true_contact = true_dict[key]
                 elif 'inheritance' in key and str(feature) in key:
                     true_inheritance = true_dict[key]
 
             ground_truth = np.array([true_universal, true_contact, true_inheritance]).astype(np.float)
+            return ground_truth
+
+    def transform_probability_vectors(self, feature, parameter, b_in, gt=False):
+
+        if not gt:
+            if "alpha" in parameter:
+                sample_dict = self.results['alpha']
+            elif "beta" in parameter:
+                sample_dict = self.results['beta']
+            elif "gamma" in parameter:
+                sample_dict = self.results['gamma']
+            else:
+                raise ValueError("parameter must be alpha, beta or gamma")
+            p_dict = {}
+            states = []
+
+            for key in sample_dict:
+                if str(feature + '_') in key and parameter in key:
+                    state = str(key).rsplit('_', 1)[1]
+                    p_dict[state] = sample_dict[key][b_in:]
+                    states.append(state)
+
+            sample = np.column_stack([p_dict[s] for s in p_dict]).astype(np.float)
+            return sample, states
         else:
-            ground_truth = None
-        sample = np.column_stack([universal_array, contact_array, inheritance_array]).astype(np.float)
-
-        return sample,  ground_truth
-
-    def transform_probability_vectors(self, feature, parameter, b_in):
-
-        if "alpha" in parameter:
-            sample_dict = self.results['alpha']
-        elif "beta" in parameter:
-            sample_dict = self.results['beta']
-        elif "gamma" in parameter:
-            sample_dict = self.results['gamma']
-        else:
-            raise ValueError("parameter must be alpha, beta or gamma")
-
-        p_dict = {}
-        states = []
-
-        for key in sample_dict:
-            if str(feature + '_') in key and parameter in key:
-                state = str(key).rsplit('_', 1)[1]
-                p_dict[state] = sample_dict[key][b_in:]
-                states.append(state)
-
-        sample = np.column_stack([p_dict[s] for s in p_dict]).astype(np.float)
-
-        if self.is_simulation:
             if "alpha" in parameter:
                 true_dict = self.results['true_alpha']
             elif "beta" in parameter:
@@ -447,17 +447,14 @@ class Plot:
                 true_dict = self.results['true_gamma']
             else:
                 raise ValueError("parameter must alpha, beta or gamma")
-            if sample_dict.keys() != true_dict.keys():
-                raise KeyError("dict keys do not match")
 
             true_prob = []
 
             for key in true_dict:
                 if str(feature + '_') in key and parameter in key:
                     true_prob.append(true_dict[key])
-        else:
-            true_prob = None
-        return sample, np.array(true_prob).astype(np.float), states
+
+            return np.array(true_prob).astype(np.float)
 
 # Sort weights by median contact
     def get_parameters(self, b_in, parameter="weights"):
@@ -466,19 +463,30 @@ class Plot:
         true_par = {}
         states = {}
 
+        # get samples
         for i in self.results['feature_names']:
             if parameter == "weights":
-                p, true_p = self.transform_weights(feature=i, b_in=b_in)
+                p = self.transform_weights(feature=i, b_in=b_in)
                 par[i] = p
-                true_par[i] = true_p
 
             elif "alpha" in parameter or "beta" in parameter or "gamma" in parameter:
-                p, true_p, state = self.transform_probability_vectors(feature=i, parameter=parameter, b_in=b_in)
+                p, state = self.transform_probability_vectors(feature=i, parameter=parameter, b_in=b_in)
 
                 par[i] = p
-                true_par[i] = true_p
                 states[i] = state
 
+        # get ground truth
+        if self.is_simulation:
+            for i in self.results['feature_names']:
+                if parameter == "weights":
+                    true_p = self.transform_weights(feature=i, b_in=b_in, gt=True)
+                    true_par[i] = true_p
+
+                elif "alpha" in parameter or "beta" in parameter or "gamma" in parameter:
+                    true_p = self.transform_probability_vectors(feature=i, parameter=parameter, b_in=b_in)
+                    true_par[i] = true_p
+        else:
+            true_par = None
         return par, true_par, states
 
     def sort_by_weights(self, w):
@@ -489,7 +497,7 @@ class Plot:
         return ordering
 
     # Probability simplex (for one feature)
-    def plot_weights(self, samples, feature, true_weights=None, labels=None, ax=None):
+    def plot_weights(self, samples, feature, true_weights=False, labels=None, ax=None, mean_weights=False):
         """Plot a set of weight vectors in a 2D representation of the probability simplex.
 
         Args:
@@ -497,6 +505,7 @@ class Plot:
             true_weights (np.array): true weight vectors (only for simulated data)
             labels (list[str]): Labels for each weight dimension.
             ax (plt.Axis): The pyplot axis.
+            mean_weights (bool): Plot the mean of the weights?
         """
 
         if ax is None:
@@ -527,9 +536,13 @@ class Plot:
         plt.fill(*corners.T, edgecolor='k', fill=False)
         Plot.fill_outside(corners, color='w', ax=ax)
 
-        if true_weights is not None:
+        if true_weights:
             true_projected = true_weights.dot(corners)
             plt.scatter(*true_projected.T, color="#ed1696", lw=0, s=100, marker="*")
+
+        if mean_weights:
+            mean_projected = np.mean(samples, axis=0).dot(corners)
+            plt.scatter(*mean_projected.T, color="#ed1696", lw=0, s=100, marker="o")
 
         if labels is not None:
             for xy, label in zip(corners, labels):
@@ -565,9 +578,6 @@ class Plot:
             #sns.kdeplot(x, shade=True, color="r", clip=(0, 1))
             #plt.scatter(x, y, color='k', lw=0, s=1, alpha=0.2)
             #plt.axhline(y=0, color='k', linestyle='-', lw=0.5, xmin=0, xmax=1)
-            plt.plot([0, 1], [0,0], c="k", lw=0.5)
-            plt.xlim(0, 1)
-            plt.axis('off')
 
             ax.axes.get_yaxis().set_visible(False)
             #ax.annotate('', xy=(0, -0.5), xytext=(1, -0.1),
@@ -579,6 +589,10 @@ class Plot:
             if labels is not None:
                 for x, label in enumerate(labels):
                     plt.text(x, -0.5, label, ha='center', va='top', fontdict={'fontsize': 16})
+            plt.plot([0, 1], [0, 0], c="k", lw=0.5)
+            plt.xlim(0, 1)
+            plt.axis('off')
+            plt.tight_layout(0)
 
         elif n_p > 2:
         # Compute corners
@@ -644,11 +658,15 @@ class Plot:
 
         for f in features:
             plt.subplot(n_row, n_col, position)
-            self.plot_weights(weights[f], feature=f, true_weights=true_weights[f], labels=labels)
+            if self.is_simulation:
+                self.plot_weights(weights[f], feature=f, true_weights=true_weights[f], labels=labels)
+            else:
+                self.plot_weights(weights[f], feature=f, labels=labels, mean_weights=True)
             print(position, "of", n_plots, "plots finished")
             position += 1
 
         plt.subplots_adjust(wspace=0.2, hspace=0.2)
+
         fig.savefig(self.path_plots + '/weights_grid.pdf', dpi=400, format="pdf")
 
     # This is not changed yet
@@ -678,7 +696,10 @@ class Plot:
         for f in features:
 
             plt.subplot(n_row, n_col, position)
-            self.plot_probability_vectors(p[f], feature=f, true_p=true_p[f], labels=states[f])
+            if self.is_simulation:
+                self.plot_probability_vectors(p[f], feature=f, true_p=true_p[f], labels=states[f])
+            else:
+                self.plot_probability_vectors(p[f], feature=f, labels=states[f])
             print(position, "of", n_plots, "plots finished")
             position += 1
 
