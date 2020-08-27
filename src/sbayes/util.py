@@ -797,8 +797,7 @@ def samples2file(samples, data, config, paths):
         with open(paths['areas'], 'w', newline='') as file:
             for s in range(len(samples['sample_zones'])):
                 areas = collect_areas_for_writing(s, samples)
-                for a in areas:
-                    file.write(a + '\n')
+                file.write(areas + '\n')
             file.close()
 
     except IOError:
