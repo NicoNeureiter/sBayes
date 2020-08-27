@@ -29,7 +29,8 @@
       "universal": "uniform",
 	  "contact": "uniform"
     },
-    "INHERITANCE": false
+    "INHERITANCE": false,
+    "SAMPLE_FROM_PRIOR": true
   }
   ,
   "results": {

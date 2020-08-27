@@ -193,6 +193,8 @@ class Experiment:
             self.config['mcmc']['NEIGHBOR_DIST'] = "euclidean"
         if 'LAMBDA_GEO_PRIOR' not in self.config['mcmc']:
             self.config['mcmc']['LAMBDA_GEO_PRIOR'] = "auto_tune"
+        if 'SAMPLE_FROM_PRIOR' not in self.config['mcmc']:
+            self.config['mcmc']['SAMPLE_FROM_PRIOR'] = False
 
         # Precision of the proposal distribution
         # PROPOSAL_PRECISION is in config --> check for consistency

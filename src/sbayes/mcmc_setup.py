@@ -151,7 +151,8 @@ class MCMC:
                                            chain_swaps=self.config['mcmc']['N_SWAPS'],
                                            inheritance=self.config['mcmc']['INHERITANCE'],
                                            prior=self.config['mcmc']['PRIOR'],
-                                           var_proposal=self.config['mcmc']['PROPOSAL_PRECISION'])
+                                           var_proposal=self.config['mcmc']['PROPOSAL_PRECISION'],
+                                           sample_from_prior=self.config['mcmc']['SAMPLE_FROM_PRIOR'])
 
         self.sampler.generate_samples(self.config['mcmc']['N_STEPS'],
                                       self.config['mcmc']['N_SAMPLES'],
