@@ -477,7 +477,6 @@ def inheritance_counts_to_dirichlet(counts, categories):
 
             # Add 1 to count values (1,1,...1 is a uniform prior)
             pseudocounts = counts[fam, feat, cat] + 1
-
             dirichlet[fam].append(stats.dirichlet(pseudocounts))
 
     return dirichlet
@@ -502,6 +501,7 @@ def universal_counts_to_dirichlet(counts, states):
         cat = states[feat]
         # Add 1 to alpha values (1,1,...1 is a uniform prior)
         pseudocounts = counts[feat, cat] + 1
+		print(pseudocounts, "pseudo")
         dirichlet.append(stats.dirichlet(pseudocounts))
 
     return dirichlet
