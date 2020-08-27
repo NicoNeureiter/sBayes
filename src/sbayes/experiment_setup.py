@@ -195,6 +195,8 @@ class Experiment:
             self.config['mcmc']['LAMBDA_GEO_PRIOR'] = "auto_tune"
         if 'SAMPLE_FROM_PRIOR' not in self.config['mcmc']:
             self.config['mcmc']['SAMPLE_FROM_PRIOR'] = False
+        if 'P_GROW_CONNECTED' not in self.config['mcmc']:
+            self.config['mcmc']['P_GROW_CONNECTED'] = 0.85
 
         # Precision of the proposal distribution
         # PROPOSAL_PRECISION is in config --> check for consistency
