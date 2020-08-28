@@ -15,7 +15,7 @@
   "mcmc": {
     "BURN_IN": 0,
 	"N_AREAS": 1,
-    "N_STEPS": 5000000,
+    "N_STEPS": 80000,
     "N_SAMPLES":  1000,
     "N_RUNS": 1,
 	"N_CHAINS": 1,
@@ -23,6 +23,7 @@
     "CHAIN_SWAPS": 0,
     "MIN_M": 1,
     "MAX_M": 10,
+	"P_GROW_CONNECTED": 0.85,
     "PRIOR": {
       "geo": "uniform",
       "weights": "uniform",
@@ -30,7 +31,13 @@
 	  "contact": "uniform"
     },
     "INHERITANCE": false,
-    "SAMPLE_FROM_PRIOR": true
+    "SAMPLE_FROM_PRIOR": true,
+	"STEPS": {
+	  "area": 1.0,
+      "weights": 0.0,
+      "universal": 0.0,
+      "contact": 0.0
+    }
   }
   ,
   "results": {
