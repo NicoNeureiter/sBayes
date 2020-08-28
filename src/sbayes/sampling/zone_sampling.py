@@ -71,11 +71,10 @@ class Sample(object):
 
 class ZoneMCMC_generative(MCMC_generative):
 
-    P_GROW_CONNECTED = 0.85  # TODO Move this to config
     """float: Probability at which grow operator only considers neighbours to add to the zone."""
 
     def __init__(self, network, features, min_size, max_size, var_proposal,
-                 initial_sample, sample_from_prior=False, **kwargs):
+                 initial_sample, sample_from_prior, p_grow_connected, **kwargs):
 
         super(ZoneMCMC_generative, self).__init__(**kwargs)
 
@@ -91,6 +90,7 @@ class ZoneMCMC_generative(MCMC_generative):
 
         # Sampling
         self.n = self.adj_mat.shape[0]
+        self.p_grow_connected = p_grow_connected
 
         # Zone size /initial sample
         self.min_size = min_size
@@ -329,7 +329,7 @@ class ZoneMCMC_generative(MCMC_generative):
         zone_current = zones_current[z_id, :]
 
         neighbours = get_neighbours(zone_current, occupied, self.adj_mat)
-        connected_step = (_random.random() < self.P_GROW_CONNECTED)
+        connected_step = (_random.random() < self.p_grow_connected)
         if connected_step:
             # All neighbors that are not yet occupied by other zones are candidates
             candidates = neighbours
@@ -351,34 +351,25 @@ class ZoneMCMC_generative(MCMC_generative):
         site_removed = _random.choice(removal_candidates)
         sample_new.zones[z_id, site_removed] = 0
 
-        # Compute transition probabilities
+        # # Compute transition probabilities
         back_neighbours = get_neighbours(zone_current, occupied, self.adj_mat)
-        q = 1. / np.count_nonzero(candidates)
-        q_back = 1. / np.count_nonzero(back_neighbours)
+        # q = 1. / np.count_nonzero(candidates)
+        # q_back = 1. / np.count_nonzero(back_neighbours)
 
-        # TODO Use this once we checked it is correct [NN]
-        # # Transition probability growing to the new zone
-        # q_nonconnected = 1 / np.count_nonzero(~occupied)
-        # q = (1 - self.P_GROW_CONNECTED) * q_nonconnected
-        # if neighbours[site_new]:
-        #     q_connected = 1 / np.count_nonzero(neighbours)
-        #     q += self.P_GROW_CONNECTED * q_connected
-        #
-        # # Transition probability of growing back to the original zone
-        # q_back_nonconnected = 1 / np.count_nonzero(~occupied)
-        # q_back = (1 - self.P_GROW_CONNECTED) * q_back_nonconnected
-        # # If z is a neighbour of the new zone, the back step could also be a connected grow step
-        # if back_neighbours[site_removed]:
-        #     q_back_connected = 1 / np.count_nonzero(back_neighbours)
-        #     q_back += self.P_GROW_CONNECTED * q_back_connected
+        # Transition probability growing to the new zone
+        q_nonconnected = 1 / np.count_nonzero(~occupied)
+        q = (1 - self.p_grow_connected) * q_nonconnected
+        if neighbours[site_new]:
+            q_connected = 1 / np.count_nonzero(neighbours)
+            q += self.p_grow_connected * q_connected
 
-        #if self.sample_p_zones:
-        #    # The step changes p_zones (which has an influence on how the lh and the prior look like)
-        #    sample_new.what_changed['lh']['p_zones'] = sample_new.what_changed['prior']['p_zones'] = True
-        #    sample.what_changed['lh']['p_zones'] = sample.what_changed['prior']['p_zones'] = True
-
-            # Set p_zones to the MLE value of the updated zone in the new sample
-            # sample_new.p_zones[z_id] = self.set_p_zones_to_mle(sample_new.zones[z_id])
+        # Transition probability of growing back to the original zone
+        q_back_nonconnected = 1 / np.count_nonzero(~occupied)
+        q_back = (1 - self.p_grow_connected) * q_back_nonconnected
+        # If z is a neighbour of the new zone, the back step could also be a connected grow step
+        if back_neighbours[site_removed]:
+            q_back_connected = 1 / np.count_nonzero(back_neighbours)
+            q_back += self.p_grow_connected * q_back_connected
 
         return sample_new, q, q_back
 
@@ -412,7 +403,7 @@ class ZoneMCMC_generative(MCMC_generative):
             return sample, q, q_back
 
         neighbours = get_neighbours(zone_current, occupied, self.adj_mat)
-        connected_step = (_random.random() < self.P_GROW_CONNECTED)
+        connected_step = (_random.random() < self.p_grow_connected)
         if connected_step:
             # All neighbors that are not yet occupied by other zones are candidates
             candidates = neighbours
@@ -430,26 +421,17 @@ class ZoneMCMC_generative(MCMC_generative):
         sample_new.zones[z_id, site_new] = 1
 
         # TODO Use this once we checked it is correct [NN]:
-        # # Transition probability when growing
-        # q_nonconnected = 1 / np.count_nonzero(~occupied)
-        # q = (1 - self.P_GROW_CONNECTED) * q_nonconnected
-        # if neighbours[site_new]:
-        #     q_connected = 1 / np.count_nonzero(neighbours)
-        #     q += self.P_GROW_CONNECTED * q_connected
-        #
-        # # Back-probability (shrinking)
-        # q_back = 1 / (current_size + 1)
+        # Transition probability when growing
+        q_nonconnected = 1 / np.count_nonzero(~occupied)
+        q = (1 - self.p_grow_connected) * q_nonconnected
+        if neighbours[site_new]:
+            q_connected = 1 / np.count_nonzero(neighbours)
+            q += self.p_grow_connected * q_connected
 
-        if self.sample_p_zones:
-            # The step changes p_zones (which has an influence on how the lh and the prior look like)
-            sample_new.what_changed['lh']['p_zones'] = sample_new.what_changed['prior']['p_zones'] = True
-            sample.what_changed['lh']['p_zones'] = sample.what_changed['prior']['p_zones'] = True
+        # Back-probability (shrinking)
+        q_back = 1 / (current_size + 1)
 
-            # Set p_zones to the MLE value of the updated zone in the new sample
-            # sample_new.p_zones[z_id] = self.set_p_zones_to_mle(sample_new.zones[z_id])
-
-        # #Todo: remove once back probability works properly
-        q = q_back = 1.
+        # q = q_back = 1.
 
         return sample_new, q, q_back
 
@@ -486,32 +468,24 @@ class ZoneMCMC_generative(MCMC_generative):
         sample_new.zones[z_id, site_removed] = 0
 
         # TODO Use this once we checked it is correct [NN]:
-        # # Transition probability when shrinking.
-        # q = 1 / len(removal_candidates)
-        # # Back-probability (growing)
-        # zone_new = sample_new.zones[z_id]
-        # occupied_new = np.any(sample_new.zones, axis=0)
-        # back_neighbours = get_neighbours(zone_new, occupied_new, self.adj_mat)
-        #
-        # # The back step could always be a non-connected grow step
-        # q_back_nonconnected = 1 / np.count_nonzero(~occupied_new)
-        # q_back = (1 - self.P_GROW_CONNECTED) * q_back_nonconnected
-        #
-        # # If z is a neighbour of the new zone, the back step could also be a connected grow step
-        # if back_neighbours[site_removed]:
-        #     q_back_connected = 1 / np.count_nonzero(back_neighbours)
-        #     q_back += self.P_GROW_CONNECTED * q_back_connected
+        # Transition probability when shrinking.
+        q = 1 / len(removal_candidates)
+        # Back-probability (growing)
+        zone_new = sample_new.zones[z_id]
+        occupied_new = np.any(sample_new.zones, axis=0)
+        back_neighbours = get_neighbours(zone_new, occupied_new, self.adj_mat)
 
-        if self.sample_p_zones:
-            # The step changes p_zones (which has an influence on how the lh and the prior look like)
-            sample_new.what_changed['lh']['p_zones'] = sample_new.what_changed['prior']['p_zones'] = True
-            sample.what_changed['lh']['p_zones'] = sample.what_changed['prior']['p_zones'] = True
+        # The back step could always be a non-connected grow step
+        q_back_nonconnected = 1 / np.count_nonzero(~occupied_new)
+        q_back = (1 - self.p_grow_connected) * q_back_nonconnected
 
-            # Set p_zones to the MLE value of the updated zone in the new sample
-            # sample_new.p_zones[z_id] = self.set_p_zones_to_mle(sample_new.zones[z_id])
+        # If z is a neighbour of the new zone, the back step could also be a connected grow step
+        if back_neighbours[site_removed]:
+            q_back_connected = 1 / np.count_nonzero(back_neighbours)
+            q_back += self.p_grow_connected * q_back_connected
 
-        # Todo: remove once back probability works properly
-        q = q_back = 1.
+        # # Todo: remove once back probability works properly
+        # q = q_back = 1.
 
         return sample_new, q, q_back
 

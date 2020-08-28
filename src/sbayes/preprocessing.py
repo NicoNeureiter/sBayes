@@ -7,7 +7,7 @@ import numpy as np
 
 from sbayes.model import normalize_weights
 from sbayes.util import (compute_distance, compute_delaunay,
-                         read_feature_occurrence_from_csv)
+                         read_feature_occurrence_from_csv, tighten_counts)
 
 EPS = np.finfo(float).eps
 
@@ -240,11 +240,8 @@ def simulate_features(areas,  p_universal, p_contact, weights, inheritance, p_in
 
         # Sample from the categorical distribution defined by lh_feature
         features[:, i_feat] = sample_categorical(lh_feature.T)
-    import pandas as pd
-    pd.DataFrame(features).to_csv("features_data_challenge.csv",)
-    print(features.shape, "dksjvn")
-    # Categories per feature
 
+    # Categories per feature
     cats_per_feature = []
     for f in features.transpose():
 
@@ -456,25 +453,21 @@ def simulate_assignment_probabilities(n_features, p_number_categories, inheritan
         return p_universal, p_contact, p_inheritance
 
 
-def read_universal_counts(feature_names, category_names, file):
+def read_universal_counts(feature_names, state_names, file):
     """ This is a helper function to import global counts of each category of each feature,
         which then define dirichlet distributions that are used as a prior for p_global.
         Args:
             feature_names(dict): the features names (internal and external)
-            category_names(dict): the category names (internal and external)
+            state_names(dict): the category names (internal and external)
             file (str): The file location of the pseudocounts for the prior
 
         Returns:
             dict, dict: The dirichlet distribution for each category in each feature,  and the categories
     """
 
-    cats = list(np.unique([x for l in category_names['external'] for x in l]))
-    categories_ordered = []
-    for f in category_names['external']:
-        categories_ordered.append([cats.index(i) for i in f])
     try:
         # Read the global counts from csv
-        counts, category_names_file, feature_names_file = read_feature_occurrence_from_csv(file=file)
+        counts, count_names, state_names_file, feature_names_file = read_feature_occurrence_from_csv(file=file)
 
         # Sanity check
         # Are the data count data?
@@ -500,14 +493,14 @@ def read_universal_counts(feature_names, category_names, file):
                 raise ValueError(out)
 
         # Same number of categories?
-        if len(category_names['external']) != len(category_names_file['external']) or \
-                len(category_names['internal']) != len(category_names_file['internal']):
+        if len(state_names['external']) != len(state_names_file['external']) or \
+                len(state_names['internal']) != len(state_names_file['internal']):
             out = "Different number of states in " + str(file) + " as in categories."
             raise ValueError(out)
 
         # Same category names?
-        for f in range(0, len(category_names['external'])):
-            if category_names['external'][f] != category_names_file['external'][f]:
+        for f in range(0, len(state_names['external'])):
+            if state_names['external'][f] != state_names_file['external'][f]:
                 out = "The state names for feature " + str(f + 1) + " in " + str(file) \
                         + " differ from those used in features."
                 raise ValueError(out)
@@ -517,18 +510,18 @@ def read_universal_counts(feature_names, category_names, file):
                         + " differ from those used in features."
                 raise ValueError(out)
 
+        counts = tighten_counts(counts, state_names, count_names)
+
         log = 'Read universal counts from' + str(file)
 
     except (KeyError, FileNotFoundError):
-
-        n_categories = len(set(x for l in category_names['external'] for x in l))
+        n_categories = max([len(s) for s in state_names['external']])
         n_features = len(feature_names['external'])
         counts = np.asarray([[0.] * n_categories for _ in range(n_features)])
         counts[:, :] = counts
-
         log = "No prior information for universal preference. Uniform prior used instead.\n"
 
-    return counts, categories_ordered, log
+    return counts, log
 
 
 def counts_from_complement(features, subset):
@@ -549,14 +542,14 @@ def counts_from_complement(features, subset):
     return counts
 
 
-def read_inheritance_counts(family_names, feature_names, category_names, files):
+def read_inheritance_counts(family_names, feature_names, state_names, files):
     """ This is a helper function to import the counts of each feature in the families,
     which define dirichlet distributions that are used as prior for p_family.
 
     Args:
         family_names(dict): the names of the families (internal and external)
         feature_names(dict): the features names (internal and external)
-        category_names(dict): the category names (internal and external
+        state_names(dict): the category names (internal and external
         files(dict): path to the file locations
     Returns:
         dict, list: The dirichlet distribution per family for each category in each feature, and the categories
@@ -564,14 +557,8 @@ def read_inheritance_counts(family_names, feature_names, category_names, files):
 
     n_families = len(family_names['external'])
     n_features = len(feature_names['external'])
-    n_categories = len(set(x for l in category_names['external'] for x in l))
-
-    cats = list(np.unique([x for l in category_names['external'] for x in l]))
-    categories_ordered = []
-    for f in category_names['external']:
-        categories_ordered.append([cats.index(i) for i in f])
-
-    counts = np.empty([n_families, n_features, n_categories])
+    n_states = max([len(s) for s in state_names['external']])
+    counts_all = np.empty([n_families, n_features, n_states])
     log = str()
 
     for n in range(len(family_names['external'])):
@@ -579,10 +566,10 @@ def read_inheritance_counts(family_names, feature_names, category_names, files):
             file = files[family_names['external'][n]]
 
             # Read the family counts from csv
-            counts_fam, category_names_file, feature_names_file = read_feature_occurrence_from_csv(file=file)
+            counts, count_names, state_names_file, feature_names_file = read_feature_occurrence_from_csv(file=file)
 
             # Sanity check
-            if not all(float(y).is_integer() for y in np.nditer(counts_fam)):
+            if not all(float(y).is_integer() for y in np.nditer(counts)):
                 out = "The data in " + str(file) + " must be count data."
                 raise ValueError(out)
 
@@ -601,13 +588,13 @@ def read_inheritance_counts(family_names, feature_names, category_names, files):
                           + " differs from the one used in features."
                     raise ValueError(out)
 
-            if len(category_names['external']) != len(category_names_file['external']) or \
-                    len(category_names['internal']) != len(category_names_file['internal']):
+            if len(state_names['external']) != len(state_names_file['external']) or \
+                    len(state_names['internal']) != len(state_names_file['internal']):
                 out = "Different number of features in " + str(file) + " as in features."
                 raise ValueError(out)
 
-            for f in range(0, len(category_names['external'])):
-                if category_names['external'][f] != category_names_file['external'][f]:
+            for f in range(0, len(state_names['external'])):
+                if state_names['external'][f] != state_names_file['external'][f]:
                     out = "The external category names for feature " + str(f+1) + " in " + str(file) \
                           + " differ from those used in features."
                     raise ValueError(out)
@@ -616,16 +603,13 @@ def read_inheritance_counts(family_names, feature_names, category_names, files):
                     out = "The internal category names for " + str(f+1) + " in " + str(file) \
                           + " differ from those used in features."
                     raise ValueError(out)
-            counts[n, :, :] = counts_fam
 
+            counts = tighten_counts(counts, state_names, count_names)
+            counts_all[n, :, :] = counts
             log += "Read counts for " + str(family_names['external'][n]) + " from " + str(file) + "\n"
 
         except (KeyError, FileNotFoundError):
 
-            n_categories = len(set(x for l in category_names['external'] for x in l))
-            n_features = len(feature_names['external'])
-            counts_fam = np.asarray([[0.] * n_categories for _ in range(n_features)])
-            counts[n, :, :] = counts_fam
-
             log += "No prior information for " + str(family_names['external'][n]) + ". Uniform prior used instead.\n"
-    return counts, categories_ordered, log
+
+    return counts_all.astype(int), log

@@ -52,14 +52,14 @@ class Experiment:
 
         # Compile relative paths, to be relative to config file
         self.base_directory = os.path.dirname(config_file)
-        # self.path_results = self.fix_path(self.path_results)
+        # self.path_results = self.fix_relative_path(self.path_results)
         # if self.is_simulation():
-        #     self.config['simulation']['SITES'] = self.fix_path(self.config['simulation']['SITES'])
+        #     self.config['simulation']['SITES'] = self.fix_relative_path(self.config['simulation']['SITES'])
 
         if not os.path.exists(self.path_results):
             os.makedirs(self.path_results)
 
-    def fix_path(self, path):
+    def fix_relative_path(self, path):
         """Make sure that the provided path is either absolute or relative to
         the config file directory.
 
@@ -71,10 +71,8 @@ class Experiment:
          """
         path = path.strip()
         if os.path.isabs(path):
-            print('-')
             return path
         else:
-            print('+')
             return os.path.join(self.base_directory, path)
 
     def read_config(self):
@@ -195,6 +193,8 @@ class Experiment:
             self.config['mcmc']['LAMBDA_GEO_PRIOR'] = "auto_tune"
         if 'SAMPLE_FROM_PRIOR' not in self.config['mcmc']:
             self.config['mcmc']['SAMPLE_FROM_PRIOR'] = False
+        if 'P_GROW_CONNECTED' not in self.config['mcmc']:
+            self.config['mcmc']['P_GROW_CONNECTED'] = 0.85
 
         # Precision of the proposal distribution
         # PROPOSAL_PRECISION is in config --> check for consistency

@@ -152,6 +152,7 @@ class MCMC:
                                            inheritance=self.config['mcmc']['INHERITANCE'],
                                            prior=self.config['mcmc']['PRIOR'],
                                            var_proposal=self.config['mcmc']['PROPOSAL_PRECISION'],
+                                           p_grow_connected=self.config['mcmc']['P_GROW_CONNECTED'],
                                            sample_from_prior=self.config['mcmc']['SAMPLE_FROM_PRIOR'])
 
         self.sampler.generate_samples(self.config['mcmc']['N_STEPS'],

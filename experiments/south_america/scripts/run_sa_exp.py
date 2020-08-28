@@ -23,28 +23,21 @@ if __name__ == '__main__':
     # Log
     dat.log_loading()
 
-    NUMBER_AREAS = range(1, 8)
     initial_sample = None
 
     # Rerun experiment to check for consistency
     for run in range(exp.config['mcmc']['N_RUNS']):
 
-        for N in NUMBER_AREAS:
-            # Update config information according to the current setup
-            exp.config['mcmc']['N_AREAS'] = N
+        # Update config information according to the current setup
 
-            # 3. MCMC
-            mc = MCMC(data=dat, experiment=exp)
-            mc.log_setup()
+        # 3. MCMC
+        mc = MCMC(data=dat, experiment=exp)
+        mc.log_setup()
 
-            # Sample
-            mc.sample(initial_sample=initial_sample)
+        # Sample
+        mc.sample(initial_sample=initial_sample)
 
-            # 4. Save samples to file
-            mc.log_statistics()
-            mc.save_samples(run=run)
+        # 4. Save samples to file
+        mc.log_statistics()
+        mc.save_samples(run=run)
 
-            # Use the last sample as the new initial sample
-            initial_sample = mc.samples['last_sample']
-
-        initial_sample = None
