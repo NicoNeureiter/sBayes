@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 from __future__ import absolute_import, division, print_function, unicode_literals
+import logging
 import random as _random
 from copy import deepcopy
 
@@ -273,6 +274,13 @@ class ZoneMCMC_generative(MCMC_generative):
 
         alpha_back = 1 + step_precision * w_new
         q_back = spstats.dirichlet.pdf(w, alpha_back)
+
+        if not np.all(np.isfinite(w_new)):
+            logging.warning(f'Dirichlet step resulted in NaN or Inf:')
+            logging.warning(f'\tOld sample: {w}')
+            logging.warning(f'\tstep_precision: {step_precision}')
+            logging.warning(f'\tNew sample: {w_new}')
+            # return w, 1., 0.
 
         return w_new, q, q_back
 
