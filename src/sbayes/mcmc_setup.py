@@ -140,6 +140,7 @@ class MCMC:
 
     def sample(self, initial_sample=None, lh_per_area=True):
         initial_sample = self.initialize_sample(initial_sample)
+
         self.sampler = ZoneMCMC_generative(network=self.data.network, features=self.data.features,
                                            min_size=self.config['mcmc']['MIN_M'],
                                            max_size=self.config['mcmc']['MAX_M'],

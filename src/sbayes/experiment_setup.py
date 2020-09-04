@@ -278,7 +278,7 @@ class Experiment:
 
         if 'results' in self.config:
             if 'RESULTS_PATH' not in self.config['results']:
-                self.config['results']['RESULTS_PATH'] = "results"
+                self.config['results']['RESULTS_PATH'] = "../results"
             if 'FILE_INFO' not in self.config['results']:
                 self.config['results']['FILE_INFO'] = "n"
 

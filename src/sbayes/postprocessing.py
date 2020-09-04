@@ -340,7 +340,6 @@ def rank_areas(samples):
     for s in range(len(samples['sample_zones'])):
         ranked_areas.append(samples['sample_zones'][s][ranked])
     samples['sample_zones'] = ranked_areas
-    del ranked_areas
 
     print("Ranking lh areas ...")
     for s in range(len(samples['sample_lh_single_zones'])):
@@ -351,19 +350,16 @@ def rank_areas(samples):
     for s in range(len(samples['sample_prior_single_zones'])):
         ranked_prior.append([samples['sample_prior_single_zones'][s][r] for r in ranked])
     samples['sample_prior_single_zones'] = ranked_prior
-    del ranked_prior
 
     print("Ranking posterior areas ...")
     for s in range(len(samples['sample_posterior_single_zones'])):
         ranked_posterior.append([samples['sample_posterior_single_zones'][s][r] for r in ranked])
     samples['sample_posterior_single_zones'] = ranked_posterior
-    del ranked_posterior
 
     print("Ranking p areas ...")
     for s in range(len(samples['sample_p_zones'])):
         ranked_p_areas.append(samples['sample_p_zones'][s][ranked])
     samples['sample_p_zones'] = ranked_p_areas
-    del ranked_p_areas
 
     return samples
 

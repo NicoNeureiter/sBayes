@@ -159,6 +159,7 @@ class MCMC_generative(metaclass=_abc.ABCMeta):
             # Compute the (log)-likelihood and the prior for each sample
             self._ll[c] = self.likelihood(sample[c], c)
             self._prior[c] = self.prior(sample[c], c)
+            print("chain ", c, "lh: ", self._ll[c], "prior: ", self._prior[c], )
 
         # Probability of operators is different if there are zero zones
         if self.n_zones == 0:
