@@ -34,20 +34,19 @@ warnings.simplefilter(action='ignore', category=FutureWarning)
 
 class Map(Plot):
 
-    def __init__(self, simulation=False):
+    def __init__(self, simulated_data=False):
 
         # Load init function from the parent class Plot
         super().__init__(self)
-        self.simulation = simulation
+        self.is_simulation = simulated_data
 
         # Map parameters
         self.ax = None
-        self.cmap = None
         self.fig = None
         self.map_parameters = {}
         self.leg_zones = []
         self.all_labels = []
-        self.zone_labels = []
+        self.area_labels = []
 
         self.leg_line_width = []
         self.line_width_label = []
@@ -89,7 +88,6 @@ class Map(Plot):
             x_coords, y_coords = locations.T
             x_min, x_max = min(x_coords), max(x_coords)
             y_min, y_max = min(y_coords), max(y_coords)
-
         # setting axes limits
         ax.set_xlim([x_min, x_max])
         ax.set_ylim([y_min, y_max])
@@ -209,10 +207,10 @@ class Map(Plot):
         # exclude burn-in
         end_bi = math.ceil(len(zone) * burn_in)
         zone = zone[end_bi:]
-
         # get number of samples (excluding burn-in) and number of points
         n_samples = len(zone)
         n_points = len(self.locations)
+        print(n_samples, n_points)
 
         # container to count edge weight for mst
         mst_posterior_freq = np.zeros((n_points, n_points), np.float64)
@@ -265,7 +263,7 @@ class Map(Plot):
                         connected.append([1, 0])
                     else:
                         connected.append([1, 2])
-                # replace indices from subset with indice from all points
+                # replace indices from subset with indices from all points
                 # print(cp_indices)
                 # connected = [[cp_indices[i][0], cp_indices[j][0]] for i, j in connected]
                 for i, j in connected:
@@ -318,28 +316,6 @@ class Map(Plot):
 
         return is_in_mst
 
-    def get_cmap(self, ts_lf, name='YlOrRd', lower_ts=0.2):
-        """ Function to generate a colormap
-        Args:
-            ts_lf (float): Anything below this frequency threshold is grey.
-            name (string): Name of the colormap.
-            lower_ts (float): Threshold to manipulate colormap.
-        Returns:
-            (LinearSegmentedColormap): Colormap
-            (Normalize): Object for normalization of frequencies
-        """
-        grey_tone = 128  # from 0 (dark) to 1 (white)
-        lf_color = (grey_tone / 256, grey_tone / 256, grey_tone / 256)  # grey 128
-        colors = [lf_color, (256 / 256, 256 / 256, 0 / 256), (256 / 256, 0 / 256, 0 / 256)]  # use only for custom cmaps
-        primary_cmap = plt.cm.get_cmap(name)
-        primary_colors = [primary_cmap(c) for c in np.linspace(lower_ts, 1, 4)]
-        primary_colors = primary_colors[::-1] if name == 'autumn' else primary_colors
-        colors = [lf_color] + primary_colors
-        cmap = LinearSegmentedColormap.from_list('custom_cmap', colors, N=1000)
-        norm = mpl.colors.Normalize(vmin=ts_lf, vmax=1.2)
-
-        return cmap, norm
-
     ##############################################################
     # New functions needed for plot_posterior_map
     ##############################################################
@@ -362,14 +338,12 @@ class Map(Plot):
     # Initialize the map
     def initialize_map(self):
         self.get_map_parameters()
-
         plt.rcParams["axes.linewidth"] = self.map_parameters['frame_width']
         self.fig, self.ax = plt.subplots(figsize=(self.map_parameters['fig_width'],
                                                   self.map_parameters['fig_height']),
                                          constrained_layout=True)
 
-        self.cmap, _ = self.get_cmap(0.5, name='YlOrRd', lower_ts=1.2)
-        self.ax.scatter(*self.locations.T, s=self.config['graphic']['size'], c=[self.cmap(0)], alpha=1, linewidth=0)
+        self.ax.scatter(*self.locations.T, s=self.config['graphic']['size'], c="darkgrey", alpha=1, linewidth=0)
 
     ##############################################################
     # Visualization functions for plot_posterior_map
@@ -381,7 +355,7 @@ class Map(Plot):
         #  in the map. Anyway, colors should go to the config. If can be removed.
         if flamingo:
             # flamingo_color = '#F48AA7'
-            color = self.config['graphic']['flamingo_color'] if len(self.results['zones']) == 1 \
+            color = self.config['graphic']['flamingo_color'] if len(self.results['areas']) == 1 \
                 else self.config['graphic']['zone_colors'][i]
         else:
             color = self.config['graphic']['zone_colors'][i]
@@ -389,7 +363,7 @@ class Map(Plot):
         # Should go to the config. If can be removed.
         if simulated_family:
             # banana_color = '#f49f1c'
-            color = self.config['graphic']['banana_color'] if len(self.results['zones']) == 1 \
+            color = self.config['graphic']['banana_color'] if len(self.results['areas']) == 1 \
                 else self.config['graphic']['zone_colors'][i]
         return color
 
@@ -412,7 +386,7 @@ class Map(Plot):
     # Bind together the functions above
     def visualize_areas(self, flamingo, simulated_family, burn_in, post_freq_lines, label_languages):
 
-        for i, zone in enumerate(self.results['zones']):
+        for i, zone in enumerate(self.results['areas']):
 
             current_color = self.add_color(i, flamingo, simulated_family)
 
@@ -544,7 +518,7 @@ class Map(Plot):
     def define_legend(self):
         legend_zones = self.ax.legend(
             self.leg_zones,
-            self.zone_labels,
+            self.area_labels,
             title_fontsize=18,
             title='Contact areas',
             frameon=True,
@@ -691,7 +665,7 @@ class Map(Plot):
         self.add_background_map(axins)
 
         # add overview to the map
-        axins.scatter(*self.locations.T, s=self.config['graphic']['size'] / 2, c=[self.cmap(0)], alpha=1, linewidth=0)
+        axins.scatter(*self.locations.T, s=self.config['graphic']['size'] / 2, c="darkgrey", alpha=1, linewidth=0)
 
         # adds a bounding box around the overview map
         bbox_width = self.config['graphic']['x_extend'][1] - self.config['graphic']['x_extend'][0]
@@ -710,12 +684,12 @@ class Map(Plot):
 
     def add_likelihood_legend(self):
         # Legend for area labels
-        self.zone_labels = ["         probability of area"]
+        self.area_labels = ["         probability of area"]
 
         # This assumes that the likelihoods for single areas (lh_a1, lh_a2, lh_a3, ...)
         # have been collected in mcmc_res under the key shown below
-        post_per_area = np.asarray(self.results['likelihood_single_areas'])
-        to_rank = np.mean(post_per_area, axis=0)
+        lh_per_area = np.array(list(self.results['likelihood_single_areas'].values())).astype(float)
+        to_rank = np.mean(lh_per_area, axis=0)
 
         # probability per area in log-space
         p_total = logsumexp(to_rank)
@@ -725,7 +699,7 @@ class Map(Plot):
             lh_value = np.exp(exp)
             # print(lh_value)
             lh_value = Map.scientific(lh_value)
-            self.zone_labels.append(f'$Z_{i + 1}: \, \;\;\; {lh_value}$')
+            self.area_labels.append(f'$Z_{i + 1}: \, \;\;\; {lh_value}$')
 
     ##############################################################
     # Additional things for plot_posterior_map
@@ -780,7 +754,7 @@ class Map(Plot):
         # plot all points not in the subset in light grey
         not_in_subset = np.logical_not(is_in_subset)
         other_locations = sites_all['locations'][not_in_subset]
-        self.ax.scatter(*other_locations.T, s=self.config['graphic']['size'], c=[self.cmap(0)], alpha=1, linewidth=0)
+        self.ax.scatter(*other_locations.T, s=self.config['graphic']['size'], c="darkgrey", alpha=1, linewidth=0)
 
         # Add a visual bounding box to the map to show the location of the subset on the map
         x_coords, y_coords = self.locations.T
@@ -796,13 +770,12 @@ class Map(Plot):
         self.ax.text(x_max, y_max + 200, 'Subset', fontsize=18, color='#000000')
 
     # Check all the previous additional functions
-    def check_additional_parameters(self, lh_single_zones):
+    def visualize_additional_map_elements(self, lh_single_zones):
         # Does the plot have a background map?
         # Could go to extra function (add_background_map), which is only called if relevant
         if self.config['graphic']['bg_map']:
             self.add_background_map(self.ax)
             self.add_rivers(self.ax)
-
         # This is only valid for one single experiment
         # where we perform the analysis on a biased subset.
         # The following lines of code selects only those sites which are in the subset
@@ -818,13 +791,13 @@ class Map(Plot):
     ##############################################################
     # This is the plot_posterior_map function from plotting_old
     ##############################################################
-    def number_zones(self,
-                     post_freq_lines, burn_in=0.2,
-                     lh_single_zones=False, flamingo=False, simulated_family=False,
-                     label_languages=False, add_overview=False,
-                     families=None, family_names=None,
-                     return_correspondence=False,
-                     fname='mst_posterior'):
+    def posterior_map(self,
+                      post_freq_lines, burn_in=0.2,
+                      plot_single_zones_stats=False, flamingo=False, simulated_family=False,
+                      label_languages=False, add_overview=False,
+                      plot_families=False,
+                      return_correspondence=False,
+                      fname='mst_posterior'):
 
         """ This function creates a scatter plot of all sites in the posterior distribution. The color of a site reflects
             its frequency in the posterior
@@ -854,7 +827,7 @@ class Map(Plot):
                 geo_json_river(str): File path to river data. --> Olga: should go to config: DONE
                 subset(boolean): Is there a subset in the data, which should be displayed differently?
                                  Only relevant for one experiment. --> Olga Should go to config: DONE
-                lh_single_zones(bool): Add box containing information about the likelihood of single areas to the plot?
+                plot_single_zones_stats(bool): Add box containing information about the likelihood of single areas to the plot?
                 flamingo(bool): Sort of a joke. Does one area have the shape of a flamingo. If yes use flamingo colors for plotting.
                 simulated_family(bool): Only for simulated data. Are families also simulated?
                 size(float): Size of the dots (languages) in the plot --> Olga: move to config: DONE
@@ -864,24 +837,19 @@ class Map(Plot):
                 add_overview(bool): Add an overview map?
                 x_extend_overview(tuple): min, max)-extend of the overview map in x-direction (longitude) --> Olga: config: DONE
                 y_extend_overview(tuple): min, max)-extend of the overview map in y-direction (latitude) --> Olga: config: DONE
-                families(np.array): a boolean assignment of sites to families
+                plot_families(np.array): a boolean assignment of sites to families
                     shape(n_families, n_sites)
-                family_names(dict): a dict comprising both the external (Arawak, Chinese, French, ...) and internal (0,1,2...)
-                                    family names
                 family_alpha_shape(float): controls how far languages of the same family have to be apart to be grouped
                                            into a single alpha shape (for display only)  --> Olga: config: DONE
                 fname (str): a path of the output file.
                 return_correspondence(bool): return the labels of all languages which are shown in the map
                                             --> Olga: I think this can be solved differently, with a separate function: TODO
-                show_axes(bool): show x- and y- axis? --> I think we can hardcode this to false: DONE
-                frame_offset(float): offset of x and y- axis --> If show_axes is False this is not needed anymore: DONE
 
             """
 
-
         # Is the function used for simulated data or real-world data? Both require different plotting parameters.
         # if for real world-data: South America or Balkans?
-        # self.get_map_parameters()
+        #self.get_map_parameters()
 
         # Initialize the plot
         # Needed in every plot
@@ -893,7 +861,7 @@ class Map(Plot):
 
         # Get the areas from the samples
         # Needed in every plot
-        # zones = self.results['zones']
+        #areas = self.results['areas']
 
         # This computes the Delaunay triangulation of the sites
         # Needed in every plot
@@ -910,7 +878,7 @@ class Map(Plot):
         ##############################################################
         # Additional check
         ##############################################################
-        self.check_additional_parameters(lh_single_zones)
+        self.visualize_additional_map_elements(plot_single_zones_stats)
 
         ##############################################################
         # Visualization
@@ -944,11 +912,10 @@ class Map(Plot):
         # If families and family names are provided, this adds an overlay color for all language families in the map
         # including a legend entry.
         # Should go to a separate function
-        if families is not None and family_names is not None:
-            self.color_families(family_names['external'],
+        if plot_families:
+            self.color_families(self.family_names['external'],
                                 self.config['graphic']['family_colors'],
-                                families=families)
-
+                                families=self.families)
         # Again this adds alpha shapes for families for simulated data.
         # I think the reason why this was coded separately, is that many of the parameters
         # change compared to real world-data
@@ -962,12 +929,12 @@ class Map(Plot):
         # Likelihood (legend)
         ##############################################################
         # If likelihood for single areas are displayed: add legend entries with likelihood information per area
-        if lh_single_zones:
+        if plot_single_zones_stats:
             self.add_likelihood_legend()
 
         else:
-            for i, _ in enumerate(self.results['zones']):
-                self.zone_labels.append(f'$Z_{i + 1}$')
+            for i, _ in enumerate(self.results['areas']):
+                self.area_labels.append(f'$Z_{i + 1}$')
 
         # Define legend
         self.define_legend()
@@ -1020,7 +987,8 @@ class Map(Plot):
         self.style_axes(self.ax, self.locations, show=False, x_extend=self.config['graphic']['x_extend'], y_extend=self.config['graphic']['y_extend'])
 
         # Save the plot
-        self.fig.savefig(f"{fname}.{self.map_parameters['save_format']}", bbox_inches='tight', dpi=400, format=self.map_parameters['save_format'])
+
+        self.fig.savefig(f"{self.path_plots + fname}.{self.map_parameters['save_format']}", bbox_inches='tight', dpi=400, format=self.map_parameters['save_format'])
         plt.close(self.fig)
 
         # Should the labels displayed in the map be returned? These are later added as a separate legend (

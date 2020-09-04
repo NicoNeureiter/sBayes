@@ -14,6 +14,7 @@ from matplotlib.colors import ListedColormap
 import numpy as np
 import seaborn as sns
 import math
+import re
 
 from sbayes.preprocessing import compute_network, read_sites
 from sbayes.util import parse_area_columns, read_features_from_csv
@@ -53,6 +54,8 @@ class Plot:
         self.network = None
         self.locations = None
         self.dist_mat = None
+        self.families = None
+        self.family_names = None
 
         # Input ground truth areas and stats (for simulation)
         if self.is_simulation:
@@ -129,12 +132,10 @@ class Plot:
 
     # Read sites, site_names, network
     def read_data(self):
-
         if self.is_simulation:
             self.sites, self.site_names, _ = read_sites(self.path_data)
         else:
-            self.sites, self.site_names, _, _ , _, _, _, _ = read_features_from_csv(self.path_data)
-
+            self.sites, self.site_names, _, _, _, self.families, self.family_names, _ = read_features_from_csv(self.path_data)
         self.network = compute_network(self.sites)
         self.locations, self.dist_mat = self.network['locations'], self.network['dist_mat']
 
@@ -175,13 +176,14 @@ class Plot:
                     # Add each item in parsed_area_columns to the corresponding array in result
                     for j in range(len(parsed_sample)):
 
-                        # For ground truth
-                        if len(parsed_sample) == 1:
-                            result[j] = parsed_sample[j]
+                        #todo: fix
+                        # # For ground truth
+                        # if len(parsed_sample) == 1:
+                        #     result[j] = parsed_sample[j]
 
-                        # For all samples
-                        else:
-                            result[j].append(parsed_sample[j])
+                        # # For all samples
+                        # else:
+                        result[j].append(parsed_sample[j])
 
         return result
 
@@ -191,13 +193,14 @@ class Plot:
     def read_dictionary(txt_path, lines, current_key, search_key, param_dict):
         if 'ground_truth' in txt_path:
             if current_key.startswith(search_key):
-                param_dict[current_key] = lines[current_key]
+                param_dict[current_key] = float(lines[current_key])
         else:
             if current_key.startswith(search_key):
                 if current_key in param_dict:
-                    param_dict[current_key].append(lines[current_key])
+                    param_dict[current_key].append(float(lines[current_key]))
                 else:
                     param_dict[current_key] = []
+                    param_dict[current_key].append(float(lines[current_key]))
         return param_dict
 
     # Helper function for read_stats
@@ -211,9 +214,9 @@ class Plot:
         true_posterior, true_likelihood, true_prior = 0, 0, 0
 
         if 'ground_truth' in txt_path:
-            true_posterior = lines['posterior']
-            true_likelihood = lines['likelihood']
-            true_prior = lines['prior']
+            true_posterior = float(lines['posterior'])
+            true_likelihood = float(lines['likelihood'])
+            true_prior = float(lines['prior'])
 
             for key in lines:
                 true_weights = Plot.read_dictionary(txt_path, lines, key, 'w_', true_weights)
@@ -222,19 +225,18 @@ class Plot:
                 true_gamma = Plot.read_dictionary(txt_path, lines, key, 'gamma_', true_gamma)
 
         else:
-            recall.append(lines['recall'])
-            precision.append(lines['precision'])
+            recall.append(float(lines['recall']))
+            precision.append(float(lines['precision']))
 
         return recall, precision, \
             true_posterior, true_likelihood, true_prior, \
             true_weights, true_alpha, true_beta, true_gamma
 
-
     # Helper function for read_stats
     # Bind all statistics together into the dictionary self.results
     def bind_stats(self, txt_path, posterior, likelihood, prior,
                    weights, alpha, beta, gamma,
-                   posterior_single_zones, likelihood_single_zones, prior_single_zones,
+                   posterior_single_areas, likelihood_single_areas, prior_single_areas,
                    recall, precision,
                    true_posterior, true_likelihood, true_prior,
                    true_weights, true_alpha, true_beta, true_gamma, feature_names):
@@ -256,9 +258,9 @@ class Plot:
             self.results['alpha'] = alpha
             self.results['beta'] = beta
             self.results['gamma'] = gamma
-            self.results['posterior_single_zones'] = posterior_single_zones
-            self.results['likelihood_single_zones'] = likelihood_single_zones
-            self.results['prior_single_zones'] = prior_single_zones
+            self.results['posterior_single_areas'] = posterior_single_areas
+            self.results['likelihood_single_areas'] = likelihood_single_areas
+            self.results['prior_single_areas'] = prior_single_areas
             self.results['recall'] = recall
             self.results['precision'] = precision
             self.results['feature_names'] = feature_names
@@ -269,7 +271,7 @@ class Plot:
     # <experiment_path>/stats_<scenario>.txt
     def read_stats(self, txt_path, simulation_flag):
         posterior, likelihood, prior = [], [], []
-        weights, alpha, beta, gamma, posterior_single_zones, likelihood_single_zones, prior_single_zones =\
+        weights, alpha, beta, gamma, posterior_single_areas, likelihood_single_areas, prior_single_areas =\
             {}, {}, {}, {}, {}, {}, {}
         recall, precision, true_posterior, true_likelihood, true_prior, true_weights, \
             true_alpha, true_beta, true_gamma = None, None, None, None, None, None, None, None, None
@@ -277,18 +279,19 @@ class Plot:
         with open(txt_path, 'r') as f_stats:
             csv_reader = csv.DictReader(f_stats, delimiter='\t')
             for lines in csv_reader:
-                posterior.append(lines['posterior'])
-                likelihood.append(lines['likelihood'])
-                prior.append(lines['prior'])
+
+                posterior.append(float(lines['posterior']))
+                likelihood.append(float(lines['likelihood']))
+                prior.append(float(lines['prior']))
 
                 for key in lines:
                     weights = Plot.read_dictionary(txt_path, lines, key, 'w_', weights)
                     alpha = Plot.read_dictionary(txt_path, lines, key, 'alpha_', alpha)
                     beta = Plot.read_dictionary(txt_path, lines, key, 'beta_', beta)
                     gamma = Plot.read_dictionary(txt_path, lines, key, 'gamma_', gamma)
-                    posterior_single_zones = Plot.read_dictionary(txt_path, lines, key, 'post_', posterior_single_zones)
-                    likelihood_single_zones = Plot.read_dictionary(txt_path, lines, key, 'lh_', likelihood_single_zones)
-                    prior_single_zones = Plot.read_dictionary(txt_path, lines, key, 'prior_', prior_single_zones)
+                    posterior_single_areas = Plot.read_dictionary(txt_path, lines, key, 'post_', posterior_single_areas)
+                    likelihood_single_areas = Plot.read_dictionary(txt_path, lines, key, 'lh_', likelihood_single_areas)
+                    prior_single_areas = Plot.read_dictionary(txt_path, lines, key, 'prior_', prior_single_areas)
 
                 if simulation_flag:
                     recall, precision, true_posterior, true_likelihood, true_prior, \
@@ -300,22 +303,18 @@ class Plot:
             if 'universal' in key:
                 feature_names.append(str(key).rsplit('_', 1)[1])
 
-        self.bind_stats(txt_path, posterior, likelihood, prior, weights, alpha, beta, gamma, posterior_single_zones,
-                        likelihood_single_zones, prior_single_zones, recall, precision, true_posterior,
+        self.bind_stats(txt_path, posterior, likelihood, prior, weights, alpha, beta, gamma, posterior_single_areas,
+                        likelihood_single_areas, prior_single_areas, recall, precision, true_posterior,
                         true_likelihood, true_prior, true_weights, true_alpha, true_beta, true_gamma, feature_names)
 
     # Read results
     # Call all the previous functions
     # Bind the results together into the results dictionary
-    def read_results(self, current_scenario):
+    def read_results(self, current_scenario=1):
 
         # Read areas
-        # areas_path = f"{self.path_results}/n{self.config['input']['run']}/" \
-        #              f"areas_n{self.config['input']['run']}_{current_scenario}.txt"
-        #todo fix reading areas
-        self.areas = None #self.read_areas(self.path_areas)
-        self.results['zones'] = self.areas
-
+        self.areas = self.read_areas(self.path_areas)
+        self.results['areas'] = self.areas
         # Read stats
         # stats_path = f"{self.path_results}/n{self.config['input']['run']}/" \
         #             f"stats_n{self.config['input']['run']}_{current_scenario}.txt"
@@ -385,14 +384,15 @@ class Plot:
             contact_array = []
             inheritance_array = []
             sample_dict = self.results['weights']
-
             for key in sample_dict:
-                if 'universal' in key and str(feature) in key:
-                    universal_array = sample_dict[key][b_in:]
-                elif 'contact' in key and str(feature) in key:
-                    contact_array = sample_dict[key][b_in:]
-                elif 'inheritance' in key and str(feature) in key:
-                    inheritance_array = sample_dict[key][b_in:]
+                split_key = key.split("_")
+                if 'w' == split_key[0]:
+                    if 'universal' == split_key[1] and str(feature) == split_key[2]:
+                        universal_array = sample_dict[key][b_in:]
+                    elif 'contact' == split_key[1] and str(feature) == split_key[2]:
+                        contact_array = sample_dict[key][b_in:]
+                    elif 'inheritance' == split_key[1] and str(feature) == split_key[2]:
+                        inheritance_array = sample_dict[key][b_in:]
 
             sample = np.column_stack([universal_array, contact_array, inheritance_array]).astype(np.float)
             return sample
@@ -406,13 +406,14 @@ class Plot:
             true_dict = self.results['true_weights']
 
             for key in true_dict:
-                if 'universal' in key and str(feature) in key:
-                    true_universal = true_dict[key]
-                elif 'contact' in key and str(feature) in key:
-                    true_contact = true_dict[key]
-                elif 'inheritance' in key and str(feature) in key:
-                    true_inheritance = true_dict[key]
-
+                split_key = key.split("_")
+                if 'w' == split_key[0]:
+                    if 'universal' == split_key[1] and str(feature) == split_key[2]:
+                        true_universal = true_dict[key][b_in:]
+                    elif 'contact' == split_key[1] and str(feature) == split_key[2]:
+                        true_contact = true_dict[key][b_in:]
+                    elif 'inheritance' == split_key[1] and str(feature) == split_key[2]:
+                        true_inheritance = true_dict[key][b_in:]
             ground_truth = np.array([true_universal, true_contact, true_inheritance]).astype(np.float)
             return ground_truth
 
@@ -431,6 +432,7 @@ class Plot:
             states = []
 
             for key in sample_dict:
+
                 if str(feature + '_') in key and parameter in key:
                     state = str(key).rsplit('_', 1)[1]
                     p_dict[state] = sample_dict[key][b_in:]
@@ -644,7 +646,7 @@ class Plot:
     # using find_num_features
     def plot_weights_grid(self, labels=None):
 
-        weights, true_weights, _ = self.get_parameters(parameter="weights", b_in=5000)
+        weights, true_weights, _ = self.get_parameters(parameter="weights", b_in=1000)
         ordering = self.sort_by_weights(weights)
 
         n_plots = 4
@@ -676,12 +678,12 @@ class Plot:
        Args:
            samples (np.array): Sampled parameters
                 shape(n_samples, 2)
-           p_vec (str): name of parameter vector (either alpha, beta_familiy_* or gamma)
+           p_vec (str): name of parameter vector (either alpha, beta_* or gamma)
        """
-        weights, true_weights, _ = self.get_parameters(parameter="weights", b_in=5000)
+        weights, true_weights, _ = self.get_parameters(parameter="weights", b_in=1000)
         ordering = self.sort_by_weights(weights)
 
-        p, true_p, states = self.get_parameters(parameter=p_name, b_in=5000)
+        p, true_p, states = self.get_parameters(parameter=p_name, b_in=1000)
 
         n_plots = 4
         n_col = 4
