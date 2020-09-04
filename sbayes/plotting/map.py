@@ -37,8 +37,7 @@ class Map(Plot):
     def __init__(self, simulated_data=False):
 
         # Load init function from the parent class Plot
-        super().__init__(self)
-        self.is_simulation = simulated_data
+        super().__init__(simulated_data=simulated_data)
 
         # Map parameters
         self.ax = None
