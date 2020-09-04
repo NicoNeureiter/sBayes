@@ -1,15 +1,11 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-
-from __future__ import absolute_import, division, print_function, \
-    unicode_literals
-
 import numpy as np
 import scipy.stats as spstats
 from scipy.sparse.csgraph import minimum_spanning_tree
 
-from sbayes.util import compute_delaunay, n_smallest_distances, log_binom
-
+from sbayes.util import (compute_delaunay, n_smallest_distances, log_binom,
+                         counts_to_dirichlet, inheritance_counts_to_dirichlet)
 EPS = np.finfo(float).eps
 
 
@@ -415,135 +411,164 @@ class GenerativePrior(object):
 
     def __call__(self, sample, inheritance, geo_prior_meta, prior_weights_meta, prior_p_global_meta,
                  prior_p_zones_meta, prior_p_families_meta, network):
-            """Compute the prior of the current sample.
-            Args:
-                sample(Sample): A Sample object consisting of zones and weights
-                inheritance(bool): Does the model consider inheritance?
-                geo_prior_meta(dict): The geo-prior used in the analysis
-                prior_weights_meta(dict): The prior for weights used in the analysis
-                prior_p_global_meta(dict): The prior for p_global
-                prior_p_zones_meta(dict): The prior for p_zones
-                prior_p_families_meta(dict): The prior for p_families
-                network (dict): network containing the graph, locations,...
+        """Compute the prior of the current sample.
+        Args:
+            sample (Sample): A Sample object consisting of zones and weights
+            inheritance (bool): Does the model consider inheritance?
+            geo_prior_meta (dict): The geo-prior used in the analysis
+            prior_weights_meta (dict): The prior for weights used in the analysis
+            prior_p_global_meta (dict): The prior for p_global
+            prior_p_zones_meta (dict): The prior for p_zones
+            prior_p_families_meta (dict): The prior for p_families
+            network (dict): network containing the graph, locations,...
 
-            Returns:
-                float: The (log)prior of the current sample
-            """
+        Returns:
+            float: The (log)prior of the current sample
+        """
 
-            # zones = sample.zones
-            # weights = transform_weights_from_log(sample.weights)
+        # Zone-size prior
+        if self.size_prior is None or sample.what_changed['prior']['zones']:
+            # size_prior = evaluate_size_prior(sample.zones)
+            size_prior = 0.
+            self.size_prior = size_prior
+        else:
+            size_prior = self.size_prior
 
-            # Weights must sum to one
-            # assert np.allclose(a=np.sum(weights, axis=-1), b=1., rtol=EPS)
+        # Geo Prior
+        if self.geo_prior is None or sample.what_changed['prior']['zones']:
 
-            # Zone-size prior
-            if self.size_prior is None or sample.what_changed['prior']['zones']:
-                # size_prior = evaluate_size_prior(sample.zones)
-                size_prior = 0.
-                self.size_prior = size_prior
+            if geo_prior_meta['type'] == 'uniform':
+                geo_prior = 0.
+
+            elif geo_prior_meta['type'] == 'gaussian':
+                geo_prior = geo_prior_gaussian(sample.zones, network, geo_prior_meta['parameters']['gaussian'])
+
+            elif geo_prior_meta['type'] == 'distance':
+                geo_prior = geo_prior_distance(sample.zones, network, geo_prior_meta['parameters']['distance'])
+
             else:
-                size_prior = self.size_prior
+                raise ValueError('geo_prior must be either \"uniform\", \"gaussian\" or \"distance\".')
 
-            # Geo Prior
-            if self.geo_prior is None or sample.what_changed['prior']['zones']:
+            # if "magnification_factor" in geo_prior_meta['parameters']:
+            #    geo_prior = geo_prior * geo_prior_meta['parameters']['magnification_factor']
 
-                if geo_prior_meta['type'] == "uniform":
-                    geo_prior = 0.
+            self.geo_prior = geo_prior
 
-                elif geo_prior_meta['type'] == "gaussian":
-                    geo_prior = geo_prior_gaussian(sample.zones, network, geo_prior_meta['parameters']['gaussian'])
+        else:
+            geo_prior = self.geo_prior
 
-                elif geo_prior_meta['type'] == "distance":
-                    geo_prior = geo_prior_distance(sample.zones, network, geo_prior_meta['parameters']['distance'])
+        # Weights
+        if self.prior_weights is None or sample.what_changed['prior']['weights']:
+            if prior_weights_meta['type'] == 'uniform':
+                prior_weights = 0.
+            else:
+                raise ValueError('Currently only uniform prior_weights are supported.')
+            self.prior_weights = prior_weights
+        else:
+            prior_weights = self.prior_weights
+
+        # p_global
+        if self.prior_p_global is None or sample.what_changed['prior']['p_global']:
+            if prior_p_global_meta['type'] == 'uniform':
+                prior_p_global = 0.
+
+            elif prior_p_global_meta['type'] == 'pseudocounts':
+
+                prior_p_global = prior_p_global_dirichlet(
+                        p_global=sample.p_global,
+                        dirichlet=prior_p_global_meta['dirichlet'],
+                        categories=prior_p_global_meta['states'])
+
+            else:
+                raise ValueError('Prior for universal pressures must be "uniform" or "pseudocounts')
+
+            self.prior_p_global = prior_p_global
+
+        else:
+            prior_p_global = self.prior_p_global
+
+        # p_zones
+        if self.prior_p_zones is None or sample.what_changed['prior']['p_zones']:
+            if prior_p_zones_meta['type'] == 'uniform':
+                prior_p_zones = 0.
+            elif prior_p_zones_meta['type'] == 'universal':
+                s = prior_p_zones_meta['strength']
+                c_universal = s * sample.p_global[0]
+
+                prior_p_zones_distr = counts_to_dirichlet(counts=c_universal,
+                                                          categories=prior_p_zones_meta['states'])
+
+                prior_p_zones = prior_p_families_dirichlet(p_families=sample.p_zones,
+                                                              dirichlet=prior_p_zones_distr,
+                                                              categories=prior_p_zones_meta['states'],
+                                                              broadcast=True)
+            else:
+                raise ValueError('Currently only uniform p_zones priors are supported.')
+            self.prior_p_zones = prior_p_zones
+        else:
+            prior_p_zones = self.prior_p_zones
+
+        if inheritance:
+            if self.prior_p_families is None or sample.what_changed['prior']['p_families']:
+
+                if prior_p_families_meta['type'] == 'uniform':
+                    prior_p_families = 0.
+
+                elif prior_p_families_meta['type'] == 'pseudocounts':
+                    prior_p_families = prior_p_families_dirichlet(
+                        p_families=sample.p_families,
+                        dirichlet=prior_p_families_meta['dirichlet'],
+                        categories=prior_p_families_meta['states']
+                    )
+
+                elif prior_p_families_meta['type'] == 'universal':
+                    s = prior_p_families_meta['strength']
+                    c_universal = s * sample.p_global[0]
+                    prior_p_families_distr = counts_to_dirichlet(counts=c_universal,
+                                                                 categories=prior_p_families_meta['states'])
+
+                    prior_p_families = prior_p_families_dirichlet(p_families=sample.p_families,
+                                                                  dirichlet=prior_p_families_distr,
+                                                                  categories=prior_p_families_meta['states'],
+                                                                  broadcast=True)
+
+                elif prior_p_families_meta['type'] == 'counts_and_universal':
+                    s = prior_p_families_meta['strength']
+                    c_pseudocounts = prior_p_families_meta['counts']
+                    c_universal = s * sample.p_global
+                    prior_p_families_distr = inheritance_counts_to_dirichlet(counts=c_universal + c_pseudocounts,
+                                                                             categories=prior_p_families_meta['states'])
+
+                    prior_p_families = prior_p_families_dirichlet(p_families=sample.p_families,
+                                                                  dirichlet=prior_p_families_distr,
+                                                                  categories=prior_p_families_meta['states'],
+                                                                  broadcast=False)
 
                 else:
-                    raise ValueError('geo_prior must be either "uniform", "gaussian" or "distance"')
+                    raise ValueError('prior_p_families must be "uniform" or "pseudocounts"')
 
-                # if "magnification_factor" in geo_prior_meta['parameters']:
-                #    geo_prior = geo_prior * geo_prior_meta['parameters']['magnification_factor']
-
-                self.geo_prior = geo_prior
+                self.prior_p_families = prior_p_families
 
             else:
-                geo_prior = self.geo_prior
+                prior_p_families = self.prior_p_families
+        else:
+            prior_p_families = None
 
-            # Weights
-            if self.prior_weights is None or sample.what_changed['prior']['weights']:
-                if prior_weights_meta['type'] == "uniform":
-                    prior_weights = 0.
-                else:
-                    raise ValueError('Currently only uniform prior_weights are supported.')
-                self.prior_weights = prior_weights
-            else:
-                prior_weights = self.prior_weights
+        # Add up prior components (in log space)
+        log_prior = size_prior + geo_prior + prior_weights + prior_p_global + prior_p_zones
+        if inheritance:
+            log_prior += prior_p_families
 
-            # p_global
-            if self.prior_p_global is None or sample.what_changed['prior']['p_global']:
-                if prior_p_global_meta['type'] == "uniform":
-                    prior_p_global = 0.
+        # The step is completed. Everything is up-to-date.
+        sample.what_changed['prior']['zones'] = False
+        sample.what_changed['prior']['weights'] = False
+        sample.what_changed['prior']['p_global'] = False
+        sample.what_changed['prior']['p_zones'] = False
 
-                elif prior_p_global_meta['type'] == "pseudocounts":
+        if inheritance:
+            sample.what_changed['prior']['p_families'] = False
 
-                    prior_p_global = prior_p_global_dirichlet(
-                            p_global=sample.p_global,
-                            dirichlet=prior_p_global_meta['dirichlet'],
-                            categories=prior_p_global_meta['states'])
-
-                else:
-                    raise ValueError('Prior for universal pressures must be "uniform" or "pseudocounts')
-
-                self.prior_p_global = prior_p_global
-
-            else:
-                prior_p_global = self.prior_p_global
-
-            # p_zones
-            if self.prior_p_zones is None or sample.what_changed['prior']['p_zones']:
-                if prior_p_zones_meta['type'] == "uniform":
-                    prior_p_zones = 0.
-                else:
-                    raise ValueError('Currently only uniform p_zones priors are supported.')
-                self.prior_p_zones = prior_p_zones
-            else:
-                prior_p_zones = self.prior_p_zones
-
-            if inheritance:
-                if self.prior_p_families is None or sample.what_changed['prior']['p_families']:
-
-                    if prior_p_families_meta['type'] == "uniform":
-                        prior_p_families = 0.
-
-                    elif prior_p_families_meta['type'] == "pseudocounts":
-
-                        prior_p_families = prior_p_families_dirichlet(
-                            p_families=sample.p_families,
-                            dirichlet=prior_p_families_meta['dirichlet'],
-                            categories=prior_p_families_meta['states'])
-
-                    else:
-                        raise ValueError('prior_p_families must be "uniform" or "pseudocounts')
-
-                    self.prior_p_families = prior_p_families
-
-                else:
-                    prior_p_families = self.prior_p_families
-            else:
-                prior_p_families = None
-
-            log_prior = size_prior + geo_prior + prior_weights + prior_p_global + prior_p_zones
-            if inheritance:
-                log_prior += prior_p_families
-
-            # The step is completed. Everything is up-to-date.
-            sample.what_changed['prior']['zones'] = False
-            sample.what_changed['prior']['weights'] = False
-            sample.what_changed['prior']['p_global'] = False
-            sample.what_changed['prior']['p_zones'] = False
-
-            if inheritance:
-                sample.what_changed['prior']['p_families'] = False
-
-            return log_prior
+        return log_prior
 
 
 def evaluate_size_prior(zones):
@@ -669,7 +694,7 @@ def prior_p_global_dirichlet(p_global, dirichlet, categories):
     return sum(log_prior)
 
 
-def prior_p_families_dirichlet(p_families, dirichlet, categories):
+def prior_p_families_dirichlet(p_families, dirichlet, categories, broadcast=False):
     """" This function evaluates the prior for p_families
     Args:
         p_families(np.array): p_families from the sample
@@ -683,10 +708,17 @@ def prior_p_families_dirichlet(p_families, dirichlet, categories):
     log_prior = []
 
     for fam in range(n_fam):
+
+        if broadcast:
+            # One prior is applied to all families
+            dirichlet_fam = dirichlet
+        else:
+            # One prior per family
+            dirichlet_fam = dirichlet[fam]
+
         for f in range(n_feat):
             idx = categories[f]
-            diri = dirichlet[fam][f]
             p_fam = p_families[fam, f, idx]
-            log_prior.append(diri.logpdf(p_fam))
+            log_prior.append(dirichlet_fam[f].logpdf(p_fam))
 
     return sum(log_prior)

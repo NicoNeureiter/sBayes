@@ -467,42 +467,39 @@ def inheritance_counts_to_dirichlet(counts, categories):
     Returns:
         list: the dirichlet distributions, neatly stored in a dict
     """
-
     n_fam, n_feat, n_cat = counts.shape
     dirichlet = [[] for _ in range(n_fam)]
 
     for fam in range(n_fam):
-        for feat in range(n_feat):
-            cat = categories[feat]
-
-            # Add 1 to count values (1,1,...1 is a uniform prior)
-            pseudocounts = counts[fam, feat, cat] + 1
-            print(pseudocounts, "pseudo inheritance")
-            dirichlet[fam].append(stats.dirichlet(pseudocounts))
+        dirichlet[fam] = counts_to_dirichlet(counts[fam], categories)
 
     return dirichlet
 
 
-def universal_counts_to_dirichlet(counts, states):
-    """This is a helper function to transform universal pseudocounts to alpha values that
-    are then passed to define dirichlet distributions
+def counts_to_dirichlet(counts, categories, prior='uniform'):
+    """This is a helper function to transform counts of categorical data
+    to parameters of a dirichlet distribution.
 
     Args:
-        counts(np.array): the universal pseudocounts
-                    shape(n_features, states)
-        states(list): states/categories per feature
+        counts(np.array): the counts of categorical data.
+                    shape(n_features, n_states)
+        categories(list): states/categories per feature
+        prior (str): Use one of the following uninformative priors:
+            'uniform': A uniform prior probability over the probability simplex Dir(1,...,1)
+            'jeffrey': The Jeffrey's prior Dir(0.5,...,0.5)
+            'naught': A natural exponential family prior Dir(0,...,0).
     Returns:
-        list: a dirichlet distribution derived from pseudocounts, neatly stored in a dict
+        list: a dirichlet distribution derived from pseudocounts
     """
-
-    n_feat, n_cat = counts.shape
+    n_features, n_categories = counts.shape
     dirichlet = []
 
-    for feat in range(n_feat):
-        cat = states[feat]
+    prior_map = {'uniform': 1, 'jeffrey': 0.5, 'naught': 0}
+
+    for feat in range(n_features):
+        cat = categories[feat]
         # Add 1 to alpha values (1,1,...1 is a uniform prior)
-        pseudocounts = counts[feat, cat] + 1
-        print(pseudocounts, "pseudo universal")
+        pseudocounts = counts[feat, cat] + prior_map[prior]
         dirichlet.append(stats.dirichlet(pseudocounts))
 
     return dirichlet
