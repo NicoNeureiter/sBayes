@@ -10,9 +10,9 @@ setup(
     long_description_content_type='text/markdown',
     keywords='data linguistics',
     license='???',
-    #url="MCMC algorithms to identify linguistic contact zones",
-    packages=find_packages(where='src'),
-    package_dir={'': 'src'},
+    #url="https://github.com/derpetermann/sbayes",
+    packages=find_packages(where='sbayes'),
+    package_dir={'': ''},
     platforms='any',
     install_requires=[
         "numpy",
