@@ -1,10 +1,31 @@
 import numpy as np
 
+from sbayes.plotting.map import Map
 from sbayes.plotting.plot import Plot
 import os
 
 if __name__ == '__main__':
 
+    plt = Map(simulated_data=False)
+    plt.load_config(config_file='../config_plot.json')
+
+    for scenario in plt.config['input']['scenarios']:
+        print('Reading input data...')
+
+        # Read sites, sites_names, network
+        plt.read_data()
+
+        # Read the results
+        plt.read_results(scenario)
+        plt.posterior_map(
+            post_freq_lines=[0.8, 0.6, 0.4],
+            burn_in=0.4,
+            plot_families=True,
+            plot_single_zones_stats=False,
+            add_overview=True,
+            fname='/posterior_map.pdf')
+
+    # # Weights  and Probabilities
     # Initialize Plot class
     plt = Plot(simulated_data=False)
     plt.load_config(config_file='../config_plot.json')
