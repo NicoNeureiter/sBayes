@@ -91,6 +91,7 @@ class MCMC_generative(metaclass=_abc.ABCMeta):
         self._prior = _np.full(self.n_chains, -_np.inf)
 
         self.show_screen_log = show_screen_log
+        self.t_start = _time.time()
 
     @_abc.abstractmethod
     def prior(self, x, c):
@@ -210,9 +211,7 @@ class MCMC_generative(metaclass=_abc.ABCMeta):
 
                 # Print work status and likelihood at fixed intervals
                 if i_step % 1000 == 0:
-                    print(i_step, ' steps taken')
-                    print(self.likelihood(sample[self.chain_idx[0]], self.chain_idx[0]), "Likelihood")
-                    # print('size0 =', 'sum(sample[self.chain_idx[0]].zones[0]))
+                    self.print_screen_log(i_step, sample)
 
                 # Log the last sample of the first chain
                 if i_step % (n_steps-1) == 0 and i_step != 0:
@@ -259,9 +258,9 @@ class MCMC_generative(metaclass=_abc.ABCMeta):
                 self.chain_idx[swap_to_idx] = swap_from
                 self.statistics['accepted_swaps'] += 1
 
-                print("swapped")
-            else:
-                print("not swapped")
+            #     print("swapped")
+            # else:
+            #     print("not swapped")
 
         # Set all 'what_changed' flags to true (to avoid caching errors)
         for s in sample:
@@ -360,3 +359,15 @@ class MCMC_generative(metaclass=_abc.ABCMeta):
         """
         self.statistics['last_sample'] = last_sample
 
+
+    def print_screen_log(self, i_step, sample):
+        i_step_str = str.ljust(str(i_step), 12)
+
+        likelihood =self.likelihood(sample[self.chain_idx[0]], self.chain_idx[0])
+        likelihood_str = str.ljust('log-likelihood:  %.2f' % likelihood, 36)
+
+        time_per_million = (_time.time() - self.t_start) / (i_step + 1) * 1000000
+        time_str = '%i seconds / million steps' % time_per_million
+
+        print(i_step_str + likelihood_str + time_str)
+        # print('size0 =', 'sum(sample[self.chain_idx[0]].zones[0]))
