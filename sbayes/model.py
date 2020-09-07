@@ -396,6 +396,13 @@ class GenerativeLikelihood(object):
             if inheritance:
                 sample.what_changed['lh']['p_families'] = False
 
+            # Find all languages that are in a family, but not in an area. For each add penalty p to the log_lh
+            # todo remove after testing
+            # in_zone = np.any(zones, axis=0)
+            # in_family = np.any(families, axis=0)
+            # p = -1.6
+            # total_penalty = p * np.sum(in_family & ~in_zone)
+            # log_lh += total_penalty
             return log_lh
 
 
