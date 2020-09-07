@@ -17,6 +17,13 @@ from matplotlib.collections import LineCollection
 
 EPS = np.finfo(float).eps
 
+FAST_DIRICHLET = True
+if FAST_DIRICHLET:
+    def dirichlet_pdf(x, alpha): return np.exp(stats.dirichlet._logpdf(x, alpha))
+    dirichlet_logpdf = stats.dirichlet._logpdf
+else:
+    dirichlet_pdf = stats.dirichlet.pdf
+    dirichlet_logpdf = stats.dirichlet.logpdf
 
 class FamilyError(Exception):
     pass
@@ -508,7 +515,8 @@ def counts_to_dirichlet(counts, categories, prior='uniform', outdated_features=N
         cat = categories[feat]
         # Add 1 to alpha values (1,1,...1 is a uniform prior)
         pseudocounts = counts[feat, cat] + prior_map[prior]
-        dirichlet[feat] = stats.dirichlet(pseudocounts)
+        # dirichlet[feat] = stats.dirichlet(pseudocounts)
+        dirichlet[feat] = pseudocounts
 
     return dirichlet
 

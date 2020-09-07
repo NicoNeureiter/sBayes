@@ -6,11 +6,9 @@ from copy import deepcopy
 
 import numpy as np
 
-import scipy.stats as spstats
-
 from sbayes.sampling.mcmc_generative import MCMC_generative
 from sbayes.model import GenerativeLikelihood, GenerativePrior
-from sbayes.util import get_neighbours, balance_p_array, normalize
+from sbayes.util import get_neighbours, balance_p_array, normalize, dirichlet_pdf
 
 
 class IndexSet(set):
@@ -37,7 +35,7 @@ class IndexSet(set):
 
         return other
 
-    def __deepcopy__(self, memodict={}):
+    def __deepcopy__(self, memo):
         # other = deepcopy(super(IndexSet, self))
         other = IndexSet(all=self.all)
         for element in self:
@@ -45,11 +43,12 @@ class IndexSet(set):
 
         return other
 
+
 class Sample(object):
     """
     Attributes:
         zones (np.array): Assignment of sites to zones.
-            shape: (n_sites, )
+            shape: (n_zones, n_sites)
         weights (np.array): Weights of zone, family and global likelihood for different features.
             shape: (n_features, 3)
         p_global (np.array): Global probabilities of categories
@@ -72,9 +71,9 @@ class Sample(object):
         self.everything_changed()
 
     def everything_changed(self):
-        self.what_changed = {'lh': {'zones': True, 'weights': True,
-                                    'p_global': True, 'p_zones': True, 'p_families': True},
-                             'prior': {'zones': True, 'weights': True,
+        self.what_changed = {'lh': {'zones': IndexSet(), 'weights': True,
+                                    'p_global': IndexSet(), 'p_zones': IndexSet(), 'p_families': IndexSet()},
+                             'prior': {'zones': IndexSet(), 'weights': True,
                                        'p_global': IndexSet(), 'p_zones': IndexSet(), 'p_families': IndexSet()}}
 
     def copy(self):
@@ -150,7 +149,10 @@ class ZoneMCMC_generative(MCMC_generative):
 
         self.compute_lh_per_chain = [
             # GenerativeLikelihood(features, self.inheritance, self.families) for _ in range(self.n_chains)
-            GenerativeLikelihood() for _ in range(self.n_chains)
+            GenerativeLikelihood(data=features, families=self.families, inheritance=self.inheritance,
+                                 sample_p_global=self.sample_p_global, sample_p_zones=self.sample_p_zones,
+                                 sample_p_families=self.sample_p_families)
+            for _ in range(self.n_chains)
         ]
 
         self.compute_prior_per_chain = [
@@ -173,18 +175,17 @@ class ZoneMCMC_generative(MCMC_generative):
                                                         prior_p_families_meta=self.prior_p_families,
                                                         network=self.network)
 
-        # check_caching = True
-        # if check_caching:
-        #     sample.everything_changed()
-        #     log_prior_stable = self.compute_prior_per_chain[chain](sample=sample, inheritance=self.inheritance,
-        #                                                            geo_prior_meta=self.geo_prior,
-        #                                                            prior_weights_meta=self.prior_weights,
-        #                                                            prior_p_global_meta=self.prior_p_global,
-        #                                                            prior_p_zones_meta=self.prior_p_zones,
-        #                                                            prior_p_families_meta=self.prior_p_families,
-        #                                                            network=self.network)
-        #
-        #     assert log_prior == log_prior_stable, f'{log_prior} != {log_prior_stable}'
+        check_caching = False
+        if check_caching:
+            sample.everything_changed()
+            log_prior_stable = self.compute_prior_per_chain[chain](sample=sample, inheritance=self.inheritance,
+                                                                   geo_prior_meta=self.geo_prior,
+                                                                   prior_weights_meta=self.prior_weights,
+                                                                   prior_p_global_meta=self.prior_p_global,
+                                                                   prior_p_zones_meta=self.prior_p_zones,
+                                                                   prior_p_families_meta=self.prior_p_families,
+                                                                   network=self.network)
+            assert log_prior == log_prior_stable, f'{log_prior} != {log_prior_stable}'
 
         return log_prior
 
@@ -199,11 +200,13 @@ class ZoneMCMC_generative(MCMC_generative):
             return 0.
 
         # Compute the likelihood
-        log_lh = self.compute_lh_per_chain[chain](sample=sample, features=self.features, families=self.families,
-                                                  inheritance=self.inheritance,
-                                                  sample_p_global=self.sample_p_global,
-                                                  sample_p_zones=self.sample_p_zones,
-                                                  sample_p_families=self.sample_p_families)
+        log_lh = self.compute_lh_per_chain[chain](sample=sample)
+
+        check_caching = False
+        if check_caching:
+            sample.everything_changed()
+            log_lh_stable = self.compute_lh_per_chain[chain](sample=sample, caching=False)
+            assert log_lh == log_lh_stable, f'{log_lh} != {log_lh_stable}'
 
         return log_lh
 
@@ -267,9 +270,9 @@ class ZoneMCMC_generative(MCMC_generative):
         sample_new.p_global[0, f_id, f_cats] = p_new
 
         # The step changed p_global (which has an influence on how the lh and the prior look like)
-        sample_new.what_changed['lh']['p_global'] = True
+        sample_new.what_changed['lh']['p_global'].add(f_id)
         sample_new.what_changed['prior']['p_global'].add(f_id)
-        sample.what_changed['lh']['p_global'] = True
+        sample.what_changed['lh']['p_global'].add(f_id)
         sample.what_changed['prior']['p_global'].add(f_id)
 
         return sample_new, q, q_back
@@ -297,9 +300,9 @@ class ZoneMCMC_generative(MCMC_generative):
         sample_new.p_zones[z_id, f_id, f_cats] = p_new
 
         # The step changed p_zones (which has an influence on how the lh and the prior look like)
-        sample_new.what_changed['lh']['p_zones'] = True
+        sample_new.what_changed['lh']['p_zones'].add((z_id, f_id))
         sample_new.what_changed['prior']['p_zones'].add((z_id, f_id))
-        sample.what_changed['lh']['p_zones'] = True
+        sample.what_changed['lh']['p_zones'].add((z_id, f_id))
         sample.what_changed['prior']['p_zones'].add((z_id, f_id))
 
         return sample_new, q, q_back
@@ -323,10 +326,10 @@ class ZoneMCMC_generative(MCMC_generative):
 
         alpha = 1 + step_precision * w
         w_new = np.random.dirichlet(alpha)
-        q = spstats.dirichlet.pdf(w_new, alpha)
+        q = dirichlet_pdf(w_new, alpha)
 
         alpha_back = 1 + step_precision * w_new
-        q_back = spstats.dirichlet.pdf(w, alpha_back)
+        q_back = dirichlet_pdf(w, alpha_back)
 
         if not np.all(np.isfinite(w_new)):
             logging.warning(f'Dirichlet step resulted in NaN or Inf:')
@@ -362,9 +365,9 @@ class ZoneMCMC_generative(MCMC_generative):
         sample_new.p_families[fam_id, f_id, f_cats] = p_new
 
         # The step changed p_families (which has an influence on how the lh and the prior look like)
-        sample_new.what_changed['lh']['p_families'] = True
+        sample_new.what_changed['lh']['p_families'].add((fam_id, f_id))
         sample_new.what_changed['prior']['p_families'].add((fam_id, f_id))
-        sample.what_changed['lh']['p_families'] = True
+        sample.what_changed['lh']['p_families'].add((fam_id, f_id))
         sample.what_changed['prior']['p_families'].add((fam_id, f_id))
 
         return sample_new, q, q_back
@@ -378,13 +381,7 @@ class ZoneMCMC_generative(MCMC_generative):
         Returns:
             Sample: The modified sample.
          """
-
         sample_new = sample.copy()
-
-        # The step changed the zone (which has an influence on how the lh and the prior look like)
-        sample_new.what_changed['lh']['zones'] = sample.what_changed['lh']['zones'] = True
-        sample_new.what_changed['prior']['zones'] = sample.what_changed['prior']['zones'] = True
-
         zones_current = sample.zones
         occupied = np.any(zones_current, axis=0)
 
@@ -435,6 +432,12 @@ class ZoneMCMC_generative(MCMC_generative):
             q_back_connected = 1 / np.count_nonzero(back_neighbours)
             q_back += self.p_grow_connected * q_back_connected
 
+        # The step changed the zone (which has an influence on how the lh and the prior look like)
+        sample_new.what_changed['lh']['zones'].add(z_id)
+        sample.what_changed['lh']['zones'].add(z_id)
+        sample_new.what_changed['prior']['zones'].add(z_id)
+        sample.what_changed['prior']['zones'].add(z_id)
+
         return sample_new, q, q_back
 
     def grow_zone(self, sample):
@@ -447,10 +450,6 @@ class ZoneMCMC_generative(MCMC_generative):
         """
 
         sample_new = sample.copy()
-        # The step changed the zone (which has an influence on how the lh and the prior look like)
-        sample_new.what_changed['lh']['zones'] = sample.what_changed['lh']['zones'] = True
-        sample_new.what_changed['prior']['zones'] = sample.what_changed['prior']['zones'] = True
-
         zones_current = sample.zones
         occupied = np.any(zones_current, axis=0)
 
@@ -484,7 +483,6 @@ class ZoneMCMC_generative(MCMC_generative):
         site_new = _random.choice(candidates.nonzero()[0])
         sample_new.zones[z_id, site_new] = 1
 
-        # TODO Use this once we checked it is correct [NN]:
         # Transition probability when growing
         q_nonconnected = 1 / np.count_nonzero(~occupied)
         q = (1 - self.p_grow_connected) * q_nonconnected
@@ -496,6 +494,12 @@ class ZoneMCMC_generative(MCMC_generative):
         q_back = 1 / (current_size + 1)
 
         # q = q_back = 1.
+
+        # The step changed the zone (which has an influence on how the lh and the prior look like)
+        sample_new.what_changed['lh']['zones'].add(z_id)
+        sample.what_changed['lh']['zones'].add(z_id)
+        sample_new.what_changed['prior']['zones'].add(z_id)
+        sample.what_changed['prior']['zones'].add(z_id)
 
         return sample_new, q, q_back
 
@@ -509,10 +513,6 @@ class ZoneMCMC_generative(MCMC_generative):
             (Sample): The modified sample.
         """
         sample_new = sample.copy()
-        # The step changed the zone (which has an influence on how the lh and the prior look like)
-        sample_new.what_changed['lh']['zones'] = sample.what_changed['lh']['zones'] = True
-        sample_new.what_changed['prior']['zones'] = sample.what_changed['prior']['zones'] = True
-
         zones_current = sample.zones
 
         # Randomly choose one of the zones to modify
@@ -531,7 +531,6 @@ class ZoneMCMC_generative(MCMC_generative):
         site_removed = _random.choice(removal_candidates)
         sample_new.zones[z_id, site_removed] = 0
 
-        # TODO Use this once we checked it is correct [NN]:
         # Transition probability when shrinking.
         q = 1 / len(removal_candidates)
         # Back-probability (growing)
@@ -548,8 +547,13 @@ class ZoneMCMC_generative(MCMC_generative):
             q_back_connected = 1 / np.count_nonzero(back_neighbours)
             q_back += self.p_grow_connected * q_back_connected
 
-        # # Todo: remove once back probability works properly
         # q = q_back = 1.
+
+        # The step changed the zone (which has an influence on how the lh and the prior look like)
+        sample_new.what_changed['lh']['zones'].add(z_id)
+        sample.what_changed['lh']['zones'].add(z_id)
+        sample_new.what_changed['prior']['zones'].add(z_id)
+        sample.what_changed['prior']['zones'].add(z_id)
 
         return sample_new, q, q_back
 
