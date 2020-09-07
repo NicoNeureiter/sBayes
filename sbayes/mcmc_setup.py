@@ -11,7 +11,7 @@ import os
 
 from sbayes.postprocessing import (contribution_per_area, log_operator_statistics,
                                    log_operator_statistics_header, match_areas, rank_areas)
-from sbayes.sampling.zone_sampling import Sample, ZoneMCMC_generative
+from sbayes.sampling.zone_sampling import Sample, ZoneMCMC_generative, IndexSet
 from sbayes.util import (normalize, counts_to_dirichlet,
                          inheritance_counts_to_dirichlet, samples2file)
 
@@ -200,10 +200,7 @@ class MCMC:
             initial_sample = Sample(zones=None, weights=None,
                                     p_global=None, p_zones=None, p_families=None)
 
-        initial_sample.what_changed = {'lh': {'zones': True, 'weights': True,
-                                              'p_global': True, 'p_zones': True, 'p_families': True},
-                                       'prior': {'zones': True, 'weights': True,
-                                                 'p_global': True, 'p_zones': True, 'p_families': True}}
+        initial_sample.everything_changed()
 
         return initial_sample
 
@@ -221,16 +218,7 @@ class MCMC:
                                      p_zones=self.data.p_contact,
                                      p_families=self.data.p_inheritance)
 
-        ground_truth_sample.what_changed = {'lh': {'zones': True,
-                                                   'weights': True,
-                                                   'p_global': True,
-                                                   'p_zones': True,
-                                                   'p_families': True},
-                                            'prior': {'zones': True,
-                                                      'weights': True,
-                                                      'p_global': True,
-                                                      'p_zones': True,
-                                                      'p_families': True}}
+        ground_truth_sample.everything_changed()
 
         self.samples['true_zones'] = self.data.areas
         self.samples['true_weights'] = weights

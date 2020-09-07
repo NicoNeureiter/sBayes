@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+import itertools
 import numpy as np
-import scipy.stats as spstats
+import scipy.stats as stats
 from scipy.sparse.csgraph import minimum_spanning_tree
 
 from sbayes.util import (compute_delaunay, n_smallest_distances, log_binom,
@@ -408,6 +409,8 @@ class GenerativePrior(object):
         self.prior_p_global = None
         self.prior_p_zones = None
         self.prior_p_families = None
+        self.prior_p_zones_distr = None
+        self.prior_p_families_distr = None
 
     def __call__(self, sample, inheritance, geo_prior_meta, prior_weights_meta, prior_p_global_meta,
                  prior_p_zones_meta, prior_p_families_meta, network):
@@ -426,17 +429,239 @@ class GenerativePrior(object):
             float: The (log)prior of the current sample
         """
 
-        # Zone-size prior
-        if self.size_prior is None or sample.what_changed['prior']['zones']:
-            # size_prior = evaluate_size_prior(sample.zones)
-            size_prior = 0.
-            self.size_prior = size_prior
+        # zone-size prior
+        size_prior = self.get_size_prior(sample)
+        # geo-prior
+        geo_prior = self.get_geo_prior(sample, geo_prior_meta, network)
+        # weights
+        prior_weights = self.get_prior_weights(sample, prior_weights_meta)
+        # p_global
+        prior_p_global = self.get_prior_p_global(sample, prior_p_global_meta)
+        # p_zones
+        prior_p_zones = self.get_prior_p_zones(sample, prior_p_zones_meta)
+        # p_families
+        if inheritance:
+            prior_p_families = self.get_prior_p_families(sample, prior_p_families_meta)
         else:
-            size_prior = self.size_prior
+            prior_p_families = None
 
-        # Geo Prior
-        if self.geo_prior is None or sample.what_changed['prior']['zones']:
+        # Add up prior components (in log space)
+        log_prior = size_prior + geo_prior + prior_weights + prior_p_global + prior_p_zones
+        if inheritance:
+            log_prior += prior_p_families
 
+        # The step is completed. Everything is up-to-date.
+        sample.what_changed['prior']['zones'] = False
+        sample.what_changed['prior']['weights'] = False
+        sample.what_changed['prior']['p_global'].clear()
+        sample.what_changed['prior']['p_zones'].clear()
+
+        if inheritance:
+            sample.what_changed['prior']['p_families'].clear()
+
+        return log_prior
+
+    def weights_prior_outdated(self, sample):
+        """Check whether the cached prior_weights is up-to-date or needs to be recomputed."""
+        return self.prior_weights is None or sample.what_changed['prior']['weights']
+
+    def get_prior_weights(self, sample, prior_weights_meta):
+        """Compute the prior for weights (or load from cache).
+
+        Args:
+            sample (Sample): Current MCMC sample.
+            prior_weights_meta (dict): Meta-information about the prior.
+
+        Returns:
+            float: Logarithm of the prior probability density.
+        """
+        if self.weights_prior_outdated(sample):
+            if prior_weights_meta['type'] == 'uniform':
+                prior_weights = 0.
+            else:
+                raise ValueError('Currently only uniform prior_weights are supported.')
+
+            self.prior_weights = prior_weights
+
+        return self.prior_weights
+
+    def p_zones_prior_outdated(self, sample, prior_type):
+        """Check whether the cached prior_p_zones is up-to-date or needs to be recomputed."""
+        if self.prior_p_zones is None:
+            return True
+        elif sample.what_changed['prior']['p_zones']:
+            return True
+        elif prior_type == 'universal' and sample.what_changed['prior']['p_global']:
+            return True
+        else:
+            return False
+
+    def get_prior_p_zones(self, sample, prior_p_zones_meta):
+        """Compute the prior for p_zones (or load from cache).
+
+        Args:
+            sample (Sample): Current MCMC sample.
+            prior_p_zones_meta (dict): Meta-information about the prior.
+
+        Returns:
+            float: Logarithm of the prior probability density.
+        """
+        prior_type = prior_p_zones_meta['type']
+        what_changed = sample.what_changed['prior']
+
+        if self.p_zones_prior_outdated(sample, prior_type):
+            if prior_type == 'uniform':
+                prior_p_zones = 0.
+
+            elif prior_type == 'universal':
+                s = prior_p_zones_meta['strength']
+                c_universal = s * sample.p_global[0]
+
+                self.prior_p_zones_distr = counts_to_dirichlet(counts=c_universal,
+                                                               categories=prior_p_zones_meta['states'],
+                                                               outdated_features=what_changed['p_global'],
+                                                               dirichlet=self.prior_p_zones_distr)
+                prior_p_zones = prior_p_families_dirichlet(p_families=sample.p_zones,
+                                                                dirichlet=self.prior_p_zones_distr,
+                                                                categories=prior_p_zones_meta['states'],
+                                                                outdated_indices=what_changed['p_zones'],
+                                                                outdated_distributions=what_changed['p_global'],
+                                                                cached_prior=self.prior_p_zones,
+                                                                broadcast=True)
+            else:
+                raise ValueError('Currently only uniform p_zones priors are supported.')
+
+            self.prior_p_zones = prior_p_zones
+
+        return np.sum(self.prior_p_zones)
+
+    def p_families_prior_outdated(self, sample, prior_type):
+        """Check whether the cached prior_p_families is up-to-date or needs to be recomputed."""
+        if self.prior_p_families is None:
+            return True
+        elif sample.what_changed['prior']['p_families']:
+            return True
+        elif (prior_type in ['universal', 'counts_and_universal']) and (sample.what_changed['prior']['p_global']):
+            return True
+        else:
+            return False
+
+    def get_prior_p_families(self, sample, prior_p_families_meta):
+        """Compute the prior for p_families (or load from cache).
+
+        Args:
+            sample (Sample): Current MCMC sample.
+            prior_p_families_meta (dict): Meta-information about the prior.
+
+        Returns:
+            float: Logarithm of the prior probability density.
+        """
+        prior_type = prior_p_families_meta['type']
+        what_changed = sample.what_changed['prior']
+
+        if self.p_families_prior_outdated(sample, prior_type):
+
+            if prior_type == 'uniform':
+                prior_p_families = 0.
+
+            elif prior_type == 'pseudocounts':
+                prior_p_families = prior_p_families_dirichlet(p_families=sample.p_families,
+                                                              dirichlet=prior_p_families_meta['dirichlet'],
+                                                              categories=prior_p_families_meta['states'],
+                                                              outdated_indices=what_changed['p_families'],
+                                                              outdated_distributions=what_changed['p_global'],
+                                                              cached_prior=self.prior_p_families,
+                                                              broadcast=False)
+
+            elif prior_type == 'universal':
+                s = prior_p_families_meta['strength']
+                c_universal = s * sample.p_global[0]
+                self.prior_p_families_distr = counts_to_dirichlet(counts=c_universal,
+                                                                  categories=prior_p_families_meta['states'],
+                                                                  outdated_features=what_changed['p_global'],
+                                                                  dirichlet=self.prior_p_families_distr)
+
+                prior_p_families = prior_p_families_dirichlet(p_families=sample.p_families,
+                                                              dirichlet=self.prior_p_families_distr,
+                                                              categories=prior_p_families_meta['states'],
+                                                              outdated_indices=what_changed['p_families'],
+                                                              outdated_distributions=what_changed['p_global'],
+                                                              cached_prior=self.prior_p_families,
+                                                              broadcast=True)
+
+            elif prior_type == 'counts_and_universal':
+                s = prior_p_families_meta['strength']
+                c_pseudocounts = prior_p_families_meta['counts']
+                c_universal = s * sample.p_global
+                self.prior_p_families_distr = inheritance_counts_to_dirichlet(counts=c_universal + c_pseudocounts,
+                                                                         categories=prior_p_families_meta['states'],
+                                                                         outdated_features=what_changed['p_global'],
+                                                                         dirichlet=self.prior_p_families_distr)
+
+                prior_p_families = prior_p_families_dirichlet(p_families=sample.p_families,
+                                                              dirichlet=self.prior_p_families_distr,
+                                                              categories=prior_p_families_meta['states'],
+                                                              outdated_indices=what_changed['p_families'],
+                                                              outdated_distributions=what_changed['p_global'],
+                                                              cached_prior=self.prior_p_families,
+                                                              broadcast=False)
+
+            else:
+                raise ValueError('prior_p_families must be "uniform" or "pseudocounts"')
+
+            self.prior_p_families = prior_p_families
+
+        return np.sum(self.prior_p_families)
+
+    def prior_p_global_outdated(self, sample):
+        """Check whether the cached prior_p_global is up-to-date or needs to be recomputed."""
+        return self.prior_p_global is None or sample.what_changed['prior']['p_global']
+
+    def get_prior_p_global(self, sample, prior_p_global_meta):
+        """Compute the prior for p_global (or load from cache).
+
+        Args:
+            sample (Sample): Current MCMC sample.
+            prior_p_global_meta (dict): Meta-information about the prior.
+
+        Returns:
+            float: Logarithm of the prior probability density.
+        """
+        if self.prior_p_global_outdated(sample):
+
+            if prior_p_global_meta['type'] == 'uniform':
+                prior_p_global = 0.
+
+            elif prior_p_global_meta['type'] == 'pseudocounts':
+                prior_p_global = prior_p_global_dirichlet(p_global=sample.p_global,
+                                                          dirichlet=prior_p_global_meta['dirichlet'],
+                                                          categories=prior_p_global_meta['states'],
+                                                          outdated_features=sample.what_changed['prior']['p_global'],
+                                                          cached_prior=self.prior_p_global)
+
+            else:
+                raise ValueError('Prior for universal pressures must be "uniform" or "pseudocounts')
+
+            self.prior_p_global = prior_p_global
+
+        return np.sum(self.prior_p_global)
+
+    def geo_prior_outdated(self, sample):
+        """Check whether the cached geo_prior is up-to-date or needs to be recomputed."""
+        return self.geo_prior is None or sample.what_changed['prior']['zones']
+
+    def get_geo_prior(self, sample, geo_prior_meta, network):
+        """Compute the geo-prior of the current zones (or load from cache).
+
+        Args:
+            sample (Sample): Current MCMC sample.
+            geo_prior_meta (dict): Meta-information about the prior.
+            network (dict): network containing the graph, location,...
+
+        Returns:
+            float: Logarithm of the prior probability density.
+        """
+        if self.geo_prior_outdated(sample):
             if geo_prior_meta['type'] == 'uniform':
                 geo_prior = 0.
 
@@ -454,121 +679,27 @@ class GenerativePrior(object):
 
             self.geo_prior = geo_prior
 
-        else:
-            geo_prior = self.geo_prior
+        return self.geo_prior
 
-        # Weights
-        if self.prior_weights is None or sample.what_changed['prior']['weights']:
-            if prior_weights_meta['type'] == 'uniform':
-                prior_weights = 0.
-            else:
-                raise ValueError('Currently only uniform prior_weights are supported.')
-            self.prior_weights = prior_weights
-        else:
-            prior_weights = self.prior_weights
+    def size_prior_outdated(self, sample):
+        """Check whether the cached size_prior is up-to-date or needs to be recomputed."""
+        return self.size_prior is None or sample.what_changed['prior']['zones']
 
-        # p_global
-        if self.prior_p_global is None or sample.what_changed['prior']['p_global']:
-            if prior_p_global_meta['type'] == 'uniform':
-                prior_p_global = 0.
+    def get_size_prior(self, sample):
+        """Compute the size-prior of the current zone (or load from cache).
 
-            elif prior_p_global_meta['type'] == 'pseudocounts':
+        Args:
+            sample (Sample): Current MCMC sample.
 
-                prior_p_global = prior_p_global_dirichlet(
-                        p_global=sample.p_global,
-                        dirichlet=prior_p_global_meta['dirichlet'],
-                        categories=prior_p_global_meta['states'])
+        Returns:
+            float: Logarithm of the prior probability density.
+        """
+        if self.size_prior_outdated(sample):
+            # size_prior = evaluate_size_prior(sample.zones)
+            size_prior = 0.
+            self.size_prior = size_prior
 
-            else:
-                raise ValueError('Prior for universal pressures must be "uniform" or "pseudocounts')
-
-            self.prior_p_global = prior_p_global
-
-        else:
-            prior_p_global = self.prior_p_global
-
-        # p_zones
-        if self.prior_p_zones is None or sample.what_changed['prior']['p_zones']:
-            if prior_p_zones_meta['type'] == 'uniform':
-                prior_p_zones = 0.
-            elif prior_p_zones_meta['type'] == 'universal':
-                s = prior_p_zones_meta['strength']
-                c_universal = s * sample.p_global[0]
-
-                prior_p_zones_distr = counts_to_dirichlet(counts=c_universal,
-                                                          categories=prior_p_zones_meta['states'])
-
-                prior_p_zones = prior_p_families_dirichlet(p_families=sample.p_zones,
-                                                              dirichlet=prior_p_zones_distr,
-                                                              categories=prior_p_zones_meta['states'],
-                                                              broadcast=True)
-            else:
-                raise ValueError('Currently only uniform p_zones priors are supported.')
-            self.prior_p_zones = prior_p_zones
-        else:
-            prior_p_zones = self.prior_p_zones
-
-        if inheritance:
-            if self.prior_p_families is None or sample.what_changed['prior']['p_families']:
-
-                if prior_p_families_meta['type'] == 'uniform':
-                    prior_p_families = 0.
-
-                elif prior_p_families_meta['type'] == 'pseudocounts':
-                    prior_p_families = prior_p_families_dirichlet(
-                        p_families=sample.p_families,
-                        dirichlet=prior_p_families_meta['dirichlet'],
-                        categories=prior_p_families_meta['states']
-                    )
-
-                elif prior_p_families_meta['type'] == 'universal':
-                    s = prior_p_families_meta['strength']
-                    c_universal = s * sample.p_global[0]
-                    prior_p_families_distr = counts_to_dirichlet(counts=c_universal,
-                                                                 categories=prior_p_families_meta['states'])
-
-                    prior_p_families = prior_p_families_dirichlet(p_families=sample.p_families,
-                                                                  dirichlet=prior_p_families_distr,
-                                                                  categories=prior_p_families_meta['states'],
-                                                                  broadcast=True)
-
-                elif prior_p_families_meta['type'] == 'counts_and_universal':
-                    s = prior_p_families_meta['strength']
-                    c_pseudocounts = prior_p_families_meta['counts']
-                    c_universal = s * sample.p_global
-                    prior_p_families_distr = inheritance_counts_to_dirichlet(counts=c_universal + c_pseudocounts,
-                                                                             categories=prior_p_families_meta['states'])
-
-                    prior_p_families = prior_p_families_dirichlet(p_families=sample.p_families,
-                                                                  dirichlet=prior_p_families_distr,
-                                                                  categories=prior_p_families_meta['states'],
-                                                                  broadcast=False)
-
-                else:
-                    raise ValueError('prior_p_families must be "uniform" or "pseudocounts"')
-
-                self.prior_p_families = prior_p_families
-
-            else:
-                prior_p_families = self.prior_p_families
-        else:
-            prior_p_families = None
-
-        # Add up prior components (in log space)
-        log_prior = size_prior + geo_prior + prior_weights + prior_p_global + prior_p_zones
-        if inheritance:
-            log_prior += prior_p_families
-
-        # The step is completed. Everything is up-to-date.
-        sample.what_changed['prior']['zones'] = False
-        sample.what_changed['prior']['weights'] = False
-        sample.what_changed['prior']['p_global'] = False
-        sample.what_changed['prior']['p_zones'] = False
-
-        if inheritance:
-            sample.what_changed['prior']['p_families'] = False
-
-        return log_prior
+        return self.size_prior
 
 
 def evaluate_size_prior(zones):
@@ -626,7 +757,7 @@ def geo_prior_gaussian(zones: np.array, network: dict, cov: np.array):
             raise ValueError("Too few locations to compute distance.")
 
         diffs = locations[i1] - locations[i2]
-        prior_z = spstats.multivariate_normal.logpdf(diffs, mean=[0, 0], cov=cov)
+        prior_z = stats.multivariate_normal.logpdf(diffs, mean=[0, 0], cov=cov)
         log_prior = np.append(log_prior, prior_z)
 
     return np.mean(log_prior)
@@ -663,25 +794,34 @@ def geo_prior_distance(zones: np.array, network: dict, scale: float):
         else:
             raise ValueError("Too few locations to compute distance.")
 
-        log_prior = spstats.expon.logpdf(distances, loc=0, scale=scale)
+        log_prior = stats.expon.logpdf(distances, loc=0, scale=scale)
 
     return np.mean(log_prior)
 
 
-def prior_p_global_dirichlet(p_global, dirichlet, categories):
+def prior_p_global_dirichlet(p_global, dirichlet, categories, outdated_features,
+                             cached_prior=None):
     """" This function evaluates the prior for p_families
     Args:
-        p_global(np.array): p_global from the sample
-        dirichlet(list): list of dirichlet distributions
-        categories(list): list of available categories per feature
+        p_global (np.array): p_global from the sample
+        dirichlet (list): list of dirichlet distributions
+        categories (list): list of available categories per feature
+        outdated_features (IndexSet): The features which changed and need to be updated.
+    Kwargs:
+        cached_prior (list):
 
     Returns:
         float: the prior for p_global
     """
     _, n_feat, n_cat = p_global.shape
-    log_prior = []
 
-    for f in range(n_feat):
+    if outdated_features.all:
+        outdated_features = range(n_feat)
+        log_prior = np.zeros(n_feat)
+    else:
+        log_prior = cached_prior
+
+    for f in outdated_features:
         idx = categories[f]
         diri = dirichlet[f]
         p_glob = p_global[0, f, idx]
@@ -689,36 +829,62 @@ def prior_p_global_dirichlet(p_global, dirichlet, categories):
         if 0. in p_glob:
             p_glob[np.where(p_glob == 0.)] = EPS
 
-        log_prior.append(diri.logpdf(p_glob))
+        # log_prior[f] = stats.dirichlet.logpdf(x=p_glob, alpha=diri)
+        log_prior[f] = diri.logpdf(p_glob)
 
-    return sum(log_prior)
+    return log_prior
 
 
-def prior_p_families_dirichlet(p_families, dirichlet, categories, broadcast=False):
+def prior_p_families_dirichlet(p_families, dirichlet, categories, outdated_indices, outdated_distributions,
+                               cached_prior=None, broadcast=False):
     """" This function evaluates the prior for p_families
     Args:
         p_families(np.array): p_families from the sample
         dirichlet(list): list of dirichlet distributions
         categories(list): list of available categories per feature
+        outdated_indices (IndexSet): The features which need to be updated in each family.
+        outdated_distributions (IndexSet): The features where the dirichlet distributions changed.
+    Kwargs:
+        cached_prior (list):
+        broadcast (bool):
+
 
     Returns:
         float: the prior for p_families
     """
     n_fam, n_feat, n_cat = p_families.shape
-    log_prior = []
 
-    for fam in range(n_fam):
+    if cached_prior is None:
+        assert outdated_indices.all
+        log_prior = np.zeros((n_fam, n_feat))
+    else:
+        log_prior = cached_prior
+
+    if outdated_indices.all or outdated_distributions.all:
+        outdated_indices = itertools.product(range(n_fam), range(n_feat))
+    else:
+        if outdated_distributions:
+            outdated_distributions_expanded = {(fam, feat) for feat in outdated_distributions for fam in range(n_fam)}
+            outdated_indices = set.union(outdated_indices, outdated_distributions_expanded)
+
+    for fam, feat in outdated_indices:
 
         if broadcast:
             # One prior is applied to all families
-            dirichlet_fam = dirichlet
+            diri = dirichlet[feat]
+
         else:
             # One prior per family
-            dirichlet_fam = dirichlet[fam]
+            diri = dirichlet[fam][feat]
 
-        for f in range(n_feat):
-            idx = categories[f]
-            p_fam = p_families[fam, f, idx]
-            log_prior.append(dirichlet_fam[f].logpdf(p_fam))
+        idx = categories[feat]
+        p_fam = p_families[fam, feat, idx]
 
-    return sum(log_prior)
+        # From parameters instead of frozen dirichlet objects:
+        # log_prior[fam, feat] = stats.dirichlet._logpdf(x=p_fam, alpha=diri)
+        #                        \____>  _logpdf is much faster, but does no parameter checks
+
+        # From frozen ´dirichlet´ objects:
+        log_prior[fam, feat] = diri.logpdf(p_fam)
+
+    return log_prior

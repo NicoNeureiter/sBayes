@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-from __future__ import absolute_import, division, print_function, unicode_literals
 import logging
 import random as _random
 from copy import deepcopy
@@ -13,6 +12,38 @@ from sbayes.sampling.mcmc_generative import MCMC_generative
 from sbayes.model import GenerativeLikelihood, GenerativePrior
 from sbayes.util import get_neighbours, balance_p_array, normalize
 
+
+class IndexSet(set):
+
+    def __init__(self, all=True):
+        super().__init__()
+        self.all = all
+
+    def add(self, element):
+        super(IndexSet, self).add(element)
+
+    def clear(self):
+        super(IndexSet, self).clear()
+        self.all = False
+
+    def __bool__(self):
+        return self.all or (len(self) > 0)
+
+    def __copy__(self):
+        # other = deepcopy(super(IndexSet, self))
+        other = IndexSet(all=self.all)
+        for element in self:
+            other.add(element)
+
+        return other
+
+    def __deepcopy__(self, memodict={}):
+        # other = deepcopy(super(IndexSet, self))
+        other = IndexSet(all=self.all)
+        for element in self:
+            other.add(deepcopy(element))
+
+        return other
 
 class Sample(object):
     """
@@ -37,10 +68,14 @@ class Sample(object):
         self.p_families = p_families
 
         # The sample contains information about which of its parameters was changed in the last MCMC step
+        self.what_changed = {}
+        self.everything_changed()
+
+    def everything_changed(self):
         self.what_changed = {'lh': {'zones': True, 'weights': True,
                                     'p_global': True, 'p_zones': True, 'p_families': True},
                              'prior': {'zones': True, 'weights': True,
-                                       'p_global': True, 'p_zones': True, 'p_families': True}}
+                                       'p_global': IndexSet(), 'p_zones': IndexSet(), 'p_families': IndexSet()}}
 
     def copy(self):
         zone_copied = deepcopy(self.zones)
@@ -129,7 +164,6 @@ class ZoneMCMC_generative(MCMC_generative):
             chain(int): The current chain
         Returns:
             float: The (log) prior of the sample"""
-
         # Compute the prior
         log_prior = self.compute_prior_per_chain[chain](sample=sample, inheritance=self.inheritance,
                                                         geo_prior_meta=self.geo_prior,
@@ -138,6 +172,20 @@ class ZoneMCMC_generative(MCMC_generative):
                                                         prior_p_zones_meta=self.prior_p_zones,
                                                         prior_p_families_meta=self.prior_p_families,
                                                         network=self.network)
+
+        # check_caching = True
+        # if check_caching:
+        #     sample.everything_changed()
+        #     log_prior_stable = self.compute_prior_per_chain[chain](sample=sample, inheritance=self.inheritance,
+        #                                                            geo_prior_meta=self.geo_prior,
+        #                                                            prior_weights_meta=self.prior_weights,
+        #                                                            prior_p_global_meta=self.prior_p_global,
+        #                                                            prior_p_zones_meta=self.prior_p_zones,
+        #                                                            prior_p_families_meta=self.prior_p_families,
+        #                                                            network=self.network)
+        #
+        #     assert log_prior == log_prior_stable, f'{log_prior} != {log_prior_stable}'
+
         return log_prior
 
     def likelihood(self, sample, chain):
@@ -168,10 +216,6 @@ class ZoneMCMC_generative(MCMC_generative):
             Sample: The modified sample
         """
         sample_new = sample.copy()
-        # The step changed the weights (which has an influence on how the lh and the prior look like)
-        sample_new.what_changed['lh']['weights'] = sample_new.what_changed['prior']['weights'] = True
-        sample.what_changed['lh']['weights'] = sample.what_changed['prior']['weights'] = True
-
         weights_current = sample.weights
 
         # Randomly choose one of the features
@@ -191,8 +235,14 @@ class ZoneMCMC_generative(MCMC_generative):
 
         # Sample new weight from dirichlet distribution with given precision
         weights_new, q, q_back = self.dirichlet_proposal(weights_current[f_id, :], self.var_proposal_weight)
-
         sample_new.weights[f_id, :] = weights_new
+
+        # The step changed the weights (which has an influence on how the lh and the prior look like)
+        sample_new.what_changed['lh']['weights'] = True
+        sample_new.what_changed['prior']['weights'] = True
+        sample.what_changed['lh']['weights'] = True
+        sample.what_changed['prior']['weights'] = True
+
         return sample_new, q, q_back
 
     def alter_p_global(self, sample):
@@ -202,12 +252,7 @@ class ZoneMCMC_generative(MCMC_generative):
             Returns:
                  Sample: The modified sample
         """
-
         sample_new = sample.copy()
-        # The step changed p_global (which has an influence on how the lh and the prior look like)
-        sample_new.what_changed['lh']['p_global'] = sample_new.what_changed['prior']['p_global'] = True
-        sample.what_changed['lh']['p_global'] = sample.what_changed['prior']['p_global'] = True
-
         p_global_current = sample.p_global
 
         # Randomly choose one of the features and one of the categories
@@ -219,8 +264,14 @@ class ZoneMCMC_generative(MCMC_generative):
 
         # Sample new p from dirichlet distribution with given precision
         p_new, q, q_back = self.dirichlet_proposal(p_current, step_precision=self.var_proposal_p_global)
-
         sample_new.p_global[0, f_id, f_cats] = p_new
+
+        # The step changed p_global (which has an influence on how the lh and the prior look like)
+        sample_new.what_changed['lh']['p_global'] = True
+        sample_new.what_changed['prior']['p_global'].add(f_id)
+        sample.what_changed['lh']['p_global'] = True
+        sample.what_changed['prior']['p_global'].add(f_id)
+
         return sample_new, q, q_back
 
     def alter_p_zones(self, sample):
@@ -231,10 +282,6 @@ class ZoneMCMC_generative(MCMC_generative):
                 Sample: The modified sample
                 """
         sample_new = sample.copy()
-        # The step changed p_zones (which has an influence on how the lh and the prior look like)
-        sample_new.what_changed['lh']['p_zones'] = sample_new.what_changed['prior']['p_zones'] = True
-        sample.what_changed['lh']['p_zones'] = sample.what_changed['prior']['p_zones'] = True
-
         p_zones_current = sample.p_zones
 
         # Randomly choose one of the zones, one of the features and one of the categories
@@ -247,8 +294,14 @@ class ZoneMCMC_generative(MCMC_generative):
 
         # Sample new p from dirichlet distribution with given precision
         p_new, q, q_back = self.dirichlet_proposal(p_current, step_precision=self.var_proposal_p_zones)
-
         sample_new.p_zones[z_id, f_id, f_cats] = p_new
+
+        # The step changed p_zones (which has an influence on how the lh and the prior look like)
+        sample_new.what_changed['lh']['p_zones'] = True
+        sample_new.what_changed['prior']['p_zones'].add((z_id, f_id))
+        sample.what_changed['lh']['p_zones'] = True
+        sample.what_changed['prior']['p_zones'].add((z_id, f_id))
+
         return sample_new, q, q_back
 
     @staticmethod
@@ -293,10 +346,6 @@ class ZoneMCMC_generative(MCMC_generative):
         """
 
         sample_new = sample.copy()
-        # The step changed p_families (which has an influence on how the lh and the prior look like)
-        sample_new.what_changed['lh']['p_families'] = sample_new.what_changed['prior']['p_families'] = True
-        sample.what_changed['lh']['p_families'] = sample.what_changed['prior']['p_families'] = True
-
         p_families_current = sample.p_families
 
         # Randomly choose one of the families, one of the features and one of the categories
@@ -312,6 +361,12 @@ class ZoneMCMC_generative(MCMC_generative):
 
         sample_new.p_families[fam_id, f_id, f_cats] = p_new
 
+        # The step changed p_families (which has an influence on how the lh and the prior look like)
+        sample_new.what_changed['lh']['p_families'] = True
+        sample_new.what_changed['prior']['p_families'].add((fam_id, f_id))
+        sample.what_changed['lh']['p_families'] = True
+        sample.what_changed['prior']['p_families'].add((fam_id, f_id))
+
         return sample_new, q, q_back
 
     def swap_zone(self, sample):
@@ -325,6 +380,7 @@ class ZoneMCMC_generative(MCMC_generative):
          """
 
         sample_new = sample.copy()
+
         # The step changed the zone (which has an influence on how the lh and the prior look like)
         sample_new.what_changed['lh']['zones'] = sample.what_changed['lh']['zones'] = True
         sample_new.what_changed['prior']['zones'] = sample.what_changed['prior']['zones'] = True
@@ -710,24 +766,30 @@ class ZoneMCMC_generative(MCMC_generative):
 
         not_initialized = range(n_generated, self.n_zones)
 
+        states = self.prior_p_zones['states']
+
         # A: Initialize new p_zones using the MLE of the current zone
         for i in not_initialized:
             idx = initial_zones[i].nonzero()[0]
-            features_zone = self.features[idx, :, :]
+            features_zone = self.features[idx, :, :].copy()
+
+            for i_feat, feat_states in enumerate(states):
+                for s in feat_states:
+                    features_zone[:, i_feat, s] += 1
 
             l_per_cat = np.sum(features_zone, axis=0)
             l_sums = np.sum(l_per_cat, axis=1)
             p_zones = l_per_cat / l_sums[:, np.newaxis]
 
-            # If one of the p_zones values is 0 balance the p_array
-            for p in range(len(p_zones)):
-
-                # Check for nonzero p_idx
-                p_idx = np.where(self.sites_per_category[p] != 0)[0]
-
-                # If any of the remaining is zero -> balance
-                if 0. in p_zones[p, p_idx]:
-                    p_zones[p, p_idx] = balance_p_array(p_array=p_zones[p, p_idx], balance_by=0.01)
+            # # If one of the p_zones values is 0 balance the p_array
+            # for p in range(len(p_zones)):
+            #
+            #     # Check for nonzero p_idx
+            #     p_idx = np.where(self.sites_per_category[p] != 0)[0]
+            #
+            #     # If any of the remaining is zero -> balance
+            #     if 0. in p_zones[p, p_idx]:
+            #         p_zones[p, p_idx] = balance_p_array(p_array=p_zones[p, p_idx], balance_by=0.01)
 
             initial_p_zones[i, :, :] = p_zones
 

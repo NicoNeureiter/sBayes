@@ -262,11 +262,10 @@ class MCMC_generative(metaclass=_abc.ABCMeta):
                 print("swapped")
             else:
                 print("not swapped")
+
         # Set all 'what_changed' flags to true (to avoid caching errors)
         for s in sample:
-            for d in s.what_changed.values():
-                for k in d.keys():
-                    d[k] = True
+            s.everything_changed()
 
     def step(self, sample, c):
         """This function performs a full MH step: first, a new candidate sample is proposed

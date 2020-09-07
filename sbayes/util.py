@@ -454,7 +454,7 @@ def tighten_counts(counts, state_names, count_names):
         return np.row_stack([c for c in counts_tight]).astype(int)
 
 
-def inheritance_counts_to_dirichlet(counts, categories):
+def inheritance_counts_to_dirichlet(counts, categories, outdated_features=None, dirichlet=None):
     """This is a helper function transform the family counts to alpha values that
     are then used to define a dirichlet distribution
 
@@ -466,15 +466,18 @@ def inheritance_counts_to_dirichlet(counts, categories):
         list: the dirichlet distributions, neatly stored in a dict
     """
     n_fam, n_feat, n_cat = counts.shape
-    dirichlet = [[] for _ in range(n_fam)]
+    if dirichlet is None:
+        dirichlet = [None] * n_fam
 
     for fam in range(n_fam):
-        dirichlet[fam] = counts_to_dirichlet(counts[fam], categories)
+        dirichlet[fam] = counts_to_dirichlet(counts[fam], categories,
+                                             outdated_features=outdated_features,
+                                             dirichlet=dirichlet[fam])
 
     return dirichlet
 
 
-def counts_to_dirichlet(counts, categories, prior='uniform'):
+def counts_to_dirichlet(counts, categories, prior='uniform', outdated_features=None, dirichlet=None):
     """This is a helper function to transform counts of categorical data
     to parameters of a dirichlet distribution.
 
@@ -486,19 +489,26 @@ def counts_to_dirichlet(counts, categories, prior='uniform'):
             'uniform': A uniform prior probability over the probability simplex Dir(1,...,1)
             'jeffrey': The Jeffrey's prior Dir(0.5,...,0.5)
             'naught': A natural exponential family prior Dir(0,...,0).
+        outdated_features (IndexSet): Indices of the features where the counts changed
+                                  (i.e. they need to be updated).
     Returns:
         list: a dirichlet distribution derived from pseudocounts
     """
     n_features, n_categories = counts.shape
-    dirichlet = []
 
     prior_map = {'uniform': 1, 'jeffrey': 0.5, 'naught': 0}
 
-    for feat in range(n_features):
+    if outdated_features is None or outdated_features.all:
+        outdated_features = range(n_features)
+        dirichlet = [None] * n_features
+    else:
+        assert dirichlet is not None
+
+    for feat in outdated_features:
         cat = categories[feat]
         # Add 1 to alpha values (1,1,...1 is a uniform prior)
         pseudocounts = counts[feat, cat] + prior_map[prior]
-        dirichlet.append(stats.dirichlet(pseudocounts))
+        dirichlet[feat] = stats.dirichlet(pseudocounts)
 
     return dirichlet
 
