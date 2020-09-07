@@ -766,36 +766,26 @@ class ZoneMCMC_generative(MCMC_generative):
 
         not_initialized = range(n_generated, self.n_zones)
 
-        states = self.prior_p_zones['states']
-
-        # A: Initialize new p_zones using the MLE of the current zone
+        # A: Initialize new p_zones using a value close to the MLE of the current zone
         for i in not_initialized:
             idx = initial_zones[i].nonzero()[0]
-            features_zone = self.features[idx, :, :].copy()
+            features_zone = self.features[idx, :, :]
 
-            for i_feat, feat_states in enumerate(states):
-                for s in feat_states:
-                    features_zone[:, i_feat, s] += 1
+            l_per_cat = np.nansum(features_zone, axis=0)
 
-            l_per_cat = np.sum(features_zone, axis=0)
+            # Some areas have nan for all states, resulting in a non-defined MLE
+            # other areas have only a single state, resulting in an MLE including 1.
+            # to avoid both, we add 1 to all applicable states of each feature,
+            # which gives a well-defined initial p_zone without 1., slightly nudged away from the MLE
+
+            sites_per_category = np.count_nonzero(self.features, axis=0)
+            l_per_cat[np.isnan(l_per_cat)] = 0
+            l_per_cat[sites_per_category != 0] += 1
+
             l_sums = np.sum(l_per_cat, axis=1)
             p_zones = l_per_cat / l_sums[:, np.newaxis]
 
-            # # If one of the p_zones values is 0 balance the p_array
-            # for p in range(len(p_zones)):
-            #
-            #     # Check for nonzero p_idx
-            #     p_idx = np.where(self.sites_per_category[p] != 0)[0]
-            #
-            #     # If any of the remaining is zero -> balance
-            #     if 0. in p_zones[p, p_idx]:
-            #         p_zones[p, p_idx] = balance_p_array(p_array=p_zones[p, p_idx], balance_by=0.01)
-
             initial_p_zones[i, :, :] = p_zones
-
-            # The probabilities of categories without data are set to 0 (or -inf in log space)
-            sites_per_category = np.count_nonzero(self.features, axis=0)
-            initial_p_zones[i, sites_per_category == 0] = 0
 
         return initial_p_zones
 
