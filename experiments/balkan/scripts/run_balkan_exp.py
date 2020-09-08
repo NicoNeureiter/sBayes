@@ -24,7 +24,7 @@ if __name__ == '__main__':
     initial_sample = None
 
     # Rerun experiment to check for consistency
-    for run in range(exp.config['model']['N_RUNS']):
+    for run in range(exp.config['mcmc']['N_RUNS']):
 
         for N in NUMBER_AREAS:
             # Update config information according to the current setup
