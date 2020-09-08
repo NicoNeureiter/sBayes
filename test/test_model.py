@@ -47,8 +47,6 @@ def broadcast_weights(w, n_features):
 class TestLikelihood(unittest.TestCase):
 
     def test_family_area_overlap(self):
-        likelihood = GenerativeLikelihood()
-
         N_SITES = 10
         N_FEATURES = 5
         N_CATEGORIES = 3
@@ -72,6 +70,7 @@ class TestLikelihood(unittest.TestCase):
         sample_without_family = Sample(areas, weights_without_family,
                                        p_global=p_global, p_zones=p_areas, p_families=None)
 
+        likelihood = GenerativeLikelihood(features)
         lh_with_family = likelihood(sample_with_family, features, inheritance=True, families=families, caching=False)
         lh_without_family = likelihood(sample_without_family, features, inheritance=False, caching=False)
         self.assertAlmostEqual(lh_with_family, lh_without_family)
@@ -84,8 +83,6 @@ class TestLikelihood(unittest.TestCase):
         self.assertAlmostEqual(lh_with_family, lh_direct)
 
     def test_family_area_overlap_2(self):
-        likelihood = GenerativeLikelihood()
-
         N_SITES = 3
         N_FEATURES = 100
         N_CATEGORIES = 10
@@ -140,8 +137,9 @@ class TestLikelihood(unittest.TestCase):
             sample_overlap = Sample(areas, weights, p_global, p_areas, p_families)
             sample_noverlap = Sample(areas_noverlap, weights, p_global, p_areas, p_families)
 
-            lh_overlap = likelihood(sample_overlap, features, inheritance=True, families=families, caching=False)
-            lh_noverlap = likelihood(sample_noverlap, features, inheritance=True, families=families, caching=False)
+            likelihood = GenerativeLikelihood(features)
+            lh_overlap = likelihood(sample_overlap, inheritance=True, families=families, caching=False)
+            lh_noverlap = likelihood(sample_noverlap, inheritance=True, families=families, caching=False)
             x1.append(lh_overlap)
             x2.append(lh_noverlap)
 
