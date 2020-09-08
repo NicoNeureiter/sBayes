@@ -32,6 +32,7 @@ if __name__ == '__main__':
 
             # 3. Configure MCMC
             mc = MCMC(data=dat, experiment=exp)
+            print("oko")
             mc.log_setup()
 
             # 4. Sample from posterior

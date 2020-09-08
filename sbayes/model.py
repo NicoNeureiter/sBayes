@@ -410,7 +410,9 @@ class GenerativePrior(object):
         prior_p_zones = self.get_prior_p_zones(sample, prior_p_zones_meta)
         # p_families
         if inheritance:
+
             prior_p_families = self.get_prior_p_families(sample, prior_p_families_meta)
+
         else:
             prior_p_families = None
 
@@ -562,6 +564,7 @@ class GenerativePrior(object):
                 s = prior_p_families_meta['strength']
                 c_pseudocounts = prior_p_families_meta['counts']
                 c_universal = s * sample.p_global
+
                 self.prior_p_families_distr = \
                     inheritance_counts_to_dirichlet(counts=c_universal + c_pseudocounts,
                                                     categories=prior_p_families_meta['states'],
@@ -823,7 +826,6 @@ def prior_p_families_dirichlet(p_families, dirichlet, categories, outdated_indic
         float: the prior for p_families
     """
     n_fam, n_feat, n_cat = p_families.shape
-
     if cached_prior is None:
         assert outdated_indices.all
         log_prior = np.zeros((n_fam, n_feat))
@@ -849,7 +851,6 @@ def prior_p_families_dirichlet(p_families, dirichlet, categories, outdated_indic
 
         idx = categories[feat]
         p_fam = p_families[fam, feat, idx]
-
         log_prior[fam, feat] = dirichlet_logpdf(x=p_fam, alpha=diri)
         # log_prior[fam, feat] = diri.logpdf(p_fam)
 

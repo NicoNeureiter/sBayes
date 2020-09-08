@@ -17,7 +17,7 @@ from matplotlib.collections import LineCollection
 
 EPS = np.finfo(float).eps
 
-FAST_DIRICHLET = True
+FAST_DIRICHLET = False
 if FAST_DIRICHLET:
     def dirichlet_pdf(x, alpha): return np.exp(stats.dirichlet._logpdf(x, alpha))
     dirichlet_logpdf = stats.dirichlet._logpdf
@@ -479,7 +479,6 @@ def inheritance_counts_to_dirichlet(counts, categories, outdated_features=None, 
         dirichlet[fam] = counts_to_dirichlet(counts[fam], categories,
                                              outdated_features=outdated_features,
                                              dirichlet=dirichlet[fam])
-
     return dirichlet
 
 

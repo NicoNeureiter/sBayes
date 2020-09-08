@@ -558,7 +558,7 @@ def read_inheritance_counts(family_names, feature_names, state_names, files):
     n_families = len(family_names['external'])
     n_features = len(feature_names['external'])
     n_states = max([len(s) for s in state_names['external']])
-    counts_all = np.empty([n_families, n_features, n_states])
+    counts_all = np.zeros([n_families, n_features, n_states])
     log = str()
 
     for n in range(len(family_names['external'])):
