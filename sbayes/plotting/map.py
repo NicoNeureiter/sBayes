@@ -688,7 +688,9 @@ class Map(Plot):
         # This assumes that the likelihoods for single areas (lh_a1, lh_a2, lh_a3, ...)
         # have been collected in mcmc_res under the key shown below
         lh_per_area = np.array(list(self.results['likelihood_single_areas'].values())).astype(float)
-        to_rank = np.mean(lh_per_area, axis=0)
+
+        #todo change to lh per area
+        to_rank = np.mean(lh_per_area, axis=1)
 
         # probability per area in log-space
         p_total = logsumexp(to_rank)

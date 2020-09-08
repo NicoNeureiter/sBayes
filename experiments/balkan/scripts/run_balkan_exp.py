@@ -4,12 +4,12 @@ from sbayes.mcmc_setup import MCMC
 
 if __name__ == '__main__':
 
-    # 1. Initialize the experiment
+    # Initialize the experiment
     exp = Experiment()
     exp.load_config(config_file='experiments/balkan/config.json')
     exp.log_experiment()
 
-    # 2. Load Data
+    # Load Data
     dat = Data(experiment=exp)
     # Features
     dat.load_features()
@@ -30,19 +30,19 @@ if __name__ == '__main__':
             # Update config information according to the current setup
             exp.config['model']['N_AREAS'] = N
 
-            # 3. Configure MCMC
+            # Configure MCMC
             mc = MCMC(data=dat, experiment=exp)
 
             mc.log_setup()
 
-            # 4. Sample from posterior
+            # Sample from posterior
             mc.sample(initial_sample=initial_sample)
 
-            # 5. Log sampling statistics and save samples to file
+            # Log sampling statistics and save samples to file
             mc.log_statistics()
             mc.save_samples(run=run)
 
-            # 6. Use the last sample as the new initial sample
+            # Use the last sample as the new initial sample
             initial_sample = mc.samples['last_sample']
 
         initial_sample = None

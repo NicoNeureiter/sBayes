@@ -1,8 +1,8 @@
 {
 	"mcmc": {
 		"BURN_IN": 0,
-		"N_STEPS": 5000,
-		"N_SAMPLES": 500,
+		"N_STEPS": 4000000,
+		"N_SAMPLES": 5000,
 		"N_RUNS": 1,
 		"N_CHAINS": 7,
 		"SWAP_PERIOD": 1000,
@@ -23,7 +23,7 @@
 		}
 	},
 	"model": {
-		"N_AREAS": 5,
+		"N_AREAS": "TBD",
 		"MIN_M": 3,
 		"MAX_M": 30,
 		"INHERITANCE": true,
@@ -31,8 +31,8 @@
 			"geo": "uniform",
 			"weights": "uniform",
 			"universal": "counts",
-			"inheritance": "counts_and_universal",
-			"contact": "universal"
+			"inheritance": "counts",
+			"contact": "uniform"
 		},
 		"NEIGHBOR_DIST": "euclidean",
 		"LAMBDA_GEO_PRIOR": 500,

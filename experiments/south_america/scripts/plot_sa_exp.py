@@ -19,9 +19,9 @@ if __name__ == '__main__':
         plt.read_results(scenario)
         plt.posterior_map(
             post_freq_lines=[0.8, 0.6, 0.4],
-            burn_in=0.4,
+            burn_in=0.8,
             plot_families=True,
-            plot_single_zones_stats=False,
+            plot_single_zones_stats=True,
             add_overview=True,
             fname='/posterior_map.pdf')
 
@@ -51,5 +51,5 @@ if __name__ == '__main__':
 
         # Plot a grid for all features
         labels = ['U', 'C', 'I']
-        plt.plot_probability_grid()
-        plt.plot_weights_grid(labels=labels)
+        plt.plot_probability_grid(burn_in=0.5)
+        plt.plot_weights_grid(labels=labels, burn_in=0.5)

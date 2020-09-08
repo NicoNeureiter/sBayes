@@ -644,9 +644,11 @@ class Plot:
     # Make a grid with all features (sorted by median contact)
     # By now we assume number of features to be 35; later this should be rewritten for any number of features
     # using find_num_features
-    def plot_weights_grid(self, labels=None):
+    def plot_weights_grid(self, labels=None, burn_in =0.4):
 
-        weights, true_weights, _ = self.get_parameters(parameter="weights", b_in=1000)
+        burn_in = int(len(self.results['posterior']) * burn_in)
+
+        weights, true_weights, _ = self.get_parameters(parameter="weights", b_in=burn_in)
         ordering = self.sort_by_weights(weights)
 
         n_plots = 4
@@ -664,15 +666,14 @@ class Plot:
                 self.plot_weights(weights[f], feature=f, true_weights=true_weights[f], labels=labels)
             else:
                 self.plot_weights(weights[f], feature=f, labels=labels, mean_weights=True)
-            print(position, "of", n_plots, "plots finished")
             position += 1
 
         plt.subplots_adjust(wspace=0.2, hspace=0.2)
 
-        fig.savefig(self.path_plots + '/weights_grid.pdf', dpi=400, format="pdf")
+        fig.savefig(self.path_plots + '\weights_grid.pdf', dpi=400, format="pdf")
 
     # This is not changed yet
-    def plot_probability_grid(self, p_name="gamma_a1", labels=None):
+    def plot_probability_grid(self, p_name="gamma_a1", labels=None, burn_in=0.4):
         """Creates a ridge plot for parameters with two states
 
        Args:
@@ -680,10 +681,13 @@ class Plot:
                 shape(n_samples, 2)
            p_vec (str): name of parameter vector (either alpha, beta_* or gamma)
        """
-        weights, true_weights, _ = self.get_parameters(parameter="weights", b_in=1000)
+        burn_in = int(len(self.results['posterior']) * burn_in)
+
+        weights, true_weights, _ = self.get_parameters(parameter="weights", b_in=burn_in)
+
         ordering = self.sort_by_weights(weights)
 
-        p, true_p, states = self.get_parameters(parameter=p_name, b_in=1000)
+        p, true_p, states = self.get_parameters(parameter=p_name, b_in=burn_in)
 
         n_plots = 4
         n_col = 4
@@ -707,5 +711,5 @@ class Plot:
 
         plt.subplots_adjust(wspace=0.2, hspace=0.2)
 
-        fig.savefig(self.path_plots + '/prob_grid.pdf', dpi=400, format="pdf")
+        fig.savefig(self.path_plots + '\prob_grid.pdf', dpi=400, format="pdf")
 
