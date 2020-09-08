@@ -6,7 +6,7 @@ if __name__ == '__main__':
 
     # 1. Initialize the experiment
     exp = Experiment()
-    exp.load_config(config_file='config.json')
+    exp.load_config(config_file='experiments\balkan\config.json')
     exp.log_experiment()
 
     # 2. Load Data
@@ -24,11 +24,11 @@ if __name__ == '__main__':
     initial_sample = None
 
     # Rerun experiment to check for consistency
-    for run in range(exp.config['mcmc']['N_RUNS']):
+    for run in range(exp.config['model']['N_RUNS']):
 
         for N in NUMBER_AREAS:
             # Update config information according to the current setup
-            exp.config['mcmc']['N_AREAS'] = N
+            exp.config['model']['N_AREAS'] = N
 
             # 3. Configure MCMC
             mc = MCMC(data=dat, experiment=exp)
