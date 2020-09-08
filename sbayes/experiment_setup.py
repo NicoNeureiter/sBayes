@@ -37,7 +37,7 @@ class Experiment:
 
         # Get parameters from config_file
         self.config_file = config_file
-
+        print(os.getcwd(), self.config_file)
         # Read config file
         self.read_config(path=self.config_file)
 
