@@ -41,32 +41,38 @@ class MCMC:
         self.samples = None
 
     def define_priors(self):
-        prior_config = self.config['mcmc']['PRIOR']
+        prior_config = self.config['model']['PRIOR']
 
         # geo prior
         if prior_config['geo'] == 'uniform':
             prior_config['geo'] = {'type': 'uniform'}
+        else:
+            raise ValueError('Currently only uniform geo-prior available.')
         # weights
         if prior_config['weights'] == 'uniform':
             prior_config['weights'] = {'type': 'uniform'}
+        else:
+            raise ValueError('Currently only uniform prior_weights are supported.')
 
         # universal pressure
         if prior_config['universal'] == 'uniform':
             prior_config['universal'] = {'type': 'uniform'}
 
-        elif prior_config['universal'] == 'from_simulated_counts':
+        elif prior_config['universal'] == 'simulated_counts':
             dirichlet = counts_to_dirichlet(self.data.prior_universal['counts'],
                                             self.data.prior_universal['states'])
-            prior_config['universal'] = {'type': 'pseudocounts',
+            prior_config['universal'] = {'type': 'counts',
                                          'dirichlet': dirichlet,
                                          'states': self.data.prior_universal['states']}
 
-        elif prior_config['universal'] == 'from_counts':
+        elif prior_config['universal'] == 'counts':
             dirichlet = counts_to_dirichlet(self.data.prior_universal['counts'],
                                             self.data.prior_universal['states'])
-            prior_config['universal'] = {'type': 'pseudocounts',
+            prior_config['universal'] = {'type': 'counts',
                                          'dirichlet': dirichlet,
                                          'states': self.data.prior_universal['states']}
+        else:
+            raise ValueError('Prior for universal must be uniform or counts.')
 
         # inheritance
         if prior_config['inheritance'] == 'uniform':
@@ -80,18 +86,20 @@ class MCMC:
                                            'strength': 10,
                                            'states': self.data.prior_inheritance['states']}
 
-        elif prior_config['inheritance'] == 'from_counts':
+        elif prior_config['inheritance'] == 'counts':
             dirichlet = inheritance_counts_to_dirichlet(self.data.prior_inheritance['counts'],
                                                         self.data.prior_inheritance['states'])
-            prior_config['inheritance'] = {'type': 'pseudocounts',
+            prior_config['inheritance'] = {'type': 'counts',
                                            'dirichlet': dirichlet,
                                            'states': self.data.prior_inheritance['states']}
 
-        elif prior_config['inheritance'] == 'from_counts_and_universal':
+        elif prior_config['inheritance'] == 'counts_and_universal':
             prior_config['inheritance'] = {'type': 'counts_and_universal',
                                            'counts': self.data.prior_inheritance['counts'],
-                                           'strength': 10,
+                                           'strength': self.config['model']['UNIVERSAL_PRIOR_STRENGTH'],
                                            'states': self.data.prior_inheritance['states']}
+        else:
+            raise ValueError('Prior for inheritance must be uniform, counts or  counts_and_universal')
 
         # contact
         if prior_config['contact'] == 'uniform':
@@ -101,12 +109,33 @@ class MCMC:
             prior_config['contact'] = {'type': 'universal',
                                        'strength': 10,
                                        'states': self.data.prior_inheritance['states']}
+        else:
+            raise ValueError('Prior for contact must be uniform or universal.')
 
     def log_setup(self):
         mcmc_config = self.config['mcmc']
+        model_config = self.config['model']
 
         logging.basicConfig(format='%(message)s', filename=self.path_log, level=logging.DEBUG)
 
+        logging.info('\n')
+
+        logging.info("Model")
+        logging.info("##########################################")
+        logging.info("Number of sampled areas: %i", model_config['N_AREAS'])
+        logging.info("Areas have a minimum size of %s and a maximum size of %s.",
+                     model_config['MIN_M'], model_config['MAX_M'])
+        logging.info("Inheritance is considered for inference: %s",
+                     model_config['INHERITANCE'])
+
+        logging.info("Geo-prior: %s ", model_config['PRIOR']['geo']['type'])
+        logging.info("Prior on weights: %s ", model_config['PRIOR']['weights']['type'])
+        logging.info("Prior on universal pressure (alpha): %s ", model_config['PRIOR']['universal']['type'])
+
+        if model_config['PRIOR']['inheritance']['type'] is not None:
+
+            logging.info("Prior on inheritance (beta): %s ", model_config['PRIOR']['inheritance']['type'])
+        logging.info("Prior on contact (gamma): %s ", model_config['PRIOR']['contact']['type'])
         logging.info('\n')
 
         logging.info("MCMC SETUP")
@@ -114,19 +143,8 @@ class MCMC:
 
         logging.info("MCMC with %s steps and %s samples (burn-in %s steps)",
                      mcmc_config['N_STEPS'], mcmc_config['N_SAMPLES'], mcmc_config['BURN_IN'])
-
-        logging.info("Areas have a minimum size of %s and a maximum size of %s.",
-                     mcmc_config['MIN_M'], mcmc_config['MAX_M'])
         logging.info("MCMC with %s chains and %s attempted swap(s) after %s steps.",
                      mcmc_config['N_CHAINS'], mcmc_config['N_SWAPS'], mcmc_config['SWAP_PERIOD'])
-
-        logging.info("Number of sampled areas: %i", mcmc_config['N_AREAS'])
-        logging.info("Geo-prior: %s ", mcmc_config['PRIOR']['geo']['type'])
-        logging.info("Prior on weights: %s ", mcmc_config['PRIOR']['weights']['type'])
-        logging.info("Prior on universal pressure (alpha): %s ", mcmc_config['PRIOR']['universal']['type'])
-        if mcmc_config['PRIOR']['inheritance']['type'] is not None:
-            logging.info("Prior on inheritance (beta): %s ", mcmc_config['PRIOR']['inheritance']['type'])
-        logging.info("Prior on contact (gamma): %s ", mcmc_config['PRIOR']['contact']['type'])
         logging.info("Pseudocounts for tuning the width of the proposal distribution for weights: %s ",
                      mcmc_config['PROPOSAL_PRECISION']['weights'])
         logging.info("Pseudocounts for tuning the width of the proposal distribution for "
@@ -137,8 +155,6 @@ class MCMC:
                          mcmc_config['PROPOSAL_PRECISION']['inheritance'])
         logging.info("Pseudocounts for tuning the width of the proposal distribution for areas (gamma): %s ",
                      mcmc_config['PROPOSAL_PRECISION']['contact'])
-        logging.info("Inheritance is considered for inference: %s",
-                     mcmc_config['INHERITANCE'])
 
         logging.info("Ratio of areal steps (growing, shrinking, swapping areas): %s",
                      mcmc_config['STEPS']['area'])
@@ -162,19 +178,19 @@ class MCMC:
         initial_sample = self.initialize_sample(initial_sample)
 
         self.sampler = ZoneMCMC_generative(network=self.data.network, features=self.data.features,
-                                           min_size=self.config['mcmc']['MIN_M'],
-                                           max_size=self.config['mcmc']['MAX_M'],
-                                           n_zones=self.config['mcmc']['N_AREAS'],
+                                           min_size=self.config['model']['MIN_M'],
+                                           max_size=self.config['model']['MAX_M'],
+                                           n_zones=self.config['model']['N_AREAS'],
+                                           prior=self.config['model']['PRIOR'],
+                                           inheritance=self.config['model']['INHERITANCE'],
                                            n_chains=self.config['mcmc']['N_CHAINS'],
                                            initial_sample=initial_sample,
                                            swap_period=self.config['mcmc']['SWAP_PERIOD'],
                                            operators=self.ops, families=self.data.families,
                                            chain_swaps=self.config['mcmc']['N_SWAPS'],
-                                           inheritance=self.config['mcmc']['INHERITANCE'],
-                                           prior=self.config['mcmc']['PRIOR'],
                                            var_proposal=self.config['mcmc']['PROPOSAL_PRECISION'],
                                            p_grow_connected=self.config['mcmc']['P_GROW_CONNECTED'],
-                                           sample_from_prior=self.config['mcmc']['SAMPLE_FROM_PRIOR'])
+                                           sample_from_prior=self.config['model']['SAMPLE_FROM_PRIOR'])
 
         self.sampler.generate_samples(self.config['mcmc']['N_STEPS'],
                                       self.config['mcmc']['N_SAMPLES'],
@@ -237,17 +253,17 @@ class MCMC:
         file_info = self.config['results']['FILE_INFO']
 
         if file_info == "n":
-            fi = 'n{n}'.format(n=self.config['mcmc']['N_AREAS'])
+            fi = 'n{n}'.format(n=self.config['model']['N_AREAS'])
 
         elif file_info == "s":
             fi = 's{s}_a{a}'.format(s=self.config['simulation']['STRENGTH'],
                                     a=self.config['simulation']['AREA'])
 
         elif file_info == "i":
-            fi = 'i{i}'.format(i=int(self.config['mcmc']['INHERITANCE']))
+            fi = 'i{i}'.format(i=int(self.config['model']['INHERITANCE']))
 
         elif file_info == "p":
-            p = 0 if self.config['mcmc']['PRIOR']['universal']['type'] == "uniform" else 1
+            p = 0 if self.config['model']['PRIOR']['universal']['type'] == "uniform" else 1
             fi = 'p{p}'.format(p=p)
 
         else:

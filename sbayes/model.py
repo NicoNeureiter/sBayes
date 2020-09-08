@@ -119,7 +119,7 @@ def compute_family_likelihood(features, families, sample_p_families, p_families=
     lh_families = np.ones((n_sites, n_features))
 
     for fam in range(len(families)):
-
+        print(families[fam], "djvjd")
         # Compute the probability to find a feature in the zone
         features_family = features[families[fam], :, :]
 
@@ -571,7 +571,7 @@ class GenerativePrior(object):
             if prior_type == 'uniform':
                 prior_p_families = 0.
 
-            elif prior_type == 'pseudocounts':
+            elif prior_type == 'counts':
                 prior_p_families = prior_p_families_dirichlet(p_families=sample.p_families,
                                                               dirichlet=prior_p_families_meta['dirichlet'],
                                                               categories=prior_p_families_meta['states'],
@@ -614,7 +614,7 @@ class GenerativePrior(object):
                                                               broadcast=False)
 
             else:
-                raise ValueError('prior_p_families must be "uniform" or "pseudocounts"')
+                raise ValueError('prior_p_families must be "uniform" or "counts"')
 
             self.prior_p_families = prior_p_families
 
@@ -639,7 +639,7 @@ class GenerativePrior(object):
             if prior_p_global_meta['type'] == 'uniform':
                 prior_p_global = 0.
 
-            elif prior_p_global_meta['type'] == 'pseudocounts':
+            elif prior_p_global_meta['type'] == 'counts':
                 prior_p_global = prior_p_global_dirichlet(p_global=sample.p_global,
                                                           dirichlet=prior_p_global_meta['dirichlet'],
                                                           categories=prior_p_global_meta['states'],
@@ -647,7 +647,7 @@ class GenerativePrior(object):
                                                           cached_prior=self.prior_p_global)
 
             else:
-                raise ValueError('Prior for universal pressures must be "uniform" or "pseudocounts')
+                raise ValueError('Prior for universal pressures must be "uniform" or "counts')
 
             self.prior_p_global = prior_p_global
 
