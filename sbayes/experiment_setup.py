@@ -36,9 +36,7 @@ class Experiment:
     def load_config(self, config_file):
 
         # Get parameters from config_file
-        self.config_file = config_file
-        print(os.getcwd(), self.config_file)
-        # Read config file
+        self.base_directory, self.config_file = self.decompose_config_path(config_file)
         self.read_config(path=self.config_file)
 
         # Verify config
@@ -51,13 +49,23 @@ class Experiment:
         )
 
         # Compile relative paths, to be relative to config file
-        self.base_directory = os.path.dirname(config_file)
-        # self.path_results = self.fix_relative_path(self.path_results)
-        # if self.is_simulation():
-        #     self.config['simulation']['SITES'] = self.fix_relative_path(self.config['simulation']['SITES'])
+
+        self.path_results = self.fix_relative_path(self.path_results)
 
         if not os.path.exists(self.path_results):
             os.makedirs(self.path_results)
+
+    @staticmethod
+    def decompose_config_path(config_path):
+        config_path = config_path.strip()
+        if os.path.isabs(config_path):
+            abs_config_path = config_path
+        else:
+            abs_config_path = os.path.abspath(config_path)
+
+        base_directory = os.path.dirname(abs_config_path)
+
+        return base_directory, abs_config_path.replace("\\", "/")
 
     def fix_relative_path(self, path):
         """Make sure that the provided path is either absolute or relative to
@@ -73,7 +81,7 @@ class Experiment:
         if os.path.isabs(path):
             return path
         else:
-            return os.path.join(self.base_directory, path)
+            return os.path.join(self.base_directory, path).replace("\\", "/")
 
     def read_config(self, path):
         with open(path, 'r') as f:
@@ -289,14 +297,31 @@ class Experiment:
 
         if 'results' in self.config:
             if 'RESULTS_PATH' not in self.config['results']:
-                self.config['results']['RESULTS_PATH'] = "../results"
+                self.config['results']['RESULTS_PATH'] = "results"
             if 'FILE_INFO' not in self.config['results']:
                 self.config['results']['FILE_INFO'] = "n"
 
         else:
             self.config['results'] = {}
-            self.config['results']['RESULTS_PATH'] = "../results"
+            self.config['results']['RESULTS_PATH'] = "results"
             self.config['results']['FILE_INFO'] = "n"
+
+        # Data
+        if not self.config['data']:
+            raise NameError("Provide file paths to data.")
+        else:
+            if not self.config['data']['FEATURES']:
+                raise NameError("FEATURES is empty. Provide file paths to features file (e.g. features.csv)")
+            else:
+                self.config['data']['FEATURES'] = self.fix_relative_path(self.config['data']['FEATURES'])
+            if self.config['data']['PRIOR']:
+                if self.config['data']['PRIOR']['universal']:
+                    self.config['data']['PRIOR']['universal'] = \
+                        self.fix_relative_path(self.config['data']['PRIOR']['universal'])
+                if self.config['data']['PRIOR']['inheritance']:
+                    for key in self.config['data']['PRIOR']['inheritance']:
+                        self.config['data']['PRIOR']['inheritance'][key] = \
+                            self.fix_relative_path(self.config['data']['PRIOR']['inheritance'][key])
 
     def log_experiment(self):
         log_path = self.path_results + 'experiment.log'
