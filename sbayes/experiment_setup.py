@@ -14,7 +14,7 @@ from sbayes.util import set_experiment_name
 
 
 class Experiment:
-    def __init__(self, experiment_name="default", config_file=None, logging=False):
+    def __init__(self, experiment_name="default", config_file=None, log=False):
 
         # Naming and shaming
         if experiment_name == "default":
@@ -30,7 +30,7 @@ class Experiment:
         if config_file is not None:
             self.load_config(config_file)
 
-        if logging:
+        if log:
             self.log_experiment()
 
     def load_config(self, config_file):
@@ -201,6 +201,12 @@ class Experiment:
         if 'P_GROW_CONNECTED' not in self.config['mcmc']:
             self.config['mcmc']['P_GROW_CONNECTED'] = 0.85
 
+        # Tracer does not like unevenly spaced samples
+        spacing = self.config['mcmc']['N_STEPS'] % self.config['mcmc']['N_SAMPLES']
+
+        if spacing != 0.:
+            raise ValueError("Non-consistent spacing between samples. Set N_STEPS to be a multiple of N_SAMPLES. ")
+
         # Precision of the proposal distribution
         # PROPOSAL_PRECISION is in config --> check for consistency
         if 'PROPOSAL_PRECISION' in self.config['mcmc']:
@@ -225,9 +231,9 @@ class Experiment:
                                                              "inheritance": None}
             else:
                 self.config['model']['PROPOSAL_PRECISION'] = {"weights": 15,
-                                                             "universal": 40,
-                                                             "contact": 20,
-                                                             "inheritance": 20}
+                                                              "universal": 40,
+                                                              "contact": 20,
+                                                              "inheritance": 20}
 
         # Steps per operator
         # STEPS is in config --> check for consistency
@@ -289,7 +295,7 @@ class Experiment:
 
         else:
             self.config['results'] = {}
-            self.config['results']['RESULTS_PATH'] = "results"
+            self.config['results']['RESULTS_PATH'] = "../results"
             self.config['results']['FILE_INFO'] = "n"
 
     def log_experiment(self):

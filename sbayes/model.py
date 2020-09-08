@@ -11,7 +11,7 @@ from sbayes.util import (compute_delaunay, n_smallest_distances, log_binom,
 EPS = np.finfo(float).eps
 
 
-def compute_global_likelihood(features, sample_p_global, p_global=None,
+def compute_global_likelihood(features, p_global=None,
                               outdated_features=None, cached_lh=None):
     """Computes the global likelihood, that is the likelihood per site and features
     without knowledge about family or zones.
@@ -19,12 +19,10 @@ def compute_global_likelihood(features, sample_p_global, p_global=None,
     Args:
         features (np.array or 'SparseMatrix'): The feature values for all sites and features.
                 shape: (n_sites, n_features, n_categories)
-        sample_p_global(bool): Sample p_global (True) or use maximum likelihood estimate (False)?
-    Kwargs:
         p_global (np.array): The estimated global probabilities of all features in all site
             shape: (1, n_features, n_sites)
         outdated_features (IndexSet): Features which changed, i.e. where lh needs to be recomputed.
-
+        cached_lh (np.array): the global likelihood computed previously
     Returns:
         (np.array): the global likelihood per site and feature
             shape: (n_sites, n_features)
@@ -32,13 +30,8 @@ def compute_global_likelihood(features, sample_p_global, p_global=None,
     n_sites, n_features, n_categories = features.shape
 
     # Estimate the global probability to find a feature/category
-    if sample_p_global:
-        p_glob = p_global[0]
-    else:
-        # Maximum likelihood estimate
-        p_glob = np.sum(features, axis=0) / n_sites
 
-    # p_glob.shape = (n_features, n_categories)
+    p_glob = np.sum(features, axis=0) / n_sites
 
     # Division by zero could cause troubles
     p_glob = p_glob.clip(EPS, 1 - EPS)
@@ -62,7 +55,7 @@ def compute_global_likelihood(features, sample_p_global, p_global=None,
     return lh_global
 
 
-def compute_zone_likelihood(features, zones, sample_p_zones, p_zones=None,
+def compute_zone_likelihood(features, zones, p_zones=None,
                             outdated_indices=None, outdated_zones=None, cached_lh=None):
     """Computes the zone likelihood that is the likelihood per site and feature given zones z1, ... zn
     Args:
@@ -70,7 +63,6 @@ def compute_zone_likelihood(features, zones, sample_p_zones, p_zones=None,
             shape: (n_sites, n_features, n_categories)
         zones(np.array): Binary arrays indicating the assignment of a site to the current zones.
             shape: (n_zones, n_sites)
-        sample_p_zones (bool): Sample p_zones (True) or use maximum likelihood estimate (False)
     Kwargs:
         p_zones(np.array): The estimated probabilities of features in all sites according to the zone
             shape: (n_zones, n_features, n_sites)
@@ -143,7 +135,6 @@ def compute_family_likelihood(features, families, p_families=None,
             shape: (n_sites, n_features, n_categories)
         families(np.array): Binary arrays indicating the assignment of a site to a family.
                 shape: (n_families, n_sites)
-        sample_p_families (bool): Sample p_families (True) or use maximum likelihood estimate (False)?
     Kwargs:
         p_families(np.array): The estimated probabilities of features in all sites according to the family
             shape: (n_families, n_features, n_sites)
@@ -155,8 +146,8 @@ def compute_family_likelihood(features, families, p_families=None,
             shape: (n_sites, n_features)
     """
 
-	n_sites, n_features, n_categories = features.shape
-	n_families = len(families)
+    n_sites, n_features, n_categories = features.shape
+    n_families = len(families)
 
     if cached_lh is None:
         lh_families = np.zeros((n_sites, n_features))
@@ -195,8 +186,7 @@ def normalize_weights(weights, assignment):
 
 class GenerativeLikelihood(object):
 
-    def __init__(self, data, inheritance, families=None,
-                 sample_p_global=True, sample_p_zones=True,  sample_p_families=True):
+    def __init__(self, data, inheritance, families=None):
         self.data = data
         self.families = np.asarray(families, dtype=bool)
         self.n_sites, self.n_features, self.n_categories = data.shape
@@ -219,9 +209,6 @@ class GenerativeLikelihood(object):
 
         # Set config flags
         self.inheritance = inheritance
-        self.sample_p_global = sample_p_global
-        self.sample_p_zones = sample_p_zones
-        self.sample_p_families = sample_p_families
 
     def reset_cache(self):
         # The assignment (global, zone, family) combined and weighted and the non-normalized likelihood
@@ -237,127 +224,109 @@ class GenerativeLikelihood(object):
         self.weights = None
 
     def __call__(self, sample, caching=True):
-            """Compute the likelihood of all sites. The likelihood is defined as a mixture of the global distribution
-            and the likelihood distribution of the family and the zone.
+        """Compute the likelihood of all sites. The likelihood is defined as a mixture of the global distribution
+           and the likelihood distribution of the family and the zone.
 
             Args:
                 sample(Sample): A Sample object consisting of zones and weights
-                features (np.array or 'SparseMatrix'): The feature values for all sites and features.
-                    shape: (n_sites, n_features, n_categories)
-                inheritance (bool): Does the model consider inheritance?
 
             Kwargs:
                 families (np.array): Binary array indicating the assignment of sites to language families.
                     shape: (n_families, n_sites)
-                sample_p_global (bool): Sample p_global (True) or use maximum likelihood estimate (False)
-                sample_p_zones (bool): Sample p_zones (True) or use maximum likelihood estimate (False)
-                sample_p_families (bool): Sample p_families (True) or use maximum likelihood estimate (False)
-
             Returns:
                 float: The joint likelihood of the current sample.
             """
-            if not caching:
-                self.reset_cache()
 
-            features = self.data
-            n_sites, n_features, n_categories = features.shape
+        if not caching:
+            self.reset_cache()
 
-            # Find NA features in the data
-            na_features = (np.sum(features, axis=-1) == 0)
+        features = self.data
+        n_sites, n_features, n_categories = features.shape
 
-            ##############################
-            # Component distributions
-            ##############################
-            global_assignment, global_lh = self.get_global_lh(sample)
-            family_assignment, family_lh = self.get_family_lh(sample)
-            zone_assignment, zone_lh = self.get_zone_lh(sample)
+        # Find NA features in the data
+        na_features = (np.sum(features, axis=-1) == 0)
 
-            ##############################
-            # Combination
-            ##############################
-            # Assignments are recombined when initialized or when zones change
-            if self.assignment is None or sample.what_changed['lh']['zones']:
+        ##############################
+        # Component distributions
+        ##############################
+        global_assignment, global_lh = self.get_global_lh(sample)
+        family_assignment, family_lh = self.get_family_lh(sample)
+        zone_assignment, zone_lh = self.get_zone_lh(sample)
 
-                # Structure of assignment depends on whether inheritance is considered or not
-                if self.inheritance:
-                    assignment = np.array([global_assignment, zone_assignment, family_assignment]).T
-                else:
-                    assignment = np.array([global_assignment, zone_assignment]).T
+        ##############################
+        # Combination
+        ##############################
+        # Assignments are recombined when initialized or when zones change
+        if self.assignment is None or sample.what_changed['lh']['zones']:
 
-                self.assignment = assignment
-            else:
-                assignment = self.assignment
-
-            # Lh is recombined when initialized, when zones change or when p_global, p_zones or p_families change
-            if self.all_lh is None or sample.what_changed['lh']['zones'] or sample.what_changed['lh']['p_global'] or \
-                    sample.what_changed['lh']['p_zones'] or sample.what_changed['lh']['p_families']:
-
-                # Structure of assignment depends on whether inheritance is considered or not
-                if self.inheritance:
-                    all_lh = np.array([global_lh, zone_lh, family_lh]).transpose((1, 2, 0))
-                else:
-                    all_lh = np.array([global_lh, zone_lh]).transpose((1, 2, 0))
-
-                self.all_lh = all_lh
-            else:
-                all_lh = self.all_lh
-
-            ##############################
-            # Weights
-            ##############################
-            # weights are evaluated when initialized, when weights change or when assignment to zones changes
-            if self.weights is None or sample.what_changed['lh']['weights'] or sample.what_changed['lh']['zones']:
-
-                abnormal_weights = sample.weights
-
-                # Extract weights for each site depending on whether the likelihood is available
-                # Order of columns in weights: global, contact, inheritance (if available)
-                abnormal_weights_per_site = np.repeat(abnormal_weights[np.newaxis, :, :], n_sites, axis=0)
-                weights = normalize_weights(abnormal_weights_per_site, assignment)
-                self.weights = weights
-
-            else:
-                weights = self.weights
-
-            # This is always evaluated
-
-            weighted_lh = np.sum(weights * all_lh, axis=2)
-            # Replace na values by 1
-            weighted_lh[na_features] = 1.
-            log_lh = np.sum(np.log(weighted_lh))
-
-            # The step is completed. Everything is up-to-date.
-            sample.what_changed['lh']['zones'].clear()
-            sample.what_changed['lh']['p_global'].clear()
-            sample.what_changed['lh']['p_zones'].clear()
-            sample.what_changed['lh']['weights'] = False
+            # Structure of assignment depends on whether inheritance is considered or not
             if self.inheritance:
-                sample.what_changed['lh']['p_families'].clear()
+                assignment = np.array([global_assignment, zone_assignment, family_assignment]).T
+            else:
+                assignment = np.array([global_assignment, zone_assignment]).T
 
-            # Find all languages that are in a family, but not in an area. For each add penalty p to the log_lh
-            # todo remove after testing
-            in_zone = np.any(sample.zones, axis=0)
-            in_family = np.any(self.families, axis=0)
-            p = -1.6
-            total_penalty = p * np.sum(in_family & ~in_zone)
-            log_lh += total_penalty
+            self.assignment = assignment
+        else:
+            assignment = self.assignment
 
-            return log_lh
+        # Lh is recombined when initialized, when zones change or when p_global, p_zones or p_families change
+        if self.all_lh is None or sample.what_changed['lh']['zones'] or sample.what_changed['lh']['p_global'] or \
+                sample.what_changed['lh']['p_zones'] or sample.what_changed['lh']['p_families']:
+
+            # Structure of assignment depends on whether inheritance is considered or not
+            if self.inheritance:
+                all_lh = np.array([global_lh, zone_lh, family_lh]).transpose((1, 2, 0))
+            else:
+                all_lh = np.array([global_lh, zone_lh]).transpose((1, 2, 0))
+
+            self.all_lh = all_lh
+        else:
+            all_lh = self.all_lh
+
+        ##############################
+        # Weights
+        ##############################
+        # weights are evaluated when initialized, when weights change or when assignment to zones changes
+        if self.weights is None or sample.what_changed['lh']['weights'] or sample.what_changed['lh']['zones']:
+
+            abnormal_weights = sample.weights
+
+            # Extract weights for each site depending on whether the likelihood is available
+            # Order of columns in weights: global, contact, inheritance (if available)
+            abnormal_weights_per_site = np.repeat(abnormal_weights[np.newaxis, :, :], n_sites, axis=0)
+            weights = normalize_weights(abnormal_weights_per_site, assignment)
+            self.weights = weights
+
+        else:
+            weights = self.weights
+
+        # This is always evaluated
+
+        weighted_lh = np.sum(weights * all_lh, axis=2)
+        # Replace na values by 1
+        weighted_lh[na_features] = 1.
+        log_lh = np.sum(np.log(weighted_lh))
+
+        # The step is completed. Everything is up-to-date.
+        sample.what_changed['lh']['zones'].clear()
+        sample.what_changed['lh']['p_global'].clear()
+        sample.what_changed['lh']['p_zones'].clear()
+        sample.what_changed['lh']['weights'] = False
+        if self.inheritance:
+            sample.what_changed['lh']['p_families'].clear()
+
+        return log_lh
 
     def global_lh_outdated(self, sample):
         return (self.global_lh is None) or (sample.what_changed['lh']['p_global'])
 
     def get_global_lh(self, sample):
         if self.global_lh_outdated(sample):
-            # p_global can be sampled or estimated
-            if self.sample_p_global:
-                self.global_lh = compute_global_likelihood(features=self.data, sample_p_global=True,
-                                                           p_global=sample.p_global,
-                                                           outdated_features=sample.what_changed['lh']['p_global'],
-                                                           cached_lh=self.global_lh)
 
-            else:
-                self.global_lh = compute_global_likelihood(features=self.data, sample_p_global=False)
+            self.global_lh = compute_global_likelihood(features=self.data,
+                                                       p_global=sample.p_global,
+                                                       outdated_features=sample.what_changed['lh']['p_global'],
+                                                       cached_lh=self.global_lh)
         return self.global_assignment, self.global_lh
 
     def get_family_lh(self, sample):
@@ -389,22 +358,12 @@ class GenerativeLikelihood(object):
 
         # Zone lh is evaluated when initialized, or when zones or p_zones change
         if self.zone_lh is None or sample.what_changed['lh']['zones'] or sample.what_changed['lh']['p_zones']:
-
-            # p_zones can be sampled or estimated
-            if self.sample_p_zones:
-                # assert np.allclose(a=np.sum(p_zones, axis=-1), b=1., rtol=EPS)
-                zone_lh = compute_zone_likelihood(features=self.data, zones=sample.zones,
-                                                  sample_p_zones=True, p_zones=sample.p_zones,
-                                                  outdated_indices=sample.what_changed['lh']['p_zones'],
-                                                  outdated_zones=sample.what_changed['lh']['zones'],
-                                                  cached_lh=self.zone_lh)
-            else:
-                zone_lh = compute_zone_likelihood(features=self.data, zones=sample.zones,
-                                                  sample_p_zones=False,
-                                                  outdated_indices=sample.what_changed['lh']['p_zones'],
-                                                  outdated_zones=sample.what_changed['lh']['zones'],
-                                                  cached_lh=self.zone_lh)
-
+            # assert np.allclose(a=np.sum(p_zones, axis=-1), b=1., rtol=EPS)
+            zone_lh = compute_zone_likelihood(features=self.data, zones=sample.zones,
+                                              p_zones=sample.p_zones,
+                                              outdated_indices=sample.what_changed['lh']['p_zones'],
+                                              outdated_zones=sample.what_changed['lh']['zones'],
+                                              cached_lh=self.zone_lh)
             self.zone_lh = zone_lh
 
         return self.zone_assignment, self.zone_lh
@@ -603,10 +562,11 @@ class GenerativePrior(object):
                 s = prior_p_families_meta['strength']
                 c_pseudocounts = prior_p_families_meta['counts']
                 c_universal = s * sample.p_global
-                self.prior_p_families_distr = inheritance_counts_to_dirichlet(counts=c_universal + c_pseudocounts,
-                                                                         categories=prior_p_families_meta['states'],
-                                                                         outdated_features=what_changed['p_global'],
-                                                                         dirichlet=self.prior_p_families_distr)
+                self.prior_p_families_distr = \
+                    inheritance_counts_to_dirichlet(counts=c_universal + c_pseudocounts,
+                                                    categories=prior_p_families_meta['states'],
+                                                    outdated_features=what_changed['p_global'],
+                                                    dirichlet=self.prior_p_families_distr)
 
                 prior_p_families = prior_p_families_dirichlet(p_families=sample.p_families,
                                                               dirichlet=self.prior_p_families_distr,

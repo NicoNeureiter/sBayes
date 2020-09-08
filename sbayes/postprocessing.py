@@ -2,8 +2,7 @@ from itertools import permutations
 import numpy as np
 import math
 from scipy.special import logsumexp
-from sbayes.sampling.zone_sampling import ZoneMCMC_generative, Sample
-
+from sbayes.sampling.zone_sampling import ZoneMCMCGenerative, Sample
 
 
 def compute_dic(mcmc_res, burn_in):
@@ -49,7 +48,7 @@ def compute_model_quality(mcmc_results, mode):
         aic = 2*k - 2 * math.log(mle)
         return aic
 
-    elif mode== 'BIC':
+    elif mode == 'BIC':
         bic = math.log(mcmc_results['n_features']) * k - 2 * math.log(mle)
         return bic
 
@@ -71,14 +70,13 @@ def compute_marginal_likelihood(model, samples, mode, n_temp=100):
     # Iterate over temperatures
     for t in np.nditer(np.linspace(0, 1, n_temp)):
 
-        sampler = ZoneMCMC_generative(
+        sampler = ZoneMCMCGenerative(
             network=model['network'], features=model['features'], n_steps=model['n_steps'],
             min_size=model['min_size'], max_size=model['max_size'], p_transition_mode=['p_transition_mode'],
             geo_weight=model['geo_weight']/model['features'].shape[1],
             lh_lookup=model['lh_lookup'], n_zones=model['n_zones'],
             ecdf_geo=model['ecdf_geo'], restart_interval=model['restart_interval'],
-            simulated_annealing=False, plot_samples=False
-        )
+            simulated_annealing=False, plot_samples=False)
 
         sampler.generate_samples(samples)
         lh.append(sampler.statistics['sample_likelihoods'])

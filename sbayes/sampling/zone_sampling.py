@@ -6,16 +6,16 @@ from copy import deepcopy
 
 import numpy as np
 
-from sbayes.sampling.mcmc_generative import MCMC_generative
+from sbayes.sampling.mcmc_generative import MCMCGenerative
 from sbayes.model import GenerativeLikelihood, GenerativePrior
 from sbayes.util import get_neighbours, balance_p_array, normalize, dirichlet_pdf
 
 
 class IndexSet(set):
 
-    def __init__(self, all=True):
+    def __init__(self, all_i=True):
         super().__init__()
-        self.all = all
+        self.all = all_i
 
     def add(self, element):
         super(IndexSet, self).add(element)
@@ -29,7 +29,7 @@ class IndexSet(set):
 
     def __copy__(self):
         # other = deepcopy(super(IndexSet, self))
-        other = IndexSet(all=self.all)
+        other = IndexSet(all_i=self.all)
         for element in self:
             other.add(element)
 
@@ -37,7 +37,7 @@ class IndexSet(set):
 
     def __deepcopy__(self, memo):
         # other = deepcopy(super(IndexSet, self))
-        other = IndexSet(all=self.all)
+        other = IndexSet(all_i=self.all)
         for element in self:
             other.add(deepcopy(element))
 
@@ -104,14 +104,14 @@ class Sample(object):
         return new_sample
 
 
-class ZoneMCMC_generative(MCMC_generative):
+class ZoneMCMCGenerative(MCMCGenerative):
 
     """float: Probability at which grow operator only considers neighbours to add to the zone."""
 
     def __init__(self, network, features, min_size, max_size, var_proposal,
                  initial_sample, sample_from_prior, p_grow_connected, **kwargs):
 
-        super(ZoneMCMC_generative, self).__init__(**kwargs)
+        super(ZoneMCMCGenerative, self).__init__(**kwargs)
 
         # Data
         self.features = features
@@ -149,9 +149,7 @@ class ZoneMCMC_generative(MCMC_generative):
 
         self.compute_lh_per_chain = [
             # GenerativeLikelihood(features, self.inheritance, self.families) for _ in range(self.n_chains)
-            GenerativeLikelihood(data=features, families=self.families, inheritance=self.inheritance,
-                                 sample_p_global=self.sample_p_global, sample_p_zones=self.sample_p_zones,
-                                 sample_p_families=self.sample_p_families)
+            GenerativeLikelihood(data=features, families=self.families, inheritance=self.inheritance)
             for _ in range(self.n_chains)
         ]
 
@@ -314,7 +312,7 @@ class ZoneMCMC_generative(MCMC_generative):
         Args:
             w (np.array): The weight vector, which is being resampled.
                 Shape: (n_categories, )
-            step_precision (float): The precision parameter conrolling how narrow/wide the proposal
+            step_precision (float): The precision parameter controlling how narrow/wide the proposal
                 distribution is. Low precision -> wide, high precision -> narrow.
 
         Returns:
@@ -418,15 +416,15 @@ class ZoneMCMC_generative(MCMC_generative):
         # q_back = 1. / np.count_nonzero(back_neighbours)
 
         # Transition probability growing to the new zone
-        q_nonconnected = 1 / np.count_nonzero(~occupied)
-        q = (1 - self.p_grow_connected) * q_nonconnected
+        q_non_connected = 1 / np.count_nonzero(~occupied)
+        q = (1 - self.p_grow_connected) * q_non_connected
         if neighbours[site_new]:
             q_connected = 1 / np.count_nonzero(neighbours)
             q += self.p_grow_connected * q_connected
 
         # Transition probability of growing back to the original zone
-        q_back_nonconnected = 1 / np.count_nonzero(~occupied)
-        q_back = (1 - self.p_grow_connected) * q_back_nonconnected
+        q_back_non_connected = 1 / np.count_nonzero(~occupied)
+        q_back = (1 - self.p_grow_connected) * q_back_non_connected
         # If z is a neighbour of the new zone, the back step could also be a connected grow step
         if back_neighbours[site_removed]:
             q_back_connected = 1 / np.count_nonzero(back_neighbours)
@@ -484,8 +482,8 @@ class ZoneMCMC_generative(MCMC_generative):
         sample_new.zones[z_id, site_new] = 1
 
         # Transition probability when growing
-        q_nonconnected = 1 / np.count_nonzero(~occupied)
-        q = (1 - self.p_grow_connected) * q_nonconnected
+        q_non_connected = 1 / np.count_nonzero(~occupied)
+        q = (1 - self.p_grow_connected) * q_non_connected
         if neighbours[site_new]:
             q_connected = 1 / np.count_nonzero(neighbours)
             q += self.p_grow_connected * q_connected
@@ -539,8 +537,8 @@ class ZoneMCMC_generative(MCMC_generative):
         back_neighbours = get_neighbours(zone_new, occupied_new, self.adj_mat)
 
         # The back step could always be a non-connected grow step
-        q_back_nonconnected = 1 / np.count_nonzero(~occupied_new)
-        q_back = (1 - self.p_grow_connected) * q_back_nonconnected
+        q_back_non_connected = 1 / np.count_nonzero(~occupied_new)
+        q_back = (1 - self.p_grow_connected) * q_back_non_connected
 
         # If z is a neighbour of the new zone, the back step could also be a connected grow step
         if back_neighbours[site_removed]:
@@ -637,7 +635,6 @@ class ZoneMCMC_generative(MCMC_generative):
         # Find all sites that already belong to a zone (sites_occupied) and those that don't (sites_free)
         sites_occupied = np.nonzero(already_in_zone)[0]
         sites_free = set(range(n_sites)) - set(sites_occupied)
-
 
         # Take a random free site and use it as seed for the new zone
         try:
@@ -855,45 +852,27 @@ class ZoneMCMC_generative(MCMC_generative):
             Sample: The generated initial Sample
         """
         # Zones
-        if self.known_initial_zones is None:
-            initial_zones = self.generate_initial_zones()
-        # for testing: set initial_zones to known start zones
-        else:
-            initial_zones = self.known_initial_zones
+        initial_zones = self.generate_initial_zones()
 
         # Weights
-        if self.known_initial_weights is None:
-            initial_weights = self.generate_initial_weights()
-        # for testing: set initial_weights to  known start weights
-        else:
-            initial_weights = self.known_initial_weights
+        initial_weights = self.generate_initial_weights()
 
-        # p_global
-        if self.sample_p_global:
-            initial_p_global = self.generate_initial_p_global()
-        else:
-            initial_p_global = None
+        # p_global (alpha)
+        initial_p_global = self.generate_initial_p_global()
 
-        # p_zones
-        # p_zones can be sampled or derived from the maximum likelihood estimate
-        if self.sample_p_zones:
-            initial_p_zones = self.generate_initial_p_zones(initial_zones)
-        else:
-            initial_p_zones = None
+        # p_zones (gamma)
+        initial_p_zones = self.generate_initial_p_zones(initial_zones)
 
-        # p_families
-        # p_families can be sampled or derived from the maximum likelihood estimate
-        if self.sample_p_families:
-            initial_p_families = self.generate_initial_p_families()
-        else:
-            initial_p_families = None
+        # p_families (beta)
+        initial_p_families = self.generate_initial_p_families()
 
         sample = Sample(zones=initial_zones, weights=initial_weights,
                         p_global=initial_p_global, p_zones=initial_p_zones, p_families=initial_p_families)
 
         return sample
 
-    def get_removal_candidates(self, zone):
+    @staticmethod
+    def get_removal_candidates(zone):
         """Finds sites which can be removed from the given zone.
 
         Args:
@@ -926,4 +905,4 @@ class ZoneMCMC_generative(MCMC_generative):
         return fn_operators, p_operators
 
     def log_sample_statistics(self, sample, c, sample_id):
-        super(ZoneMCMC_generative, self).log_sample_statistics(sample, c, sample_id)
+        super(ZoneMCMCGenerative, self).log_sample_statistics(sample, c, sample_id)

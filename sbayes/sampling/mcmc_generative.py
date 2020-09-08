@@ -11,24 +11,18 @@ import numpy as _np
 from collections import defaultdict
 
 
-class MCMC_generative(metaclass=_abc.ABCMeta):
+class MCMCGenerative(metaclass=_abc.ABCMeta):
 
     """Base-class for MCMC samplers for generative model. Instantiable sub-classes have to implement
     some methods, like propose_step() and likelihood().
     The base-class provides options for Markov coupled MCMC (MC3)[2].
 
     Attributes:
-        mc3_chains (int): Number of coupled chains for MC3 (ignored when MC 3 is False)
-        mc3_delta_t (float):
-        mc3_swap_period (int):
-
-
         statistics (dict): Container for a set of statistics about the sampling run.
     """
 
     def __init__(self, operators, inheritance, families, prior, n_zones, chain_swaps, n_chains, swap_period,
-                 sample_alpha=True, sample_beta=True, sample_gamma=True, known_initial_weights=None,
-                 known_initial_zones=None, show_screen_log=False):
+                 show_screen_log=False):
 
         # Sampling attributes
         self.n_chains = n_chains
@@ -38,10 +32,6 @@ class MCMC_generative(metaclass=_abc.ABCMeta):
 
         # Number of zones
         self.n_zones = n_zones
-
-        # For testing: wights or zones are known
-        self.known_initial_weights = known_initial_weights
-        self.known_initial_zones = known_initial_zones
 
         # Operators
         self.fn_operators, self.p_operators = self.get_operators(operators)
@@ -59,14 +49,6 @@ class MCMC_generative(metaclass=_abc.ABCMeta):
             self.prior_p_families = prior['inheritance']
         except KeyError:
             pass
-
-        # Sample the probabilities of categories (global, in zones and in families)?
-        self.sample_p_global = sample_alpha
-        self.sample_p_zones = sample_gamma
-        if self.inheritance:
-            self.sample_p_families = sample_beta
-        else:
-            self.sample_p_families = False
 
         # Initialize statistics
         self.statistics = {'sample_id': [],
@@ -160,7 +142,6 @@ class MCMC_generative(metaclass=_abc.ABCMeta):
             # Compute the (log)-likelihood and the prior for each sample
             self._ll[c] = self.likelihood(sample[c], c)
             self._prior[c] = self.prior(sample[c], c)
-            print("chain ", c, "lh: ", self._ll[c], "prior: ", self._prior[c], )
 
         # Probability of operators is different if there are zero zones
         if self.n_zones == 0:
@@ -193,29 +174,28 @@ class MCMC_generative(metaclass=_abc.ABCMeta):
         self.p_operators = p_operators_post_burn_in
 
         for i_step in range(n_steps):
+            # Generate samples for each chain
+            for c in self.chain_idx:
+                sample[c] = self.step(sample[c], c)
 
-                # Generate samples for each chain
-                for c in self.chain_idx:
-                    sample[c] = self.step(sample[c], c)
+            # Log samples at fixed intervals
+            if i_step % steps_per_sample == 0:
 
-                # Log samples at fixed intervals
-                if i_step % steps_per_sample == 0:
+                # Log samples, but only from the first chain
+                self.log_sample_statistics(sample[self.chain_idx[0]], c=self.chain_idx[0],
+                                           sample_id=int(i_step/steps_per_sample))
 
-                    # Log samples, but only from the first chain
-                    self.log_sample_statistics(sample[self.chain_idx[0]], c=self.chain_idx[0],
-                                               sample_id=int(i_step/steps_per_sample))
+            # Exchange chains at fixed intervals
+            if (i_step+1) % self.swap_period == 0:
+                self.swap_chains(sample)
 
-                # Exchange chains at fixed intervals
-                if (i_step+1) % self.swap_period == 0:
-                    self.swap_chains(sample)
+            # Print work status and likelihood at fixed intervals
+            if i_step % 1000 == 0:
+                self.print_screen_log(i_step, sample)
 
-                # Print work status and likelihood at fixed intervals
-                if i_step % 1000 == 0:
-                    self.print_screen_log(i_step, sample)
-
-                # Log the last sample of the first chain
-                if i_step % (n_steps-1) == 0 and i_step != 0:
-                    self.log_last_sample(sample[self.chain_idx[0]])
+            # Log the last sample of the first chain
+            if i_step % (n_steps-1) == 0 and i_step != 0:
+                self.log_last_sample(sample[self.chain_idx[0]])
 
         t_end = _time.time()
         self.statistics['sampling_time'] = t_end - t_start
@@ -305,20 +285,20 @@ class MCMC_generative(metaclass=_abc.ABCMeta):
 
         return sample
 
-    def metropolis_hastings_ratio(self, ll_new, ll_prev, prior_new, prior_prev, q, q_back, temperature=1.):
+    @staticmethod
+    def metropolis_hastings_ratio(ll_new, ll_prev, prior_new, prior_prev, q, q_back, temperature=1.):
         """ Computes the metropolis-hastings ratio.
         Args:
             ll_new(float): the likelihood of the candidate
             ll_prev(float): the likelihood of the current sample
             prior_new(float): the prior of the candidate
-            prior_prev(float): tself.fn_operatorshe prior of the current sample
+            prior_prev(float): the prior of the current sample
             q (float): the transition probability
             q_back (float): the back-probability
             temperature(float): the temperature of the MCMC
         Returns:
             (float): the metropolis-hastings ratio
         """
-
         ll_ratio = ll_new - ll_prev
         try:
             with _np.errstate(divide='ignore'):
@@ -359,11 +339,10 @@ class MCMC_generative(metaclass=_abc.ABCMeta):
         """
         self.statistics['last_sample'] = last_sample
 
-
     def print_screen_log(self, i_step, sample):
         i_step_str = str.ljust(str(i_step), 12)
 
-        likelihood =self.likelihood(sample[self.chain_idx[0]], self.chain_idx[0])
+        likelihood = self.likelihood(sample[self.chain_idx[0]], self.chain_idx[0])
         likelihood_str = str.ljust('log-likelihood:  %.2f' % likelihood, 36)
 
         time_per_million = (_time.time() - self.t_start) / (i_step + 1) * 1000000

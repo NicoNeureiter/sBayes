@@ -11,7 +11,7 @@ import os
 
 from sbayes.postprocessing import (contribution_per_area, log_operator_statistics,
                                    log_operator_statistics_header, match_areas, rank_areas)
-from sbayes.sampling.zone_sampling import Sample, ZoneMCMC_generative, IndexSet
+from sbayes.sampling.zone_sampling import Sample, ZoneMCMCGenerative, IndexSet
 from sbayes.util import (normalize, counts_to_dirichlet,
                          inheritance_counts_to_dirichlet, samples2file)
 
@@ -122,7 +122,7 @@ class MCMC:
 
         logging.info("Model")
         logging.info("##########################################")
-        logging.info("Number of sampled areas: %i", model_config['N_AREAS'])
+        logging.info("Number of inferred areas: %i", model_config['N_AREAS'])
         logging.info("Areas have a minimum size of %s and a maximum size of %s.",
                      model_config['MIN_M'], model_config['MAX_M'])
         logging.info("Inheritance is considered for inference: %s",
@@ -177,20 +177,20 @@ class MCMC:
     def sample(self, initial_sample=None, lh_per_area=True):
         initial_sample = self.initialize_sample(initial_sample)
 
-        self.sampler = ZoneMCMC_generative(network=self.data.network, features=self.data.features,
-                                           min_size=self.config['model']['MIN_M'],
-                                           max_size=self.config['model']['MAX_M'],
-                                           n_zones=self.config['model']['N_AREAS'],
-                                           prior=self.config['model']['PRIOR'],
-                                           inheritance=self.config['model']['INHERITANCE'],
-                                           n_chains=self.config['mcmc']['N_CHAINS'],
-                                           initial_sample=initial_sample,
-                                           swap_period=self.config['mcmc']['SWAP_PERIOD'],
-                                           operators=self.ops, families=self.data.families,
-                                           chain_swaps=self.config['mcmc']['N_SWAPS'],
-                                           var_proposal=self.config['mcmc']['PROPOSAL_PRECISION'],
-                                           p_grow_connected=self.config['mcmc']['P_GROW_CONNECTED'],
-                                           sample_from_prior=self.config['model']['SAMPLE_FROM_PRIOR'])
+        self.sampler = ZoneMCMCGenerative(network=self.data.network, features=self.data.features,
+                                          min_size=self.config['model']['MIN_M'],
+                                          max_size=self.config['model']['MAX_M'],
+                                          n_zones=self.config['model']['N_AREAS'],
+                                          prior=self.config['model']['PRIOR'],
+                                          inheritance=self.config['model']['INHERITANCE'],
+                                          n_chains=self.config['mcmc']['N_CHAINS'],
+                                          initial_sample=initial_sample,
+                                          swap_period=self.config['mcmc']['SWAP_PERIOD'],
+                                          operators=self.ops, families=self.data.families,
+                                          chain_swaps=self.config['mcmc']['N_SWAPS'],
+                                          var_proposal=self.config['mcmc']['PROPOSAL_PRECISION'],
+                                          p_grow_connected=self.config['mcmc']['P_GROW_CONNECTED'],
+                                          sample_from_prior=self.config['model']['SAMPLE_FROM_PRIOR'])
 
         self.sampler.generate_samples(self.config['mcmc']['N_STEPS'],
                                       self.config['mcmc']['N_SAMPLES'],

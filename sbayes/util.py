@@ -197,38 +197,37 @@ def zones_autosimilarity(zones, t):
 
 # Encoding
 def encode_states(features_in):
+    state_names = {'external': [],
+                   'internal': []}
+    features_enc = []
+    for f in np.swapaxes(features_in, 0, 1):
+        states_ext = list(np.unique(f))
+        states_int = []
+        if "" in states_ext:
+            states_ext.remove("")
 
-        state_names = {'external': [],
-                       'internal': []}
-        features_enc = []
-        for f in np.swapaxes(features_in, 0, 1):
-            states_ext = list(np.unique(f))
-            states_int = []
-            if "" in states_ext:
-                states_ext.remove("")
+        s_idx = 0
+        for s in list(states_ext):
+            f = np.where(f == s, s_idx, f)
+            states_int.append(s_idx)
+            s_idx += 1
+        state_names['external'].append(states_ext)
+        state_names['internal'].append(states_int)
+        features_enc.append(f)
 
-            s_idx = 0
-            for s in list(states_ext):
-                f = np.where(f == s, s_idx, f)
-                states_int.append(s_idx)
-                s_idx += 1
-            state_names['external'].append(states_ext)
-            state_names['internal'].append(states_int)
-            features_enc.append(f)
+    features_enc = np.column_stack([f for f in features_enc])
+    enc_states = list(np.unique(features_enc))
 
-        features_enc = np.column_stack([f for f in features_enc])
-        enc_states = list(np.unique(features_enc))
+    features_bin = []
+    na_number = 0
+    for cat in enc_states:
+        if cat == "":
+            na_number = np.count_nonzero(np.where(features_enc == cat, 1, 0))
+        else:
+            cat_axis = np.expand_dims(np.where(features_enc == cat, 1, 0), axis=2)
+            features_bin.append(cat_axis)
 
-        features_bin = []
-        na_number = 0
-        for cat in enc_states:
-            if cat == "":
-                na_number = np.count_nonzero(np.where(features_enc == cat, 1, 0))
-            else:
-                cat_axis = np.expand_dims(np.where(features_enc == cat, 1, 0), axis=2)
-                features_bin.append(cat_axis)
-
-        return np.concatenate(features_bin, axis=2), state_names, na_number
+    return np.concatenate(features_bin, axis=2), state_names, na_number
 
 
 def read_features_from_csv(file):
@@ -446,19 +445,19 @@ def read_feature_occurrence_from_csv(file):
 def tighten_counts(counts, state_names, count_names):
 
     # Tighten count matrix
-        max_n_states = max([len(s) for s in state_names['external']])
+    max_n_states = max([len(s) for s in state_names['external']])
 
-        counts_tight = []
-        for f in range(len(counts)):
-            c = np.zeros(max_n_states)
-            for s in range(len(state_names['external'][f])):
-                external = state_names['external'][f][s]
-                internal = state_names['internal'][f][s]
-                idx = count_names.index(external)
-                c[internal] = counts[f][idx]
-            counts_tight.append(c)
+    counts_tight = []
+    for f in range(len(counts)):
+        c = np.zeros(max_n_states)
+        for s in range(len(state_names['external'][f])):
+            external = state_names['external'][f][s]
+            internal = state_names['internal'][f][s]
+            idx = count_names.index(external)
+            c[internal] = counts[f][idx]
+        counts_tight.append(c)
 
-        return np.row_stack([c for c in counts_tight]).astype(int)
+    return np.row_stack([c for c in counts_tight]).astype(int)
 
 
 def inheritance_counts_to_dirichlet(counts, categories, outdated_features=None, dirichlet=None):
@@ -602,7 +601,7 @@ def collect_gt_for_writing(samples, data, config):
         gt[w_contact_name] = samples['true_weights'][f][1]
 
         # inheritance
-        if config['mcmc']['INHERITANCE']:
+        if config['model']['INHERITANCE']:
             w_inheritance_name = 'w_inheritance_' + str(data.feature_names['external'][f])
             if w_inheritance_name not in gt_col_names:
                 gt_col_names += [w_inheritance_name]
@@ -679,7 +678,7 @@ def collect_row_for_writing(s, samples, data, config, steps_per_sample):
         row[w_contact_name] = samples['sample_weights'][s][f][1]
 
         # inheritance
-        if config['mcmc']['INHERITANCE']:
+        if config['model']['INHERITANCE']:
             w_inheritance_name = 'w_inheritance_' + str(data.feature_names['external'][f])
             column_names += [w_inheritance_name]
             row[w_inheritance_name] = samples['sample_weights'][s][f][2]
@@ -694,7 +693,7 @@ def collect_row_for_writing(s, samples, data, config, steps_per_sample):
             row[feature_name] = samples['sample_p_global'][s][0][f][idx]
 
     # gamma
-    for a in range(config['mcmc']['N_AREAS']):
+    for a in range(config['model']['N_AREAS']):
         for f in range(len(data.feature_names['external'])):
             for st in data.state_names['external'][f]:
                 feature_name = 'gamma_' + 'a' + str(a + 1) \
@@ -706,7 +705,7 @@ def collect_row_for_writing(s, samples, data, config, steps_per_sample):
                 row[feature_name] = samples['sample_p_zones'][s][a][f][idx]
 
     # beta
-    if config['mcmc']['INHERITANCE']:
+    if config['model']['INHERITANCE']:
         for fam in range(len(data.family_names['external'])):
             for f in range(len(data.feature_names['external'])):
                 for st in data.state_names['external'][f]:
@@ -735,7 +734,7 @@ def collect_row_for_writing(s, samples, data, config, steps_per_sample):
 
     # Single areas
     if 'sample_lh_single_zones' in samples.keys():
-        for a in range(config['mcmc']['N_AREAS']):
+        for a in range(config['model']['N_AREAS']):
             lh_name = 'lh_a' + str(a + 1)
             prior_name = 'prior_a' + str(a + 1)
             posterior_name = 'post_a' + str(a + 1)
@@ -787,7 +786,7 @@ def samples2file(samples, data, config, paths):
             print("I/O error")
 
     # Results
-    steps_per_sample = config['mcmc']['N_STEPS'] / config['mcmc']['N_SAMPLES']
+    steps_per_sample = float(config['mcmc']['N_STEPS'] / config['mcmc']['N_SAMPLES'])
     # Statistics
     try:
         writer = None

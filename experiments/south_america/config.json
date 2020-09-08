@@ -1,48 +1,55 @@
 {
-  "mcmc": {
-    "BURN_IN": 0,
-    "N_STEPS": 2000,
-    "N_SAMPLES": 2000,
-    "N_RUNS": 1,
-	"N_AREAS": 5,
-    "MIN_M": 3,
-    "MAX_M": 30,
-    "N_CHAINS": 7,
-    "SWAP_PERIOD": 1000,
-    "N_SWAPS": 3,
-    "PRIOR": {
-      "geo": "uniform",
-      "weights": "uniform",
-      "universal": "from_counts",
-	  "inheritance": "from_counts",
-	  "contact": "uniform"
-    },
-	"PROPOSAL_PRECISION": {
-      "weights": 20,
-      "universal": 70,
-      "contact": 20,
-	  "inheritance": 30
-    },
-	"STEPS": {
-	  "area": 0.05,
-      "weights": 0.35,
-      "universal": 0.05,
-      "contact": 0.4,
-	  "inheritance": 0.15
-    },
-    "INHERITANCE": true
-  },
-  "data":{
-    "FEATURES" : "data/features/features.csv",
-    "PRIOR" : {
-	  "universal": "data/prior_universal/universal_counts.csv",
-	  "inheritance": { 
-		  "Arawak": "data/prior_inheritance/arawak_counts.csv",
-		  "Panoan": "data/prior_inheritance/panoan_counts.csv",
-		  "Quechuan": "data/prior_inheritance/quechuan_counts.csv",
-		  "Tucanoan": "data/prior_inheritance/tucanoan_counts.csv",
-		  "Tupian": "data/prior_inheritance/tupian_counts.csv"
-	  } 
+	"mcmc": {
+		"BURN_IN": 0,
+		"N_STEPS": 1000000,
+		"N_SAMPLES": 5000,
+		"N_RUNS": 1,
+		"N_CHAINS": 7,
+		"SWAP_PERIOD": 1000,
+		"N_SWAPS": 3,
+		"P_GROW_CONNECTED": 0.85,
+		"PROPOSAL_PRECISION": {
+			"weights": 20,
+			"universal": 30,
+			"contact": 10,
+			"inheritance": 10
+		},
+		"STEPS": {
+			"area": 0.1,
+			"weights": 0.25,
+			"universal": 0.1,
+			"contact": 0.3,
+			"inheritance": 0.25
+		}
+	},
+	"model": {
+		"N_AREAS": 5,
+		"MIN_M": 3,
+		"MAX_M": 30,
+		"INHERITANCE": true,
+		"PRIOR": {
+			"geo": "uniform",
+			"weights": "uniform",
+			"universal": "counts",
+			"inheritance": "counts_and_universal",
+			"contact": "universal"
+		},
+		"NEIGHBOR_DIST": "euclidean",
+		"LAMBDA_GEO_PRIOR": 500,
+		"SAMPLE_FROM_PRIOR": false,
+		"UNIVERSAL_PRIOR_STRENGTH": 4
+	},
+	"data": {
+		"FEATURES": "../data/features/features.csv",
+		"PRIOR": {
+			"universal": "../data/prior_universal/universal_counts.csv",
+			"inheritance": {
+				"Arawak": "../data/prior_inheritance/arawak_counts.csv",
+				"Panoan": "../data/prior_inheritance/panoan_counts.csv",
+				"Quechuan": "../data/prior_inheritance/quechuan_counts.csv",
+				"Tucanoan": "../data/prior_inheritance/tucanoan_counts.csv",
+				"Tupian": "../data/prior_inheritance/tupian_counts.csv"
+			}
+		}
 	}
- }
 }
