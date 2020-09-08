@@ -12,6 +12,7 @@ setup(
     license='???',
     url="https://github.com/derpetermann/sbayes",
     packages=find_packages(where='sbayes'),
+    package_dir={'': 'sbayes'},
     platforms='any',
     install_requires=[
         "numpy",
