@@ -6,7 +6,7 @@ if __name__ == '__main__':
 
     # Initialize the experiment
     exp = Experiment()
-    exp.load_config(config_file='experiment/south_america/config.json')
+    exp.load_config(config_file='experiments/south_america/config.json')
     exp.log_experiment()
 
     # Load Data
