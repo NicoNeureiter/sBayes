@@ -167,11 +167,17 @@ class Experiment:
                 self.config['model']['PRIOR']['inheritance'] = None
 
         if 'NEIGHBOR_DIST' not in self.config['model']:
-            self.config['mcmc']['NEIGHBOR_DIST'] = "euclidean"
+            self.config['model']['NEIGHBOR_DIST'] = "euclidean"
         if 'LAMBDA_GEO_PRIOR' not in self.config['model']:
-            self.config['mcmc']['LAMBDA_GEO_PRIOR'] = "auto_tune"
+            self.config['model']['LAMBDA_GEO_PRIOR'] = "auto_tune"
         if 'SAMPLE_FROM_PRIOR' not in self.config['model']:
-            self.config['mcmc']['SAMPLE_FROM_PRIOR'] = False
+            self.config['model']['SAMPLE_FROM_PRIOR'] = False
+
+        # Minimum, maximum size of areas
+        if 'MIN_M' not in self.config['model']:
+            self.config['model']['MIN_M'] = 3
+        if 'MAX_M' not in self.config['model']:
+            self.config['model']['MAX_M'] = 50
 
         # MCMC
         # Is there an mcmc part in the config file?
@@ -192,11 +198,6 @@ class Experiment:
         # Number of runs
         if 'N_RUNS' not in self.config['mcmc']:
             self.config['mcmc']['N_RUNS'] = 1
-        # Minimum, maximum size of areas
-        if 'MIN_M' not in self.config['mcmc']:
-            self.config['mcmc']['MIN_M'] = 3
-        if 'MAX_M' not in self.config['mcmc']:
-            self.config['mcmc']['MAX_M'] = 200
         # Number of parallel Markov chains
         if 'N_CHAINS' not in self.config['mcmc']:
             self.config['mcmc']['N_CHAINS'] = 5
@@ -208,6 +209,8 @@ class Experiment:
             self.config['mcmc']['N_SWAPS'] = 3
         if 'P_GROW_CONNECTED' not in self.config['mcmc']:
             self.config['mcmc']['P_GROW_CONNECTED'] = 0.85
+        if 'M_INITIAL' not in self.config['mcmc']:
+            self.config['mcmc']['M_INITIAL'] = 5
 
         # Tracer does not like unevenly spaced samples
         spacing = self.config['mcmc']['N_STEPS'] % self.config['mcmc']['N_SAMPLES']

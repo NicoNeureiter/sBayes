@@ -6,7 +6,7 @@ if __name__ == '__main__':
 
     # Initialize the experiment
     exp = Experiment()
-    exp.load_config(config_file='../config.json')
+    exp.load_config(config_file='experiment/south_america/config.json')
     exp.log_experiment()
 
     # Load Data
@@ -22,7 +22,6 @@ if __name__ == '__main__':
     dat.log_loading()
 
     NUMBER_AREAS = range(1, 8)
-    initial_sample = None
 
     # Rerun experiment to check for consistency
     for run in range(exp.config['mcmc']['N_RUNS']):
@@ -35,13 +34,8 @@ if __name__ == '__main__':
             mc.log_setup()
 
             # Sample
-            mc.sample(initial_sample=initial_sample)
+            mc.sample()
 
             # Save samples to file
             mc.log_statistics()
             mc.save_samples(run=run)
-
-            # Use the last sample as the new initial sample
-            initial_sample = mc.samples['last_sample']
-
-        initial_sample = None

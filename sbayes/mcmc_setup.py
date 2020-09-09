@@ -191,7 +191,8 @@ class MCMC:
                                           chain_swaps=self.config['mcmc']['N_SWAPS'],
                                           var_proposal=self.config['mcmc']['PROPOSAL_PRECISION'],
                                           p_grow_connected=self.config['mcmc']['P_GROW_CONNECTED'],
-                                          sample_from_prior=self.config['model']['SAMPLE_FROM_PRIOR'])
+                                          sample_from_prior=self.config['model']['SAMPLE_FROM_PRIOR'],
+                                          initial_size=self.config['mcmc']['M_INITIAL'])
 
         self.sampler.generate_samples(self.config['mcmc']['N_STEPS'],
                                       self.config['mcmc']['N_SAMPLES'],

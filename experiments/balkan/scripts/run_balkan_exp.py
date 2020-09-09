@@ -21,7 +21,6 @@ if __name__ == '__main__':
     dat.log_loading()
 
     NUMBER_AREAS = range(1, 8)
-    initial_sample = None
 
     # Rerun experiment to check for consistency
     for run in range(exp.config['mcmc']['N_RUNS']):
@@ -36,13 +35,9 @@ if __name__ == '__main__':
             mc.log_setup()
 
             # Sample from posterior
-            mc.sample(initial_sample=initial_sample)
+            mc.sample()
 
             # Log sampling statistics and save samples to file
             mc.log_statistics()
             mc.save_samples(run=run)
 
-            # Use the last sample as the new initial sample
-            initial_sample = mc.samples['last_sample']
-
-        initial_sample = None

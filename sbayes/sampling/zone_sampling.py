@@ -109,7 +109,7 @@ class ZoneMCMCGenerative(MCMCGenerative):
     """float: Probability at which grow operator only considers neighbours to add to the zone."""
 
     def __init__(self, network, features, min_size, max_size, var_proposal,
-                 initial_sample, sample_from_prior, p_grow_connected, **kwargs):
+                 initial_sample, sample_from_prior, p_grow_connected, initial_size, **kwargs):
 
         super(ZoneMCMCGenerative, self).__init__(**kwargs)
 
@@ -131,6 +131,7 @@ class ZoneMCMCGenerative(MCMCGenerative):
         self.min_size = min_size
         self.max_size = max_size
         self.initial_sample = initial_sample
+        self.initial_size = initial_size
 
         # Families
         if self.inheritance:
@@ -592,7 +593,7 @@ class ZoneMCMCGenerative(MCMCGenerative):
         while True:
             for i in not_initialized:
                 try:
-                    initial_size = _random.randrange(self.min_size, int(self.max_size/2))
+                    initial_size = self.initial_size
                     g = self.grow_zone_of_size_k(initial_size, occupied)
 
                 except self.ZoneError:
