@@ -15,7 +15,6 @@ import matplotlib.pyplot as plt
 import numpy as np
 from descartes import PolygonPatch
 from matplotlib import patches
-from matplotlib.colors import ListedColormap, LinearSegmentedColormap
 from matplotlib.lines import Line2D
 from matplotlib.patches import Patch
 from mpl_toolkits.axes_grid1.inset_locator import inset_axes
@@ -25,7 +24,7 @@ from scipy.special import logsumexp
 from shapely import geometry
 from shapely.ops import cascaded_union, polygonize
 
-from sbayes.plotting.plot import Plot
+from sbayes.plotting.plot_setup import Plot
 from sbayes.util import add_edge, compute_delaunay
 from sbayes.util import round_int
 

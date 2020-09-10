@@ -1,23 +1,10 @@
-import numpy as np
-from sbayes.plotting_old import plot_weights, plot_parameters_ridge
-
-from sbayes.plotting.plot import Plot
-
+from sbayes.plotting.general_plot import GeneralPlot
 
 if __name__ == '__main__':
-    # labels = list(map(str, range(3)))
-    # weight_samples = np.random.dirichlet([1, 3, 5], size=(100,))
-    # plot_weights(weight_samples, labels)
-    #
-    # parameter_samples = np.random.dirichlet([1, 6], size=(100, ))
-    # print(parameter_samples)
-    # plot_parameters_ridge(parameter_samples)
-
-
 
     # Initialize Plot class
-    plt = Plot(simulation=False)
-    plt.load_config(config_file='../config/plot.json')
+    plt = GeneralPlot(simulated_data=False)
+    plt.load_config(config_file='../config_generalplot.json')
 
     for scenario in plt.config['input']['scenarios']:
         # Set a path for the resulting plots for the current run
@@ -26,7 +13,7 @@ if __name__ == '__main__':
         print('Reading input data...')
 
         # Read sites, sites_names, network
-        plt.read_data('../data/sites.csv')
+        plt.read_data()
 
         # Read the results
         plt.read_results(scenario)
