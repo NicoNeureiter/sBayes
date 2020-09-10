@@ -10,14 +10,14 @@ import os
 from statistics import median
 
 import matplotlib.pyplot as plt
-from matplotlib.colors import ListedColormap
 import numpy as np
 import seaborn as sns
 import math
-import re
+
 
 from sbayes.preprocessing import compute_network, read_sites
 from sbayes.util import parse_area_columns, read_features_from_csv
+from sbayes.postprocessing import compute_dic
 
 
 class Plot:
@@ -86,10 +86,9 @@ class Plot:
         self.verify_config()
 
         # Assign global variables for more convenient workflow
-        self.path_results = self.config['input']['path_results']
+        self.path_results = self.config['input']['path_plots']
         self.path_data = self.config['input']['path_data']
-        self.path_plots = self.config['input']['path_results'] + '/plots'
-
+        self.path_plots = self.config['input']['path_plots'] + '/plots'
         self.path_areas = self.config['input']['path_areas']
         self.path_stats = self.config['input']['path_stats']
 
@@ -132,10 +131,12 @@ class Plot:
 
     # Read sites, site_names, network
     def read_data(self):
+        print('Reading input data...')
         if self.is_simulation:
             self.sites, self.site_names, _ = read_sites(self.path_data)
         else:
-            self.sites, self.site_names, _, _, _, self.families, self.family_names, _ = read_features_from_csv(self.path_data)
+            self.sites, self.site_names, _, _, _, self.families, self.family_names, _ = \
+                read_features_from_csv(self.path_data)
         self.network = compute_network(self.sites)
         self.locations, self.dist_mat = self.network['locations'], self.network['dist_mat']
 
@@ -176,7 +177,7 @@ class Plot:
                     # Add each item in parsed_area_columns to the corresponding array in result
                     for j in range(len(parsed_sample)):
 
-                        #todo: fix
+                        # todo: fix
                         # # For ground truth
                         # if len(parsed_sample) == 1:
                         #     result[j] = parsed_sample[j]
@@ -310,16 +311,22 @@ class Plot:
     # Read results
     # Call all the previous functions
     # Bind the results together into the results dictionary
-    def read_results(self, current_scenario=1):
+    def read_results(self, model=None):
 
-        # Read areas
-        self.areas = self.read_areas(self.path_areas)
-        self.results['areas'] = self.areas
-        # Read stats
-        # stats_path = f"{self.path_results}/n{self.config['input']['run']}/" \
-        #             f"stats_n{self.config['input']['run']}_{current_scenario}.txt"
-        # stats_path = self.path_results + '/n4/stats_n1_0.txt'
-        self.read_stats(self.path_stats, self.is_simulation)
+        self.results = {}
+        if model is None:
+            print('Reading results...')
+            path_areas = self.path_areas
+            path_stats = self.path_stats
+
+        else:
+            print('Reading results of model %s...' % model)
+            path_areas = [p for p in self.path_areas if 'areas_' + str(model) + '_' in p][0]
+            path_stats = [p for p in self.path_stats if 'stats_' + str(model) + '_' in p][0]
+
+        self.results['areas'] = self.read_areas(path_areas)
+        self.read_stats(path_stats, self.is_simulation)
+
         # Read ground truth files
         if self.is_simulation:
             # areas_ground_truth_path = f"{self.path_results}/n{self.config['input']['run']}/ground_truth/areas.txt"
@@ -328,6 +335,13 @@ class Plot:
 
             # stats_ground_truth_path = f"{self.path_results}/n{self.config['input']['run']}/ground_truth/stats.txt"
             self.read_stats(self.path_ground_truth_stats, self.is_simulation)
+
+    def get_model_names(self):
+
+        last_part = [p.rsplit('/', 1)[-1] for p in list(self.path_areas)]
+        name = [p.rsplit('_')[1] for p in last_part]
+
+        return name
 
     ####################################
     # Probability simplex, grid plot
@@ -341,10 +355,10 @@ class Plot:
     @staticmethod
     def fill_outside(polygon, color, ax=None):
         """Fill the area outside the given polygon with ´color´.
-
         Args:
             polygon (np.array): The polygon corners in a numpy array.
                 shape: (n_corners, 2)
+            ax (plt.Axis): The pyplot axis.
             color (str or tuple): The fill color.
         """
         if ax is None:
@@ -499,11 +513,13 @@ class Plot:
         return ordering
 
     # Probability simplex (for one feature)
-    def plot_weights(self, samples, feature, true_weights=False, labels=None, ax=None, mean_weights=False):
+    @staticmethod
+    def plot_weights(samples, feature, true_weights=False, labels=None, ax=None, mean_weights=False):
         """Plot a set of weight vectors in a 2D representation of the probability simplex.
 
         Args:
             samples (np.array): Sampled weight vectors to plot.
+            feature (str): Name of the feature for which weights are being plotted
             true_weights (np.array): true weight vectors (only for simulated data)
             labels (list[str]): Labels for each weight dimension.
             ax (plt.Axis): The pyplot axis.
@@ -556,13 +572,16 @@ class Plot:
         plt.tight_layout(0)
         plt.plot()
 
-    def plot_probability_vectors(self, samples, feature, true_p=None, labels=None, ax=None):
+    @staticmethod
+    def plot_probability_vectors(samples, feature, true_p=None, labels=None, ax=None, title=False):
         """Plot a set of weight vectors in a 2D representation of the probability simplex.
 
         Args:
             samples (np.array): Sampled weight vectors to plot.
-            true_weights (np.array): true weight vectors (only for simulated data)
+            feature (str): Name of the feature for which weights are being plotted
+            true_p (np.array): true probability vectors (only for simulated data)
             labels (list[str]): Labels for each weight dimension.
+            title (bool): plot title
             ax (plt.Axis): The pyplot axis.
         """
 
@@ -582,7 +601,7 @@ class Plot:
             #plt.axhline(y=0, color='k', linestyle='-', lw=0.5, xmin=0, xmax=1)
 
             ax.axes.get_yaxis().set_visible(False)
-            #ax.annotate('', xy=(0, -0.5), xytext=(1, -0.1),
+            # ax.annotate('', xy=(0, -0.5), xytext=(1, -0.1),
             #            arrowprops=dict(arrowstyle="-", color='b'))
 
             if true_p is not None:
@@ -607,11 +626,12 @@ class Plot:
             samples_projected = samples.dot(corners)
 
             # Density and scatter plot
-            # plt.title(str(feature), loc='center', fontdict={'fontweight': 'bold', 'fontsize': 20})
+            if title:
+                plt.title(str(feature), loc='center', fontdict={'fontweight': 'bold', 'fontsize': 20})
             x = samples_projected.T[0]
             y = samples_projected.T[1]
             sns.kdeplot(x, y, shade=True, shade_lowest=True, cut=30, n_levels=100,
-                    clip=([xmin, xmax], [ymin, ymax]), cmap=cmap)
+                        clip=([xmin, xmax], [ymin, ymax]), cmap=cmap)
             plt.scatter(x, y, color='k', lw=0, s=1, alpha=0.05)
 
             # Draw simplex and crop outside
@@ -644,8 +664,9 @@ class Plot:
     # Make a grid with all features (sorted by median contact)
     # By now we assume number of features to be 35; later this should be rewritten for any number of features
     # using find_num_features
-    def plot_weights_grid(self, labels=None, burn_in =0.4):
+    def plot_weights_grid(self, fname, labels=None, burn_in=0.4):
 
+        print('Plotting weights...')
         burn_in = int(len(self.results['posterior']) * burn_in)
 
         weights, true_weights, _ = self.get_parameters(parameter="weights", b_in=burn_in)
@@ -666,21 +687,22 @@ class Plot:
                 self.plot_weights(weights[f], feature=f, true_weights=true_weights[f], labels=labels)
             else:
                 self.plot_weights(weights[f], feature=f, labels=labels, mean_weights=True)
+            print(position, "of", n_plots, "plots finished")
             position += 1
 
         plt.subplots_adjust(wspace=0.2, hspace=0.2)
 
-        fig.savefig(self.path_plots + '\weights_grid.pdf', dpi=400, format="pdf")
+        fig.savefig(self.path_plots + fname, dpi=400, format="pdf")
 
     # This is not changed yet
-    def plot_probability_grid(self, p_name="gamma_a1", labels=None, burn_in=0.4):
+    def plot_probability_grid(self, fname, p_name="gamma_a1", burn_in=0.4):
         """Creates a ridge plot for parameters with two states
 
        Args:
-           samples (np.array): Sampled parameters
-                shape(n_samples, 2)
-           p_vec (str): name of parameter vector (either alpha, beta_* or gamma)
+           p_name (str): name of parameter vector (either alpha, beta_* or gamma_*)
+           burn_in (float): fraction of the samples which should be discarded as burn_in
        """
+        print('Plotting probabilities...')
         burn_in = int(len(self.results['posterior']) * burn_in)
 
         weights, true_weights, _ = self.get_parameters(parameter="weights", b_in=burn_in)
@@ -700,8 +722,8 @@ class Plot:
         features = ordering[:n_plots]
 
         for f in features:
-
             plt.subplot(n_row, n_col, position)
+
             if self.is_simulation:
                 self.plot_probability_vectors(p[f], feature=f, true_p=true_p[f], labels=states[f])
             else:
@@ -710,6 +732,65 @@ class Plot:
             position += 1
 
         plt.subplots_adjust(wspace=0.2, hspace=0.2)
+        fig.savefig(self.path_plots + fname, dpi=400, format="pdf")
 
-        fig.savefig(self.path_plots + '\prob_grid.pdf', dpi=400, format="pdf")
+    def plot_dic(self, models, burn_in, simulated_data=False, threshold=False, fname='DICs'):
+        """This function plots the dics. What did you think?
+        Args:
+            dics(dict): A dict of DICs from different models
 
+        """
+        print('Plotting DIC...')
+        # if simulated_data:
+        #     pp = get_plotting_params(plot_type="plot_dics_simulated")
+        # else:
+        #     pp = get_plotting_params(plot_type="plot_dics")
+        #
+        # plt.rcParams["axes.linewidth"] = pp['frame_width']
+
+        fig, ax = plt.subplots(figsize=(20, 10))
+        x = list(models.keys())
+        y = []
+
+        # Compute the DIC for each model
+        for m in x:
+            lh = models[m]['likelihood']
+            dic = compute_dic(lh, burn_in)
+            y.append(dic)
+
+        ax.plot(x, y, lw=1, color='#000000', label='DIC')
+        y_min, y_max = min(y), max(y)
+
+        # round y min and y max to 1000 up and down, respectively
+        n_digits = len(str(int(y_min))) - 1
+        convertor = 10 ** (n_digits - 2)
+
+        y_min = int(np.floor(y_min / convertor) * convertor)
+        y_max = int(np.ceil(y_max / convertor) * convertor)
+
+        ax.set_ylim([y_min, y_max])
+        y_ticks = np.linspace(y_min, y_max, 6)
+        ax.set_yticks(y_ticks)
+        yticklabels = [f'{y_tick:.0f}' for y_tick in y_ticks]
+        ax.set_yticklabels(yticklabels, fontsize=10)
+
+        # if threshold:
+        #     ax.axvline(x=threshold, lw=pp['line_thickness'], color=pp['color_burn_in'], linestyle='-')
+        #     ypos_label = y_min + (y_max - y_min) / 2
+        #     # ax.text(threshold, ypos_label, 'threshold', rotation=90, size=pp['fontsize'], color=pp['color_burn_in'])
+
+        ax.set_ylabel('DIC', fontsize=10, fontweight='bold')
+
+        labels = [item.get_text() for item in ax.get_xticklabels()]
+        labels = list(range(1, len(x)+1))
+        ax.set_xticklabels(labels, fontsize=8)
+
+        # x_min = 1
+        # x_max = len(x)
+        # x_ticks = np.linspace(x_min, x_max, len(x))
+        # ax.set_xticks(x_ticks)
+        # ax.set_xticklabels([int(x_tick) for x_tick in x_ticks], fontsize=8)
+
+        ax.set_xlabel('Number of areas', fontsize=8, fontweight='bold')
+        fig.savefig(self.path_plots + '/dic.pdf', dpi=400, format="pdf", bbox_inches='tight')
+        #fig.savefig(f"{fname}.{pp['save_format']}", bbox_inches='tight', dpi=400, format=pp['save_format'])
