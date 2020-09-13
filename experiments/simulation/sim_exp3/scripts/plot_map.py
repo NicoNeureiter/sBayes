@@ -25,6 +25,5 @@ if __name__ == '__main__':
 
         # Make a number zones plot (plot_posterior_map)
         plt.posterior_map(
-            post_freq_lines=[0.7, 0.5, 0.3],
             burn_in=0.4,
             fname='/posterior_map')
