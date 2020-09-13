@@ -200,119 +200,56 @@ class Map(Plot):
 
         return leg_zone
 
-    def add_minimum_spanning_tree(self, zone, burn_in, post_freq_line, color='#ff0000'):
+    def areas_to_graph(self, area, burn_in, post_freq):
 
         # exclude burn-in
-        end_bi = math.ceil(len(zone) * burn_in)
-        zone = zone[end_bi:]
-        # get number of samples (excluding burn-in) and number of points
-        n_samples = len(zone)
-        n_points = len(self.locations)
-        print(n_samples, n_points)
+        end_bi = math.ceil(len(area) * burn_in)
+        area = area[end_bi:]
 
-        # container to count edge weight for mst
-        mst_posterior_freq = np.zeros((n_points, n_points), np.float64)
+        # compute frequency of each point in zone
+        area = np.asarray(area)
+        n_samples = area.shape[0]
 
-        # container for points in contact zone
-        points_posterior_freq = np.zeros((n_points,), np.float64)
+        zone_freq = np.sum(area, axis=0)/n_samples
+        in_graph = zone_freq >= post_freq
 
-        # compute mst for each sample and update mst posterior
-        for sample in zone:
+        locations = self.locations[in_graph]
+        n_graph = len(locations)
 
-            points_posterior_freq = points_posterior_freq + sample
+        # getting indices of points in area
+        area_indices = np.argwhere(in_graph)
 
-            # getting indices of contact points
-            cp_indices = np.argwhere(sample)
+        if n_graph > 3:
+            # computing the delaunay
+            delaunay_sparse = compute_delaunay(locations)
+            delaunay = delaunay_sparse.toarray()
+            # converting delaunay graph to boolean array denoting whether points are connected
+            graph_connections = delaunay > 0
 
-            # subsetting to contact points
-            cp_locations = self.locations[sample, :]
-            cp_dist_mat = self.dist_mat[sample, :][:, sample]
-            n_contact_points = len(cp_locations)
+        elif n_graph <= 3 or n_graph >= 2:
+            graph_connections = np.ones((n_graph, n_graph), dtype=bool)
+            np.fill_diagonal(graph_connections, 0)
 
-            if n_contact_points > 3:
-                # computing the minimum spanning tree of contact points
-                cp_delaunay = compute_delaunay(cp_locations)
-                cp_mst = minimum_spanning_tree(cp_delaunay.multiply(cp_dist_mat))
+        else:
+            raise ValueError('No points in contact zone!')
 
-                # converting minimum spanning tree to boolean array denoting whether contact points are connected
-                cp_mst = cp_mst.toarray()
-                cp_connections = cp_mst > 0
+        point_tuples = []
+        for index, connected in np.ndenumerate(graph_connections):
+            if connected:
+                # getting indices of points in area
+                i1, i2 = area_indices[index[0]][0], area_indices[index[1]][0]
+                if [i2, i1] not in point_tuples:
+                    point_tuples.append([i1, i2])
+        lines = []
+        line_weights = []
+        # count how often i1 and 12 are together in the posterior of the area
 
-                for index, connected in np.ndenumerate(cp_connections):
-                    if connected:
-                        # getting indices of contact points
-                        i1, i2 = cp_indices[index[0]], cp_indices[index[1]]
-                        mst_posterior_freq[i1, i2] = mst_posterior_freq[i1, i2] + 1
-                        mst_posterior_freq[i2, i1] = mst_posterior_freq[i2, i1] + 1
+        for p in point_tuples:
+            together_in_area = np.sum(np.all(area[:, p], axis=1))/n_samples
+            line_weights.append(together_in_area)
+            lines.append(self.locations[[*p]])
 
-            # compute delaunay only works for n points > 3 but mst can be computed for 3 and 2 points
-            elif n_contact_points == 3:
-                connected = []
-                dist_matrix = np.linalg.norm(cp_locations - cp_locations[:, None], axis=-1)
-                if dist_matrix[0, 1] < dist_matrix[0, 2]:
-                    connected.append([0, 1])
-                    if dist_matrix[2, 0] < dist_matrix[2, 1]:
-                        connected.append([2, 0])
-                    else:
-                        connected.append([2, 1])
-                else:
-                    connected.append([0, 2])
-                    if dist_matrix[1, 0] < dist_matrix[1, 2]:
-                        connected.append([1, 0])
-                    else:
-                        connected.append([1, 2])
-                # replace indices from subset with indices from all points
-                # print(cp_indices)
-                # connected = [[cp_indices[i][0], cp_indices[j][0]] for i, j in connected]
-                for i, j in connected:
-                    i, j = cp_indices[i][0], cp_indices[j][0]
-                    mst_posterior_freq[i, j] = mst_posterior_freq[i, j] + 1
-                    mst_posterior_freq[j, i] = mst_posterior_freq[j, i] + 1
-
-                # print(connected)
-
-            # for 2 contact points the two points are simply connected with a line
-            elif n_contact_points == 2:
-                print(cp_indices)
-            # for 1 point don't do anything
-            elif n_contact_points == 1:
-                pass
-            # if there aren't any contact points in the zone print a warning
-            else:
-                print('Warning: No points in contact zone!')
-            # end of populating mst posterior
-
-        # converting absolute counts to frequencies
-        mst_posterior_freq = mst_posterior_freq / n_samples
-        points_posterior_freq = points_posterior_freq / n_samples
-
-        post_freq_line.sort(reverse=True)
-        for index, freq in np.ndenumerate(mst_posterior_freq):
-            if freq >= min(post_freq_line):
-
-                # Assign each line in the posterior MST to one class of line thickness
-                for k in post_freq_line:
-                    if freq >= k:
-                        lw = self.config['graphic']['size_line'] * k
-
-                        # compute line width
-                        # min_lw = size / 100
-                        # freq_norm = (freq - ts_posterior_freq) / (1 - ts_posterior_freq)
-                        # lw = min_lw + freq_norm * size_factor
-
-                        # getting locations of the two contact points and plotting line
-                        locs = self.locations[[*index]]
-                        self.ax.plot(*locs.T, color=color, lw=lw)
-                        pass
-
-        # getting boolean array of points in minimum spanning tree
-        is_in_mst = points_posterior_freq > min(post_freq_line)
-
-        # plotting points of minimum spanning tree
-        cp_locations = self.locations[is_in_mst, :]
-        self.ax.scatter(*cp_locations.T, s=self.config['graphic']['size'], c=color)
-
-        return is_in_mst
+        return in_graph, lines, line_weights
 
     ##############################################################
     # New functions needed for plot_posterior_map
@@ -382,25 +319,28 @@ class Map(Plot):
             self.ax.annotate(labels_in_zone[loc] + 1, **anno_opts)
 
     # Bind together the functions above
-    def visualize_areas(self, flamingo, simulated_family, burn_in, post_freq_lines, label_languages):
+    def visualize_areas(self, flamingo, simulated_family, post_freq, burn_in, label_languages):
 
-        for i, zone in enumerate(self.results['areas']):
+        for i, area in enumerate(self.results['areas']):
 
             current_color = self.add_color(i, flamingo, simulated_family)
 
-            # This function visualizes each area (edges of the minimum spanning tree that appear
-            # in the posterior according to thresholds set in post_freq_lines
-            # I think it makes sense to redo this function. I'll do the same annotating before.
-            is_in_zone = self.add_minimum_spanning_tree(zone, burn_in, post_freq_lines, color=current_color)
+            # This function computes a Delaunay graph for all points which are in the posterior with at least p_freq
+            in_graph, lines, line_w = self.areas_to_graph(area, burn_in, post_freq=post_freq)
+
+            self.ax.scatter(*self.locations[in_graph].T, s=self.config['graphic']['size'], c=current_color)
+            for li in range(len(lines)):
+                self.ax.plot(*lines[li].T, color=current_color, lw=line_w[li]*self.config['graphic']['size_line'],
+                             alpha=0.6)
 
             # This adds small lines to the legend (one legend entry per area)
-            line = Line2D([0], [0], color=current_color, lw=6, linestyle='-')
-            self.leg_zones.append(line)
+            line_legend = Line2D([0], [0], color=current_color, lw=6, linestyle='-')
+            self.leg_zones.append(line_legend)
 
             # Labels the languages in the areas
             # Should go into a separate function
             if label_languages:
-                self.add_label(is_in_zone, current_color)
+                self.add_label(in_graph, current_color)
 
             # Again, this is only relevant for simulated data and should go into a separate function
             # Olga: doesn't seem to be a good decision to move this out to a separate function,
@@ -512,7 +452,6 @@ class Map(Plot):
     ##############################################################
     # Legend functions for plot_posterior_map
     ##############################################################
-
     def define_legend(self):
         legend_zones = self.ax.legend(
             self.leg_zones,
@@ -546,10 +485,8 @@ class Map(Plot):
             loc='upper left',
             bbox_to_anchor=self.map_parameters['freq_legend_position']
         )
-
         legend_line_width._legend_box.align = "left"
         self.ax.add_artist(legend_line_width)
-
 
     def add_main_legend(self, post_freq_lines):
         # This is actually the beginning of a series of functions that add a small legend
@@ -676,30 +613,29 @@ class Map(Plot):
     # Helper function
     @staticmethod
     def scientific(x):
+        print(x)
         b = int(np.log10(x))
         a = x / 10 ** b
         return '%.2f \cdot 10^{%i}' % (a, b)
 
     def add_likelihood_legend(self):
         # Legend for area labels
-        self.area_labels = ["         probability of area"]
+        self.area_labels = ["      log-likelihood per area"]
 
         # This assumes that the likelihoods for single areas (lh_a1, lh_a2, lh_a3, ...)
         # have been collected in mcmc_res under the key shown below
         lh_per_area = np.array(list(self.results['likelihood_single_areas'].values())).astype(float)
-
-        #todo change to lh per area
         to_rank = np.mean(lh_per_area, axis=1)
 
         # probability per area in log-space
-        p_total = logsumexp(to_rank)
-        p = to_rank[np.argsort(-to_rank)] - p_total
+        # p_total = logsumexp(to_rank)
+        # p = to_rank[np.argsort(-to_rank)] - p_total
+        p = to_rank[np.argsort(-to_rank)]
 
-        for i, exp in enumerate(p):
-            lh_value = np.exp(exp)
-            # print(lh_value)
-            lh_value = Map.scientific(lh_value)
-            self.area_labels.append(f'$Z_{i + 1}: \, \;\;\; {lh_value}$')
+        for i, lh in enumerate(p):
+            #probability_per_area = np.exp(lh)
+            #probability_scientific = Map.scientific(lh_value)
+            self.area_labels.append(f'$Z_{i + 1}: \, \;\;\; {int(lh)}$')
 
     ##############################################################
     # Additional things for plot_posterior_map
@@ -792,7 +728,8 @@ class Map(Plot):
     # This is the plot_posterior_map function from plotting_old
     ##############################################################
     def posterior_map(self,
-                      post_freq_lines, burn_in=0.2,
+                      post_freq_legend, burn_in=0.2,
+                      post_freq=0.8,
                       plot_single_zones_stats=False, flamingo=False, simulated_family=False,
                       label_languages=False, add_overview=False,
                       plot_families=False,
@@ -808,7 +745,7 @@ class Map(Plot):
                 sites (dict): a dictionary containing the location tuples (x,y) and the id of each site
                 Olga: not needed as an input parameter, because it's already in the init parameters of the parent class Plot
 
-                post_freq_lines (list): threshold values for lines
+                post_freq_legend (list): threshold values for lines
                                         e.g. [0.7, 0.5, 0.3] will display three different line categories:
                                         - a thick line for edges which are in more than 70% of the posterior
                                         - a medium-thick line for edges between 50% and 70% in the posterior
@@ -846,7 +783,7 @@ class Map(Plot):
                                             --> Olga: I think this can be solved differently, with a separate function: TODO
 
             """
-
+        print('Plotting map...')
         # Is the function used for simulated data or real-world data? Both require different plotting parameters.
         # if for real world-data: South America or Balkans?
         #self.get_map_parameters()
@@ -884,13 +821,13 @@ class Map(Plot):
         # Visualization
         ##############################################################
         # This iterates over all areas in the posterior and plots each with a different color (minimum spanning tree)
-        self.visualize_areas(flamingo, simulated_family, burn_in, post_freq_lines, label_languages)
+        self.visualize_areas(flamingo, simulated_family, post_freq, burn_in, label_languages)
 
         ##############################################################
         # Legend
         ##############################################################
         # Add a small legend displaying what the line thickness corresponds to.
-        self.add_main_legend(post_freq_lines)
+        self.add_main_legend(post_freq_legend)
 
         # Depending on the background (sa, balkan, simulated), we want to place additional legend entries
         # at different positions in the map in order not to block map content and best use the available space.
@@ -989,7 +926,6 @@ class Map(Plot):
         # Save the plot
 
         self.fig.savefig(f"{self.path_plots + fname}.{self.map_parameters['save_format']}", bbox_inches='tight', dpi=400, format=self.map_parameters['save_format'])
-        plt.close(self.fig)
 
         # Should the labels displayed in the map be returned? These are later added as a separate legend (
         # outside this hell of a function)
