@@ -5,51 +5,38 @@ from sbayes.plotting.plot import Plot
 import os
 
 if __name__ == '__main__':
+    results_per_model = {}
+    models = Map()
+    models.load_config(config_file='../config_plot.json')
 
-    plt = Map(simulated_data=False)
-    plt.load_config(config_file='../config_plot.json')
+    # Get model names
+    names = models.get_model_names()
 
-    for scenario in plt.config['input']['scenarios']:
-        print('Reading input data...')
-
+    for m in names:
+        plt = Map()
+        plt.load_config(config_file='../config_plot.json')
         # Read sites, sites_names, network
         plt.read_data()
+        # Read results for each model
+        plt.read_results(model=m)
+        results_per_model[m] = plt.results
 
-        # Read the results
-        plt.read_results(scenario)
+        # Plot Maps
         plt.posterior_map(
-            post_freq_lines=[0.8, 0.6, 0.4],
-            burn_in=0.8,
+            post_freq_legend=[0.8, 0.6, 0.4],
+            post_freq=0.5,
+            burn_in=0.4,
             plot_families=True,
             plot_single_zones_stats=True,
             add_overview=True,
-            fname='/posterior_map.pdf')
+            fname='/posterior_map_' + m + '_.pdf')
 
-    # # Weights  and Probabilities
-    # Initialize Plot class
-    plt = Plot(simulated_data=False)
-    plt.load_config(config_file='../config_plot.json')
-
-    for scenario in plt.config['input']['scenarios']:
-        # Set a path for the resulting plots for the current run
-        # current_path = plt.set_scenario_path(scenario)
-
-        print('Reading input data...')
-
-        # Read sites, sites_names, network
-        plt.read_data()
-
-        # Read the results
-        plt.read_results(scenario)
-
-        print('Plotting...')
-
-        # Plot weights for feature 1
-        # feature = 1
-        # samples, _ = plt.transform_input_weights(feature)
-        # plt.plot_weights(samples, feature)
-
-        # Plot a grid for all features
+        # Plot weights  and probabilities
         labels = ['U', 'C', 'I']
-        plt.plot_probability_grid(burn_in=0.5)
-        plt.plot_weights_grid(labels=labels, burn_in=0.5)
+        plt.plot_probability_grid(burn_in=0.5, fname='/prob_grid_' + m + '_.pdf')
+        plt.plot_weights_grid(labels=labels, burn_in=0.5, fname='/weights_grid_' + m + '_.pdf')
+
+    # Plot DIC over all models
+    models.plot_dic(results_per_model, burn_in=0.5, fname='/dic.pdf')
+
+
