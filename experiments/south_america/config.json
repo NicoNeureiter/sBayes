@@ -4,7 +4,7 @@
 		"N_STEPS": 2000000,
 		"N_SAMPLES": 5000,
 		"N_RUNS": 1,
-		"N_CHAINS": 7,
+		"N_CHAINS": 3,
 		"SWAP_PERIOD": 1000,
 		"N_SWAPS": 3,
 		"P_GROW_CONNECTED": 0.85,
