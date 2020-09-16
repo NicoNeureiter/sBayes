@@ -739,7 +739,6 @@ def collect_row_for_writing(s, samples, data, config, steps_per_sample):
             posterior_name = 'post_a' + str(a + 1)
 
             column_names += [lh_name]
-
             row[lh_name] = samples['sample_lh_single_zones'][s][a]
 
             column_names += [prior_name]
