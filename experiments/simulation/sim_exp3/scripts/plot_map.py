@@ -6,8 +6,8 @@ from sbayes.plotting.map import Map
 if __name__ == '__main__':
 
     # Initialize Plot class
-    plt = Map(simulation=True)
-    plt.load_config(config_file='../config/plot.json')
+    plt = Map(simulated_data=True)
+    plt.load_config(config_file='../config_map.json')
 
     for scenario in plt.config['input']['scenarios']:
         # Set a path for the resulting plots for the current run
@@ -16,7 +16,7 @@ if __name__ == '__main__':
         print('Reading input data...')
 
         # Read sites, sites_names, network
-        plt.read_data('../data/sites.csv')
+        plt.read_data()
 
         # Read the results
         plt.read_results(scenario)
@@ -24,8 +24,6 @@ if __name__ == '__main__':
         print('Plotting...')
 
         # Make a number zones plot (plot_posterior_map)
-        plt.number_zones(
-            post_freq_lines=[0.7, 0.5, 0.3],
+        plt.posterior_map(
             burn_in=0.4,
-            lh_single_zones=False,
-            fname=current_path + '/number_zones_plot')
+            fname='/posterior_map')
