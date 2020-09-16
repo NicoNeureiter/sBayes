@@ -141,6 +141,41 @@ def compute_delaunay(locations):
     return csr_matrix((data, indices, indptr), shape=(n, n))
 
 
+def gabriel_graph_from_delaunay(delaunay, locations):
+    delaunay = delaunay.toarray()
+    # converting delaunay graph to boolean array denoting whether points are connected
+    delaunay = delaunay > 0
+
+    # Delaunay indices and locations
+    delaunay_connections = []
+    delaunay_locations = []
+
+    for index, connected in np.ndenumerate(delaunay):
+        if connected:
+            # getting indices of points in area
+            i1, i2 = index[0], index[1]
+            if [i2, i1] not in delaunay_connections:
+                delaunay_connections.append([i1, i2])
+                delaunay_locations.append(locations[[*[i1, i2]]])
+    delaunay_connections = np.sort(np.asarray(delaunay_connections), axis=1)
+    delaunay_locations = np.asarray(delaunay_locations)
+
+    # Find the midpoint on all Delaunay edges
+    m = (delaunay_locations[:, 0, :] + delaunay_locations[:, 1, :]) / 2
+
+    # Find the radius sphere between each pair of nodes
+    r = np.sqrt(np.sum((delaunay_locations[:, 0, :] - delaunay_locations[:, 1, :]) ** 2, axis=1)) / 2
+
+    # Use the kd-tree function in Scipy's spatial module
+    tree = spatial.cKDTree(locations)
+    # Find the nearest point for each midpoint
+    n = tree.query(x=m, k=1)[0]
+    # If nearest point to m is at a distance r, then the edge is a Gabriel edge
+    g = n >= r * 0.999  # The factor is to avoid precision errors in the distances
+
+    return delaunay_connections[g]
+
+
 def n_smallest_distances(a, n, return_idx):
     """ This function finds the n smallest distances in a distance matrix
 

@@ -28,6 +28,7 @@ from shapely.ops import cascaded_union, polygonize
 from sbayes.plotting.plot import Plot
 from sbayes.util import add_edge, compute_delaunay
 from sbayes.util import round_int
+from sbayes.util import gabriel_graph_from_delaunay
 
 warnings.simplefilter(action='ignore', category=FutureWarning)
 
@@ -222,33 +223,27 @@ class Map(Plot):
 
         if n_graph > 3:
             # computing the delaunay
-            delaunay_sparse = compute_delaunay(locations)
-            delaunay = delaunay_sparse.toarray()
-            # converting delaunay graph to boolean array denoting whether points are connected
-            graph_connections = delaunay > 0
+            delaunay = compute_delaunay(locations)
+            graph_connections = gabriel_graph_from_delaunay(delaunay, locations)
 
-        elif n_graph <= 3 or n_graph >= 2:
-            graph_connections = np.ones((n_graph, n_graph), dtype=bool)
-            np.fill_diagonal(graph_connections, 0)
+        elif n_graph == 3:
+            graph_connections = np.array([[0, 1], [1, 2], [2, 0]]).astype(int)
+
+        elif n_graph == 2:
+            graph_connections = np.array([[0, 1]]).astype(int)
 
         else:
             raise ValueError('No points in contact zone!')
 
-        point_tuples = []
-        for index, connected in np.ndenumerate(graph_connections):
-            if connected:
-                # getting indices of points in area
-                i1, i2 = area_indices[index[0]][0], area_indices[index[1]][0]
-                if [i2, i1] not in point_tuples:
-                    point_tuples.append([i1, i2])
         lines = []
         line_weights = []
-        # count how often i1 and 12 are together in the posterior of the area
 
-        for p in point_tuples:
-            together_in_area = np.sum(np.all(area[:, p], axis=1))/n_samples
-            line_weights.append(together_in_area)
+        for index in graph_connections:
+            # count how often p0 and p1 are together in the posterior of the area
+            p = [area_indices[index[0]][0], area_indices[index[1]][0]]
+            together_in_area = np.sum(np.all(area[:, p], axis=1)) / n_samples
             lines.append(self.locations[[*p]])
+            line_weights.append(together_in_area)
 
         return in_graph, lines, line_weights
 
