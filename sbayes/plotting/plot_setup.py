@@ -80,9 +80,9 @@ class Plot:
         self.verify_config()
 
         # Assign global variables for more convenient workflow
-        self.path_results = self.config['input']['path_results']
+        self.path_results = self.config['input']['path_plots']
         self.path_data = self.config['input']['path_data']
-        self.path_plots = self.config['input']['path_results'] + '/plots'
+        self.path_plots = self.config['input']['path_plots'] + '/plots'
         self.path_areas = self.config['input']['path_areas']
         self.path_stats = self.config['input']['path_stats']
 
