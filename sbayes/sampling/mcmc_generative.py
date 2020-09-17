@@ -22,14 +22,10 @@ class MCMCGenerative(metaclass=_abc.ABCMeta):
     """
 
     def __init__(self, operators, inheritance, families, prior, n_zones, n_chains,
-                 mc3=False, show_screen_log=False, **kwargs):
+                 mc3=False, swap_period=None, chain_swaps=None, show_screen_log=False, **kwargs):
 
         # Sampling attributes
         self.n_chains = n_chains
-        if 'swap_period' in kwargs:
-            self.swap_period = kwargs.get("swap_period")
-            self.chain_swaps = kwargs.get("chain_swaps")
-
         self.chain_idx = list(range(self.n_chains))
 
         # Number of zones
@@ -54,6 +50,9 @@ class MCMCGenerative(metaclass=_abc.ABCMeta):
 
         # MC3
         self.mc3 = mc3
+        self.swap_period = swap_period
+        self.chain_swaps = chain_swaps
+
         # Initialize statistics
         self.statistics = {'sample_id': [],
                            'sample_likelihood': [],
@@ -121,7 +120,7 @@ class MCMCGenerative(metaclass=_abc.ABCMeta):
             list, list: the operators (callable), their weights (float)
         """
 
-    def generate_samples(self, n_steps, n_samples, warm_up=False, warm_up_steps=0):
+    def generate_samples(self, n_steps, n_samples, warm_up=False, warm_up_steps=None):
         """Run the MCMC sampling procedure for the Generative model with Metropolis Hastings rejection
         step and options for multiple chains. Samples are returned, statistics saved in self.statistics.
 
@@ -198,7 +197,7 @@ class MCMCGenerative(metaclass=_abc.ABCMeta):
 
                 # Print work status and likelihood at fixed intervals
                 if (i_step+1) % 1000 == 0:
-                    self.print_screen_log(i_step, sample)
+                    self.print_screen_log(i_step+1, sample)
 
                 # Log the last sample of the first chain
                 if i_step % (n_steps-1) == 0 and i_step != 0:

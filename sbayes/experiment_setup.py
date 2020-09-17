@@ -193,29 +193,32 @@ class Experiment:
         # Number of steps
         if 'N_STEPS' not in self.config['mcmc']:
             self.config['mcmc']['N_STEPS'] = 30000
-        # Steps discarded as burn-in
-        if 'BURN_IN' not in self.config['mcmc']:
-            self.config['mcmc']['BURN_IN'] = 5000
         # Number of samples
         if 'N_SAMPLES' not in self.config['mcmc']:
             self.config['mcmc']['N_SAMPLES'] = 1000
         # Number of runs
         if 'N_RUNS' not in self.config['mcmc']:
             self.config['mcmc']['N_RUNS'] = 1
+        # todo: activate for MC3
         # Number of parallel Markov chains
-        if 'N_CHAINS' not in self.config['mcmc']:
-            self.config['mcmc']['N_CHAINS'] = 5
-        # Steps between two attempted chain swaps
-        if 'SWAP_PERIOD' not in self.config['mcmc']:
-            self.config['mcmc']['SWAP_PERIOD'] = 1000
-        # Number of attempted chain swaps
-        if 'N_SWAPS' not in self.config['mcmc']:
-            self.config['mcmc']['N_SWAPS'] = 3
+        # if 'N_CHAINS' not in self.config['mcmc']:
+        #     self.config['mcmc']['N_CHAINS'] = 5
+        # # Steps between two attempted chain swaps
+        # if 'SWAP_PERIOD' not in self.config['mcmc']:
+        #     self.config['mcmc']['SWAP_PERIOD'] = 1000
+        # # Number of attempted chain swaps
+        # if 'N_SWAPS' not in self.config['mcmc']:
+        #     self.config['mcmc']['N_SWAPS'] = 3
         if 'P_GROW_CONNECTED' not in self.config['mcmc']:
             self.config['mcmc']['P_GROW_CONNECTED'] = 0.85
         if 'M_INITIAL' not in self.config['mcmc']:
             self.config['mcmc']['M_INITIAL'] = 5
 
+        if 'MC3' not in self.config['mcmc']:
+            self.config['mcmc']['N_CHAINS'] = 1
+        else:
+            # todo: activate for MC3
+            pass
         # Tracer does not like unevenly spaced samples
         spacing = self.config['mcmc']['N_STEPS'] % self.config['mcmc']['N_SAMPLES']
 

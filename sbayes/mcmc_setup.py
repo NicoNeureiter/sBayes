@@ -146,10 +146,10 @@ class MCMC:
         logging.info("MCMC SETUP")
         logging.info("##########################################")
 
-        logging.info("MCMC with %s steps and %s samples (burn-in %s steps)",
-                     mcmc_config['N_STEPS'], mcmc_config['N_SAMPLES'], mcmc_config['BURN_IN'])
-        logging.info("MCMC with %s chains and %s attempted swap(s) after %s steps.",
-                     mcmc_config['N_CHAINS'], mcmc_config['N_SWAPS'], mcmc_config['SWAP_PERIOD'])
+        logging.info("MCMC with %s steps and %s samples",
+                     mcmc_config['N_STEPS'], mcmc_config['N_SAMPLES'])
+        logging.info("Warm-up: %s chains exploring the parameter space in %s steps",
+                     mcmc_config['WARM_UP']['N_WARM_UP_CHAINS'],  mcmc_config['WARM_UP']['N_WARM_UP_STEPS'])
         logging.info("Pseudocounts for tuning the width of the proposal distribution for weights: %s ",
                      mcmc_config['PROPOSAL_PRECISION']['weights'])
         logging.info("Pseudocounts for tuning the width of the proposal distribution for "
@@ -187,24 +187,20 @@ class MCMC:
             initial_sample = self.sample_from_warm_up
 
         self.sampler = ZoneMCMCGenerative(network=self.data.network, features=self.data.features,
+                                          inheritance=self.config['model']['INHERITANCE'],
+                                          prior=self.prior_structured,
+                                          n_zones=self.config['model']['N_AREAS'],
+                                          n_chains=self.config['mcmc']['N_CHAINS'],
                                           min_size=self.config['model']['MIN_M'],
                                           max_size=self.config['model']['MAX_M'],
-                                          n_zones=self.config['model']['N_AREAS'],
-                                          prior=self.prior_structured,
-                                          inheritance=self.config['model']['INHERITANCE'],
-                                          n_chains=self.config['mcmc']['N_CHAINS'],
                                           initial_sample=initial_sample,
-                                          swap_period=self.config['mcmc']['SWAP_PERIOD'],
                                           operators=self.ops, families=self.data.families,
-                                          chain_swaps=self.config['mcmc']['N_SWAPS'],
                                           var_proposal=self.config['mcmc']['PROPOSAL_PRECISION'],
                                           p_grow_connected=self.config['mcmc']['P_GROW_CONNECTED'],
-                                          sample_from_prior=self.config['model']['SAMPLE_FROM_PRIOR'],
                                           initial_size=self.config['mcmc']['M_INITIAL'])
 
         self.sampler.generate_samples(self.config['mcmc']['N_STEPS'],
-                                      self.config['mcmc']['N_SAMPLES'],
-                                      self.config['mcmc']['BURN_IN'])
+                                      self.config['mcmc']['N_SAMPLES'])
 
         # Evaluate likelihood and prior for each zone alone (makes it possible to rank zones)
         if lh_per_area:
