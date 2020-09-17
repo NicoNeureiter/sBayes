@@ -7,7 +7,7 @@ if __name__ == '__main__':
 
     # 1. Initialize the experiment
     exp = Experiment()
-    exp.load_config(config_file='config.json')
+    exp.load_config(config_file='experiments/simulation/sim_exp4/config.json')
     exp.log_experiment()
 
     # 2. Simulate contact areas
@@ -19,15 +19,16 @@ if __name__ == '__main__':
     PRIOR_UNIVERSAL = [False, True]
 
     for P in PRIOR_UNIVERSAL:
-        exp.config['mcmc']['PRIOR']['universal'] = "from_simulated_counts" if P else "uniform"
-
+        exp.config['model']['PRIOR']['universal'] = "simulated_counts" if P else "uniform"
         # 3. Configure MCMC
         mc = MCMC(data=sim, experiment=exp)
         mc.log_setup()
 
         # Rerun experiment to check for consistency
         for run in range(exp.config['mcmc']['N_RUNS']):
-            # 4. Sample from posterior
+
+            # 4. Warm-up and sample from posterior
+            mc.warm_up()
             mc.sample()
 
             # 5. Evaluate ground truth
