@@ -6,7 +6,7 @@ if __name__ == '__main__':
 
     # 1. Initialize the experiment
     exp = Experiment()
-    exp.load_config(config_file='config.json')
+    exp.load_config(config_file='experiments/simulation/sim_exp2/config.json')
     exp.log_experiment()
 
     # 2. Simulate contact areas
@@ -17,16 +17,16 @@ if __name__ == '__main__':
     # When performing the MCMC iterate over different setups (inheritance)
     INHERITANCE = [False, True]
 
-    for I in INHERITANCE:
+    for IN in INHERITANCE:
 
         # Update config information according to the current setup
-        exp.config['mcmc']['INHERITANCE'] = I
+        exp.config['model']['INHERITANCE'] = IN
         exp.config['mcmc']['PROPOSAL_PRECISION'] = {
-            "weights": 20, "universal": 70, "contact": 20, "inheritance": 30} if I else {
-            "weights": 20, "universal": 70, "contact": 20, "inheritance": None}
+            "weights": 20, "universal": 30, "contact": 10, "inheritance": 10} if IN else {
+            "weights": 20, "universal": 30, "contact": 10, "inheritance": None}
         exp.config['mcmc']['STEPS'] = {
-            "area": 0.05, "weights": 0.45, "universal": 0.05, "contact": 0.4, "inheritance": 0.05} if I else {
-            "area": 0.05, "weights": 0.5, "universal": 0.05, "contact": 0.4, "inheritance": 0.0}
+            "area": 0.1, "weights": 0.4, "universal": 0.1, "contact": 0.3, "inheritance": 0.1} if IN else {
+            "area": 0.1, "weights": 0.4, "universal": 0.1, "contact": 0.4, "inheritance": 0.0}
 
         # 3. Define MCMC
         mc = MCMC(data=sim, experiment=exp)
@@ -36,6 +36,7 @@ if __name__ == '__main__':
         for run in range(exp.config['mcmc']['N_RUNS']):
 
             # 4. Sample from posterior
+            mc.warm_up()
             mc.sample()
 
             # 5. Evaluate ground truth
