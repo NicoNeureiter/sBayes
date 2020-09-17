@@ -1,12 +1,8 @@
 {
 	"mcmc": {
-		"BURN_IN": 0,
-		"N_STEPS": 2000,
-		"N_SAMPLES": 1000,
+		"N_STEPS": 6000000,
+		"N_SAMPLES": 5000,
 		"N_RUNS": 1,
-		"N_CHAINS": 7,
-		"SWAP_PERIOD": 1000,
-		"N_SWAPS": 3,
 		"P_GROW_CONNECTED": 0.85,
 		"PROPOSAL_PRECISION": {
 			"weights": 20,
@@ -21,7 +17,11 @@
 			"contact": 0.3,
 			"inheritance": 0.25
 		},
-		"M_INITIAL": 5
+		"M_INITIAL": 3,
+		"WARM_UP": {
+			"N_WARM_UP_STEPS": 100000,
+			"N_WARM_UP_CHAINS": 10
+		}
 	},
 	"model": {
 		"N_AREAS": "TBD",
@@ -36,16 +36,16 @@
 			"contact": "uniform"
 		}
 	},
-  "data":{
-    "FEATURES" : "data/features/features.csv",
-    "PRIOR" : {
-	  "universal": "data/prior_universal/universal_counts.csv",
-	  "inheritance": { 
-		  "Greek": "data/prior_inheritance/greek_counts.csv",
-		  "Romance": "data/prior_inheritance/romance_counts.csv",
-		  "Slavic": "data/prior_inheritance/slavic_counts.csv",
-		  "Turkish": "data/prior_inheritance/turkish_counts.csv"
-	  } 
+	"data": {
+		"FEATURES": "data/features/features.csv",
+		"PRIOR": {
+			"universal": "data/prior_universal/universal_counts.csv",
+			"inheritance": {
+				"Greek": "data/prior_inheritance/greek_counts.csv",
+				"Romance": "data/prior_inheritance/romance_counts.csv",
+				"Slavic": "data/prior_inheritance/slavic_counts.csv",
+				"Turkish": "data/prior_inheritance/turkish_counts.csv"
+			}
+		}
 	}
- }
 }

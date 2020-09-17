@@ -315,7 +315,8 @@ class MCMC:
             fi = 'i{i}'.format(i=int(self.config['model']['INHERITANCE']))
 
         elif file_info == "p":
-            p = 0 if self.config['model']['PRIOR']['universal']['type'] == "uniform" else 1
+
+            p = 0 if self.config['model']['PRIOR']['universal'] == "uniform" else 1
             fi = 'p{p}'.format(p=p)
 
         else:
