@@ -609,6 +609,21 @@ def collect_gt_for_writing(samples, data, config):
                     if feature_name not in gt_col_names:
                         gt_col_names += [feature_name]
                     gt[feature_name] = samples['true_p_families'][fam][f][st]
+    # Single areas
+    if 'true_lh_single_zones' in samples.keys():
+        for a in range(len(data.areas)):
+            lh_name = 'lh_a' + str(a + 1)
+            prior_name = 'prior_a' + str(a + 1)
+            posterior_name = 'post_a' + str(a + 1)
+
+            gt_col_names += [lh_name]
+            gt[lh_name] = samples['true_lh_single_zones'][a]
+
+            gt_col_names += [prior_name]
+            gt[prior_name] = samples['true_prior_single_zones'][a]
+            gt_col_names += [posterior_name]
+            gt[posterior_name] = samples['true_posterior_single_zones'][a]
+
     return gt, gt_col_names
 
 
