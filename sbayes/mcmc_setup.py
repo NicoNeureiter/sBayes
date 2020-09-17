@@ -40,6 +40,7 @@ class MCMC:
         # Samples
         self.sampler = None
         self.samples = None
+        self.sample_from_warm_up = None
 
     def define_priors(self):
         self.prior_structured = dict.fromkeys(self.config['model']['PRIOR'])
@@ -76,31 +77,34 @@ class MCMC:
             raise ValueError('Prior for universal must be uniform or counts.')
 
         # inheritance
-        if self.config['model']['PRIOR']['inheritance'] == 'uniform':
-            self.prior_structured['inheritance'] = {'type': 'uniform'}
+        if self.config['model']['INHERITANCE']:
+            if self.config['model']['PRIOR']['inheritance'] == 'uniform':
+                self.prior_structured['inheritance'] = {'type': 'uniform'}
 
-        elif self.config['model']['PRIOR']['inheritance'] is None:
-            self.prior_structured['inheritance'] = {'type': None}
+            elif self.config['model']['PRIOR']['inheritance'] is None:
+                self.prior_structured['inheritance'] = {'type': None}
 
-        elif self.config['model']['PRIOR']['inheritance'] == 'universal':
-            self.prior_structured['inheritance'] = {'type': 'universal',
-                                                    'strength': 10,
-                                                    'states': self.data.prior_inheritance['states']}
+            elif self.config['model']['PRIOR']['inheritance'] == 'universal':
+                self.prior_structured['inheritance'] = {'type': 'universal',
+                                                        'strength': self.config['model']['UNIVERSAL_PRIOR_STRENGTH'],
+                                                        'states': self.data.prior_inheritance['states']}
 
-        elif self.config['model']['PRIOR']['inheritance'] == 'counts':
-            dirichlet = inheritance_counts_to_dirichlet(self.data.prior_inheritance['counts'],
-                                                        self.data.prior_inheritance['states'])
-            self.prior_structured['inheritance'] = {'type': 'counts',
-                                                    'dirichlet': dirichlet,
-                                                    'states': self.data.prior_inheritance['states']}
+            elif self.config['model']['PRIOR']['inheritance'] == 'counts':
+                dirichlet = inheritance_counts_to_dirichlet(self.data.prior_inheritance['counts'],
+                                                            self.data.prior_inheritance['states'])
+                self.prior_structured['inheritance'] = {'type': 'counts',
+                                                        'dirichlet': dirichlet,
+                                                        'states': self.data.prior_inheritance['states']}
 
-        elif self.config['model']['PRIOR']['inheritance'] == 'counts_and_universal':
-            self.prior_structured['inheritance'] = {'type': 'counts_and_universal',
-                                                    'counts': self.data.prior_inheritance['counts'],
-                                                    'strength': self.config['model']['UNIVERSAL_PRIOR_STRENGTH'],
-                                                    'states': self.data.prior_inheritance['states']}
+            elif self.config['model']['PRIOR']['inheritance'] == 'counts_and_universal':
+                self.prior_structured['inheritance'] = {'type': 'counts_and_universal',
+                                                        'counts': self.data.prior_inheritance['counts'],
+                                                        'strength': self.config['model']['UNIVERSAL_PRIOR_STRENGTH'],
+                                                        'states': self.data.prior_inheritance['states']}
+            else:
+                raise ValueError('Prior for inheritance must be uniform, counts or  counts_and_universal')
         else:
-            raise ValueError('Prior for inheritance must be uniform, counts or  counts_and_universal')
+            self.prior_structured['inheritance'] = None
 
         # contact
         if self.config['model']['PRIOR']['contact'] == 'uniform':
@@ -133,19 +137,19 @@ class MCMC:
         logging.info("Prior on weights: %s ", self.prior_structured['weights']['type'])
         logging.info("Prior on universal pressure (alpha): %s ", self.prior_structured['universal']['type'])
 
-        if self.prior_structured['inheritance']['type'] is not None:
-
+        if self.config['model']['INHERITANCE']:
             logging.info("Prior on inheritance (beta): %s ", self.prior_structured['inheritance']['type'])
+
         logging.info("Prior on contact (gamma): %s ", self.prior_structured['contact']['type'])
         logging.info('\n')
 
         logging.info("MCMC SETUP")
         logging.info("##########################################")
 
-        logging.info("MCMC with %s steps and %s samples (burn-in %s steps)",
-                     mcmc_config['N_STEPS'], mcmc_config['N_SAMPLES'], mcmc_config['BURN_IN'])
-        logging.info("MCMC with %s chains and %s attempted swap(s) after %s steps.",
-                     mcmc_config['N_CHAINS'], mcmc_config['N_SWAPS'], mcmc_config['SWAP_PERIOD'])
+        logging.info("MCMC with %s steps and %s samples",
+                     mcmc_config['N_STEPS'], mcmc_config['N_SAMPLES'])
+        logging.info("Warm-up: %s chains exploring the parameter space in %s steps",
+                     mcmc_config['WARM_UP']['N_WARM_UP_CHAINS'],  mcmc_config['WARM_UP']['N_WARM_UP_STEPS'])
         logging.info("Pseudocounts for tuning the width of the proposal distribution for weights: %s ",
                      mcmc_config['PROPOSAL_PRECISION']['weights'])
         logging.info("Pseudocounts for tuning the width of the proposal distribution for "
@@ -175,28 +179,28 @@ class MCMC:
                'alter_p_families': self.config['mcmc']['STEPS']['inheritance']}
         self.ops = ops
 
-    def sample(self, initial_sample=None, lh_per_area=True):
-        initial_sample = self.initialize_sample(initial_sample)
+    def sample(self, lh_per_area=True):
+
+        if self.sample_from_warm_up is None:
+            initial_sample = self.empty_sample()
+        else:
+            initial_sample = self.sample_from_warm_up
 
         self.sampler = ZoneMCMCGenerative(network=self.data.network, features=self.data.features,
+                                          inheritance=self.config['model']['INHERITANCE'],
+                                          prior=self.prior_structured,
+                                          n_zones=self.config['model']['N_AREAS'],
+                                          n_chains=self.config['mcmc']['N_CHAINS'],
                                           min_size=self.config['model']['MIN_M'],
                                           max_size=self.config['model']['MAX_M'],
-                                          n_zones=self.config['model']['N_AREAS'],
-                                          prior=self.prior_structured,
-                                          inheritance=self.config['model']['INHERITANCE'],
-                                          n_chains=self.config['mcmc']['N_CHAINS'],
                                           initial_sample=initial_sample,
-                                          swap_period=self.config['mcmc']['SWAP_PERIOD'],
                                           operators=self.ops, families=self.data.families,
-                                          chain_swaps=self.config['mcmc']['N_SWAPS'],
                                           var_proposal=self.config['mcmc']['PROPOSAL_PRECISION'],
                                           p_grow_connected=self.config['mcmc']['P_GROW_CONNECTED'],
-                                          sample_from_prior=self.config['model']['SAMPLE_FROM_PRIOR'],
                                           initial_size=self.config['mcmc']['M_INITIAL'])
 
         self.sampler.generate_samples(self.config['mcmc']['N_STEPS'],
-                                      self.config['mcmc']['N_SAMPLES'],
-                                      self.config['mcmc']['BURN_IN'])
+                                      self.config['mcmc']['N_SAMPLES'])
 
         # Evaluate likelihood and prior for each zone alone (makes it possible to rank zones)
         if lh_per_area:
@@ -213,39 +217,85 @@ class MCMC:
             logging.info(log_operator_statistics(op_name, self.samples))
 
     @staticmethod
-    def initialize_sample(initial_sample):
-        if initial_sample is None:
-            initial_sample = Sample(zones=None, weights=None,
-                                    p_global=None, p_zones=None, p_families=None)
-
+    def empty_sample():
+        initial_sample = Sample(zones=None, weights=None,
+                                p_global=None, p_zones=None, p_families=None)
         initial_sample.everything_changed()
 
         return initial_sample
 
-    def eval_ground_truth(self):
+    def eval_ground_truth(self, lh_per_area=True):
         # Evaluate the likelihood of the true sample in simulated data
         # If the model includes inheritance use all weights, if not use only the first two weights (global, zone)
-        if self.config['mcmc']['INHERITANCE']:
+        if self.config['model']['INHERITANCE']:
             weights = self.data.weights.copy()
         else:
             weights = normalize(self.data.weights[:, :2])
 
-        ground_truth_sample = Sample(zones=self.data.areas,
-                                     weights=weights,
-                                     p_global=self.data.p_universal[np.newaxis, ...],
-                                     p_zones=self.data.p_contact,
-                                     p_families=self.data.p_inheritance)
+        ground_truth = Sample(zones=self.data.areas,
+                              weights=weights,
+                              p_global=self.data.p_universal[np.newaxis, ...],
+                              p_zones=self.data.p_contact,
+                              p_families=self.data.p_inheritance)
 
-        ground_truth_sample.everything_changed()
+        ground_truth.everything_changed()
 
         self.samples['true_zones'] = self.data.areas
         self.samples['true_weights'] = weights
         self.samples['true_p_global'] = self.data.p_universal[np.newaxis, ...]
         self.samples['true_p_zones'] = self.data.p_contact
         self.samples['true_p_families'] = self.data.p_inheritance
-        self.samples['true_ll'] = self.sampler.likelihood(ground_truth_sample, 0)
-        self.samples['true_prior'] = self.sampler.prior(ground_truth_sample, 0)
+        self.samples['true_ll'] = self.sampler.likelihood(ground_truth, 0)
+        self.samples['true_prior'] = self.sampler.prior(ground_truth, 0)
         self.samples["true_families"] = self.data.families
+
+        if lh_per_area:
+            ground_truth_log_lh_single_area = []
+            ground_truth_prior_single_area = []
+            ground_truth_posterior_single_area = []
+
+            for z in range(len(self.data.areas)):
+                area = self.data.areas[np.newaxis, z]
+                p_zone = self.data.p_contact[np.newaxis, z]
+
+                # Define Model
+                ground_truth_single_zone = Sample(zones=area, weights=weights,
+                                                  p_global=self.data.p_universal[np.newaxis, ...],
+                                                  p_zones=p_zone, p_families=self.data.p_inheritance)
+                ground_truth_single_zone.everything_changed()
+
+                # Evaluate Likelihood and Prior
+                lh = self.sampler.likelihood(ground_truth_single_zone, 0)
+                prior = self.sampler.prior(ground_truth_single_zone, 0)
+
+                ground_truth_log_lh_single_area.append(lh)
+                ground_truth_prior_single_area.append(prior)
+                ground_truth_posterior_single_area.append(lh + prior)
+
+                self.samples['true_lh_single_zones'] = ground_truth_log_lh_single_area
+                self.samples['true_prior_single_zones'] = ground_truth_prior_single_area
+                self.samples['true_posterior_single_zones'] = ground_truth_posterior_single_area
+
+    def warm_up(self):
+        initial_sample = self.empty_sample()
+        sampler = ZoneMCMCGenerative(network=self.data.network, features=self.data.features,
+                                     min_size=self.config['model']['MIN_M'],
+                                     max_size=self.config['model']['MAX_M'],
+                                     n_zones=self.config['model']['N_AREAS'],
+                                     prior=self.prior_structured,
+                                     inheritance=self.config['model']['INHERITANCE'],
+                                     n_chains=self.config['mcmc']['WARM_UP']['N_WARM_UP_CHAINS'],
+                                     operators=self.ops, families=self.data.families,
+                                     var_proposal=self.config['mcmc']['PROPOSAL_PRECISION'],
+                                     p_grow_connected=self.config['mcmc']['P_GROW_CONNECTED'],
+                                     initial_sample=initial_sample,
+                                     initial_size=self.config['mcmc']['M_INITIAL'])
+
+        self.sample_from_warm_up = sampler.generate_samples(n_steps=0,
+                                                            n_samples=0,
+                                                            warm_up=True,
+                                                            warm_up_steps=
+                                                            self.config['mcmc']['WARM_UP']['N_WARM_UP_STEPS'])
 
     def save_samples(self, run=1):
 
@@ -265,7 +315,8 @@ class MCMC:
             fi = 'i{i}'.format(i=int(self.config['model']['INHERITANCE']))
 
         elif file_info == "p":
-            p = 0 if self.config['model']['PRIOR']['universal']['type'] == "uniform" else 1
+
+            p = 0 if self.config['model']['PRIOR']['universal'] == "uniform" else 1
             fi = 'p{p}'.format(p=p)
 
         else:

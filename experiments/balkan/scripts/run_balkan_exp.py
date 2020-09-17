@@ -35,6 +35,7 @@ if __name__ == '__main__':
             mc.log_setup()
 
             # Sample from posterior
+            mc.warm_up()
             mc.sample()
 
             # Log sampling statistics and save samples to file

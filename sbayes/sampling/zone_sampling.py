@@ -8,7 +8,7 @@ import numpy as np
 
 from sbayes.sampling.mcmc_generative import MCMCGenerative
 from sbayes.model import GenerativeLikelihood, GenerativePrior
-from sbayes.util import get_neighbours, balance_p_array, normalize, dirichlet_pdf
+from sbayes.util import get_neighbours, normalize, dirichlet_pdf
 
 
 class IndexSet(set):
@@ -109,7 +109,7 @@ class ZoneMCMCGenerative(MCMCGenerative):
     """float: Probability at which grow operator only considers neighbours to add to the zone."""
 
     def __init__(self, network, features, min_size, max_size, var_proposal,
-                 initial_sample, sample_from_prior, p_grow_connected, initial_size, **kwargs):
+                 p_grow_connected, initial_sample, initial_size, sample_from_prior=False, **kwargs):
 
         super(ZoneMCMCGenerative, self).__init__(**kwargs)
 
@@ -815,34 +815,21 @@ class ZoneMCMCGenerative(MCMCGenerative):
                 idx = self.families[fam].nonzero()[0]
                 features_family = self.features[idx, :, :]
 
+                l_per_cat = np.nansum(features_family, axis=0)
+
                 # Compute the MLE for each category and each family
-                # Some families have only NAs for some features, of course.
-                # Find these in the data and set equal pseudo counts (1) such that the start value is 0.5
+                # Some families have only NAs for some features, resulting in a non-defined MLE
+                # other families have only a single state, resulting in an MLE including 1.
+                # to avoid both, we add 1 to all applicable states of each feature,
+                # which gives a well-defined initial p_family without 1., slightly nudged away from the MLE
 
-                for feat in range(len(features_family[0])):
-                    idx = np.where(self.sites_per_category[feat] != 0)[0]
-                    if sum(features_family[0][feat][idx]) == 0:
-                        features_family[0][feat][idx] = 1
-
-                l_per_cat = np.sum(features_family, axis=0)
-                l_sums = np.sum(l_per_cat, axis=1)
-                p_family = l_per_cat/l_sums[:, np.newaxis]
-
-                # If one of the p_family values is 0 balance the p_array
-                for p in range(len(p_family)):
-
-                    # Check for nonzero p_idx
-                    p_idx = np.where(self.sites_per_category[p] != 0)[0]
-
-                    # If any of the remaining is zero -> balance
-                    if 0. in p_family[p, p_idx]:
-                        p_family[p, p_idx] = balance_p_array(p_array=p_family[p, p_idx], balance_by=0.2)
-
-                initial_p_families[fam, :, :] = p_family
-
-                # The probabilities of categories without data are set to 0 (or -inf in log space)
                 sites_per_category = np.count_nonzero(self.features, axis=0)
-                initial_p_families[fam, sites_per_category == 0] = 0.
+                l_per_cat[np.isnan(l_per_cat)] = 0
+                l_per_cat[sites_per_category != 0] += 1
+
+                l_sums = np.sum(l_per_cat, axis=1)
+                p_family = l_per_cat / l_sums[:, np.newaxis]
+                initial_p_families[fam, :, :] = p_family
 
         return initial_p_families
 
@@ -859,13 +846,17 @@ class ZoneMCMCGenerative(MCMCGenerative):
         initial_weights = self.generate_initial_weights()
 
         # p_global (alpha)
+
         initial_p_global = self.generate_initial_p_global()
 
         # p_zones (gamma)
         initial_p_zones = self.generate_initial_p_zones(initial_zones)
 
         # p_families (beta)
-        initial_p_families = self.generate_initial_p_families()
+        if self.inheritance:
+            initial_p_families = self.generate_initial_p_families()
+        else:
+            initial_p_families = None
 
         sample = Sample(zones=initial_zones, weights=initial_weights,
                         p_global=initial_p_global, p_zones=initial_p_zones, p_families=initial_p_families)

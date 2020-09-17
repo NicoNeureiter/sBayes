@@ -1,50 +1,58 @@
 {
-  "simulation": {
-  	"SITES": "data/sites.csv",
-	"N_FEATURES": 35,
-    "P_N_CATEGORIES": {
-      "2": 0.4,
-      "3": 0.3,
-      "4": 0.3
-    },
-    "E_UNIVERSAL": 1.0,
-	"E_CONTACT":0.3,
-    "I_UNIVERSAL": 1.0,
-	"I_CONTACT": 2.0,
-    "INHERITANCE": false,
-	"SUBSET": true,
-	"AREA": 4
-  }, 
-  "mcmc": {
-    "BURN_IN": 0,
-    "N_STEPS": 1000000,
-    "N_SAMPLES": 10000,
-    "N_RUNS": 1,
-    "MIN_M": 3,
-    "MAX_M": 200,
-    "N_CHAINS": 8,
-    "SWAP_PERIOD": 1000,
-    "N_SWAPS": 3,
-    "PRIOR": {
-      "geo": "uniform",
-      "weights": "uniform",
-      "universal": "TBD",
-	  "contact": "uniform"
-    },
-    "INHERITANCE": false,
-	"N_AREAS": 1,
-	"PROPOSAL_PRECISION": {
-      "weights": 20,
-      "universal": 70,
-      "contact": 20
-    },
-	"STEPS": {
-	  "area": 0.05,
-      "weights": 0.5,
-      "universal": 0.05,
-      "contact": 0.4
-    }
-  },
-  "results": {
-    "FILE_INFO": "p"}  
+	"simulation": {
+		"SITES": "data/sites.csv",
+		"N_FEATURES": 35,
+		"P_N_CATEGORIES": {
+			"2": 0.4,
+			"3": 0.3,
+			"4": 0.3
+		},
+		"E_UNIVERSAL": 1.0,
+		"E_CONTACT": 0.3,
+		"I_UNIVERSAL": 1.0,
+		"I_CONTACT": 2.0,
+		"INHERITANCE": false,
+		"SUBSET": true,
+		"AREA": 4
+	},
+	"mcmc": {
+		"N_STEPS": 3000000,
+		"N_SAMPLES": 5000,
+		"N_RUNS": 1,
+		"P_GROW_CONNECTED": 0.85,
+		"PROPOSAL_PRECISION": {
+			"weights": 20,
+			"universal": 30,
+			"contact": 10
+		},
+		"STEPS": {
+			"area": 0.1,
+			"weights": 0.4,
+			"universal": 0.1,
+			"contact": 0.4
+		},
+		"M_INITIAL": 15,
+		"WARM_UP": {
+			"N_WARM_UP_STEPS": 100000,
+			"N_WARM_UP_CHAINS": 10
+		}
+	},
+	"model": {
+		"N_AREAS": 1,
+		"MIN_M": 3,
+		"MAX_M": 200,
+		"INHERITANCE": false,
+		"PRIOR": {
+			"geo": "uniform",
+			"weights": "uniform",
+			"universal": "TBD",
+			"contact": "uniform"
+		}
+	},
+	"data": {
+		"simulated": true
+	},
+	"results": {
+		"FILE_INFO": "p"
+	}
 }

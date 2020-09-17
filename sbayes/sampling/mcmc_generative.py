@@ -21,13 +21,11 @@ class MCMCGenerative(metaclass=_abc.ABCMeta):
         statistics (dict): Container for a set of statistics about the sampling run.
     """
 
-    def __init__(self, operators, inheritance, families, prior, n_zones, chain_swaps, n_chains, swap_period,
-                 show_screen_log=False):
+    def __init__(self, operators, inheritance, families, prior, n_zones, n_chains,
+                 mc3=False, swap_period=None, chain_swaps=None, show_screen_log=False, **kwargs):
 
         # Sampling attributes
         self.n_chains = n_chains
-        self.swap_period = swap_period
-        self.chain_swaps = chain_swaps
         self.chain_idx = list(range(self.n_chains))
 
         # Number of zones
@@ -49,6 +47,11 @@ class MCMCGenerative(metaclass=_abc.ABCMeta):
             self.prior_p_families = prior['inheritance']
         except KeyError:
             pass
+
+        # MC3
+        self.mc3 = mc3
+        self.swap_period = swap_period
+        self.chain_swaps = chain_swaps
 
         # Initialize statistics
         self.statistics = {'sample_id': [],
@@ -117,20 +120,18 @@ class MCMCGenerative(metaclass=_abc.ABCMeta):
             list, list: the operators (callable), their weights (float)
         """
 
-    def generate_samples(self, n_steps, n_samples, burn_in_steps):
+    def generate_samples(self, n_steps, n_samples, warm_up=False, warm_up_steps=None):
         """Run the MCMC sampling procedure for the Generative model with Metropolis Hastings rejection
         step and options for multiple chains. Samples are returned, statistics saved in self.statistics.
 
         Args:
             n_steps (int): The number of steps the sampler takes (without burn-in steps)
             n_samples (int): The number of samples
-            burn_in_steps (int): The number of burn in steps before the first sample is taken
+            warm_up (bool): Warm-up run or real sampling?
+            warm_up_steps (int): Number of warm-up steps
         Returns:
             list: The generated samples.
         """
-
-        steps_per_sample = int(_np.ceil(n_steps / n_samples))
-        t_start = _time.time()
 
         # Generate samples using MCMC with several chains
         sample = [None] * self.n_chains
@@ -143,68 +144,73 @@ class MCMCGenerative(metaclass=_abc.ABCMeta):
             self._ll[c] = self.likelihood(sample[c], c)
             self._prior[c] = self.prior(sample[c], c)
 
-        # Probability of operators is different if there are zero zones
-        if self.n_zones == 0:
+        # # Probability of operators is different if there are zero zones
+        # if self.n_zones == 0:
+        #
+        #     operator_names = [f.__name__ for f in self.fn_operators]
+        #     zone_op = [operator_names.index('alter_p_zones'), operator_names.index('shrink_zone'),
+        #                operator_names.index('grow_zone'), operator_names.index('swap_zone')]
+        #
+        #     for op in zone_op:
+        #         self.p_operators[op] = 0.
+        #     self.p_operators = [p / sum(self.p_operators) for p in self.p_operators]
 
-            operator_names = [f.__name__ for f in self.fn_operators]
-            zone_op = [operator_names.index('alter_p_zones'), operator_names.index('shrink_zone'),
-                       operator_names.index('grow_zone'), operator_names.index('swap_zone')]
+        # Function is called in warmup-mode
+        if warm_up:
+            print("Tuning parameters in warm-up...")
+            for i_warmup in range(warm_up_steps):
+                warmup_progress = (i_warmup / warm_up_steps) * 100
+                if warmup_progress % 10 == 0:
+                    print("warm-up", int(warmup_progress), "%")
+                for c in self.chain_idx:
+                    sample[c] = self.step(sample[c], c)
 
-            for op in zone_op:
-                self.p_operators[op] = 0.
-            self.p_operators = [p / sum(self.p_operators) for p in self.p_operators]
+            # For the last sample find the chain with the best likelihood
+            lh_samples = [self.likelihood(sample[c], c) for c in self.chain_idx]
+            best_chain = lh_samples.index(max(lh_samples))
 
-        # Probability of operators in burn-in is different to post-burn-in
-        p_operators_post_burn_in = list(self.p_operators)
+            # Return the best sample
+            return sample[best_chain]
 
-        # For burn-in we set the weights operator to 0. to make it easier to find zones
-        operator_names = [f.__name__ for f in self.fn_operators]
-        i_weights = operator_names.index('alter_weights')
-        self.p_operators[i_weights] = 0.
-
-        # Re-normalize
-        self.p_operators = [p/sum(self.p_operators) for p in self.p_operators]
-
-        # Generate burn-in samples for each chain
-        for c in self.chain_idx:
-            for i_step in range(burn_in_steps):
-                sample[c] = self.step(sample[c], c)
-
-        # Generate post burn-in samples
-        self.p_operators = p_operators_post_burn_in
-
-        for i_step in range(n_steps):
-            # Generate samples for each chain
-            for c in self.chain_idx:
-                sample[c] = self.step(sample[c], c)
-
-            # Log samples at fixed intervals
-            if i_step % steps_per_sample == 0:
-
-                # Log samples, but only from the first chain
-                self.log_sample_statistics(sample[self.chain_idx[0]], c=self.chain_idx[0],
-                                           sample_id=int(i_step/steps_per_sample))
-
-            # Exchange chains at fixed intervals
-            if (i_step+1) % self.swap_period == 0:
-                self.swap_chains(sample)
-
-            # Print work status and likelihood at fixed intervals
-            if i_step % 1000 == 0:
-                self.print_screen_log(i_step, sample)
-
-            # Log the last sample of the first chain
-            if i_step % (n_steps-1) == 0 and i_step != 0:
-                self.log_last_sample(sample[self.chain_idx[0]])
-
-        t_end = _time.time()
-        self.statistics['sampling_time'] = t_end - t_start
-        self.statistics['time_per_sample'] = (t_end - t_start) / n_samples
-        self.statistics['acceptance_ratio'] = (self.statistics['accepted_steps'] / n_steps)
-        if self.statistics['n_swaps'] > 0:
-            self.statistics['swap_ratio'] = (self.statistics['accepted_swaps'] / self.statistics['n_swaps'])
+        # Function is called to sample from posterior
         else:
-            self.statistics['swap_ratio'] = 0
+            print("Sampling from posterior...")
+            steps_per_sample = int(_np.ceil(n_steps / n_samples))
+            t_start = _time.time()
+
+            for i_step in range(n_steps):
+                # Generate samples for each chain
+                for c in self.chain_idx:
+                    sample[c] = self.step(sample[c], c)
+
+                # Log samples at fixed intervals
+                if i_step % steps_per_sample == 0:
+
+                    # Log samples, but only from the first chain
+                    self.log_sample_statistics(sample[self.chain_idx[0]], c=self.chain_idx[0],
+                                               sample_id=int(i_step/steps_per_sample))
+
+                # For mc3: Exchange chains at fixed intervals
+                if self.mc3:
+                    if (i_step+1) % self.swap_period == 0:
+                        self.swap_chains(sample)
+
+                # Print work status and likelihood at fixed intervals
+                if (i_step+1) % 1000 == 0:
+                    self.print_screen_log(i_step+1, sample)
+
+                # Log the last sample of the first chain
+                if i_step % (n_steps-1) == 0 and i_step != 0:
+                    self.log_last_sample(sample[self.chain_idx[0]])
+
+            t_end = _time.time()
+            self.statistics['sampling_time'] = t_end - t_start
+            self.statistics['time_per_sample'] = (t_end - t_start) / n_samples
+            self.statistics['acceptance_ratio'] = (self.statistics['accepted_steps'] / n_steps)
+            if self.statistics['n_swaps'] > 0:
+                self.statistics['swap_ratio'] = (self.statistics['accepted_swaps'] / self.statistics['n_swaps'])
+            else:
+                self.statistics['swap_ratio'] = 0
 
     def swap_chains(self, sample):
 

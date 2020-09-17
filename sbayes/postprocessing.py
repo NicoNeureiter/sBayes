@@ -290,6 +290,7 @@ def contribution_per_area(mcmc_sampler):
 
         log_lh = []
         log_prior = []
+        log_posterior = []
 
         for z in range(len(stats['sample_zones'][s])):
             zone = stats['sample_zones'][s][np.newaxis, z]
@@ -298,13 +299,17 @@ def contribution_per_area(mcmc_sampler):
             single_zone = Sample(zones=zone, weights=weights,
                                  p_global=p_global, p_zones=p_zone, p_families=p_families)
 
-            log_lh.append(mcmc_sampler.likelihood(single_zone, 0))
-            log_prior.append(mcmc_sampler.prior(single_zone, 0))
+            lh = mcmc_sampler.likelihood(single_zone, 0)
+            prior = mcmc_sampler.prior(single_zone, 0)
+
+            log_lh.append(lh)
+            log_prior.append(prior)
+            log_posterior.append(lh+prior)
 
         # Save stats about single zones
         stats['sample_lh_single_zones'].append(log_lh)
         stats['sample_prior_single_zones'].append(log_prior)
-        stats['sample_posterior_single_zones'].append(log_lh + log_prior)
+        stats['sample_posterior_single_zones'].append(log_posterior)
 
     mcmc_sampler.statistics = stats
     return mcmc_sampler

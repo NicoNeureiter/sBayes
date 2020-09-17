@@ -94,6 +94,10 @@ class Experiment:
 
         # SIMULATION
         if self.is_simulation():
+            if 'SITES' not in self.config['simulation']:
+                raise NameError("SITES is not defined in " + self.config_file)
+            else:
+                self.config['simulation']['SITES'] = self.fix_relative_path(self.config['simulation']['SITES'])
             # Does the simulation part of the config file provide all required simulation parameters?
             # Simulate inheritance?
             if 'INHERITANCE' not in self.config['simulation']:
@@ -189,29 +193,32 @@ class Experiment:
         # Number of steps
         if 'N_STEPS' not in self.config['mcmc']:
             self.config['mcmc']['N_STEPS'] = 30000
-        # Steps discarded as burn-in
-        if 'BURN_IN' not in self.config['mcmc']:
-            self.config['mcmc']['BURN_IN'] = 5000
         # Number of samples
         if 'N_SAMPLES' not in self.config['mcmc']:
             self.config['mcmc']['N_SAMPLES'] = 1000
         # Number of runs
         if 'N_RUNS' not in self.config['mcmc']:
             self.config['mcmc']['N_RUNS'] = 1
+        # todo: activate for MC3
         # Number of parallel Markov chains
-        if 'N_CHAINS' not in self.config['mcmc']:
-            self.config['mcmc']['N_CHAINS'] = 5
-        # Steps between two attempted chain swaps
-        if 'SWAP_PERIOD' not in self.config['mcmc']:
-            self.config['mcmc']['SWAP_PERIOD'] = 1000
-        # Number of attempted chain swaps
-        if 'N_SWAPS' not in self.config['mcmc']:
-            self.config['mcmc']['N_SWAPS'] = 3
+        # if 'N_CHAINS' not in self.config['mcmc']:
+        #     self.config['mcmc']['N_CHAINS'] = 5
+        # # Steps between two attempted chain swaps
+        # if 'SWAP_PERIOD' not in self.config['mcmc']:
+        #     self.config['mcmc']['SWAP_PERIOD'] = 1000
+        # # Number of attempted chain swaps
+        # if 'N_SWAPS' not in self.config['mcmc']:
+        #     self.config['mcmc']['N_SWAPS'] = 3
         if 'P_GROW_CONNECTED' not in self.config['mcmc']:
             self.config['mcmc']['P_GROW_CONNECTED'] = 0.85
         if 'M_INITIAL' not in self.config['mcmc']:
             self.config['mcmc']['M_INITIAL'] = 5
 
+        if 'MC3' not in self.config['mcmc']:
+            self.config['mcmc']['N_CHAINS'] = 1
+        else:
+            # todo: activate for MC3
+            pass
         # Tracer does not like unevenly spaced samples
         spacing = self.config['mcmc']['N_STEPS'] % self.config['mcmc']['N_SAMPLES']
 
@@ -310,21 +317,25 @@ class Experiment:
             self.config['results']['FILE_INFO'] = "n"
 
         # Data
-        if not self.config['data']:
+        if 'data' not in self.config:
             raise NameError("Provide file paths to data.")
         else:
-            if not self.config['data']['FEATURES']:
-                raise NameError("FEATURES is empty. Provide file paths to features file (e.g. features.csv)")
-            else:
-                self.config['data']['FEATURES'] = self.fix_relative_path(self.config['data']['FEATURES'])
-            if self.config['data']['PRIOR']:
-                if self.config['data']['PRIOR']['universal']:
-                    self.config['data']['PRIOR']['universal'] = \
-                        self.fix_relative_path(self.config['data']['PRIOR']['universal'])
-                if self.config['data']['PRIOR']['inheritance']:
-                    for key in self.config['data']['PRIOR']['inheritance']:
-                        self.config['data']['PRIOR']['inheritance'][key] = \
-                            self.fix_relative_path(self.config['data']['PRIOR']['inheritance'][key])
+            if 'simulated' not in self.config['data']:
+                self.config['data']['simulated'] = False
+
+            if not self.config['data']['simulated']:
+                if not self.config['data']['FEATURES']:
+                    raise NameError("FEATURES is empty. Provide file paths to features file (e.g. features.csv)")
+                else:
+                    self.config['data']['FEATURES'] = self.fix_relative_path(self.config['data']['FEATURES'])
+                if self.config['data']['PRIOR']:
+                    if self.config['data']['PRIOR']['universal']:
+                        self.config['data']['PRIOR']['universal'] = \
+                            self.fix_relative_path(self.config['data']['PRIOR']['universal'])
+                    if self.config['data']['PRIOR']['inheritance']:
+                        for key in self.config['data']['PRIOR']['inheritance']:
+                            self.config['data']['PRIOR']['inheritance'][key] = \
+                                self.fix_relative_path(self.config['data']['PRIOR']['inheritance'][key])
 
     def log_experiment(self):
         log_path = self.path_results + 'experiment.log'

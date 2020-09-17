@@ -8,14 +8,14 @@ if __name__ == '__main__':
 
     # 1. Initialize the experiment
     exp = Experiment()
-    exp.load_config(config_file='config.json')
+    exp.load_config(config_file='experiments/simulation/sim_exp1/config.json')
     exp.log_experiment()
 
     # When simulating iterate over different setups (different areas and strengths of contact)
-    I_CONTACT = [2.5]# [1.5, 2, 2.5]
-    E_CONTACT = [0.25]# [1.25, 0.75, 0.25]
+    I_CONTACT = [1.5, 2, 2.5]
+    E_CONTACT = [1.25, 0.75, 0.25]
     STRENGTH = range(len(E_CONTACT))
-    AREA = [3] # [4, 6, 3, 8]
+    AREA = [4, 6, 3, 8]
 
     SETUP = list(itertools.product(STRENGTH, AREA))
 
@@ -39,7 +39,8 @@ if __name__ == '__main__':
         # Rerun experiment to check for consistency
         for run in range(exp.config['mcmc']['N_RUNS']):
 
-            # 4. Sample from posterior
+            # 4. Warm-up sampler and sample from posterior
+            mc.warm_up()
             mc.sample()
 
             # 5. Evaluate ground truth
