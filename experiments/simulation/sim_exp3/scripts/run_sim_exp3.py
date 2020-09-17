@@ -2,13 +2,13 @@ from sbayes.experiment_setup import Experiment
 from sbayes.simulation import Simulation
 from sbayes.mcmc_setup import MCMC
 
+
 if __name__ == '__main__':
     import os
 
-    print(os.getcwd())
     # 1. Initialize the experiment
     exp = Experiment()
-    exp.load_config(config_file='config.json')
+    exp.load_config(config_file='experiments/simulation/sim_exp3/config.json')
     exp.log_experiment()
 
     # 2. Simulate contact areas
@@ -21,7 +21,7 @@ if __name__ == '__main__':
 
     for N in NUMBER_AREAS:
         # Update config information according to the current setup
-        exp.config['mcmc']['N_AREAS'] = N
+        exp.config['model']['N_AREAS'] = N
 
         # 3. Define MCMC
         mc = MCMC(data=sim, experiment=exp)
@@ -29,7 +29,9 @@ if __name__ == '__main__':
 
         # Rerun experiment to check for consistency
         for run in range(exp.config['mcmc']['N_RUNS']):
-            # 4. Sample from posterior
+
+            # 4. Warm-up and sample from posterior
+            mc.warm_up()
             mc.sample()
 
             # 5. Evaluate ground truth
