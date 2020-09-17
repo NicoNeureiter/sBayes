@@ -1,8 +1,8 @@
 {
 	"mcmc": {
 		"BURN_IN": 0,
-		"N_STEPS": 2000000,
-		"N_SAMPLES": 5000,
+		"N_STEPS": 2000,
+		"N_SAMPLES": 1000,
 		"N_RUNS": 1,
 		"N_CHAINS": 7,
 		"SWAP_PERIOD": 1000,

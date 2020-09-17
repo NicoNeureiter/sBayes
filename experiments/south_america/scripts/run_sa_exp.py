@@ -34,6 +34,7 @@ if __name__ == '__main__':
             mc.log_setup()
 
             # Sample
+            mc.warm_up()
             mc.sample()
 
             # Save samples to file
