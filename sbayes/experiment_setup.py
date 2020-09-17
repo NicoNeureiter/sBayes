@@ -94,6 +94,10 @@ class Experiment:
 
         # SIMULATION
         if self.is_simulation():
+            if 'SITES' not in self.config['simulation']:
+                raise NameError("SITES is not defined in " + self.config_file)
+            else:
+                self.config['simulation']['SITES'] = self.fix_relative_path(self.config['simulation']['SITES'])
             # Does the simulation part of the config file provide all required simulation parameters?
             # Simulate inheritance?
             if 'INHERITANCE' not in self.config['simulation']:
@@ -310,21 +314,25 @@ class Experiment:
             self.config['results']['FILE_INFO'] = "n"
 
         # Data
-        if not self.config['data']:
+        if 'data' not in self.config:
             raise NameError("Provide file paths to data.")
         else:
-            if not self.config['data']['FEATURES']:
-                raise NameError("FEATURES is empty. Provide file paths to features file (e.g. features.csv)")
-            else:
-                self.config['data']['FEATURES'] = self.fix_relative_path(self.config['data']['FEATURES'])
-            if self.config['data']['PRIOR']:
-                if self.config['data']['PRIOR']['universal']:
-                    self.config['data']['PRIOR']['universal'] = \
-                        self.fix_relative_path(self.config['data']['PRIOR']['universal'])
-                if self.config['data']['PRIOR']['inheritance']:
-                    for key in self.config['data']['PRIOR']['inheritance']:
-                        self.config['data']['PRIOR']['inheritance'][key] = \
-                            self.fix_relative_path(self.config['data']['PRIOR']['inheritance'][key])
+            if 'simulated' not in self.config['data']:
+                self.config['data']['simulated'] = False
+
+            if not self.config['data']['simulated']:
+                if not self.config['data']['FEATURES']:
+                    raise NameError("FEATURES is empty. Provide file paths to features file (e.g. features.csv)")
+                else:
+                    self.config['data']['FEATURES'] = self.fix_relative_path(self.config['data']['FEATURES'])
+                if self.config['data']['PRIOR']:
+                    if self.config['data']['PRIOR']['universal']:
+                        self.config['data']['PRIOR']['universal'] = \
+                            self.fix_relative_path(self.config['data']['PRIOR']['universal'])
+                    if self.config['data']['PRIOR']['inheritance']:
+                        for key in self.config['data']['PRIOR']['inheritance']:
+                            self.config['data']['PRIOR']['inheritance'][key] = \
+                                self.fix_relative_path(self.config['data']['PRIOR']['inheritance'][key])
 
     def log_experiment(self):
         log_path = self.path_results + 'experiment.log'

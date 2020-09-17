@@ -518,34 +518,6 @@ def counts_to_dirichlet(counts, categories, prior='uniform', outdated_features=N
 
     return dirichlet
 
-
-def balance_p_array(p_array, balance_by):
-    """This is a helper function to balance an array of probabilities, such that no probability is zero
-
-        Args:
-            p_array(np.array): the array of probabilities
-            balance_by(float): how much of the non-zero probabilities should be distributed to the zero ones (0-1)
-        Returns:
-            np.array: the balanced p_array
-        """
-    # Find all zeros and non-zeros
-
-    zero_idx = np.where(p_array == 0)[0]
-    nonzero_idx = np.where(p_array != 0)[0]
-
-    # Subtract balance_by from all nonzero probabilities (proportional to their magnitude)
-    non_zero_proportion = p_array[nonzero_idx] / sum(p_array[nonzero_idx])
-    p_array_nonzero_balanced = p_array[nonzero_idx] - non_zero_proportion * balance_by
-
-    # Balance and update
-    p_array_zero_balanced = balance_by / len(zero_idx)
-
-    p_array[zero_idx] = p_array_zero_balanced
-    p_array[nonzero_idx] = p_array_nonzero_balanced
-
-    return p_array
-
-
 def touch(fname):
     if os.path.exists(fname):
         os.utime(fname, None)
