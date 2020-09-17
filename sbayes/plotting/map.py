@@ -57,7 +57,7 @@ class Map(Plot):
     ##############################################################
     # Copy-pasted functions needed for plot_posterior_map
     ##############################################################
-
+    # for Olga: For maps show should always be False, and can be removed
     def style_axes(self, ax, locations, show=True, offset=None, x_extend=None, y_extend=None):
         """ Function to style the axes of a plot
         Args:
@@ -76,8 +76,10 @@ class Map(Plot):
         x_min, x_max = np.min(locations[:, 0]), np.max(locations[:, 0])
         y_min, y_max = np.min(locations[:, 1]), np.max(locations[:, 1])
 
-        # if specific offsets were passes use them, otherwise use same offset for all
+        # if specific offsets were passed use them, otherwise use same offset for all
+        # For Olga: offsets should be provided in the config only, and if missing deduced from the data
         if offset is not None:
+            # For Olga: remove
             x_min, x_max = round_int(x_min, 'down', offset), round_int(x_max, 'up', offset)
             y_min, y_max = round_int(y_min, 'down', offset), round_int(y_max, 'up', offset)
         elif self.config['graphic']['x_extend'] is not None and self.config['graphic']['y_extend'] is not None:
@@ -92,12 +94,14 @@ class Map(Plot):
         ax.set_ylim([y_min, y_max])
 
         # x axis
+        # for Olga: For maps show should always be False, and can be removed
         x_step = (x_max - x_min) // 5
         x_ticks = np.arange(x_min, x_max + x_step, x_step) if show else []
         ax.set_xticks(x_ticks)
         ax.set_xticklabels(x_ticks, fontsize=pp['fontsize'])
 
         # y axis
+        # for : For maps show should always be False, and can be removed
         y_step = (y_max - y_min) // 5
         y_ticks = np.arange(y_min, y_max + y_step, y_step) if show else []
         ax.set_yticks(y_ticks)
@@ -255,6 +259,7 @@ class Map(Plot):
     ##############################################################
 
     # Get relevant map parameters from the json file
+    # for Olga: parameters should be defined in the config, rather than here. My bad, I know :)
     def get_map_parameters(self):
         self.map_parameters = self.config['plot_type']['general']
         if self.is_simulation:
@@ -267,8 +272,10 @@ class Map(Plot):
 
     # Initialize the map
     def initialize_map(self):
+        # Olga: this function should only read what is in the config, see inside
         self.get_map_parameters()
         plt.rcParams["axes.linewidth"] = self.map_parameters['frame_width']
+        # for Olga: constrained layout drops a warning. Could you check?
         self.fig, self.ax = plt.subplots(figsize=(self.map_parameters['fig_width'],
                                                   self.map_parameters['fig_height']),
                                          constrained_layout=True)
@@ -564,6 +571,8 @@ class Map(Plot):
                         0.05, 0.18, lw=2, color="black")
 
     def add_secondary_legend(self):
+        # for Olga: should be defined in the config
+        # reduces to single function add_legend, with parameter "simulation"
         # for Sa map
         if self.config['input']['experiment'] == "sa":
             self.add_sa_legend()
@@ -722,13 +731,14 @@ class Map(Plot):
     ##############################################################
     # This is the plot_posterior_map function from plotting_old
     ##############################################################
+    # for Olga: all parameters should be passed from the new map config file
     def posterior_map(self,
                       post_freq_legend, burn_in=0.2,
                       post_freq=0.8,
                       plot_single_zones_stats=False, flamingo=False, simulated_family=False,
                       label_languages=False, add_overview=False,
                       plot_families=False,
-                      return_correspondence=False,
+                      return_correspondence=False,  # for Olga: This creates a separate table of all languages which are in an area, should probably go into a subplolt?
                       fname='mst_posterior'):
 
         """ This function creates a scatter plot of all sites in the posterior distribution. The color of a site reflects
@@ -781,6 +791,7 @@ class Map(Plot):
         print('Plotting map...')
         # Is the function used for simulated data or real-world data? Both require different plotting parameters.
         # if for real world-data: South America or Balkans?
+        # for Olga: this should be defined in the config
         #self.get_map_parameters()
 
         # Initialize the plot
@@ -829,7 +840,7 @@ class Map(Plot):
         # This should rather go to the config file.
         # Unfortunately, positions have to be provided in map units, which makes things a bit opaque.
         # Once in the config, the functions below can go.
-
+        # this could be called: add_family_legend
         self.add_secondary_legend()
 
         # This adds an overview map to the main map
@@ -869,6 +880,7 @@ class Map(Plot):
                 self.area_labels.append(f'$Z_{i + 1}$')
 
         # Define legend
+        # for Olga: ok, this is still very messy (my bad, not yours) I still need some time to disentangle stuff
         self.define_legend()
 
         ##############################################################
