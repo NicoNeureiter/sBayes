@@ -323,6 +323,15 @@ class Map(Plot):
     # Bind together the functions above
     def visualize_areas(self, flamingo, simulated_family, post_freq, burn_in, label_languages, plot_area_stats):
 
+        # If likelihood for single areas are displayed: add legend entries with likelihood information per area
+        if plot_area_stats:
+            self.add_likelihood_legend()
+            self.add_likelihood_info()
+        else:
+            for i, _ in enumerate(self.results['areas']):
+                self.area_labels.append(f'$Z_{i + 1}$')
+
+        # Color areas
         for i, area in enumerate(self.results['areas']):
 
             current_color = self.add_color(i, flamingo, simulated_family)
@@ -358,14 +367,7 @@ class Map(Plot):
                 except IndexError:
                     continue
 
-        # If likelihood for single areas are displayed: add legend entries with likelihood information per area
-        if plot_area_stats:
-            self.add_likelihood_legend()
-            self.add_likelihood_info()
-        else:
-            for i, _ in enumerate(self.results['areas']):
-                self.area_labels.append(f'$Z_{i + 1}$')
-
+        # add to legend
         legend_zones = self.ax.legend(
             self.leg_zones,
             self.area_labels,
