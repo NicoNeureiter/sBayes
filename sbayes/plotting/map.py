@@ -716,6 +716,58 @@ class Map(Plot):
         if self.config['input']['subset']:
             self.add_subset()
 
+    def return_correspondence_table(self, fname, ncol=3):
+        """ Which language belongs to which number? This table will tell you more
+        Args:
+            sites(dict): dict of all languages
+            fname(str): name of the figure
+            sites_in_zone(list): list of sites per zone
+            ncol(int); number of columns in the output table
+        """
+        fig, ax = plt.subplots()
+
+        sites_id = []
+        sites_names = []
+        s = [j for sub in self.all_labels for j in sub]
+
+        for i in range(len(self.sites['id'])):
+            if i in s:
+                sites_id.append(self.sites['id'][i])
+                sites_names.append(self.sites['names'][i])
+
+        # hide axes
+        fig.patch.set_visible(False)
+        ax.axis('off')
+        ax.axis('tight')
+        n_col = ncol
+        n_row = math.ceil(len(sites_names) / n_col)
+
+        l = [[] for _ in range(n_row)]
+
+        for i in range(len(sites_id)):
+            col = i % n_row
+            nr = str(sites_id[i] + 1)
+            l[col].append(nr)
+            l[col].append(sites_names[i])
+
+        # Fill up empty cells
+        for i in range(len(l)):
+            if len(l[i]) != n_col * 2:
+                fill_up_nr = n_col * 2 - len(l[i])
+                for f in range(fill_up_nr):
+                    l[i].append("")
+
+        widths = [0.05, 0.3] * int(((len(l[0])) / 2))
+
+        table = ax.table(cellText=l, loc='center', cellLoc="left", colWidths=widths)
+        table.set_fontsize(40)
+
+        for key, cell in table.get_celld().items():
+            cell.set_linewidth(0)
+        fig.tight_layout()
+        fig.savefig(f"{self.path_plots + '/correspondence'}.{self.map_parameters['save_format']}",
+                    bbox_inches='tight', dpi=400, format=self.map_parameters['save_format'])
+
     ##############################################################
     # This is the plot_posterior_map function from plotting_old
     ##############################################################
@@ -907,8 +959,7 @@ class Map(Plot):
         # Save the plot
 
         self.fig.savefig(f"{self.path_plots + fname}.{self.map_parameters['save_format']}", bbox_inches='tight', dpi=400, format=self.map_parameters['save_format'])
-
         # Should the labels displayed in the map be returned? These are later added as a separate legend (
         # outside this hell of a function)
         if return_correspondence and label_languages:
-            return self.all_labels
+            self.return_correspondence_table(fname=fname)
