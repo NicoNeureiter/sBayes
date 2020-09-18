@@ -17,7 +17,7 @@
 			"contact": 0.3,
 			"inheritance": 0.25
 		},
-		"M_INITIAL": 15,
+		"M_INITIAL": 10,
 		"WARM_UP": {
 			"N_WARM_UP_STEPS": 100000,
 			"N_WARM_UP_CHAINS": 15
