@@ -395,8 +395,13 @@ class Map(Plot):
             family_color = colors[i]
             family_fill, family_border = family_color, family_color
 
+            # Find all languages belonging to a family
+            is_in_family = families[i] == 1
+            family_locations = self.locations[is_in_family, :]
+
             # For simulated data
             if self.is_simulation:
+                print(self.config['graphic']['family_alpha_shape'])
                 alpha_shape = self.compute_alpha_shapes([is_in_family], self.config['graphic']['family_alpha_shape'])
                 smooth_shape = alpha_shape.buffer(60, resolution=16, cap_style=1, join_style=1, mitre_limit=5.0)
                 patch = PolygonPatch(smooth_shape, fc=family_fill, ec=family_border, lw=1, ls='-', alpha=1, fill=True,
@@ -410,9 +415,6 @@ class Map(Plot):
 
             # For real data
             else:
-                # Find all languages belonging to a family
-                is_in_family = families[i] == 1
-                family_locations = self.locations[is_in_family, :]
 
                 # Adds a color overlay for each language in a family
                 self.ax.scatter(*family_locations.T, s=self.config['graphic']['size'] * 15, c=family_color, alpha=1,
@@ -848,9 +850,9 @@ class Map(Plot):
         # change compared to real world-data
         # Should probably be handled in the config file instead
         # and should be merged with adding families as seen above
-        if simulated_family:
-            self.color_families(self.results['true_families'],
-                                self.config['graphic']['true_family_colors'])
+        # if simulated_family:
+        #     self.color_families(self.families,
+        #                         self.config['graphic']['true_family_colors'])
 
 
         ##############################################################
@@ -879,7 +881,7 @@ class Map(Plot):
             if simulated_family:
                 self.map_parameters['poly_legend_position'] = \
                     (self.map_parameters['poly_legend_position'][0],
-                     self.map_parameters['poly_legend_position'][1] + 0.05)
+                     self.map_parameters['poly_legend_position'][1] + 0.1)
 
             # define legend
             legend_true_zones = self.ax.legend([TrueZone()], ['simulated area\n(bounding polygon)'],

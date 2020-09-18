@@ -10,7 +10,7 @@ import os
 
 import matplotlib.pyplot as plt
 
-from sbayes.preprocessing import compute_network, read_sites
+from sbayes.preprocessing import compute_network, read_sites, assign_family
 from sbayes.util import parse_area_columns, read_features_from_csv
 
 
@@ -127,7 +127,9 @@ class Plot:
     def read_data(self):
         print('Reading input data...')
         if self.is_simulation:
-            self.sites, self.site_names, _ = read_sites(self.path_data)
+            self.sites, self.site_names, _ = read_sites(self.path_data,
+                                                        retrieve_family=True, retrieve_subset=True)
+            self.families, self.family_names = assign_family(1, self.sites)
         else:
             self.sites, self.site_names, _, _, _, self.families, self.family_names, _ = \
                 read_features_from_csv(self.path_data)
@@ -204,7 +206,7 @@ class Plot:
     # recall, precision
     @staticmethod
     def read_simulation_stats(txt_path, lines):
-        recall, precision, true_families = [], [], []
+        recall, precision = [], []
         true_weights, true_alpha, true_beta, true_gamma = {}, {}, {}, {}
         true_posterior, true_likelihood, true_prior = 0, 0, 0
 

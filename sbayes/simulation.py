@@ -12,10 +12,10 @@ import numpy as np
 
 from sbayes.preprocessing import (compute_network, read_sites,
                                   simulate_assignment_probabilities,
-                                  simulate_families,
+                                  assign_family,
+                                  assign_area,
                                   simulate_features,
                                   simulate_weights,
-                                  simulate_areas,
                                   subset_features,
                                   counts_from_complement)
 
@@ -80,12 +80,12 @@ class Simulation:
 
         self.network = compute_network(self.sites)
 
-        # Simulate areas
-        self.areas = simulate_areas(area_id=self.config['AREA'], sites_sim=self.sites)
+        #
+        self.areas = assign_area(area_id=self.config['AREA'], sites_sim=self.sites)
 
         # Simulate families
         if self.inheritance:
-            self.families, self.family_names = simulate_families(fam_id=1, sites_sim=self.sites)
+            self.families, self.family_names = assign_family(fam_id=1, sites_sim=self.sites)
         else:
             self.families = None
 
