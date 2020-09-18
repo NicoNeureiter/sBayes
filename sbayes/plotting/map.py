@@ -321,7 +321,7 @@ class Map(Plot):
             self.ax.annotate(labels_in_zone[loc] + 1, **anno_opts)
 
     # Bind together the functions above
-    def visualize_areas(self, flamingo, simulated_family, post_freq, burn_in, label_languages):
+    def visualize_areas(self, flamingo, simulated_family, post_freq, burn_in, label_languages, plot_area_stats):
 
         for i, area in enumerate(self.results['areas']):
 
@@ -357,6 +357,31 @@ class Map(Plot):
                 # try-except is better to avoid)
                 except IndexError:
                     continue
+
+        # If likelihood for single areas are displayed: add legend entries with likelihood information per area
+        if plot_area_stats:
+            self.add_likelihood_legend()
+            self.add_likelihood_info()
+        else:
+            for i, _ in enumerate(self.results['areas']):
+                self.area_labels.append(f'$Z_{i + 1}$')
+
+        legend_zones = self.ax.legend(
+            self.leg_zones,
+            self.area_labels,
+            title_fontsize=18,
+            title='Contact areas',
+            frameon=True,
+            edgecolor='#ffffff',
+            framealpha=1,
+            fontsize=16,
+            ncol=1,
+            columnspacing=1,
+            loc='upper left',
+            bbox_to_anchor=self.map_parameters['area_legend_position']
+        )
+        legend_zones._legend_box.align = "left"
+        self.ax.add_artist(legend_zones)
 
     # TODO: This function should be rewritten in a nicer way; probably split into two functions,
     #  or find a better way of dividing things into simulated and real
@@ -450,69 +475,41 @@ class Map(Plot):
             )
             self.ax.add_artist(legend_families)
 
-
-    ##############################################################
-    # Legend functions for plot_posterior_map
-    ##############################################################
-    def define_legend(self):
-        legend_zones = self.ax.legend(
-            self.leg_zones,
-            self.area_labels,
-            title_fontsize=18,
-            title='Contact areas',
-            frameon=True,
-            edgecolor='#ffffff',
-            framealpha=1,
-            fontsize=16,
-            ncol=1,
-            columnspacing=1,
-            loc='upper left',
-            bbox_to_anchor=self.map_parameters['area_legend_position']
-        )
-        legend_zones._legend_box.align = "left"
-        self.ax.add_artist(legend_zones)
-
-        # Defines the legend entry for Line width
-        legend_line_width = self.ax.legend(
-            self.leg_line_width,
-            self.line_width_label,
-            title_fontsize=18,
-            title='Frequency of edge in posterior',
-            frameon=True,
-            edgecolor='#ffffff',
-            framealpha=1,
-            fontsize=16,
-            ncol=1,
-            columnspacing=1,
-            loc='upper left',
-            bbox_to_anchor=self.map_parameters['freq_legend_position']
-        )
-        legend_line_width._legend_box.align = "left"
-        self.ax.add_artist(legend_line_width)
-
-    def add_main_legend(self, post_freq_lines):
-        # This is actually the beginning of a series of functions that add a small legend
-        # displaying what the line thickness corresponds to.
-        # Could go to a separate function
+    def add_legend_lines(self, post_freq_lines):
+        # This adds a legend displaying what the line thickness corresponds to.
 
         post_freq_lines.sort(reverse=True)
 
-        # Iterates over all threshold values in post_freq_lines and for each adds one
-        # legend entry in a neutral color (black)
+        # Iterates over all values in post_freq_lines and for each adds a legend entry
         for k in range(len(post_freq_lines)):
+
+            # Create line
             line = Line2D([0], [0], color="black", lw=self.config['graphic']['size_line'] * post_freq_lines[k],
                           linestyle='-')
             self.leg_line_width.append(line)
 
-            # Adds legend text.
+            # Add legend text
             prop_l = int(post_freq_lines[k] * 100)
+            self.line_width_label.append(f'{prop_l}%')
 
-            if k == 0:
-                self.line_width_label.append(f'$\geq${prop_l}%')
+        # Adds everything to the legend
+        legend_line_width = self.ax.legend(
+                self.leg_line_width,
+                self.line_width_label,
+                title_fontsize=18,
+                title='Frequency of edge in posterior',
+                frameon=True,
+                edgecolor='#ffffff',
+                framealpha=1,
+                fontsize=16,
+                ncol=1,
+                columnspacing=1,
+                loc='upper left',
+                bbox_to_anchor=self.map_parameters['freq_legend_position']
+            )
 
-            else:
-                prop_s = int(post_freq_lines[k - 1] * 100)
-                self.line_width_label.append(f'$\geq${prop_l}% and $<${prop_s}%')
+        legend_line_width._legend_box.align = "left"
+        self.ax.add_artist(legend_line_width)
 
     def add_sa_legend(self):
         self.config['graphic']['x_unit'] = (self.config['graphic']['x_extend'][1] -
@@ -626,19 +623,11 @@ class Map(Plot):
         # Legend for area labels
         self.area_labels = ["      log-likelihood per area"]
 
-        # This assumes that the likelihoods for single areas (lh_a1, lh_a2, lh_a3, ...)
-        # have been collected in mcmc_res under the key shown below
         lh_per_area = np.array(list(self.results['likelihood_single_areas'].values())).astype(float)
         to_rank = np.mean(lh_per_area, axis=1)
-
-        # probability per area in log-space
-        # p_total = logsumexp(to_rank)
-        # p = to_rank[np.argsort(-to_rank)] - p_total
         p = to_rank[np.argsort(-to_rank)]
 
         for i, lh in enumerate(p):
-            #probability_per_area = np.exp(lh)
-            #probability_scientific = Map.scientific(lh_value)
             self.area_labels.append(f'$Z_{i + 1}: \, \;\;\; {int(lh)}$')
 
     ##############################################################
@@ -723,11 +712,6 @@ class Map(Plot):
         if self.config['input']['subset']:
             self.add_subset()
 
-        # Adds an info box showing the likelihood of each area
-        # Could go to a separate function
-        if lh_single_zones:
-            self.add_likelihood_info()
-
     ##############################################################
     # This is the plot_posterior_map function from plotting_old
     ##############################################################
@@ -735,7 +719,7 @@ class Map(Plot):
     def posterior_map(self,
                       post_freq_legend, burn_in=0.2,
                       post_freq=0.8,
-                      plot_single_zones_stats=False, flamingo=False, simulated_family=False,
+                      plot_area_stats=False, flamingo=False, simulated_family=False,
                       label_languages=False, add_overview=False,
                       plot_families=False,
                       return_correspondence=False,  # for Olga: This creates a separate table of all languages which are in an area, should probably go into a subplolt?
@@ -769,7 +753,7 @@ class Map(Plot):
                 geo_json_river(str): File path to river data. --> Olga: should go to config: DONE
                 subset(boolean): Is there a subset in the data, which should be displayed differently?
                                  Only relevant for one experiment. --> Olga Should go to config: DONE
-                plot_single_zones_stats(bool): Add box containing information about the likelihood of single areas to the plot?
+                plot_area_stats(bool): Add box containing information about the likelihood of single areas to the plot?
                 flamingo(bool): Sort of a joke. Does one area have the shape of a flamingo. If yes use flamingo colors for plotting.
                 simulated_family(bool): Only for simulated data. Are families also simulated?
                 size(float): Size of the dots (languages) in the plot --> Olga: move to config: DONE
@@ -821,19 +805,19 @@ class Map(Plot):
         ##############################################################
         # Additional check
         ##############################################################
-        self.visualize_additional_map_elements(plot_single_zones_stats)
+        self.visualize_additional_map_elements(plot_area_stats)
 
         ##############################################################
         # Visualization
         ##############################################################
         # This iterates over all areas in the posterior and plots each with a different color (minimum spanning tree)
-        self.visualize_areas(flamingo, simulated_family, post_freq, burn_in, label_languages)
+        self.visualize_areas(flamingo, simulated_family, post_freq, burn_in, label_languages, plot_area_stats)
 
         ##############################################################
         # Legend
         ##############################################################
         # Add a small legend displaying what the line thickness corresponds to.
-        self.add_main_legend(post_freq_legend)
+        self.add_legend_lines(post_freq_legend)
 
         # Depending on the background (sa, balkan, simulated), we want to place additional legend entries
         # at different positions in the map in order not to block map content and best use the available space.
@@ -868,20 +852,6 @@ class Map(Plot):
             self.color_families(self.results['true_families'],
                                 self.config['graphic']['true_family_colors'])
 
-        ##############################################################
-        # Likelihood (legend)
-        ##############################################################
-        # If likelihood for single areas are displayed: add legend entries with likelihood information per area
-        if plot_single_zones_stats:
-            self.add_likelihood_legend()
-
-        else:
-            for i, _ in enumerate(self.results['areas']):
-                self.area_labels.append(f'$Z_{i + 1}$')
-
-        # Define legend
-        # for Olga: ok, this is still very messy (my bad, not yours) I still need some time to disentangle stuff
-        self.define_legend()
 
         ##############################################################
         # The following rest of the code is not rewritten yet
