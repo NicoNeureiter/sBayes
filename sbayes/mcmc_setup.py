@@ -308,8 +308,8 @@ class MCMC:
             fi = 'n{n}'.format(n=self.config['model']['N_AREAS'])
 
         elif file_info == "s":
-            fi = 's{s}_a{a}'.format(s=self.config['simulation']['STRENGTH'],
-                                    a=self.config['simulation']['AREA'])
+            fi = 's{s}a{a}'.format(s=self.config['simulation']['STRENGTH'],
+                                   a=self.config['simulation']['AREA'])
 
         elif file_info == "i":
             fi = 'i{i}'.format(i=int(self.config['model']['INHERITANCE']))
