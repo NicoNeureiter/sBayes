@@ -1,9 +1,11 @@
 {
   "input": {
-    "path_plots": "../results/results_server/i0",
+    "path_plots": "../results/results_server",
     "path_data": "../data/sites.csv",
-    "path_areas": "../results/results_server/i0/areas_i0_0.txt",
-    "path_stats": "../results/results_server/i0/stats_i0_0.txt",
+    "path_areas": ["../results/results_server/i0/areas_i0_0.txt",
+				   "../results/results_server/i1/areas_i1_0.txt"],
+    "path_stats": ["../results/results_server/i0/stats_i0_0.txt",
+				   "../results/results_server/i1/stats_i1_0.txt"],
     "path_ground_truth_areas": "../results/results_server/i0/ground_truth/areas.txt",
     "path_ground_truth_stats": "../results/results_server/i0/ground_truth/stats.txt",
     "experiment": null,

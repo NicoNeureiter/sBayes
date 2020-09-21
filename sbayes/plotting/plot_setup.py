@@ -36,10 +36,6 @@ class Plot:
             self.path_ground_truth_areas = None
             self.path_ground_truth_stats = None
 
-        # Input areas and stats
-        self.areas = []
-        self.stats = []
-
         self.number_features = 0
 
         # Input sites, site_names, network, ...
@@ -51,9 +47,6 @@ class Plot:
         self.families = None
         self.family_names = None
 
-        # Input ground truth areas and stats (for simulation)
-        if self.is_simulation:
-            self.areas_ground_truth = []
 
         # Dictionary with all the MCMC results
         self.results = {}
@@ -325,12 +318,19 @@ class Plot:
 
         # Read ground truth files
         if self.is_simulation:
-            # areas_ground_truth_path = f"{self.path_results}/n{self.config['input']['run']}/ground_truth/areas.txt"
-            self.areas_ground_truth = self.read_areas(self.path_ground_truth_areas)
-            self.results['true_zones'] = self.areas_ground_truth
 
-            # stats_ground_truth_path = f"{self.path_results}/n{self.config['input']['run']}/ground_truth/stats.txt"
-            self.read_stats(self.path_ground_truth_stats, self.is_simulation)
+            if model is None:
+                path_ground_truth_areas = self.path_ground_truth_areas
+                path_ground_truth_stats = self.path_ground_truth_stats
+
+            else:
+                path_ground_truth_areas = [p for p in self.path_ground_truth_areas if
+                                           str(model) + '/ground_truth/areas' in p][0]
+                path_ground_truth_stats = [p for p in self.path_ground_truth_stats if
+                                           str(model) + '/ground_truth/stats' in p][0]
+
+            self.results['true_zones'] = self.read_areas(path_ground_truth_areas)
+            self.read_stats(path_ground_truth_stats, self.is_simulation)
 
     def get_model_names(self):
 

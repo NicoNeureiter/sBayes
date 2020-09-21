@@ -217,7 +217,6 @@ class Map(Plot):
 
         zone_freq = np.sum(area, axis=0)/n_samples
         in_graph = zone_freq >= post_freq
-
         locations = self.locations[in_graph]
         n_graph = len(locations)
 
@@ -279,6 +278,8 @@ class Map(Plot):
         self.fig, self.ax = plt.subplots(figsize=(self.map_parameters['fig_width'],
                                                   self.map_parameters['fig_height']),
                                          constrained_layout=True)
+        if self.config['input']['subset']:
+            self.plot_subset()
 
         self.ax.scatter(*self.locations.T, s=self.config['graphic']['size'], c="darkgrey", alpha=1, linewidth=0)
 
@@ -665,7 +666,7 @@ class Map(Plot):
 
     # Load subset data
     # Helper function for add_subset
-    def load_subset(self):
+    def plot_subset(self):
         # Get sites in subset
         is_in_subset = [x == 1 for x in self.sites['subset']]
         sites_all = deepcopy(self.sites)
@@ -675,19 +676,12 @@ class Map(Plot):
                 self.sites[key] = list(np.array(self.sites[key])[is_in_subset])
             else:
                 self.sites[key] = self.sites[key][is_in_subset, :]
-        return is_in_subset, sites_all
+        self.locations = self.sites['locations']
 
-    # Add subset
-    def add_subset(self):
-
-        is_in_subset, sites_all = self.load_subset()
-
-        # Again only for this one experiment with a subset
-        # could go to subset function. Low priority.
         # plot all points not in the subset in light grey
         not_in_subset = np.logical_not(is_in_subset)
         other_locations = sites_all['locations'][not_in_subset]
-        self.ax.scatter(*other_locations.T, s=self.config['graphic']['size'], c="darkgrey", alpha=1, linewidth=0)
+        self.ax.scatter(*other_locations.T, s=self.config['graphic']['size'], c="gainsboro", alpha=1, linewidth=0)
 
         # Add a visual bounding box to the map to show the location of the subset on the map
         x_coords, y_coords = self.locations.T
@@ -702,6 +696,7 @@ class Map(Plot):
         # Adds a small label that reads "Subset"
         self.ax.text(x_max, y_max + 200, 'Subset', fontsize=18, color='#000000')
 
+
     # Check all the previous additional functions
     def visualize_additional_map_elements(self, lh_single_zones):
         # Does the plot have a background map?
@@ -709,12 +704,6 @@ class Map(Plot):
         if self.config['graphic']['bg_map']:
             self.add_background_map(self.ax)
             self.add_rivers(self.ax)
-        # This is only valid for one single experiment
-        # where we perform the analysis on a biased subset.
-        # The following lines of code selects only those sites which are in the subset
-        # Low priority: could go to a separate function
-        if self.config['input']['subset']:
-            self.add_subset()
 
     def return_correspondence_table(self, fname, ncol=3):
         """ Which language belongs to which number? This table will tell you more
