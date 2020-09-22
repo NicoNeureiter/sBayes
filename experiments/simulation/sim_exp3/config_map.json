@@ -1,11 +1,11 @@
 {
   "input": {
-    "path_results": "../results/2020-07-02_18-43/n4",
+    "path_results": "../results/2020-07-02_18-43",
     "path_data": "../data/sites.csv",
-    "path_areas": "../results/2020-07-02_18-43/n4/areas_n4_1.txt",
-    "path_stats": "../results/2020-07-02_18-43/n4/stats_n4_1.txt",
-    "path_ground_truth_areas": "../results/2020-07-02_18-43/n4/ground_truth/areas.txt",
-    "path_ground_truth_stats": "../results/2020-07-02_18-43/n4/ground_truth/stats.txt",
+    "path_areas": ["../results/2020-07-02_18-43/n4/areas_n4_1.txt"],
+    "path_stats": ["../results/2020-07-02_18-43/n4/stats_n4_1.txt"],
+    "path_ground_truth_areas": ["../results/2020-07-02_18-43/n4/ground_truth/areas.txt"],
+    "path_ground_truth_stats": ["../results/2020-07-02_18-43/n4/ground_truth/stats.txt"],
     "experiment": null,
     "subset": false,
     "proj4": null,
