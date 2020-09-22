@@ -310,7 +310,6 @@ class Plot:
 
         else:
             print('Reading results of model %s...' % model)
-
             path_areas = [p for p in self.path_areas if 'areas_' + str(model) + '_' in p][0]
             path_stats = [p for p in self.path_stats if 'stats_' + str(model) + '_' in p][0]
 
@@ -336,5 +335,4 @@ class Plot:
     def get_model_names(self):
         last_part = [p.rsplit('/', 1)[-1] for p in self.path_areas]
         name = [p.rsplit('_')[1] for p in last_part]
-
         return name

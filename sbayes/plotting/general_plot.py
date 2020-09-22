@@ -372,7 +372,7 @@ class GeneralPlot(Plot):
 
         plt.subplots_adjust(wspace=0.2, hspace=0.2)
 
-        fig.savefig(self.path_plots + fname, dpi=400, format="pdf")
+        fig.savefig(self.path_plots + fname + ".pdf", dpi=400, format="pdf")
 
     # This is not changed yet
     def plot_probability_grid(self, fname, p_name="gamma_a1", burn_in=0.4):
@@ -412,7 +412,7 @@ class GeneralPlot(Plot):
             position += 1
 
         plt.subplots_adjust(wspace=0.2, hspace=0.2)
-        fig.savefig(self.path_plots + fname, dpi=400, format="pdf")
+        fig.savefig(self.path_plots + fname + ".pdf", dpi=400, format="pdf")
 
     def plot_dic(self, models, burn_in, simulated_data=False, threshold=False, fname='DICs'):
         """This function plots the dics. What did you think?
