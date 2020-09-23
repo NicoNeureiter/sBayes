@@ -947,8 +947,10 @@ class Map(Plot):
 
         # Save the plot
 
-        self.fig.savefig(f"{self.path_plots + fname}.{self.map_parameters['save_format']}", bbox_inches='tight', dpi=400, format=self.map_parameters['save_format'])
+        self.fig.savefig(f"{self.path_plots + fname}.{self.map_parameters['save_format']}",
+                         bbox_inches='tight', dpi=400, format=self.map_parameters['save_format'])
         # Should the labels displayed in the map be returned? These are later added as a separate legend (
         # outside this hell of a function)
+        plt.close(self.fig)
         if return_correspondence and label_languages:
             self.return_correspondence_table(fname=fname)

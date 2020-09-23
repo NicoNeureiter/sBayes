@@ -10,6 +10,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 import seaborn as sns
 import math
+import matplotlib.ticker as mtick
+from matplotlib.ticker import AutoMinorLocator
 
 from sbayes.plotting.plot_setup import Plot
 from sbayes.postprocessing import compute_dic
@@ -414,19 +416,15 @@ class GeneralPlot(Plot):
         plt.subplots_adjust(wspace=0.2, hspace=0.2)
         fig.savefig(self.path_plots + fname, dpi=400, format="pdf")
 
-    def plot_dic(self, models, burn_in, simulated_data=False, threshold=False, fname='DICs'):
+    def plot_dic(self, models, burn_in, true_model=None):
         """This function plots the dics. What did you think?
         Args:
-            dics(dict): A dict of DICs from different models
 
+            models(dict): A dict of different models for which the DIC is evaluated
+            burn_in (float): Fraction of samples discarded as burn-in, when computing the DIC
+            true_model (str): id of true model
         """
         print('Plotting DIC...')
-        # if simulated_data:
-        #     pp = get_plotting_params(plot_type="plot_dics_simulated")
-        # else:
-        #     pp = get_plotting_params(plot_type="plot_dics")
-        #
-        # plt.rcParams["axes.linewidth"] = pp['frame_width']
 
         fig, ax = plt.subplots(figsize=(20, 10))
         x = list(models.keys())
@@ -438,39 +436,242 @@ class GeneralPlot(Plot):
             dic = compute_dic(lh, burn_in)
             y.append(dic)
 
+        # Limits
         ax.plot(x, y, lw=1, color='#000000', label='DIC')
         y_min, y_max = min(y), max(y)
+        y_range = y_max - y_min
 
-        # round y min and y max to 1000 up and down, respectively
-        n_digits = len(str(int(y_min))) - 1
-        convertor = 10 ** (n_digits - 2)
+        x_min = 0
+        x_max = len(x)-1
 
-        y_min = int(np.floor(y_min / convertor) * convertor)
-        y_max = int(np.ceil(y_max / convertor) * convertor)
+        ax.set_xlim([x_min, x_max])
+        ax.set_ylim([y_min - y_range * 0.1, y_max + y_range * 0.1])
 
-        ax.set_ylim([y_min, y_max])
+        # Labels and ticks
+        ax.set_xlabel('Number of areas', fontsize=10, fontweight='bold')
+        ax.set_ylabel('DIC', fontsize=10, fontweight='bold')
+
+        labels = list(range(1, len(x) + 1))
+        ax.set_xticklabels(labels, fontsize=8)
+
         y_ticks = np.linspace(y_min, y_max, 6)
         ax.set_yticks(y_ticks)
         yticklabels = [f'{y_tick:.0f}' for y_tick in y_ticks]
         ax.set_yticklabels(yticklabels, fontsize=10)
+        pos_true_model = [idx for idx, val in enumerate(x) if val == true_model][0]
 
-        # if threshold:
-        #     ax.axvline(x=threshold, lw=pp['line_thickness'], color=pp['color_burn_in'], linestyle='-')
-        #     ypos_label = y_min + (y_max - y_min) / 2
-        #     # ax.text(threshold, ypos_label, 'threshold', rotation=90, size=pp['fontsize'], color=pp['color_burn_in'])
+        if true_model is not None:
 
-        ax.set_ylabel('DIC', fontsize=10, fontweight='bold')
+            color_burn_in = 'grey'
+            ax.axvline(x=pos_true_model, lw=1, color=color_burn_in, linestyle='--')
+            ypos_label = y_min + y_range * 0.15
+            plt.text(pos_true_model - 0.05, ypos_label, 'Simulated areas', rotation=90, size=10, color=color_burn_in)
 
-        labels = [item.get_text() for item in ax.get_xticklabels()]
-        labels = list(range(1, len(x) + 1))
-        ax.set_xticklabels(labels, fontsize=8)
-
-        # x_min = 1
-        # x_max = len(x)
-        # x_ticks = np.linspace(x_min, x_max, len(x))
-        # ax.set_xticks(x_ticks)
-        # ax.set_xticklabels([int(x_tick) for x_tick in x_ticks], fontsize=8)
-
-        ax.set_xlabel('Number of areas', fontsize=8, fontweight='bold')
         fig.savefig(self.path_plots + '/dic.pdf', dpi=400, format="pdf", bbox_inches='tight')
-        # fig.savefig(f"{fname}.{pp['save_format']}", bbox_inches='tight', dpi=400, format=pp['save_format'])
+
+    def plot_trace(self, burn_in=0.2, parameter='likelihood', fname="trace", ylim=None, ground_truth=False,
+                   show_every_k_sample=1):
+        """
+        Function to plot the trace of a parameter
+        Args:
+            burn_in (float): First n% of samples are burn-in
+            parameter (str): Parameter for which to plot the trace
+            fname (str): a path followed by a the name of the file
+            ylim (tuple): limits on the y-axis
+            ground_truth(bool): show ground truth
+            show_every_k_sample (int): show every 1, 1+k,1+2k sample and skip over the rest
+        """
+        # For Olga: change all three parameters to config file entries
+        plt.rcParams["axes.linewidth"] = 1
+        fig, ax = plt.subplots(figsize=(10, 8))
+
+        if parameter == 'recall_and_precision':
+            y = self.results['recall'][::show_every_k_sample]
+            y2 = self.results['precision'][::show_every_k_sample]
+            x = self.results['sample_id'][::show_every_k_sample]
+            ax.plot(x, y, lw=0.5, color='#e41a1c', label="recall")
+            ax.plot(x, y2, lw=0.5, color='dodgerblue', label="precision")
+
+        else:
+            try:
+                y = self.results[parameter][::show_every_k_sample]
+
+            except KeyError:
+                raise ValueError("Cannot compute trace. " + parameter + " is not a valid parameter.")
+
+            x = self.results['sample_id'][::show_every_k_sample]
+            ax.plot(x, y, lw=0.5, color='#e41a1c', label=parameter)
+
+        if ylim is None:
+            y_min, y_max = min(y), max(y)
+
+        else:
+            y_min, y_max = ylim
+
+        y_range = y_max - y_min
+        x_min, x_max = 0, x[-1]
+
+        if ground_truth:
+            ground_truth_parameter = 'true_' + parameter
+            y_gt = self.results[ground_truth_parameter]
+            ax.axhline(y=y_gt, xmin=x[0], xmax=x[-1], lw=1, color='#fdbf6f',
+                       linestyle='-',
+                       label='ground truth')
+            y_min, y_max = [min(y_min, y_gt), max(y_max, y_gt)]
+
+        # Show burn-in in plot
+        end_bi = math.ceil(x[-1] * burn_in)
+        end_bi_label = math.ceil(x[-1] * (burn_in - 0.03))
+
+        color_burn_in = 'grey'
+        ax.axvline(x=end_bi, lw=1, color=color_burn_in, linestyle='--')
+        ypos_label = y_min + y_range * 0.15
+        plt.text(end_bi_label, ypos_label, 'Burn-in', rotation=90, size=10, color=color_burn_in)
+
+        # Ticks and labels
+        n_ticks = 6 if int(burn_in * 100) % 20 == 0 else 12
+        x_ticks = np.linspace(x_min, x_max, n_ticks)
+        x_ticks = [round(t, -5) for t in x_ticks]
+        ax.set_xticks(x_ticks)
+        ax.set_xticklabels([f'{x_tick:.0f}' for x_tick in x_ticks], fontsize=6)
+
+        f = mtick.ScalarFormatter(useOffset=False, useMathText=True)
+        g = lambda x, pos: "${}$".format(f._formatSciNotation('%1.10e' % x))
+        plt.gca().xaxis.set_major_formatter(mtick.FuncFormatter(g))
+        ax.set_xlabel('Iteration', fontsize=8, fontweight='bold')
+
+        y_ticks = np.linspace(y_min, y_max, 5)
+        ax.set_yticks(y_ticks)
+        y_ticklabels = [f'{y_tick:.1f}' for y_tick in y_ticks]
+        ax.set_yticklabels(y_ticklabels, fontsize=6)
+
+        # Limits
+        ax.set_xlim([x_min, x_max])
+        ax.set_ylim([y_min - y_range * 0.1, y_max + y_range * 0.1])
+
+        # Legend
+        ax.legend(loc=4, prop={'size': 8}, frameon=False)
+
+        # Save
+        fig.savefig(self.path_plots + fname + '.pdf', dpi=400, format="pdf", bbox_inches='tight')
+        plt.close(fig)
+
+    def plot_trace_lh_prior(self, burn_in=0.2, fname="trace", show_every_k_sample=1, lh_lim=None, prior_lim=None):
+        fig, ax1 = plt.subplots(figsize=(10, 8))
+
+        lh = self.results['likelihood'][::show_every_k_sample]
+        prior = self.results['prior'][::show_every_k_sample]
+        x = self.results['sample_id'][::show_every_k_sample]
+
+        # Plot lh on axis 1
+        ax1.plot(x, lh, lw=0.5, color='#e41a1c', label='likelihood')
+
+        # Plot prior on axis 2
+        ax2 = ax1.twinx()
+        ax2.plot(x, prior, lw=0.5, color='dodgerblue', label='prior')
+
+        x_min, x_max = 0, x[-1]
+        if lh_lim is None:
+            lh_min, lh_max = min(lh), max(lh)
+        else:
+            lh_min, lh_max = lh_lim
+        lh_range = lh_max - lh_min
+
+        if prior_lim is None:
+            prior_min, prior_max = min(lh), max(lh)
+        else:
+            prior_min, prior_max = prior_lim
+        prior_range = prior_max - prior_min
+
+        # Labels and ticks
+        n_ticks = 6 if int(burn_in * 100) % 20 == 0 else 12
+        x_ticks = np.linspace(x_min, x_max, n_ticks)
+        x_ticks = [round(t, -5) for t in x_ticks]
+        ax1.set_xticks(x_ticks)
+        ax1.set_xticklabels([f'{x_tick:.0f}' for x_tick in x_ticks], fontsize=6)
+
+        f = mtick.ScalarFormatter(useOffset=False, useMathText=True)
+        g = lambda x, pos: "${}$".format(f._formatSciNotation('%1.10e' % x))
+        plt.gca().xaxis.set_major_formatter(mtick.FuncFormatter(g))
+        ax1.set_xlabel('Iteration', fontsize=8, fontweight='bold')
+
+        lh_ticks = np.linspace(lh_min, lh_max, 6)
+        ax1.set_yticks(lh_ticks)
+        lh_ticklabels = [f'{lh_tick:.0f}' for lh_tick in lh_ticks]
+        ax1.set_yticklabels(lh_ticklabels, fontsize=6, color='#e41a1c')
+        ax1.set_ylabel('log-likelihood', fontsize=8, fontweight='bold', color='#e41a1c')
+
+        prior_ticks = np.linspace(prior_min, prior_max, 6)
+        ax2.set_yticks(prior_ticks)
+        prior_ticklabels = [f'{prior_tick:.0f}' for prior_tick in prior_ticks]
+        ax2.set_yticklabels(prior_ticklabels, fontsize=8, color='dodgerblue')
+        ax2.set_ylabel('prior', fontsize=8, fontweight='bold', color='dodgerblue')
+
+        # Show burn-in in plot
+        end_bi = math.ceil(x[-1] * burn_in)
+        end_bi_label = math.ceil(x[-1] * (burn_in - 0.03))
+
+        color_burn_in = 'grey'
+        ax1.axvline(x=end_bi, lw=1, color=color_burn_in, linestyle='--')
+        ypos_label = prior_min + prior_range * 0.15
+        plt.text(end_bi_label, ypos_label, 'Burn-in', rotation=90, size=10, color=color_burn_in)
+
+        # Limits
+        ax1.set_ylim([lh_min - lh_range * 0.1, lh_max + lh_range * 0.1])
+        ax2.set_ylim([prior_min - prior_range * 0.1, prior_max + prior_range * 0.1])
+
+        # Save
+        fig.savefig(self.path_plots + fname + '.pdf', dpi=400, format="pdf", bbox_inches='tight')
+        plt.close(fig)
+
+    def plot_recall_precision_over_several_models(self, models):
+
+        fig, ax = plt.subplots(figsize=(10, 8))
+
+        recall = []
+        precision = []
+
+        # Retrieve recall and precision for every model and plot
+        for m in list(models.keys()):
+            recall.extend(models[m]['recall'])
+            precision.extend(models[m]['precision'])
+
+        x = list(range(len(recall)))
+        ax.plot(x, recall, lw=0.5, color='#e41a1c', label='recall')
+        ax.plot(x, precision, lw=0.5, color='dodgerblue', label='precision')
+
+        # Limits
+        ax.set_ylim(bottom=0)
+        x_min, x_max = 0, len(recall)
+        y_min, y_max, y_step = 0, 1, 0.2
+        ax.set_xlim([x_min, x_max])
+        ax.set_ylim([y_min, y_max + 0.1])
+
+        # Labels
+        n_models = len(list(models.keys()))
+        n_ticks = n_models + 1
+        x_ticks = np.linspace(x_min, x_max, n_ticks)
+
+        x_ticks_offset = x_ticks[1] / 2
+        x_ticks = [x_tick - x_ticks_offset for x_tick in x_ticks if x_tick > 0]
+        ax.set_xticks(x_ticks)
+        x_ticklabels = [f'{x_ticklabel:.0f} areas' for x_ticklabel in np.linspace(1, n_models, n_models)]
+        x_ticklabels[0] = '1 area'
+        ax.set_xticklabels(x_ticklabels, fontsize=6)
+
+        minor_locator = AutoMinorLocator(2)
+        ax.xaxis.set_minor_locator(minor_locator)
+        ax.grid(which='minor', axis='x', color='#000000', linestyle='-')
+        ax.set_axisbelow(True)
+
+        y_ticks = np.arange(y_min, y_max + y_step, y_step)
+        ax.set_yticks(y_ticks)
+        y_ticklabels = [f'{y_tick:.1f}' for y_tick in y_ticks]
+        y_ticklabels[0] = '0'
+        ax.set_yticklabels(y_ticklabels, fontsize=6)
+
+        ax.legend(loc=4, prop={'size': 6}, frameon=True, framealpha=1, facecolor='#ffffff',
+                  edgecolor='#ffffff')
+
+        fig.savefig(self.path_plots + '/recall_precision_over_models.pdf', dpi=400, format="pdf", bbox_inches='tight')
+        plt.close(fig)

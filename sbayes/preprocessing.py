@@ -432,7 +432,6 @@ def simulate_assignment_probabilities(n_features, p_number_categories, inheritan
         alpha_p_contact = np.full(shape=cat_f, fill_value=e_contact)
         for z in range(n_areas):
             p_contact[z, f, range(cat_f)] = np.random.dirichlet(alpha_p_contact, size=1)
-
     # Simulate Inheritance?
     if not inheritance:
         return p_universal, p_contact, None

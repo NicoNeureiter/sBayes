@@ -13,7 +13,8 @@ import scipy.stats as stats
 from scipy.sparse import csr_matrix
 import matplotlib.pyplot as plt
 from matplotlib.collections import LineCollection
-
+from scipy.stats import chi2_contingency
+from itertools import combinations
 
 EPS = np.finfo(float).eps
 
@@ -1049,6 +1050,37 @@ def assign_na(features, n_na):
         features[na_site, na_feature, :] = 0
 
     return features
+
+
+def assess_correlation_probabilities(p_universal, p_contact, p_inheritance):
+    """Asses the correlation of probabilities
+
+        Args:
+            p_universal (np.array): universal state probabilities
+                shape: (1, n_states)
+            p_contact (np.array): state probabilities in areas
+                shape: (n_features, n_states)
+            p_families (np.array): state probabilities in families
+                shape: (n_families, n_states)
+            states(list): available states per feature
+
+        """
+    # p_contact
+    samples = p_contact
+    n_samples = samples.shape[0]
+    n_features = samples.shape[1]
+
+    comb = list(combinations(list(range(n_samples)), 2))
+    threshold = 0.5
+    correlated_probability_vectors = 1
+    for f in range(n_features):
+        for c in comb:
+            p0 = samples[c[0], f]
+            p1 = samples[c[1], f]
+            p_same_state = np.dot(p0, p1)
+            if p_same_state > threshold:
+                correlated_probability_vectors += 1
+    return correlated_probability_vectors
 
 
 def log_binom(n, k):

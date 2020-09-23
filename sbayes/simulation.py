@@ -18,6 +18,7 @@ from sbayes.preprocessing import (compute_network, read_sites,
                                   simulate_weights,
                                   subset_features,
                                   counts_from_complement)
+from sbayes.util import assess_correlation_probabilities
 
 
 class Simulation:
@@ -96,16 +97,23 @@ class Simulation:
                                         inheritance=self.inheritance,
                                         n_features=self.config['N_FEATURES'])
 
-        # Simulate probabilities for features to be universally preferred,
-        # passed through contact (and inherited if available)
-        self.p_universal, self.p_contact, self.p_inheritance \
-            = simulate_assignment_probabilities(e_universal=self.config['E_UNIVERSAL'],
-                                                e_contact=self.config['E_CONTACT'],
-                                                e_inheritance=self.config['E_INHERITANCE'],
-                                                inheritance=self.inheritance,
-                                                n_features=self.config['N_FEATURES'],
-                                                p_number_categories=self.config['P_N_CATEGORIES'],
-                                                areas=self.areas, families=self.families,)
+        while True:
+
+            # Simulate probabilities for features to be universally preferred,
+            # passed through contact (and inherited if available)
+            self.p_universal, self.p_contact, self.p_inheritance \
+                = simulate_assignment_probabilities(e_universal=self.config['E_UNIVERSAL'],
+                                                    e_contact=self.config['E_CONTACT'],
+                                                    e_inheritance=self.config['E_INHERITANCE'],
+                                                    inheritance=self.inheritance,
+                                                    n_features=self.config['N_FEATURES'],
+                                                    p_number_categories=self.config['P_N_CATEGORIES'],
+                                                    areas=self.areas, families=self.families)
+
+            correlated = assess_correlation_probabilities(self.p_universal, self.p_contact, self.p_inheritance)
+            print(correlated)
+            if correlated <= 10:
+                break
 
         # Simulate features
         self.features, self.states, self.feature_names, self.state_names = \
@@ -117,6 +125,11 @@ class Simulation:
                               weights=self.weights,
                               inheritance=self.inheritance)
 
+
+
+        # compare families to all areas
+        # compare areas against each other
+        # compute cramers V and abort if too many features are similar
         if self.subset:
             # The data is split into two parts: subset and complement
             # The subset is used for analysis and the complement to define the prior
