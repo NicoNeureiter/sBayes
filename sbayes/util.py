@@ -1069,6 +1069,62 @@ def log_binom(n, k):
     return -betaln(1 + n - k, 1 + k) - np.log(n + 1)
 
 
+# Fix path for default config files (in the folder sbayes/sbayes/config)
+def fix_default_config(default_config_path):
+    default_config_path = default_config_path.strip()
+    if os.path.isabs(default_config_path):
+        abs_config_path = default_config_path
+        return abs_config_path
+    else:
+
+        # Get the beginning of the path, before "experiments"
+        abs_config_path = ''
+        path_elements = os.path.abspath(default_config_path).split('/')
+        for element in path_elements:
+            if element == 'experiments':
+                break
+            else:
+                abs_config_path += element + '/'
+
+        # Add the part that will be always there
+        abs_config_path += 'sbayes/' + \
+                           '/'.join([os.path.dirname(default_config_path),
+                                     os.path.basename(default_config_path)])
+
+        return abs_config_path.replace("\\", "/")
+
+
+# These two functions are copy pasted from experiment_setup.py, but they are not used yet
+# todo: use them in the plotting classes
+def decompose_config_path(config_path):
+    config_path = config_path.strip()
+    if os.path.isabs(config_path):
+        abs_config_path = config_path
+    else:
+        abs_config_path = os.path.abspath(config_path)
+
+    base_directory = os.path.dirname(abs_config_path)
+
+    return base_directory, abs_config_path.replace("\\", "/")
+
+
+def fix_relative_path(base_directory, path):
+    """Make sure that the provided path is either absolute or relative to
+    the config file directory.
+
+    Args:
+        path (str): The original path (absolute or relative).
+
+    Returns:
+        str: The fixed path.
+     """
+    path = path.strip()
+    if os.path.isabs(path):
+        return path
+    else:
+        return os.path.join(base_directory, path).replace("\\", "/")
+
+
 if __name__ == "__main__":
     import doctest
     doctest.testmod()

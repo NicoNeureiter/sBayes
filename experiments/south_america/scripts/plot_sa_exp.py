@@ -15,6 +15,8 @@ if __name__ == '__main__':
     for m in names:
         plot_map = Map()
         plot_map.load_config(config_file='../config_plot.json')
+        plot_map.add_config_default()
+
         # Read sites, sites_names, network
         plot_map.read_data()
         # Read results for each model

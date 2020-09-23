@@ -60,7 +60,7 @@ class Plot:
     ####################################
     def load_config(self, config_file):
 
-        # Get parameters from config_file
+        # Get parameters from config_custom (for particular experiment)
         self.config_file = config_file
 
         # Read config file

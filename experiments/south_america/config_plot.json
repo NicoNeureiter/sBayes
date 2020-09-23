@@ -1,15 +1,13 @@
 {
   "input": {
     "path_data": "../data/features/features.csv", 
-    "path_plots": "../results/results_server", 
+    "path_results": "../results/results_server",
     "path_areas": ["../results/results_server/n1/areas_n1_0.txt", 
       "../results/results_server/n2/areas_n2_0.txt", "../results/results_server/n3/areas_n3_0.txt",
-      "../results/results_server/n4/areas_n4_0.txt", "../results/results_server/n5/areas_n5_0.txt",
-      "../results/results_server/n6/areas_n6_0.txt", "../results/results_server/n7/areas_n7_0.txt"],
+      "../results/results_server/n4/areas_n4_0.txt", "../results/results_server/n5/areas_n5_0.txt"],
     "path_stats": ["../results/results_server/n1/stats_n1_0.txt", 
       "../results/results_server/n2/stats_n2_0.txt", "../results/results_server/n3/stats_n3_0.txt",
-      "../results/results_server/n4/stats_n4_0.txt", "../results/results_server/n5/stats_n5_0.txt",
-      "../results/results_server/n6/stats_n6_0.txt", "../results/results_server/n7/stats_n7_0.txt"],
+      "../results/results_server/n4/stats_n4_0.txt", "../results/results_server/n5/stats_n5_0.txt"],
     "path_ground_truth_areas": null, 
     "path_ground_truth_stats": null, 
     "experiment": "sa", 
@@ -20,92 +18,13 @@
     "run": 4, 
     "scenarios": [1] 
   },
-  "graphic": {
-    "x_extend": [-3756000, 420000], 
-    "y_extend": [1100000, 3800000], 
-    "x_extend_overview": [-4800000, 3900000], 
-    "y_extend_overview": [-3000000, 6200000], 
-    "bg_map": true, 
-    "size": 25, 
-    "size_line": 3, 
-    "family_alpha_shape": 0.00001, 
-    "family_colors": ["#b3e2cd", "#f1e2cc", "#cbd5e8", "#f4cae4", "#e6f5c9", "#d3d3d3", "#f48aa7", "#f49f1c", "#f48aa7", "#f48aa7","#f48aa7","#f48aa7", "#f48aa7"],
-    "true_family_colors": ["#add8e6", "#f1e2cc", "#cbd5e8", "#f4cae4", "#e6f5c9"],  
-    "zone_colors": ["#1b9e77", "#d95f02", "#7570b3", "#e7298a", "#66a61e", "#e6ab02", "#a6761d", "#666666"],
-    "flamingo_color": "#f48aa7",
-    "banana_color": "#f49f1c" 
-  },
 
-  "plot_type": {
-    "general": {
-      "fontsize": 16, 
-      "line_thickness": 2,
-      "frame_width": 1.5,
-      "save_format": "pdf"
-    },
-    "plot_empty_map": { 
-      "fig_width": 20,
-      "fig_height": 10,
-      "overview_position": [0.02, 0.01, 1, 1]
-    },
-    "plot_posterior_map_simulated": { 
-      "fig_width": 20,
-      "fig_height": 10,
-      "area_legend_position": [0.02, 0.2],
-      "freq_legend_position": [0.15, 0.2],
-      "poly_legend_position": [0.37, 0.15],
-      "family_legend_position": [0.39, 0.10]
-    },
-    "plot_posterior_map_sa": { 
-      "fig_width": 20,		
-      "fig_height": 10,
-      "area_legend_position": [0.02, 0.71],
-      "freq_legend_position": [0.3, 0.2],
-      "family_legend_position": [0.02, 0.98],
-      "overview_position": [0.02, 0.01, 1, 1]
-    },
-    "plot_posterior_map_balkan": {
-      "fig_width": 20, 
-      "fig_height": 10,
-      "area_legend_position": [0.02, 0.71],
-      "freq_legend_position": [0.02, 0.55],
-      "family_legend_position": [0.02, 0.965],
-      "overview_position": [0.02, -0.01, 1, 1]
-    },
-    "plot_traces": { 
-      "fig_width": 10,
-      "fig_height": 8
-    },
-    "plot_trace_lh": { 
-      "fig_width": 10,
-      "fig_height": 8,
-      "color_burn_in": "grey"
-    },
-    "plot_trace_lh_with_prior": { 
-      "fig_width": 8,
-      "fig_height": 7,
-      "color_burn_in": "grey"
-    },
-    "plot_trace_recall_precision": {
-       "fig_width": 10,
-       "fig_height": 8,
-       "color_burn_in": "grey"
-    },
-    "plot_dics": {
-      "fig_width": 9,
-      "fig_height": 6,
-      "color_burn_in": "grey"
-    },
-    "plot_dics_simulated": { 
-      "fig_width": 10,
-      "fig_height": 8,
-      "color_burn_in": "grey"
-    }
-  },
-
-  "overview": {
-    "width": 3.8,
-    "height": 4,
-    "location": "lower left"
+  "graphic" : {
+    "x_extend": [-3756000, 420000],
+    "y_extend": [1100000, 3800000],
+    "x_extend_overview": [-4800000, 3900000],
+    "y_extend_overview": [-3000000, 6200000],
+    "bg_map": true,
+    "family_alpha_shape": 0.00001
   }
 }
