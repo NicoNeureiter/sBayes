@@ -12,12 +12,13 @@ import numpy as np
 
 from sbayes.preprocessing import (compute_network, read_sites,
                                   simulate_assignment_probabilities,
-                                  simulate_families,
+                                  assign_family,
+                                  assign_area,
                                   simulate_features,
                                   simulate_weights,
-                                  simulate_areas,
                                   subset_features,
                                   counts_from_complement)
+from sbayes.util import assess_correlation_probabilities
 
 
 class Simulation:
@@ -52,6 +53,10 @@ class Simulation:
         # Is a simulation
         self.is_simulated = True
 
+        # Correlation between features
+        self.corr_th = 0.2
+        self.n_correlated = int(self.config['N_FEATURES']/10)
+
     def log_simulation(self):
         logging.basicConfig(format='%(message)s', filename=self.path_log, level=logging.DEBUG)
         logging.info("\n")
@@ -80,12 +85,12 @@ class Simulation:
 
         self.network = compute_network(self.sites)
 
-        # Simulate areas
-        self.areas = simulate_areas(area_id=self.config['AREA'], sites_sim=self.sites)
+        #
+        self.areas = assign_area(area_id=self.config['AREA'], sites_sim=self.sites)
 
         # Simulate families
         if self.inheritance:
-            self.families, self.family_names = simulate_families(fam_id=1, sites_sim=self.sites)
+            self.families, self.family_names = assign_family(fam_id=1, sites_sim=self.sites)
         else:
             self.families = None
 
@@ -95,17 +100,33 @@ class Simulation:
                                         i_inheritance=self.config['I_INHERITANCE'],
                                         inheritance=self.inheritance,
                                         n_features=self.config['N_FEATURES'])
+        attempts = 0
+        while True:
+            attempts += 1
+            # Simulate probabilities for features to be universally preferred,
+            # passed through contact (and inherited if available)
+            self.p_universal, self.p_contact, self.p_inheritance \
+                = simulate_assignment_probabilities(e_universal=self.config['E_UNIVERSAL'],
+                                                    e_contact=self.config['E_CONTACT'],
+                                                    e_inheritance=self.config['E_INHERITANCE'],
+                                                    inheritance=self.inheritance,
+                                                    n_features=self.config['N_FEATURES'],
+                                                    p_number_categories=self.config['P_N_CATEGORIES'],
+                                                    areas=self.areas, families=self.families)
 
-        # Simulate probabilities for features to be universally preferred,
-        # passed through contact (and inherited if available)
-        self.p_universal, self.p_contact, self.p_inheritance \
-            = simulate_assignment_probabilities(e_universal=self.config['E_UNIVERSAL'],
-                                                e_contact=self.config['E_CONTACT'],
-                                                e_inheritance=self.config['E_INHERITANCE'],
-                                                inheritance=self.inheritance,
-                                                n_features=self.config['N_FEATURES'],
-                                                p_number_categories=self.config['P_N_CATEGORIES'],
-                                                areas=self.areas, families=self.families,)
+            correlated = assess_correlation_probabilities(self.p_contact, self.p_inheritance,
+                                                          corr_th=self.corr_th)
+
+            if correlated <= self.n_correlated:
+                break
+
+            if attempts > 10000:
+                attempts = 0
+
+                self.corr_th += 0.05
+                self.n_correlated += 1
+                print("Correlation threshold for simulation increased to", self.corr_th)
+                print("Number of allowed correlated features increased to", self.n_correlated)
 
         # Simulate features
         self.features, self.states, self.feature_names, self.state_names = \

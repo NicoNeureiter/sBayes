@@ -13,6 +13,7 @@ import scipy.stats as stats
 from scipy.sparse import csr_matrix
 import matplotlib.pyplot as plt
 from matplotlib.collections import LineCollection
+from itertools import combinations
 
 
 EPS = np.finfo(float).eps
@@ -1014,6 +1015,37 @@ def assign_na(features, n_na):
         features[na_site, na_feature, :] = 0
 
     return features
+
+
+def assess_correlation_probabilities(p_contact, p_inheritance, corr_th):
+    """Asses the correlation of probabilities
+
+        Args:
+            p_contact (np.array): state probabilities in areas
+                shape: (n_features, n_states)
+            p_inheritance (np.array): state probabilities in families
+                shape: (n_families, n_states)
+            corr_th (float): correlation threshold
+
+        """
+
+    if p_inheritance is not None:
+        samples = np.vstack((p_contact, p_inheritance))
+    else:
+        samples = p_contact
+    n_samples = samples.shape[0]
+    n_features = samples.shape[1]
+
+    comb = list(combinations(list(range(n_samples)), 2))
+    correlated_probability_vectors = 0
+    for f in range(n_features):
+        for c in comb:
+            p0 = samples[c[0], f]
+            p1 = samples[c[1], f]
+            p_same_state = np.dot(p0, p1)
+            if p_same_state > corr_th:
+                correlated_probability_vectors += 1
+    return correlated_probability_vectors
 
 
 def log_binom(n, k):

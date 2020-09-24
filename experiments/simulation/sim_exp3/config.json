@@ -1,16 +1,18 @@
 {
 	"simulation": {
 		"SITES": "data/sites.csv",
-		"N_FEATURES": 35,
+		"N_FEATURES": 50,
 		"P_N_CATEGORIES": {
-			"2": 0.4,
-			"3": 0.3,
-			"4": 0.3
+			"2": 0.0,
+			"3": 0.0,
+			"4": 0.0,
+			"5": 0.6,
+			"6": 0.4
 		},
 		"E_UNIVERSAL": 1.0,
-		"E_CONTACT": 0.25,
+		"E_CONTACT": 0.20,
 		"I_UNIVERSAL": 1.0,
-		"I_CONTACT": 3.0,
+		"I_CONTACT": 4.0,
 		"INHERITANCE": false,
 		"AREA": [
 			2,

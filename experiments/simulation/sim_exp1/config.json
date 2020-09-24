@@ -1,7 +1,7 @@
 {
 	"simulation": {
 		"SITES": "data/sites.csv",
-		"N_FEATURES": 35,
+		"N_FEATURES": 50,
 		"P_N_CATEGORIES": {
 			"2": 0.4,
 			"3": 0.3,

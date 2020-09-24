@@ -283,7 +283,7 @@ def sample_categorical(p):
     return np.argmax(z < cdf, axis=-1)
 
 
-def simulate_areas(area_id, sites_sim):
+def assign_area(area_id, sites_sim):
     """ This function finds out which sites belong to contact areas and assigns areal membership accordingly.
 
         Args:
@@ -321,7 +321,7 @@ def simulate_areas(area_id, sites_sim):
     return areas
 
 
-def simulate_families(fam_id, sites_sim):
+def assign_family(fam_id, sites_sim):
     """ This function finds out which sites belong to a family and assigns family membership accordingly.
 
         Args:
