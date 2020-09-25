@@ -16,7 +16,7 @@ if __name__ == '__main__':
     sim.log_simulation()
 
     # Iterate over different setups (priors)
-    PRIOR_UNIVERSAL = [False, True]
+    PRIOR_UNIVERSAL = [True]
 
     for P in PRIOR_UNIVERSAL:
         exp.config['model']['PRIOR']['universal'] = "simulated_counts" if P else "uniform"

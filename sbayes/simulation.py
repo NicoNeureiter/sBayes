@@ -114,7 +114,7 @@ class Simulation:
                                                     p_number_categories=self.config['P_N_CATEGORIES'],
                                                     areas=self.areas, families=self.families)
 
-            correlated = assess_correlation_probabilities(self.p_contact, self.p_inheritance,
+            correlated = assess_correlation_probabilities(self.p_universal, self.p_contact, self.p_inheritance,
                                                           corr_th=self.corr_th)
 
             if correlated <= self.n_correlated:
@@ -123,7 +123,7 @@ class Simulation:
             if attempts > 10000:
                 attempts = 0
 
-                self.corr_th += 0.05
+                self.corr_th += 0.02
                 self.n_correlated += 1
                 print("Correlation threshold for simulation increased to", self.corr_th)
                 print("Number of allowed correlated features increased to", self.n_correlated)

@@ -1017,22 +1017,23 @@ def assign_na(features, n_na):
     return features
 
 
-def assess_correlation_probabilities(p_contact, p_inheritance, corr_th):
+def assess_correlation_probabilities(p_universal, p_contact, p_inheritance, corr_th):
     """Asses the correlation of probabilities
 
         Args:
+            p_universal (np.array): universal state probabilities
+                shape (n_features, n_states)
             p_contact (np.array): state probabilities in areas
-                shape: (n_features, n_states)
+                shape: (n_areas, n_features, n_states)
             p_inheritance (np.array): state probabilities in families
-                shape: (n_families, n_states)
+                shape: (n_families, n_features, n_states)
             corr_th (float): correlation threshold
 
         """
-
     if p_inheritance is not None:
-        samples = np.vstack((p_contact, p_inheritance))
+        samples = np.vstack((p_universal[np.newaxis, :, :], p_contact, p_inheritance))
     else:
-        samples = p_contact
+        samples = np.vstack((p_universal[np.newaxis, :, :], p_contact))
     n_samples = samples.shape[0]
     n_features = samples.shape[1]
 
