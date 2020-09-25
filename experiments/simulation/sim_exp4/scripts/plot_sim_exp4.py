@@ -35,7 +35,6 @@ if __name__ == '__main__':
         except ValueError:
             pass
 
-
         # Plot weights  and probabilities
         # labels = ['U', 'C', 'I']
         # plt.plot_probability_grid(burn_in=0.5, fname='/prob_grid_' + m + '_.pdf')
