@@ -712,10 +712,11 @@ def collect_row_for_writing(s, samples, data, config, steps_per_sample):
 
     # Recall and precision
     if data.is_simulated:
-        sample_z = samples['sample_zones'][s][0]
+        sample_z = np.any(samples['sample_zones'][s], axis=0)
         true_z = np.any(samples['true_zones'], axis=0)
         n_true = np.sum(true_z)
         intersections = np.minimum(sample_z, true_z)
+
         total_recall = np.sum(intersections, axis=0) / n_true
         precision = np.sum(intersections, axis=0) / np.sum(sample_z, axis=0)
 
