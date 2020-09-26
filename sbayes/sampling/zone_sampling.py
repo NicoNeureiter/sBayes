@@ -116,7 +116,14 @@ class ZoneMCMCGenerative(MCMCGenerative):
         # Data
         self.features = features
         self.n_features = features.shape[1]
-        self.sites_per_category = np.count_nonzero(features, axis=0)
+        try:
+            # If possible, applicable states per feature are deduced from the prior
+            self.applicable_states = self.prior_p_global['states']
+
+        except KeyError:
+            # Applicable states per feature are deduced from the data
+            counts_per_states = np.count_nonzero(features, axis=0)
+            self.applicable_states = counts_per_states > 0
 
         # Network
         self.network = network
@@ -261,7 +268,7 @@ class ZoneMCMCGenerative(MCMCGenerative):
         f_id = np.random.choice(range(self.n_features))
 
         # Different features have different numbers of categories
-        f_cats = np.where(self.sites_per_category[f_id] != 0)[0]
+        f_cats = self.applicable_states[f_id]
         p_current = p_global_current[0, f_id, f_cats]
 
         # Sample new p from dirichlet distribution with given precision
@@ -291,7 +298,7 @@ class ZoneMCMCGenerative(MCMCGenerative):
         f_id = np.random.choice(range(self.n_features))
 
         # Different features have different numbers of categories
-        f_cats = np.where(self.sites_per_category[f_id] != 0)[0]
+        f_cats = self.applicable_states[f_id]
         p_current = p_zones_current[z_id, f_id, f_cats]
 
         # Sample new p from dirichlet distribution with given precision
@@ -355,7 +362,7 @@ class ZoneMCMCGenerative(MCMCGenerative):
         f_id = np.random.choice(range(self.n_features))
 
         # Different features have different numbers of categories
-        f_cats = np.where(self.sites_per_category[f_id] != 0)[0]
+        f_cats = self.applicable_states[f_id]
         p_current = p_families_current[fam_id, f_id, f_cats]
 
         # Sample new p from dirichlet distribution with given precision
@@ -700,24 +707,19 @@ class ZoneMCMCGenerative(MCMCGenerative):
 
         # A: Initialize new p_global using the MLE
         else:
-            l_per_cat = np.sum(self.features, axis=0)
-            p_global = normalize(l_per_cat)
 
-            for p in range(len(p_global)):
+            sites_per_state = np.count_nonzero(self.features, axis=0)
+            # Some areas have nan for all states, resulting in a non-defined MLE
+            # other areas have only a single state, resulting in an MLE including 1.
+            # to avoid both, we add 1 to all applicable states of each feature,
+            # which gives a well-defined initial p_zone without 1., slightly nudged away from the MLE
 
-                # Check for nonzero p_idx
-                p_idx = np.where(self.sites_per_category[p] != 0)[0]
-
-                # If any of the remaining is zero -> balance
-                if 0. in p_global[p, p_idx]:
-                    p_global[p, p_idx] = balance_p_array(p_array=p_global[p, p_idx], balance_by=0.1)
+            sites_per_state[np.isnan(sites_per_state)] = 0
+            sites_per_state[self.applicable_states] += 1
+            site_sums = np.sum(sites_per_state, axis=1)
+            p_global = sites_per_state / site_sums[:, np.newaxis]
 
             initial_p_global[0, :, :] = p_global
-
-            # The probabilities of categories without data are set to 0 (or -inf in log space)
-            sites_per_category = np.count_nonzero(self.features, axis=0)
-            initial_p_global[0, sites_per_category == 0] = 0.
-
         return initial_p_global
 
     def set_p_zones_to_mle(self, updated_zone):
@@ -735,11 +737,6 @@ class ZoneMCMCGenerative(MCMCGenerative):
         features_zone = self.features[idx, :, :]
         l_per_cat = np.sum(features_zone, axis=0)
         p_zones = normalize(l_per_cat)
-
-        # The probabilities of categories without data are set to 0
-        # Sampling no-longer in log space. Not needed anymore.
-        # sites_per_category = np.count_nonzero(self.features, axis=0)
-        # p_zones[sites_per_category == 0] = 0.
 
         return p_zones
 
@@ -773,19 +770,18 @@ class ZoneMCMCGenerative(MCMCGenerative):
             idx = initial_zones[i].nonzero()[0]
             features_zone = self.features[idx, :, :]
 
-            l_per_cat = np.nansum(features_zone, axis=0)
+            sites_per_state = np.nansum(features_zone, axis=0)
 
             # Some areas have nan for all states, resulting in a non-defined MLE
             # other areas have only a single state, resulting in an MLE including 1.
             # to avoid both, we add 1 to all applicable states of each feature,
             # which gives a well-defined initial p_zone without 1., slightly nudged away from the MLE
 
-            sites_per_category = np.count_nonzero(self.features, axis=0)
-            l_per_cat[np.isnan(l_per_cat)] = 0
-            l_per_cat[sites_per_category != 0] += 1
+            sites_per_state[np.isnan(sites_per_state)] = 0
+            sites_per_state[self.applicable_states] += 1
 
-            l_sums = np.sum(l_per_cat, axis=1)
-            p_zones = l_per_cat / l_sums[:, np.newaxis]
+            site_sums = np.sum(sites_per_state, axis=1)
+            p_zones = sites_per_state / site_sums[:, np.newaxis]
 
             initial_p_zones[i, :, :] = p_zones
 
@@ -815,7 +811,7 @@ class ZoneMCMCGenerative(MCMCGenerative):
                 idx = self.families[fam].nonzero()[0]
                 features_family = self.features[idx, :, :]
 
-                l_per_cat = np.nansum(features_family, axis=0)
+                sites_per_state = np.nansum(features_family, axis=0)
 
                 # Compute the MLE for each category and each family
                 # Some families have only NAs for some features, resulting in a non-defined MLE
@@ -823,12 +819,11 @@ class ZoneMCMCGenerative(MCMCGenerative):
                 # to avoid both, we add 1 to all applicable states of each feature,
                 # which gives a well-defined initial p_family without 1., slightly nudged away from the MLE
 
-                sites_per_category = np.count_nonzero(self.features, axis=0)
-                l_per_cat[np.isnan(l_per_cat)] = 0
-                l_per_cat[sites_per_category != 0] += 1
+                sites_per_state[np.isnan(sites_per_state)] = 0
+                sites_per_state[self.applicable_states] += 1
 
-                l_sums = np.sum(l_per_cat, axis=1)
-                p_family = l_per_cat / l_sums[:, np.newaxis]
+                state_sums = np.sum(sites_per_state, axis=1)
+                p_family = sites_per_state / state_sums[:, np.newaxis]
                 initial_p_families[fam, :, :] = p_family
 
         return initial_p_families

@@ -234,32 +234,33 @@ def simulate_features(areas,  p_universal, p_contact, weights, inheritance, p_in
 
         # Families
         if inheritance:
-
             lh_family = families.T.dot(p_inheritance[:, i_feat, :]).T
             lh_feature += normed_weights[i_feat, :, 2] * lh_family
 
         # Sample from the categorical distribution defined by lh_feature
         features[:, i_feat] = sample_categorical(lh_feature.T)
 
-    # Categories per feature
-    cats_per_feature = []
-    for f in features.transpose():
+    # Restructure features
+    states = np.unique(features)
+    features_states = np.zeros((n_sites, n_features, len(states)), dtype=int)
+    for st in states:
+        features_states[:, :, st] = np.where(features == st, 1, 0)
 
-        cats_per_feature.append(np.unique(f).tolist())
+    # State names
+    state_names = []
+    for f in range(n_features):
+        applicable = np.unique(features.transpose()[f])
+        state_names.append(applicable.tolist())
 
-    # Return per category
-    cats = np.unique(features)
-    features_cat = np.zeros((n_sites, n_features, len(cats)), dtype=int)
-    for cat in cats:
-            features_cat[:, :, cat] = np.where(features == cat, 1, 0)
+    applicable_states = p_universal > 0.0
 
-    feature_names = {'external': ['f' + str(f+1) for f in range(features_cat.shape[1])],
-                     'internal': [f for f in range(features_cat.shape[1])]}
+    feature_names = {'external': ['f' + str(f+1) for f in range(features_states.shape[1])],
+                     'internal': [f for f in range(features_states.shape[1])]}
 
-    state_names = {'external': cats_per_feature,
-                   'internal': cats_per_feature}
+    state_names = {'external': state_names,
+                   'internal': state_names}
 
-    return features_cat, cats_per_feature, feature_names, state_names
+    return features_states, applicable_states, feature_names, state_names
 
 
 def sample_categorical(p):

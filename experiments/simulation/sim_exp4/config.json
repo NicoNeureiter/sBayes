@@ -3,11 +3,11 @@
 		"SITES": "data/sites.csv",
 		"N_FEATURES": 50,
 		"P_N_CATEGORIES": {
-			"2": 0.4,
+			"2": 0.1,
 			"3": 0.3,
-			"4": 0.3
+			"4": 0.6
 		},
-		"E_UNIVERSAL": 0.3,
+		"E_UNIVERSAL": 0.6,
 		"E_CONTACT": 0.3,
 		"I_UNIVERSAL": 1.0,
 		"I_CONTACT": 2.0,
@@ -34,7 +34,7 @@
 		"M_INITIAL": 15,
 		"WARM_UP": {
 			"N_WARM_UP_STEPS": 100000,
-			"N_WARM_UP_CHAINS": 10
+			"N_WARM_UP_CHAINS": 15
 		}
 	},
 	"model": {

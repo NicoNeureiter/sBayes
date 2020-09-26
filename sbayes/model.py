@@ -799,9 +799,6 @@ def prior_p_global_dirichlet(p_global, dirichlet, categories, outdated_features,
         diri = dirichlet[f]
         p_glob = p_global[0, f, idx]
 
-        if 0. in p_glob:
-            p_glob[np.where(p_glob == 0.)] = EPS
-
         log_prior[f] = dirichlet_logpdf(x=p_glob, alpha=diri)
         # log_prior[f] = diri.logpdf(p_glob)
 

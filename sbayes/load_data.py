@@ -29,6 +29,7 @@ class Data:
         self.site_names = None
         self.features = None
         self.feature_names = None
+        self.states = None
         self.state_names = None
         self.families = None
         self.family_names = None
@@ -48,7 +49,7 @@ class Data:
 
     def load_features(self):
         self.sites, self.site_names, self.features, self.feature_names, \
-            self.state_names, self.families, self.family_names, self.log_load_features = \
+            self.state_names, self.states, self.families, self.family_names, self.log_load_features = \
             read_features_from_csv(file=self.config['data']['FEATURES'])
         self.network = compute_network(self.sites)
 
@@ -60,7 +61,7 @@ class Data:
                                   file=self.config['data']['PRIOR']['universal'])
 
         self.prior_universal = {'counts': counts,
-                                'states': self.state_names['internal']}
+                                'states': self.states}
 
     def load_inheritance_counts(self):
         counts, self.log_load_inheritance_counts = \

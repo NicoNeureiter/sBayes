@@ -228,7 +228,13 @@ def encode_states(features_in):
             cat_axis = np.expand_dims(np.where(features_enc == cat, 1, 0), axis=2)
             features_bin.append(cat_axis)
 
-    return np.concatenate(features_bin, axis=2), state_names, na_number
+    # Find all applicable states
+    applicable_states = np.zeros((len(state_names['internal']), len(features_bin)))
+
+    for f in range(len(state_names['internal'])):
+        applicable_states[f, state_names['internal'][f]] = 1
+
+    return np.concatenate(features_bin, axis=2), state_names, applicable_states.astype(bool), na_number
 
 
 def read_features_from_csv(file):
@@ -292,7 +298,7 @@ def read_features_from_csv(file):
 
     # features
     features_s = np.ndarray.transpose(np.array([csv_as_dict[i] for i in feature_names_ordered]))
-    features, state_names, na_number = encode_states(features_s)
+    features, state_names, applicable_states, na_number = encode_states(features_s)
 
     feature_names = {'external': feature_names_ordered,
                      'internal': list(range(0, len(feature_names_ordered)))}
@@ -313,7 +319,7 @@ def read_features_from_csv(file):
         str(len(feature_names['internal'])) + " features read from " + \
         file + ". " + str(na_number) + " NA value(s) found."
 
-    return sites, site_names, features, feature_names, state_names, families, family_names, log
+    return sites, site_names, features, feature_names, state_names, applicable_states, families, family_names, log
 
 
 def write_languages_to_csv(features, sites, families, file):
@@ -490,7 +496,7 @@ def counts_to_dirichlet(counts, categories, prior='uniform', outdated_features=N
     Args:
         counts(np.array): the counts of categorical data.
                     shape(n_features, n_states)
-        categories(list): states/categories per feature
+        categories(np.array): applicable states/categories per feature
         prior (str): Use one of the following uninformative priors:
             'uniform': A uniform prior probability over the probability simplex Dir(1,...,1)
             'jeffrey': The Jeffrey's prior Dir(0.5,...,0.5)
