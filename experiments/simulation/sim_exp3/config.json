@@ -12,7 +12,7 @@
 			"8": 0.4
 		},
 		"E_UNIVERSAL": 1.0,
-		"E_CONTACT": 0.4,
+		"E_CONTACT": 0.5,
 		"I_UNIVERSAL": 1.0,
 		"I_CONTACT": 2.0,
 		"INHERITANCE": false,
