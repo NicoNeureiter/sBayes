@@ -198,32 +198,23 @@ class Plot:
     # recall, precision
     @staticmethod
     def read_simulation_stats(txt_path, lines):
-        recall, precision = [], []
         true_weights, true_alpha, true_beta, true_gamma = {}, {}, {}, {}
-        true_posterior, true_likelihood, true_prior = 0, 0, 0
 
-        if 'ground_truth' in txt_path:
-            true_posterior = float(lines['posterior'])
-            true_likelihood = float(lines['likelihood'])
-            true_prior = float(lines['prior'])
+        true_posterior = float(lines['posterior'])
+        true_likelihood = float(lines['likelihood'])
+        true_prior = float(lines['prior'])
 
-            for key in lines:
-                true_weights = Plot.read_dictionary(txt_path, lines, key, 'w_', true_weights)
-                true_alpha = Plot.read_dictionary(txt_path, lines, key, 'alpha_', true_alpha)
-                true_beta = Plot.read_dictionary(txt_path, lines, key, 'beta_', true_beta)
-                true_gamma = Plot.read_dictionary(txt_path, lines, key, 'gamma_', true_gamma)
+        for key in lines:
+            true_weights = Plot.read_dictionary(txt_path, lines, key, 'w_', true_weights)
+            true_alpha = Plot.read_dictionary(txt_path, lines, key, 'alpha_', true_alpha)
+            true_beta = Plot.read_dictionary(txt_path, lines, key, 'beta_', true_beta)
+            true_gamma = Plot.read_dictionary(txt_path, lines, key, 'gamma_', true_gamma)
 
-        else:
-            recall.append(float(lines['recall']))
-            precision.append(float(lines['precision']))
-
-        return recall, precision, \
-            true_posterior, true_likelihood, true_prior, \
-            true_weights, true_alpha, true_beta, true_gamma
+        return true_posterior, true_likelihood, true_prior, true_weights, true_alpha, true_beta, true_gamma
 
     # Helper function for read_stats
     # Bind all statistics together into the dictionary self.results
-    def bind_stats(self, txt_path, posterior, likelihood, prior,
+    def bind_stats(self, txt_path, sample_id, posterior, likelihood, prior,
                    weights, alpha, beta, gamma,
                    posterior_single_areas, likelihood_single_areas, prior_single_areas,
                    recall, precision,
@@ -240,6 +231,7 @@ class Plot:
             self.results['true_gamma'] = true_gamma
 
         else:
+            self.results['sample_id'] = sample_id
             self.results['posterior'] = posterior
             self.results['likelihood'] = likelihood
             self.results['prior'] = prior
@@ -259,16 +251,19 @@ class Plot:
     # ground_truth/stats.txt
     # <experiment_path>/stats_<scenario>.txt
     def read_stats(self, txt_path, simulation_flag):
-        posterior, likelihood, prior = [], [], []
+        sample_id, posterior, likelihood, prior, recall, precision = [], [], [], [], [], []
         weights, alpha, beta, gamma, posterior_single_areas, likelihood_single_areas, prior_single_areas =\
             {}, {}, {}, {}, {}, {}, {}
-        recall, precision, true_posterior, true_likelihood, true_prior, true_weights, \
-            true_alpha, true_beta, true_gamma = None, None, None, None, None, None, None, None, None
+        true_posterior, true_likelihood, true_prior, true_weights, \
+            true_alpha, true_beta, true_gamma = None, None, None, None, None, None, None
 
         with open(txt_path, 'r') as f_stats:
             csv_reader = csv.DictReader(f_stats, delimiter='\t')
             for lines in csv_reader:
-
+                try:
+                    sample_id.append(int(lines['Sample']))
+                except KeyError:
+                    pass
                 posterior.append(float(lines['posterior']))
                 likelihood.append(float(lines['likelihood']))
                 prior.append(float(lines['prior']))
@@ -283,8 +278,12 @@ class Plot:
                     prior_single_areas = Plot.read_dictionary(txt_path, lines, key, 'prior_', prior_single_areas)
 
                 if simulation_flag:
-                    recall, precision, true_posterior, true_likelihood, true_prior, \
-                        true_weights, true_alpha, true_beta, true_gamma = Plot.read_simulation_stats(txt_path, lines)
+                    if 'ground_truth' in txt_path:
+                        true_posterior, true_likelihood, true_prior, true_weights,\
+                            true_alpha, true_beta, true_gamma = Plot.read_simulation_stats(txt_path, lines)
+                    else:
+                        recall.append(float(lines['recall']))
+                        precision.append(float(lines['precision']))
 
         # Names of distinct features
         feature_names = []
@@ -292,9 +291,9 @@ class Plot:
             if 'universal' in key:
                 feature_names.append(str(key).rsplit('_', 1)[1])
 
-        self.bind_stats(txt_path, posterior, likelihood, prior, weights, alpha, beta, gamma, posterior_single_areas,
-                        likelihood_single_areas, prior_single_areas, recall, precision, true_posterior,
-                        true_likelihood, true_prior, true_weights, true_alpha, true_beta, true_gamma, feature_names)
+        self.bind_stats(txt_path, sample_id, posterior, likelihood, prior, weights, alpha, beta, gamma,
+                        posterior_single_areas, likelihood_single_areas, prior_single_areas, recall, precision,
+                        true_posterior, true_likelihood, true_prior, true_weights, true_alpha, true_beta, true_gamma, feature_names)
 
     # Read results
     # Call all the previous functions

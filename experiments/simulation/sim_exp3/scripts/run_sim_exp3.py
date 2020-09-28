@@ -39,4 +39,4 @@ if __name__ == '__main__':
 
             # 6. Log sampling statistics and save samples to file
             mc.log_statistics()
-            mc.save_samples()
+            mc.save_samples(run=run)

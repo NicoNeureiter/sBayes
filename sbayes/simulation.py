@@ -125,17 +125,12 @@ class Simulation:
                               weights=self.weights,
                               inheritance=self.inheritance)
 
-
-
-        # compare families to all areas
-        # compare areas against each other
-        # compute cramers V and abort if too many features are similar
         if self.subset:
             # The data is split into two parts: subset and complement
             # The subset is used for analysis and the complement to define the prior
             counts = counts_from_complement(features=self.features,
                                             subset=self.sites['subset'])
-
+            print(counts, "counts")
             self.prior_universal = {'counts': counts,
                                     'states': self.states}
 

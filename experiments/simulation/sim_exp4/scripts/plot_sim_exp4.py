@@ -40,5 +40,3 @@ if __name__ == '__main__':
         # plt.plot_probability_grid(burn_in=0.5, fname='/prob_grid_' + m + '_.pdf')
         # plt.plot_weights_grid(labels=labels, burn_in=0.5, fname='/weights_grid_' + m + '_.pdf')
 
-    # Plot DIC over all models
-    models.plot_dic(results_per_model, burn_in=0.5, fname='/dic.pdf')

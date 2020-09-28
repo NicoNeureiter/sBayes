@@ -224,7 +224,7 @@ class GeneralPlot(Plot):
         cmap = sns.cubehelix_palette(light=1, start=.5, rot=-.75, as_cmap=True)
 
         # Density and scatter plot
-        plt.title(str(feature), loc='center', fontdict={'fontweight': 'bold', 'fontsize': 20})
+        plt.title(str(feature), loc='left', fontdict={'fontweight': 'bold', 'fontsize': 16})
         x = samples_projected.T[0]
         y = samples_projected.T[1]
         sns.kdeplot(x, y, shade=True, shade_lowest=True, cut=30, n_levels=100,
@@ -291,10 +291,13 @@ class GeneralPlot(Plot):
             if labels is not None:
                 for x, label in enumerate(labels):
                     plt.text(x, -0.5, label, ha='center', va='top', fontdict={'fontsize': 16})
+            if title:
+                plt.title(str(feature), loc='left', fontdict={'fontweight': 'bold', 'fontsize': 16})
+
             plt.plot([0, 1], [0, 0], c="k", lw=0.5)
             plt.xlim(0, 1)
             plt.axis('off')
-            plt.tight_layout(0)
+            #plt.tight_layout(0)
 
         elif n_p > 2:
             # Compute corners
@@ -354,8 +357,8 @@ class GeneralPlot(Plot):
         weights, true_weights, _ = self.get_parameters(parameter="weights", b_in=burn_in)
         ordering = self.sort_by_weights(weights)
 
-        n_plots = 4
-        n_col = 4
+        n_plots = 10
+        n_col = 5
         n_row = math.ceil(n_plots / n_col)
 
         fig, axs = plt.subplots(n_row, n_col, figsize=(15, 5))
@@ -372,12 +375,12 @@ class GeneralPlot(Plot):
             print(position, "of", n_plots, "plots finished")
             position += 1
 
-        plt.subplots_adjust(wspace=0.2, hspace=0.2)
+        plt.subplots_adjust(wspace=0.4, hspace=0.4)
 
         fig.savefig(self.path_plots + fname, dpi=400, format="pdf")
 
     # This is not changed yet
-    def plot_probability_grid(self, fname, p_name="gamma_a1", burn_in=0.4):
+    def plot_probability_grid(self, fname, p_name="gamma_a1", burn_in=0.4, title=False):
         """Creates a ridge plot for parameters with two states
 
        Args:
@@ -393,8 +396,8 @@ class GeneralPlot(Plot):
 
         p, true_p, states = self.get_parameters(parameter=p_name, b_in=burn_in)
 
-        n_plots = 4
-        n_col = 4
+        n_plots = 10
+        n_col = 5
         n_row = math.ceil(n_plots / n_col)
 
         fig, axs = plt.subplots(n_row, n_col, figsize=(15, 5))
@@ -407,13 +410,13 @@ class GeneralPlot(Plot):
             plt.subplot(n_row, n_col, position)
 
             if self.is_simulation:
-                self.plot_probability_vectors(p[f], feature=f, true_p=true_p[f], labels=states[f])
+                self.plot_probability_vectors(p[f], feature=f, true_p=true_p[f], labels=states[f], title=title)
             else:
-                self.plot_probability_vectors(p[f], feature=f, labels=states[f])
+                self.plot_probability_vectors(p[f], feature=f, labels=states[f], title=title)
             print(position, "of", n_plots, "plots finished")
             position += 1
 
-        plt.subplots_adjust(wspace=0.2, hspace=0.2)
+        plt.subplots_adjust(wspace=0.4, hspace=0.6)
         fig.savefig(self.path_plots + fname, dpi=400, format="pdf")
 
     def plot_dic(self, models, burn_in, true_model=None):

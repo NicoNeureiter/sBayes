@@ -1,12 +1,12 @@
 import numpy as np
 
 from sbayes.plotting.map import Map
-from sbayes.plotting.plot import Plot
+from sbayes.plotting.general_plot import GeneralPlot
 import os
 
 if __name__ == '__main__':
     results_per_model = {}
-    models = Map()
+    models = GeneralPlot()
     models.load_config(config_file='../config_plot.json')
 
     # Get model names
@@ -22,19 +22,20 @@ if __name__ == '__main__':
         results_per_model[m] = plt.results
 
         # Plot Maps
-        # plt.posterior_map(
-        #     post_freq_legend=[0.6, 0.4, 0.2],
-        #     post_freq=0.8,
-        #     burn_in=0.6,
-        #     plot_families=True,
-        #     plot_single_zones_stats=True,
-        #     add_overview=True,
-        #     fname='/posterior_map_' + m + '_.pdf')
+        plt.posterior_map(
+            post_freq_legend=[1, 0.75, 0.5],
+            post_freq=0.9,
+            burn_in=0.4,
+            plot_families=True,
+            plot_area_stats=True,
+            add_overview=True,
+            label_languages=True,
+            fname='/posterior_map_' + m,
 
         # Plot weights  and probabilities
-        labels = ['U', 'C', 'I']
-        plt.plot_probability_grid(burn_in=0.5, fname='/prob_grid_' + m + '_.pdf')
-        plt.plot_weights_grid(labels=labels, burn_in=0.5, fname='/weights_grid_' + m + '_.pdf')
+        # labels = ['U', 'C', 'I']
+        #models.plot_probability_grid(burn_in=0.5, fname='/prob_grid_' + m + '_.pdf')
+        #models.plot_weights_grid(labels=labels, burn_in=0.5, fname='/weights_grid_' + m + '_.pdf')
 
     # Plot DIC over all models
     models.plot_dic(results_per_model, burn_in=0.5, fname='/dic.pdf')

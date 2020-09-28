@@ -2106,8 +2106,9 @@ def plot_traces(recall, precision, fname='trace_recalls_precisions'):
     ax.set_xlim([x_min, x_max])
     n_ticks = n_zones + 1
     x_ticks = np.linspace(x_min, x_max, n_ticks)
-    x_ticks_offset = 500
-    x_ticks = [x_tick - x_ticks_offset for x_tick in x_ticks if x_tick > 0]
+    print(x_ticks)
+    # x_ticks_offset = 500
+    # x_ticks = [x_tick - x_ticks_offset for x_tick in x_ticks if x_tick > 0]
     ax.set_xticks(x_ticks)
     x_ticklabels = [f'{x_ticklabel:.0f} areas' for x_ticklabel in np.linspace(1, 7, n_zones)]
     x_ticklabels[0] = '1 area'
