@@ -165,8 +165,10 @@ class MCMCGenerative(metaclass=_abc.ABCMeta):
                 for c in self.chain_idx:
                     sample[c] = self.step(sample[c], c)
 
+
             # For the last sample find the best chain (highest posterior)
             posterior_samples = [self._ll[c] + self._prior[c] for c in self.chain_idx]
+
             best_chain = posterior_samples.index(max(posterior_samples))
 
             # Return the best sample

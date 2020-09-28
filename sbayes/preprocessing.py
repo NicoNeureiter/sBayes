@@ -200,6 +200,7 @@ def simulate_features(areas,  p_universal, p_contact, weights, inheritance, p_in
         shape:  n_sites, n_features, n_categories
     """
     n_areas, n_sites = areas.shape
+    print(np.sum(areas[0]), "kkk")
     n_features, n_categories = p_universal.shape
 
     # Are the weights fine?

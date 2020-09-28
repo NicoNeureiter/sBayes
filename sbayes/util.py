@@ -520,6 +520,8 @@ def counts_to_dirichlet(counts, categories, prior='uniform', outdated_features=N
         cat = categories[feat]
         # Add 1 to alpha values (1,1,...1 is a uniform prior)
         pseudocounts = counts[feat, cat] + prior_map[prior]
+        print(pseudocounts, "pseudo")
+        print(pseudocounts, "counts")
         # dirichlet[feat] = stats.dirichlet(pseudocounts)
         dirichlet[feat] = pseudocounts
 

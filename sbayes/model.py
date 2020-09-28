@@ -485,20 +485,22 @@ class GenerativePrior(object):
                 prior_p_zones = 0.
 
             elif prior_type == 'universal':
-                s = prior_p_zones_meta['strength']
-                c_universal = s * sample.p_global[0]
-
-                self.prior_p_zones_distr = counts_to_dirichlet(counts=c_universal,
-                                                               categories=prior_p_zones_meta['states'],
-                                                               outdated_features=what_changed['p_global'],
-                                                               dirichlet=self.prior_p_zones_distr)
-                prior_p_zones = prior_p_families_dirichlet(p_families=sample.p_zones,
-                                                                dirichlet=self.prior_p_zones_distr,
-                                                                categories=prior_p_zones_meta['states'],
-                                                                outdated_indices=what_changed['p_zones'],
-                                                                outdated_distributions=what_changed['p_global'],
-                                                                cached_prior=self.prior_p_zones,
-                                                                broadcast=True)
+                raise ValueError('Currently only uniform p_zones priors are supported.')
+                # todo: check!
+                # s = prior_p_zones_meta['strength']
+                # c_universal = s * sample.p_global[0]
+                #
+                # self.prior_p_zones_distr = counts_to_dirichlet(counts=c_universal,
+                #                                                categories=prior_p_zones_meta['states'],
+                #                                                outdated_features=what_changed['p_global'],
+                #                                                dirichlet=self.prior_p_zones_distr)
+                # prior_p_zones = prior_p_families_dirichlet(p_families=sample.p_zones,
+                #                                                 dirichlet=self.prior_p_zones_distr,
+                #                                                 categories=prior_p_zones_meta['states'],
+                #                                                 outdated_indices=what_changed['p_zones'],
+                #                                                 outdated_distributions=what_changed['p_global'],
+                #                                                 cached_prior=self.prior_p_zones,
+                #                                                 broadcast=True)
             else:
                 raise ValueError('Currently only uniform p_zones priors are supported.')
 
