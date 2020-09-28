@@ -22,14 +22,14 @@ if __name__ == '__main__':
         results_per_model[m] = plt.results
 
         # Plot Maps
-        plt.posterior_map(
-            post_freq_legend=[0.6, 0.4, 0.2],
-            post_freq=0.8,
-            burn_in=0.6,
-            plot_families=True,
-            plot_single_zones_stats=True,
-            add_overview=True,
-            fname='/posterior_map_' + m + '_.pdf')
+        # plt.posterior_map(
+        #     post_freq_legend=[0.6, 0.4, 0.2],
+        #     post_freq=0.8,
+        #     burn_in=0.6,
+        #     plot_families=True,
+        #     plot_single_zones_stats=True,
+        #     add_overview=True,
+        #     fname='/posterior_map_' + m + '_.pdf')
 
         # Plot weights  and probabilities
         labels = ['U', 'C', 'I']

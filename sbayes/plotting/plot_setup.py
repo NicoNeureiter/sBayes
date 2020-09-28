@@ -47,7 +47,6 @@ class Plot:
         self.families = None
         self.family_names = None
 
-
         # Dictionary with all the MCMC results
         self.results = {}
 
