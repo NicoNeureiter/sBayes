@@ -270,7 +270,6 @@ class ZoneMCMCGenerative(MCMCGenerative):
         # Different features have different numbers of categories
         f_cats = self.applicable_states[f_id]
         p_current = p_global_current[0, f_id, f_cats]
-
         # Sample new p from dirichlet distribution with given precision
         p_new, q, q_back = self.dirichlet_proposal(p_current, step_precision=self.var_proposal_p_global)
         sample_new.p_global[0, f_id, f_cats] = p_new

@@ -13,7 +13,7 @@ if __name__ == '__main__':
 
     # When simulating iterate over different setups (different areas and strengths of contact)
     I_CONTACT = [1.5, 2, 2.5]
-    E_CONTACT = [1.25, 0.75, 0.25]
+    E_CONTACT = [1, 0.75, 0.25]
     STRENGTH = range(len(E_CONTACT))
     AREA = [4, 6, 3, 8]
 

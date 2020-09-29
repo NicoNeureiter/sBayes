@@ -12,7 +12,7 @@ EPS = np.finfo(float).eps
 
 
 def compute_global_likelihood(features, p_global=None,
-                              outdated_features=None, cached_lh=None):
+                              outdated_indices=None, cached_lh=None):
     """Computes the global likelihood, that is the likelihood per site and features
     without knowledge about family or zones.
 
@@ -21,7 +21,7 @@ def compute_global_likelihood(features, p_global=None,
                 shape: (n_sites, n_features, n_categories)
         p_global (np.array): The estimated global probabilities of all features in all site
             shape: (1, n_features, n_sites)
-        outdated_features (IndexSet): Features which changed, i.e. where lh needs to be recomputed.
+        outdated_indices (IndexSet): Features which changed, i.e. where lh needs to be recomputed.
         cached_lh (np.array): the global likelihood computed previously
     Returns:
         (np.array): the global likelihood per site and feature
@@ -29,28 +29,26 @@ def compute_global_likelihood(features, p_global=None,
     """
     n_sites, n_features, n_categories = features.shape
 
-    # Estimate the global probability to find a feature/category
-
-    p_glob = np.sum(features, axis=0) / n_sites
-
-    # Division by zero could cause troubles
-    p_glob = p_glob.clip(EPS, 1 - EPS)
+    # # Estimate the global probability to find a feature/category
+    # p_glob = np.sum(features, axis=0) / n_sites
+    #
+    # # Division by zero could cause troubles
+    # p_glob = p_glob.clip(EPS, 1 - EPS)
 
     if cached_lh is None:
         lh_global = np.ones((n_sites, n_features))
-        assert outdated_features.all
+        assert outdated_indices.all
     else:
         lh_global = cached_lh
 
-    if outdated_features.all:
-        outdated_features = range(n_features)
+    if outdated_indices.all:
+        outdated_indices = range(n_features)
 
-    for i_f in outdated_features:
+    for i_f in outdated_indices:
         f = features[:, i_f, :]
-        # f.shape = (n_sites, n_categories)
 
         # Compute the feature likelihood vector (for all sites in zone)
-        lh_global[:, i_f] = f.dot(p_glob[i_f, :])
+        lh_global[:, i_f] = f.dot(p_global[0, i_f, :])
 
     return lh_global
 
@@ -196,7 +194,7 @@ class GenerativeLikelihood(object):
         self.all_lh = None
 
         # Assignment and lh (global, per zone and family)
-        self.global_assignment = np.ones(self.n_sites)
+        self.global_assignment = np.ones(self.n_sites, dtype=bool)
         self.family_assignment = None
         self.zone_assignment = None
 
@@ -252,7 +250,6 @@ class GenerativeLikelihood(object):
         global_assignment, global_lh = self.get_global_lh(sample)
         family_assignment, family_lh = self.get_family_lh(sample)
         zone_assignment, zone_lh = self.get_zone_lh(sample)
-
         ##############################
         # Combination
         ##############################
@@ -325,8 +322,9 @@ class GenerativeLikelihood(object):
 
             self.global_lh = compute_global_likelihood(features=self.data,
                                                        p_global=sample.p_global,
-                                                       outdated_features=sample.what_changed['lh']['p_global'],
+                                                       outdated_indices=sample.what_changed['lh']['p_global'],
                                                        cached_lh=self.global_lh)
+
         return self.global_assignment, self.global_lh
 
     def get_family_lh(self, sample):
@@ -802,7 +800,6 @@ def prior_p_global_dirichlet(p_global, dirichlet, categories, outdated_features,
         p_glob = p_global[0, f, idx]
 
         log_prior[f] = dirichlet_logpdf(x=p_glob, alpha=diri)
-        # log_prior[f] = diri.logpdf(p_glob)
 
     return log_prior
 

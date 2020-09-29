@@ -18,7 +18,7 @@ from itertools import combinations
 
 EPS = np.finfo(float).eps
 
-FAST_DIRICHLET = False
+FAST_DIRICHLET = True
 if FAST_DIRICHLET:
     def dirichlet_pdf(x, alpha): return np.exp(stats.dirichlet._logpdf(x, alpha))
     dirichlet_logpdf = stats.dirichlet._logpdf
@@ -520,8 +520,6 @@ def counts_to_dirichlet(counts, categories, prior='uniform', outdated_features=N
         cat = categories[feat]
         # Add 1 to alpha values (1,1,...1 is a uniform prior)
         pseudocounts = counts[feat, cat] + prior_map[prior]
-        print(pseudocounts, "pseudo")
-        print(pseudocounts, "counts")
         # dirichlet[feat] = stats.dirichlet(pseudocounts)
         dirichlet[feat] = pseudocounts
 
@@ -1027,7 +1025,7 @@ def assign_na(features, n_na):
 
 
 def assess_correlation_probabilities(p_universal, p_contact, p_inheritance, corr_th, include_universal=False):
-    """Asses the correlation of probabilities
+    """Asses the correlation of probabilities in simulated data
 
         Args:
             p_universal (np.array): universal state probabilities
@@ -1037,6 +1035,7 @@ def assess_correlation_probabilities(p_universal, p_contact, p_inheritance, corr
             p_inheritance (np.array): state probabilities in families
                 shape: (n_families, n_features, n_states)
             corr_th (float): correlation threshold
+            include_universal (bool): Should p_universal also be checked for independence?
 
         """
     if include_universal:
