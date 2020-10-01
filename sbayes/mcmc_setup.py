@@ -158,7 +158,7 @@ class MCMC:
 
         logging.info("Prior on contact (gamma): %s ", self.prior_structured['contact']['type'])
         if self.config['model']['PRIOR']['scale_counts'] is not None:
-            logging.info("Priors on universal pressure and inheritance are scaled to %s pseudocounts",
+            logging.info("All count priors (universal pressure or inheritance) are scaled to %s pseudocounts",
                          self.config['model']['PRIOR']['scale_counts'])
         logging.info('\n')
 

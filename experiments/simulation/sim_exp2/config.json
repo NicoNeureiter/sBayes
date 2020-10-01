@@ -3,8 +3,8 @@
 		"SITES": "data/sites.csv",
 		"N_FEATURES": 50,
 		"P_N_CATEGORIES": {
-			"2": 0.4,
-			"3": 0.4,
+			"2": 0.2,
+			"3": 0.6,
 			"4": 0.2
 		},
 		"I_UNIVERSAL": 1.0,
