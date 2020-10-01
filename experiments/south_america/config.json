@@ -33,7 +33,8 @@
 			"weights": "uniform",
 			"universal": "counts",
 			"inheritance": "counts",
-			"contact": "uniform"
+			"contact": "uniform",
+			"scale_counts": 10
 		}
 	},
 	"data": {
