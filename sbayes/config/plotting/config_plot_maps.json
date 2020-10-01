@@ -1,30 +1,8 @@
 {
-  "input": {
-    "path_results": "../results/test_data/south_america/n3",
-    "path_data": "../data",
-    "path_areas": "../results/test_data/south_america/n3/areas_n3_0.txt",
-    "path_stats": "../results/test_data/south_america/n3/stats_n3_0.txt",
-    "path_ground_truth_areas": null,
-    "path_ground_truth_stats": null,
-    "experiment": null,
-    "subset": false,
-    "proj4": null,
-    "geojson_river": null,
-    "geojson_map": null,
-    "run": 4,
-    "scenarios": [1]
-  },
-
   "graphic": {
-    "x_extend": [1750, 10360],
-    "y_extend": [400, 11950],
-    "x_extend_overview": null,
-    "y_extend_overview": null,
-    "bg_map": false,
     "size": 25,
     "size_line": 3,
-    "family_alpha_shape": null,
-    "family_colors": ["#b3e2cd", "#f1e2cc", "#cbd5e8", "#f4cae4", "#e6f5c9", "#d3d3d3"],
+    "family_colors": ["#b3e2cd", "#f1e2cc", "#cbd5e8", "#f4cae4", "#e6f5c9", "#d3d3d3", "#f48aa7", "#f49f1c", "#f48aa7", "#f48aa7","#f48aa7","#f48aa7", "#f48aa7"],
     "true_family_colors": ["#add8e6", "#f1e2cc", "#cbd5e8", "#f4cae4", "#e6f5c9"],
     "zone_colors": ["#1b9e77", "#d95f02", "#7570b3", "#e7298a", "#66a61e", "#e6ab02", "#a6761d", "#666666"],
     "flamingo_color": "#f48aa7",
@@ -66,35 +44,6 @@
       "freq_legend_position": [0.02, 0.55],
       "family_legend_position": [0.02, 0.965],
       "overview_position": [0.02, -0.01, 1, 1]
-    },
-    "plot_traces": {
-      "fig_width": 10,
-      "fig_height": 8
-    },
-    "plot_trace_lh": {
-      "fig_width": 10,
-      "fig_height": 8,
-      "color_burn_in": "grey"
-    },
-    "plot_trace_lh_with_prior": {
-      "fig_width": 8,
-      "fig_height": 7,
-      "color_burn_in": "grey"
-    },
-    "plot_trace_recall_precision": {
-       "fig_width": 10,
-       "fig_height": 8,
-       "color_burn_in": "grey"
-    },
-    "plot_dics": {
-      "fig_width": 9,
-      "fig_height": 6,
-      "color_burn_in": "grey"
-    },
-    "plot_dics_simulated": {
-      "fig_width": 10,
-      "fig_height": 8,
-      "color_burn_in": "grey"
     }
   },
 

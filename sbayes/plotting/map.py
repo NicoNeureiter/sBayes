@@ -3,7 +3,8 @@
 Inherits basic functions from Plot
 Defines specific functions for map plots
 """
-
+import os
+import json
 import math
 import warnings
 from copy import deepcopy
@@ -28,6 +29,7 @@ from sbayes.plotting.plot_setup import Plot
 from sbayes.util import add_edge, compute_delaunay
 from sbayes.util import round_int
 from sbayes.util import gabriel_graph_from_delaunay
+from sbayes.util import fix_default_config
 
 warnings.simplefilter(action='ignore', category=FutureWarning)
 
@@ -38,6 +40,11 @@ class Map(Plot):
 
         # Load init function from the parent class Plot
         super().__init__(simulated_data=simulated_data)
+
+        self.base_directory = None
+
+        # Load default config
+        self.config_default = "config/plotting/config_plot_maps.json"
 
         # Map parameters
         self.ax = None
@@ -53,6 +60,22 @@ class Map(Plot):
         # Additional parameters
         self.world = None
         self.rivers = None
+
+    # Load default config parameters
+    def add_config_default(self):
+
+        self.config_default = fix_default_config(self.config_default)
+
+        with open(self.config_default, 'r') as f:
+            new_config = json.load(f)
+
+            # If the key already exists
+            for key in new_config:
+                if key in self.config:
+                    self.config[key].update(new_config[key])
+                else:
+                    self.config[key] = new_config[key]
+
 
     ##############################################################
     # Copy-pasted functions needed for plot_posterior_map
@@ -291,6 +314,7 @@ class Map(Plot):
         # zone_colors = ['#1b9e77', '#d95f02', '#7570b3', '#e7298a', '#66a61e', '#e6ab02', '#a6761d', '#666666']
         # This is actually sort of a joke: if one area has the shape of a flamingo, use a flamingo colour for it
         #  in the map. Anyway, colors should go to the config. If can be removed.
+
         if flamingo:
             # flamingo_color = '#F48AA7'
             color = self.config['graphic']['flamingo_color'] if len(self.results['areas']) == 1 \
@@ -334,13 +358,13 @@ class Map(Plot):
 
         # Color areas
         for i, area in enumerate(self.results['areas']):
-
             current_color = self.add_color(i, flamingo, simulated_family)
 
             # This function computes a Delaunay graph for all points which are in the posterior with at least p_freq
             in_graph, lines, line_w = self.areas_to_graph(area, burn_in, post_freq=post_freq)
 
             self.ax.scatter(*self.locations[in_graph].T, s=self.config['graphic']['size'], c=current_color)
+
             for li in range(len(lines)):
                 self.ax.plot(*lines[li].T, color=current_color, lw=line_w[li]*self.config['graphic']['size_line'],
                              alpha=0.6)
@@ -696,7 +720,6 @@ class Map(Plot):
         # Adds a small label that reads "Subset"
         self.ax.text(x_max, y_max + 200, 'Subset', fontsize=18, color='#000000')
 
-
     # Check all the previous additional functions
     def visualize_additional_map_elements(self, lh_single_zones):
         # Does the plot have a background map?
@@ -818,6 +841,7 @@ class Map(Plot):
 
             """
         print('Plotting map...')
+
         # Is the function used for simulated data or real-world data? Both require different plotting parameters.
         # if for real world-data: South America or Balkans?
         # for Olga: this should be defined in the config

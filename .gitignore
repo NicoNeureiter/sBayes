@@ -107,3 +107,6 @@ venv.bak/
 workbench/
 data/
 .idea
+
+# MacOS file
+.DS_Store

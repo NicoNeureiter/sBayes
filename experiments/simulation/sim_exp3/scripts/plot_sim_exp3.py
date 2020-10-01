@@ -1,20 +1,20 @@
-import numpy as np
-
 from sbayes.plotting.map import Map
 from sbayes.plotting.general_plot import GeneralPlot
-import os
+
 
 if __name__ == '__main__':
     results_per_model = {}
     models = GeneralPlot(simulated_data=True)
-    models.load_config(config_file='../config_plot.json')
+    models.load_config(config_file='../config_generalplot.json')
 
     # Get model names
     names = models.get_model_names()
 
     for m in names:
         plt = Map(simulated_data=True)
-        plt.load_config(config_file='../config_plot.json')
+        plt.load_config(config_file='../config_map.json')
+        plt.add_config_default()
+
         # Read sites, sites_names, network
         plt.read_data()
         # Read results for each model

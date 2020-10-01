@@ -59,7 +59,7 @@ class Plot:
     ####################################
     def load_config(self, config_file):
 
-        # Get parameters from config_file
+        # Get parameters from config_custom (for particular experiment)
         self.config_file = config_file
 
         # Read config file
@@ -72,11 +72,11 @@ class Plot:
         self.verify_config()
 
         # Assign global variables for more convenient workflow
-        self.path_results = self.config['input']['path_plots']
+        self.path_results = self.config['input']['path_results']
         self.path_data = self.config['input']['path_data']
-        self.path_plots = self.config['input']['path_plots'] + '/plots'
-        self.path_areas = self.config['input']['path_areas']
-        self.path_stats = self.config['input']['path_stats']
+        self.path_plots = self.config['input']['path_results'] + '/plots'
+        self.path_areas = list(self.config['input']['path_areas'])
+        self.path_stats = list(self.config['input']['path_stats'])
 
         if self.is_simulation:
             self.path_ground_truth_areas = self.config['input']['path_ground_truth_areas']
@@ -331,8 +331,6 @@ class Plot:
             self.read_stats(path_ground_truth_stats, self.is_simulation)
 
     def get_model_names(self):
-
-        last_part = [p.rsplit('/', 1)[-1] for p in list(self.path_areas)]
+        last_part = [p.rsplit('/', 1)[-1] for p in self.path_areas]
         name = [p.rsplit('_')[1] for p in last_part]
-
         return name
