@@ -153,11 +153,13 @@ class MCMC:
         logging.info("Geo-prior: %s ", self.prior_structured['geo']['type'])
         logging.info("Prior on weights: %s ", self.prior_structured['weights']['type'])
         logging.info("Prior on universal pressure (alpha): %s ", self.prior_structured['universal']['type'])
-
         if self.config['model']['INHERITANCE']:
             logging.info("Prior on inheritance (beta): %s ", self.prior_structured['inheritance']['type'])
 
         logging.info("Prior on contact (gamma): %s ", self.prior_structured['contact']['type'])
+        if self.config['model']['PRIOR']['scale_counts'] is not None:
+            logging.info("Priors on universal pressure and inheritance are scaled to %s pseudocounts",
+                         self.config['model']['PRIOR']['scale_counts'])
         logging.info('\n')
 
         logging.info("MCMC SETUP")
