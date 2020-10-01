@@ -160,6 +160,8 @@ class Experiment:
             raise NameError("PRIOR for universal pressure is not defined in " + self.config_file)
         if 'contact' not in self.config['model']['PRIOR']:
             raise NameError("PRIOR for contact is not defined in " + self.config_file)
+        if 'scale_counts' not in self.config['model']['PRIOR']:
+            self.config['model']['PRIOR']['scale_counts'] = None
 
         if self.config['model']['INHERITANCE']:
             if 'inheritance' not in self.config['model']['PRIOR']:

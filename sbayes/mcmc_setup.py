@@ -13,7 +13,7 @@ from sbayes.postprocessing import (contribution_per_area, log_operator_statistic
                                    log_operator_statistics_header, match_areas, rank_areas)
 from sbayes.sampling.zone_sampling import Sample, ZoneMCMCGenerative
 from sbayes.util import (normalize, counts_to_dirichlet,
-                         inheritance_counts_to_dirichlet, samples2file)
+                         inheritance_counts_to_dirichlet, samples2file, scale_counts)
 
 
 class MCMC:
@@ -56,11 +56,17 @@ class MCMC:
         else:
             raise ValueError('Currently only uniform prior_weights are supported.')
 
-        # universal pressure
+        # universal preference
         if self.config['model']['PRIOR']['universal'] == 'uniform':
             self.prior_structured['universal'] = {'type': 'uniform'}
 
         elif self.config['model']['PRIOR']['universal'] == 'simulated_counts':
+
+            if self.config['model']['PRIOR']['scale_counts'] is not None:
+                self.data.prior_universal['counts'] = \
+                    scale_counts(counts=self.data.prior_universal['counts'],
+                                 scale_to=self.config['model']['PRIOR']['scale_counts'])
+
             dirichlet = counts_to_dirichlet(self.data.prior_universal['counts'],
                                             self.data.prior_universal['states'])
             self.prior_structured['universal'] = {'type': 'counts',
@@ -68,6 +74,10 @@ class MCMC:
                                                   'states': self.data.prior_universal['states']}
 
         elif self.config['model']['PRIOR']['universal'] == 'counts':
+            if self.config['model']['PRIOR']['scale_counts'] is not None:
+                self.data.prior_universal['counts'] = \
+                    scale_counts(counts=self.data.prior_universal['counts'],
+                                 scale_to=self.config['model']['PRIOR']['scale_counts'])
             dirichlet = counts_to_dirichlet(self.data.prior_universal['counts'],
                                             self.data.prior_universal['states'])
             self.prior_structured['universal'] = {'type': 'counts',
@@ -90,6 +100,13 @@ class MCMC:
                                                         'states': self.data.prior_inheritance['states']}
 
             elif self.config['model']['PRIOR']['inheritance'] == 'counts':
+                if self.config['model']['PRIOR']['scale_counts'] is not None:
+
+                    self.data.prior_universal['counts'] = \
+                        scale_counts(counts=self.data.prior_inheritance['counts'],
+                                     scale_to=self.config['model']['PRIOR']['scale_counts'],
+                                     prior_inheritance=True)
+
                 dirichlet = inheritance_counts_to_dirichlet(self.data.prior_inheritance['counts'],
                                                             self.data.prior_inheritance['states'])
                 self.prior_structured['inheritance'] = {'type': 'counts',

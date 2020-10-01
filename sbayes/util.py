@@ -489,6 +489,39 @@ def inheritance_counts_to_dirichlet(counts, categories, outdated_features=None, 
     return dirichlet
 
 
+def scale_counts(counts, scale_to, prior_inheritance=False):
+    """Scales the counts for parametrizing the prior on universal probabilities (or inheritance in a family)
+
+        Args:
+            counts(np.array): the counts of categorical data.
+                        shape(n_features, n_states)
+            scale_to (float): the counts are scaled to this value
+            prior_inheritance (bool): are these inheritance counts?
+        Returns:
+            np.array: the rescaled counts
+    """
+    if prior_inheritance:
+        # Sum counts remove counts of zeros
+        counts_sum = np.sum(counts, axis=2)
+        counts_sum = np.where(counts_sum == 0, EPS, counts_sum)
+        scale_factor = scale_to/counts_sum
+
+        # Counts are only downscaled, not upscaled
+        scale_factor = np.where(scale_factor < 1, scale_factor, 1)
+        return counts * scale_factor[:, :, np.newaxis]
+
+    else:
+
+        counts_sum = np.sum(counts, axis=1)
+        counts_sum = np.where(counts_sum == 0, EPS, counts_sum)
+
+        scale_factor = scale_to / counts_sum
+
+        # Counts are only downscaled, not upscaled
+        scale_factor = np.where(scale_factor < 1, scale_factor, 1)
+        return counts * scale_factor[:, np.newaxis]
+
+
 def counts_to_dirichlet(counts, categories, prior='uniform', outdated_features=None, dirichlet=None):
     """This is a helper function to transform counts of categorical data
     to parameters of a dirichlet distribution.
