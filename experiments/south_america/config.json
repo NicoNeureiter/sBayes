@@ -31,7 +31,7 @@
 		"PRIOR": {
 			"geo": "uniform",
 			"weights": "uniform",
-			"universal": "counts",
+			"universal": "uniform",
 			"inheritance": "counts",
 			"contact": "uniform",
 			"scale_counts": 10
