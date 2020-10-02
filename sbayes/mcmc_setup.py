@@ -74,10 +74,12 @@ class MCMC:
                                                   'states': self.data.prior_universal['states']}
 
         elif self.config['model']['PRIOR']['universal'] == 'counts':
+
             if self.config['model']['PRIOR']['scale_counts'] is not None:
                 self.data.prior_universal['counts'] = \
                     scale_counts(counts=self.data.prior_universal['counts'],
                                  scale_to=self.config['model']['PRIOR']['scale_counts'])
+
             dirichlet = counts_to_dirichlet(self.data.prior_universal['counts'],
                                             self.data.prior_universal['states'])
             self.prior_structured['universal'] = {'type': 'counts',
@@ -100,9 +102,10 @@ class MCMC:
                                                         'states': self.data.prior_inheritance['states']}
 
             elif self.config['model']['PRIOR']['inheritance'] == 'counts':
+
                 if self.config['model']['PRIOR']['scale_counts'] is not None:
 
-                    self.data.prior_universal['counts'] = \
+                    self.data.prior_inheritance['counts'] = \
                         scale_counts(counts=self.data.prior_inheritance['counts'],
                                      scale_to=self.config['model']['PRIOR']['scale_counts'],
                                      prior_inheritance=True)
