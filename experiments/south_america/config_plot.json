@@ -1,30 +1,140 @@
 {
-  "input": {
-    "path_data": "../data/features/features.csv", 
-    "path_results": "../results/results_server",
-    "path_areas": ["../results/results_server/n1/areas_n1_0.txt", 
-      "../results/results_server/n2/areas_n2_0.txt", "../results/results_server/n3/areas_n3_0.txt",
-      "../results/results_server/n4/areas_n4_0.txt", "../results/results_server/n5/areas_n5_0.txt"],
-    "path_stats": ["../results/results_server/n1/stats_n1_0.txt", 
-      "../results/results_server/n2/stats_n2_0.txt", "../results/results_server/n3/stats_n3_0.txt",
-      "../results/results_server/n4/stats_n4_0.txt", "../results/results_server/n5/stats_n5_0.txt"],
-    "path_ground_truth_areas": null, 
-    "path_ground_truth_stats": null, 
-    "experiment": "sa", 
-    "subset": false, 
-    "proj4": "+proj=eqdc +lat_0=-32 +lon_0=-60 +lat_1=-5 +lat_2=-42 +x_0=0 +y_0=0 +ellps=aust_SA +units=m +no_defs ", 
-    "geojson_river": "../data/map/rivers_lake.geojson", 
-    "geojson_map": "../data/map/land.geojson", 
-    "run": 4, 
-    "scenarios": [1] 
-  },
-
-  "graphic" : {
-    "x_extend": [-3756000, 420000],
-    "y_extend": [1100000, 3800000],
-    "x_extend_overview": [-4800000, 3900000],
-    "y_extend_overview": [-3000000, 6200000],
-    "bg_map": true,
-    "family_alpha_shape": 0.00001
-  }
+	"results": {
+		"path_data": "../data/features/features.csv",
+		"path_results": "../results/results_server",
+		"path_areas": [
+			"../results/results_server/n1/areas_n1_0.txt",
+			"../results/results_server/n2/areas_n2_0.txt",
+			"../results/results_server/n3/areas_n3_0.txt",
+			"../results/results_server/n4/areas_n4_0.txt",
+			"../results/results_server/n5/areas_n5_0.txt"
+		],
+		"path_stats": [
+			"../results/results_server/n1/stats_n1_0.txt",
+			"../results/results_server/n2/stats_n2_0.txt",
+			"../results/results_server/n3/stats_n3_0.txt",
+			"../results/results_server/n4/stats_n4_0.txt",
+			"../results/results_server/n5/stats_n5_0.txt"
+		],
+		"path_ground_truth_areas": null,
+		"path_ground_truth_stats": null
+	},
+	"map": {
+		"geo": {
+			"proj4": "+proj=eqdc +lat_0=-32 +lon_0=-60 +lat_1=-5 +lat_2=-42 +x_0=0 +y_0=0 +ellps=aust_SA +units=m +no_defs ",
+			"base_map": {
+				"add": true,
+				"geojson_river": "../data/map/rivers_lake.geojson",
+				"geojson_map": "../data/map/land.geojson"
+			},
+			"x_extend": [
+				-3756000,
+				420000
+			],
+			"y_extend": [
+				1100000,
+				3800000
+			]
+		},
+		"content": {
+			"plot_families": true,
+			"label_languages": true,
+			"subset": false
+		},
+		"filter": {
+			"min_posterior_frequency": 0.7,
+			"burn_in": 0.2
+		},
+		"graphic": {
+			"family_alpha_shape": 0.00001,
+			"size": 25,
+			"font_size": 16,
+			"line_thickness": 2,
+			"frame_width": 1.5,
+			"family_colors": [
+				"#b3e2cd",
+				"#f1e2cc",
+				"#cbd5e8",
+				"#f4cae4",
+				"#e6f5c9",
+				"#d3d3d3",
+				"#f48aa7",
+				"#f49f1c",
+				"#f48aa7",
+				"#f48aa7",
+				"#f48aa7",
+				"#f48aa7",
+				"#f48aa7"
+			],
+			"true_family_colors": [
+				"#add8e6",
+				"#f1e2cc",
+				"#cbd5e8",
+				"#f4cae4",
+				"#e6f5c9"
+			],
+			"area_colors": [
+				"#1b9e77",
+				"#d95f02",
+				"#7570b3",
+				"#e7298a",
+				"#66a61e",
+				"#e6ab02",
+				"#a6761d",
+				"#666666"
+			]
+		},
+		"legend": {
+			"overview": {
+				"add": "true",
+				"width": 3.8,
+				"height": 4,
+				"x_extend": [
+					-4800000,
+					3900000
+				],
+				"y_extend": [
+					-3000000,
+					6200000
+				],
+				"position": [
+					0.02,
+					0.01,
+					1,
+					1
+				]
+			},
+			"area_stats": {
+				"add": true,
+				"position": [
+					0.02,
+					0.71
+				]
+			},
+			"posterior_frequency": {
+				"add": "true",
+				"default_values": [
+					1,
+					0.75,
+					0.5
+				],
+				"position": [
+					0.3,
+					0.2
+				]
+			},
+			"families": {
+				"add": true,
+				"position": [
+					0.02,
+					0.98
+				]
+			}
+		},
+		"output": {
+			"fig_width": 20,
+			"fig_height": 10,
+			"return_correspondence": false
+		}
+	}
 }

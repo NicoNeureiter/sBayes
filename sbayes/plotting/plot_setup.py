@@ -72,15 +72,15 @@ class Plot:
         self.verify_config()
 
         # Assign global variables for more convenient workflow
-        self.path_results = self.config['input']['path_results']
-        self.path_data = self.config['input']['path_data']
-        self.path_plots = self.config['input']['path_results'] + '/plots'
-        self.path_areas = list(self.config['input']['path_areas'])
-        self.path_stats = list(self.config['input']['path_stats'])
+        self.path_results = self.config['results']['path_results']
+        self.path_data = self.config['results']['path_data']
+        self.path_plots = self.config['results']['path_results'] + '/plots'
+        self.path_areas = list(self.config['results']['path_areas'])
+        self.path_stats = list(self.config['results']['path_stats'])
 
         if self.is_simulation:
-            self.path_ground_truth_areas = self.config['input']['path_ground_truth_areas']
-            self.path_ground_truth_stats = self.config['input']['path_ground_truth_stats']
+            self.path_ground_truth_areas = self.config['results']['path_ground_truth_areas']
+            self.path_ground_truth_stats = self.config['results']['path_ground_truth_stats']
 
         if not os.path.exists(self.path_plots):
             os.makedirs(self.path_plots)
@@ -107,13 +107,13 @@ class Plot:
 
     # Functions related to the current scenario (run in a loop over scenarios, i.e. n_zones)
     # Set the results path for the current scenario
-    def set_scenario_path(self, current_scenario):
-        current_run_path = f"{self.path_plots}/n{self.config['input']['run']}_{current_scenario}/"
-
-        if not os.path.exists(current_run_path):
-            os.makedirs(current_run_path)
-
-        return current_run_path
+    # def set_scenario_path(self, current_scenario):
+    #     current_run_path = f"{self.path_plots}/n{self.config['input']['run']}_{current_scenario}/"
+    #
+    #     if not os.path.exists(current_run_path):
+    #         os.makedirs(current_run_path)
+    #
+    #     return current_run_path
 
     # Read sites, site_names, network
     def read_data(self):

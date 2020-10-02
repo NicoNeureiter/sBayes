@@ -46,10 +46,15 @@ class Map(Plot):
         # Load default config
         self.config_default = "config/plotting/config_plot_maps.json"
 
-        # Map parameters
+        self.geo_config = {}
+        self.content_config = {}
+        self.legend_config = {}
+        self.graphic_config = {}
+        self.output_config = {}
+
         self.ax = None
         self.fig = None
-        self.map_parameters = {}
+
         self.leg_zones = []
         self.all_labels = []
         self.area_labels = []
@@ -281,52 +286,32 @@ class Map(Plot):
     ##############################################################
 
     # Get relevant map parameters from the json file
-    # for Olga: parameters should be defined in the config, rather than here. My bad, I know :)
-    def get_map_parameters(self):
-        self.map_parameters = self.config['plot_type']['general']
-        if self.is_simulation:
-            self.map_parameters.update(self.config['plot_type']['plot_posterior_map_simulated'])
-        else:
-            if self.config['input']['experiment'] == "sa":
-                self.map_parameters.update(self.config['plot_type']['plot_posterior_map_sa'])
-            if self.config['input']['experiment'] == "balkan":
-                self.map_parameters.update(self.config['plot_type']['plot_posterior_map_balkan'])
+    def get_config_parameters(self):
+        self.geo_config = self.config['map']['geo']
+        self.content_config = self.config['map']['content']
+        self.graphic_config = self.config['map']['graphic']
+        self.legend_config = self.config['map']['legend']
+        self.output_config = self.config['map']['output']
+        #self.map_parameters.update(self.config['plot_type']['plot_posterior_map_sa'])
 
     # Initialize the map
     def initialize_map(self):
-        # Olga: this function should only read what is in the config, see inside
-        self.get_map_parameters()
-        plt.rcParams["axes.linewidth"] = self.map_parameters['frame_width']
+        self.get_config_parameters()
+
         # for Olga: constrained layout drops a warning. Could you check?
-        self.fig, self.ax = plt.subplots(figsize=(self.map_parameters['fig_width'],
-                                                  self.map_parameters['fig_height']),
+        self.fig, self.ax = plt.subplots(figsize=(self.output_config['fig_width'],
+                                                  self.output_config['fig_height']),
                                          constrained_layout=True)
-        if self.config['input']['subset']:
+        if self.content_config['subset']:
             self.plot_subset()
 
-        self.ax.scatter(*self.locations.T, s=self.config['graphic']['size'], c="darkgrey", alpha=1, linewidth=0)
+        self.ax.scatter(*self.locations.T, s=self.graphic_config['size'], c="darkgrey", alpha=1, linewidth=0)
 
     ##############################################################
     # Visualization functions for plot_posterior_map
     ##############################################################
-    def add_color(self, i, flamingo, simulated_family):
-        # The colors for each area could go to the config file
-        # zone_colors = ['#1b9e77', '#d95f02', '#7570b3', '#e7298a', '#66a61e', '#e6ab02', '#a6761d', '#666666']
-        # This is actually sort of a joke: if one area has the shape of a flamingo, use a flamingo colour for it
-        #  in the map. Anyway, colors should go to the config. If can be removed.
-
-        if flamingo:
-            # flamingo_color = '#F48AA7'
-            color = self.config['graphic']['flamingo_color'] if len(self.results['areas']) == 1 \
-                else self.config['graphic']['zone_colors'][i]
-        else:
-            color = self.config['graphic']['zone_colors'][i]
-        # Same here: when simulating families, one has the shape of a banana. If so, use banana color.
-        # Should go to the config. If can be removed.
-        if simulated_family:
-            # banana_color = '#f49f1c'
-            color = self.config['graphic']['banana_color'] if len(self.results['areas']) == 1 \
-                else self.config['graphic']['zone_colors'][i]
+    def add_color(self, i, simulated_family):
+        color = self.graphic_config['area_colors'][i]
         return color
 
     def add_label(self, is_in_zone, current_color):
@@ -346,10 +331,10 @@ class Map(Plot):
             self.ax.annotate(labels_in_zone[loc] + 1, **anno_opts)
 
     # Bind together the functions above
-    def visualize_areas(self, flamingo, simulated_family, post_freq, burn_in, label_languages, plot_area_stats):
+    def visualize_areas(self):
 
         # If likelihood for single areas are displayed: add legend entries with likelihood information per area
-        if plot_area_stats:
+        if self.legend_config['area_stats']['add']:
             self.add_likelihood_legend()
             self.add_likelihood_info()
         else:
@@ -358,9 +343,9 @@ class Map(Plot):
 
         # Color areas
         for i, area in enumerate(self.results['areas']):
-            current_color = self.add_color(i, flamingo, simulated_family)
+            current_color = self.add_color(i)
 
-            # This function computes a Delaunay graph for all points which are in the posterior with at least p_freq
+            # This function computes a Gabriel graph for all points which are in the posterior with at least p_freq
             in_graph, lines, line_w = self.areas_to_graph(area, burn_in, post_freq=post_freq)
 
             self.ax.scatter(*self.locations[in_graph].T, s=self.config['graphic']['size'], c=current_color)
@@ -667,20 +652,20 @@ class Map(Plot):
     def add_background_map(self, ax):
         # If yes, the user needs to define a valid spatial coordinate reference system(proj4)
         # and provide background map data
-        if self.config['input']['proj4'] is None and self.config['input']['geojson_map'] is None:
-            raise Exception('If you want to use a map provide a geojson and a crs')
+        if self.geo_config['proj4'] is None or self.geo_config['base_map']['geojson_map'] is None:
+            raise Exception('If you want to use a map, provide a geojson and a crs!')
 
         # Adds the geojson map provided by user as background map
-        self.world = gpd.read_file(self.config['input']['geojson_map'])
-        self.world = self.world.to_crs(self.config['input']['proj4'])
+        self.world = gpd.read_file(self.geo_config['base_map']['geojson_map'])
+        self.world = self.world.to_crs(self.geo_config['proj4'])
         self.world.plot(ax=ax, color='w', edgecolor='black', zorder=-100000)
 
     # Add rivers
     def add_rivers(self, ax):
         # The user can also provide river data. Looks good on a map :)
-        if self.config['input']['geojson_river'] is not None:
-            self.rivers = gpd.read_file(self.config['input']['geojson_river'])
-            self.rivers = self.rivers.to_crs(self.config['input']['proj4'])
+        if self.geo_config['base_map']['geojson_river'] is not None:
+            self.rivers = gpd.read_file(self.geo_config['base_map']['geojson_river'])
+            self.rivers = self.rivers.to_crs(self.geo_config['proj4'])
             self.rivers.plot(ax=ax, color=None, edgecolor="skyblue", zorder=-10000)
 
     # Add likelihood info box
@@ -721,10 +706,9 @@ class Map(Plot):
         self.ax.text(x_max, y_max + 200, 'Subset', fontsize=18, color='#000000')
 
     # Check all the previous additional functions
-    def visualize_additional_map_elements(self, lh_single_zones):
-        # Does the plot have a background map?
+    def visualize_base_map(self):
         # Could go to extra function (add_background_map), which is only called if relevant
-        if self.config['graphic']['bg_map']:
+        if self.geo_config['base_map']['add']:
             self.add_background_map(self.ax)
             self.add_rivers(self.ax)
 
@@ -784,60 +768,15 @@ class Map(Plot):
     # This is the plot_posterior_map function from plotting_old
     ##############################################################
     # for Olga: all parameters should be passed from the new map config file
-    def posterior_map(self,
-                      post_freq_legend, burn_in=0.2,
-                      post_freq=0.8,
-                      plot_area_stats=False, flamingo=False, simulated_family=False,
-                      label_languages=False, add_overview=False,
-                      plot_families=False,
-                      return_correspondence=False,  # for Olga: This creates a separate table of all languages which are in an area, should probably go into a subplolt?
-                      fname='mst_posterior'):
+    def posterior_map(self, return_correspondence=False,
+                      file_name='mst_posterior', file_format="pdf"):
 
         """ This function creates a scatter plot of all sites in the posterior distribution. The color of a site reflects
             its frequency in the posterior
 
             Args:
-                mcmc_res (dict): the MCMC samples neatly collected in a dict;
-                Olga: not needed as an input parameter, because it's already in the init parameters of the parent class Plot
-                sites (dict): a dictionary containing the location tuples (x,y) and the id of each site
-                Olga: not needed as an input parameter, because it's already in the init parameters of the parent class Plot
-
-                post_freq_legend (list): threshold values for lines
-                                        e.g. [0.7, 0.5, 0.3] will display three different line categories:
-                                        - a thick line for edges which are in more than 70% of the posterior
-                                        - a medium-thick line for edges between 50% and 70% in the posterior
-                                        - and a thin line for edges between 30% and 50% in the posterior
-                burn_in (float): Fraction of samples, which are discarded as burn-in
-                x_extend (tuple): (min, max)-extend of the map in x-direction (longitude) --> Olga: move to config: DONE
-                y_extend (tuple): (min, max)-extend of the map in y-direction (latitude) --> and move to config: DONE
-                simulated_data(bool): are the plots for real-world or simulated data?
-                Olga: not needed as an input parameter, because it's already in the init parameters of the parent class Plot
-                experiment(str): either "sa" or "balkan", will load different plotting parameters. Olga: Should go to plotting
-                                 config file instead: DONE
-                bg_map (bool: Plot a background map? --> Olga: to config: DONE
-                geojson_map(str): File path to geoJSON background map --> Olga: to config: DONE
-                proj4(str): Coordinate reference system of the language data. --> Olga: Should go to config: DONE
-                or could be passed as meta data to the sites
-                geo_json_river(str): File path to river data. --> Olga: should go to config: DONE
-                subset(boolean): Is there a subset in the data, which should be displayed differently?
-                                 Only relevant for one experiment. --> Olga Should go to config: DONE
-                plot_area_stats(bool): Add box containing information about the likelihood of single areas to the plot?
-                flamingo(bool): Sort of a joke. Does one area have the shape of a flamingo. If yes use flamingo colors for plotting.
-                simulated_family(bool): Only for simulated data. Are families also simulated?
-                size(float): Size of the dots (languages) in the plot --> Olga: move to config: DONE
-                size_line(float): Line thickness. Gives in combination with post_freq_lines the line thickness of the edges in an area
-                                  Olga -> should go to config: DONE
-                label_languages(bool): Label the languages in areas?
-                add_overview(bool): Add an overview map?
-                x_extend_overview(tuple): min, max)-extend of the overview map in x-direction (longitude) --> Olga: config: DONE
-                y_extend_overview(tuple): min, max)-extend of the overview map in y-direction (latitude) --> Olga: config: DONE
-                plot_families(np.array): a boolean assignment of sites to families
-                    shape(n_families, n_sites)
-                family_alpha_shape(float): controls how far languages of the same family have to be apart to be grouped
-                                           into a single alpha shape (for display only)  --> Olga: config: DONE
-                fname (str): a path of the output file.
-                return_correspondence(bool): return the labels of all languages which are shown in the map
-                                            --> Olga: I think this can be solved differently, with a separate function: TODO
+                file_name (str): a path of the output file.
+                file_format (str): file format of output figure
 
             """
         print('Plotting map...')
@@ -874,13 +813,13 @@ class Map(Plot):
         ##############################################################
         # Additional check
         ##############################################################
-        self.visualize_additional_map_elements(plot_area_stats)
+        self.visualize_base_map()
 
         ##############################################################
         # Visualization
         ##############################################################
-        # This iterates over all areas in the posterior and plots each with a different color (minimum spanning tree)
-        self.visualize_areas(flamingo, simulated_family, post_freq, burn_in, label_languages, plot_area_stats)
+        # This iterates over all areas in the posterior and plots each with a different color
+        self.visualize_areas()
 
         ##############################################################
         # Legend

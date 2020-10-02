@@ -1,4 +1,8 @@
-{
+{ "map_parameters": {
+    "proj4": "+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs ",
+    "geojson_river": "../data/map/rivers_lake.geojson",
+    "geojson_map": "../data/map/land.geojson"
+},
   "graphic": {
     "size": 25,
     "size_line": 3,
@@ -11,7 +15,7 @@
 
   "plot_type": {
     "general": {
-      "fontsize": 16,
+      "font_size": 16,
       "line_thickness": 2,
       "frame_width": 1.5,
       "save_format": "pdf"
