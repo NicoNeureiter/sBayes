@@ -41,7 +41,7 @@
 		},
 		"M_INITIAL": 15,
 		"WARM_UP": {
-			"N_WARM_UP_STEPS": 100,
+			"N_WARM_UP_STEPS": 100000,
 			"N_WARM_UP_CHAINS": 20
 		}
 	},
