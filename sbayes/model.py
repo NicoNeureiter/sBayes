@@ -639,16 +639,13 @@ class GenerativePrior(object):
                 geo_prior = 0.
 
             elif geo_prior_meta['type'] == 'gaussian':
-                geo_prior = geo_prior_gaussian(sample.zones, network, geo_prior_meta['parameters']['gaussian'])
+                geo_prior = geo_prior_gaussian(sample.zones, network, geo_prior_meta['gaussian'])
 
-            elif geo_prior_meta['type'] == 'distance':
-                geo_prior = geo_prior_distance(sample.zones, network, geo_prior_meta['parameters']['distance'])
+            elif geo_prior_meta['type'] == 'cost_based':
+                geo_prior = geo_prior_distance(sample.zones, network, geo_prior_meta['scale'])
 
             else:
-                raise ValueError('geo_prior must be either \"uniform\", \"gaussian\" or \"distance\".')
-
-            # if "magnification_factor" in geo_prior_meta['parameters']:
-            #    geo_prior = geo_prior * geo_prior_meta['parameters']['magnification_factor']
+                raise ValueError('geo_prior must be either \"uniform\", \"gaussian\" or \"cost_based\".')
 
             self.geo_prior = geo_prior
 

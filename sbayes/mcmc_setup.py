@@ -48,8 +48,12 @@ class MCMC:
         # geo prior
         if self.config['model']['PRIOR']['geo'] == 'uniform':
             self.prior_structured['geo'] = {'type': 'uniform'}
+        elif self.config['model']['PRIOR']['geo'] == 'cost_based':
+            # todo:  change prior if cost matrix is provided
+            self.prior_structured['geo'] = {'type': 'cost_based',
+                                            'scale': 100}
         else:
-            raise ValueError('Currently only uniform geo-prior available.')
+            raise ValueError('Geo prior not supported')
         # weights
         if self.config['model']['PRIOR']['weights'] == 'uniform':
             self.prior_structured['weights'] = {'type': 'uniform'}
