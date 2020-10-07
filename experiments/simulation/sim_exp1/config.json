@@ -16,7 +16,7 @@
 	},
 	"mcmc": {
 		"N_STEPS": 3000000,
-		"N_SAMPLES": 2000,
+		"N_SAMPLES": 5000,
 		"N_RUNS": 1,
 		"P_GROW_CONNECTED": 0.85,
 		"PROPOSAL_PRECISION": {
