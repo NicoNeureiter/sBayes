@@ -554,6 +554,7 @@ def counts_to_dirichlet(counts, categories, prior='uniform', outdated_features=N
         dirichlet[feat] = pseudocounts
     return dirichlet
 
+
 def touch(fname):
     if os.path.exists(fname):
         os.utime(fname, None)

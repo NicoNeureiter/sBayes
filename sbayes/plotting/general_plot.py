@@ -104,11 +104,11 @@ class GeneralPlot(Plot):
                 split_key = key.split("_")
                 if 'w' == split_key[0]:
                     if 'universal' == split_key[1] and str(feature) == split_key[2]:
-                        true_universal = true_dict[key][b_in:]
+                        true_universal = true_dict[key]
                     elif 'contact' == split_key[1] and str(feature) == split_key[2]:
-                        true_contact = true_dict[key][b_in:]
+                        true_contact = true_dict[key]
                     elif 'inheritance' == split_key[1] and str(feature) == split_key[2]:
-                        true_inheritance = true_dict[key][b_in:]
+                        true_inheritance = true_dict[key]
             ground_truth = np.array([true_universal, true_contact, true_inheritance]).astype(np.float)
             return ground_truth
 
@@ -180,10 +180,11 @@ class GeneralPlot(Plot):
                     true_par[i] = true_p
 
                 elif "alpha" in parameter or "beta" in parameter or "gamma" in parameter:
-                    true_p = self.transform_probability_vectors(feature=i, parameter=parameter, b_in=b_in)
+                    true_p = self.transform_probability_vectors(feature=i, parameter=parameter, b_in=b_in, gt=True)
                     true_par[i] = true_p
         else:
             true_par = None
+
         return par, true_par, states
 
     def sort_by_weights(self, w):
@@ -195,13 +196,14 @@ class GeneralPlot(Plot):
 
     # Probability simplex (for one feature)
     @staticmethod
-    def plot_weights(samples, feature, true_weights=False, labels=None, ax=None, mean_weights=False):
+    def plot_weights(samples, feature, title, true_weights=None,
+                     labels=None, ax=None, mean_weights=False):
         """Plot a set of weight vectors in a 2D representation of the probability simplex.
 
         Args:
             samples (np.array): Sampled weight vectors to plot.
             feature (str): Name of the feature for which weights are being plotted
-            true_weights (np.array): true weight vectors (only for simulated data)
+            true_weights (np.array): the ground truth weights
             labels (list[str]): Labels for each weight dimension.
             ax (plt.Axis): The pyplot axis.
             mean_weights (bool): Plot the mean of the weights?
@@ -224,7 +226,8 @@ class GeneralPlot(Plot):
         cmap = sns.cubehelix_palette(light=1, start=.5, rot=-.75, as_cmap=True)
 
         # Density and scatter plot
-        plt.title(str(feature), loc='left', fontdict={'fontweight': 'bold', 'fontsize': 16})
+        if title:
+            plt.text(-0.7, 0.6, str(feature), fontdict={'fontweight': 'bold', 'fontsize': 12})
         x = samples_projected.T[0]
         y = samples_projected.T[1]
         sns.kdeplot(x, y, shade=True, shade_lowest=True, cut=30, n_levels=100,
@@ -235,23 +238,26 @@ class GeneralPlot(Plot):
         plt.fill(*corners.T, edgecolor='k', fill=False)
         GeneralPlot.fill_outside(corners, color='w', ax=ax)
 
-        if true_weights:
-            true_projected = true_weights.dot(corners)
-            plt.scatter(*true_projected.T, color="#ed1696", lw=0, s=100, marker="*")
+        if true_weights is not None:
+            true_weights_projected = true_weights.dot(corners)
+            plt.scatter(*true_weights_projected.T, color="#ed1696", lw=0, s=50, marker="*")
 
         if mean_weights:
+
             mean_projected = np.mean(samples, axis=0).dot(corners)
-            plt.scatter(*mean_projected.T, color="#ed1696", lw=0, s=100, marker="o")
+            plt.scatter(*mean_projected.T, color="#ed1696", lw=0, s=50, marker="o")
 
         if labels is not None:
             for xy, label in zip(corners, labels):
                 xy *= 1.08  # Stretch, s.t. labels don't overlap with corners
-                plt.text(*xy, label, ha='center', va='center', fontdict={'fontsize': 16})
+                plt.text(*xy, label, ha='center', va='center', fontdict={'fontsize': 12})
 
-        plt.axis('equal')
+        plt.xlim(xmin-0.1, xmax+0.1)
+        plt.ylim(ymin-0.1, ymax+0.1)
         plt.axis('off')
         plt.tight_layout(0)
         plt.plot()
+
 
     @staticmethod
     def plot_probability_vectors(samples, feature, true_p=None, labels=None, ax=None, title=False):
@@ -265,7 +271,6 @@ class GeneralPlot(Plot):
             title (bool): plot title
             ax (plt.Axis): The pyplot axis.
         """
-
         if ax is None:
             ax = plt.gca()
         n_samples, n_p = samples.shape
@@ -273,8 +278,7 @@ class GeneralPlot(Plot):
         cmap = sns.cubehelix_palette(light=1, start=.5, rot=-.75, as_cmap=True)
         if n_p == 2:
             # plt.title(str(feature), loc='center', fontdict={'fontweight': 'bold', 'fontsize': 20})
-            x = samples.T[0]
-            y = np.zeros(n_samples)
+            x = samples.T[1]
             sns.distplot(x, rug=True, hist=False, kde_kws={"shade": True, "lw": 0, "clip": (0, 1)}, color="g",
                          rug_kws={"color": "k", "alpha": 0.01, "height": 0.03})
             # sns.kdeplot(x, shade=True, color="r", clip=(0, 1))
@@ -286,18 +290,23 @@ class GeneralPlot(Plot):
             #            arrowprops=dict(arrowstyle="-", color='b'))
 
             if true_p is not None:
-                plt.scatter(true_p[0], 0, color="#ed1696", lw=0, s=100, marker="*")
+                plt.scatter(true_p[1], 0, color="#ed1696", lw=0, s=100, marker="*")
 
             if labels is not None:
                 for x, label in enumerate(labels):
-                    plt.text(x, -0.5, label, ha='center', va='top', fontdict={'fontsize': 16})
+                    plt.text(x, -0.25, label, ha='center', va='top', fontdict={'fontsize': 10})
             if title:
-                plt.title(str(feature), loc='left', fontdict={'fontweight': 'bold', 'fontsize': 16})
+                plt.text(0.3, 4, str(feature), fontsize=12, fontweight='bold')
+                #plt.title(str(feature), loc='left', fontdict={'fontweight': 'bold', 'fontsize': 16})
 
             plt.plot([0, 1], [0, 0], c="k", lw=0.5)
-            plt.xlim(0, 1)
+
+            #y_max = ax.get_ylim()[1]
+            ax.axes.set_ylim([-0.2, 5])
+            ax.axes.set_xlim([0, 1])
+
             plt.axis('off')
-            #plt.tight_layout(0)
+            plt.tight_layout(0)
 
         elif n_p > 2:
             # Compute corners
@@ -311,7 +320,8 @@ class GeneralPlot(Plot):
 
             # Density and scatter plot
             if title:
-                plt.title(str(feature), loc='center', fontdict={'fontweight': 'bold', 'fontsize': 20})
+                plt.text(-0.8, 0.8, str(feature), fontsize=12, fontweight='bold')
+                #plt.title(str(feature), loc='left', fontdict={'fontweight': 'bold', 'fontsize': 16})
             x = samples_projected.T[0]
             y = samples_projected.T[1]
             sns.kdeplot(x, y, shade=True, shade_lowest=True, cut=30, n_levels=100,
@@ -324,13 +334,14 @@ class GeneralPlot(Plot):
             GeneralPlot.fill_outside(corners, color='w', ax=ax)
 
             if true_p is not None:
+
                 true_projected = true_p.dot(corners)
                 plt.scatter(*true_projected.T, color="#ed1696", lw=0, s=100, marker="*")
 
             if labels is not None:
                 for xy, label in zip(corners, labels):
                     xy *= 1.08  # Stretch, s.t. labels don't overlap with corners
-                    plt.text(*xy, label, ha='center', va='center', fontdict={'fontsize': 16})
+                    plt.text(*xy, label, ha='center', va='center', fontdict={'fontsize': 10})
 
             plt.axis('equal')
             plt.axis('off')
@@ -349,94 +360,115 @@ class GeneralPlot(Plot):
     # Make a grid with all features (sorted by median contact)
     # By now we assume number of features to be 35; later this should be rewritten for any number of features
     # using find_num_features
-    def plot_weights_grid(self, fname, labels=None, burn_in=0.4):
+    def plot_weights_grid(self, file_name, file_format="pdf"):
 
         print('Plotting weights...')
-        burn_in = int(len(self.results['posterior']) * burn_in)
+        burn_in = int(len(self.results['posterior']) * self.config['weights_plot']['burn_in'])
 
         weights, true_weights, _ = self.get_parameters(parameter="weights", b_in=burn_in)
+
         ordering = self.sort_by_weights(weights)
 
-        n_plots = 10
-        n_col = 5
+        n_plots = self.config['weights_plot']['k_best']
+        n_col = self.config['weights_plot']['n_columns']
         n_row = math.ceil(n_plots / n_col)
-
-        fig, axs = plt.subplots(n_row, n_col, figsize=(15, 5))
+        width = self.config['weights_plot']['output']['fig_width_subplot']
+        height = self.config['weights_plot']['output']['fig_height_subplot']
+        fig, axs = plt.subplots(n_row, n_col, figsize=(width*n_col, height*n_row))
         position = 1
 
         features = ordering[:n_plots]
+        labels = self.config['weights_plot']['labels']
+        n_empty = n_row * n_col - n_plots
+
+        for e in range(1, n_empty + 1):
+            axs[-1, -e].axis('off')
 
         for f in features:
             plt.subplot(n_row, n_col, position)
+
             if self.is_simulation:
-                self.plot_weights(weights[f], feature=f, true_weights=true_weights[f], labels=labels)
+                self.plot_weights(weights[f], feature=f, title=self.config['weights_plot']['title'],
+                                  true_weights=true_weights[f], labels=labels)
             else:
-                self.plot_weights(weights[f], feature=f, labels=labels, mean_weights=True)
+                self.plot_weights(weights[f], feature=f, title=self.config['weights_plot']['title'],
+                                  labels=labels, mean_weights=True)
             print(position, "of", n_plots, "plots finished")
             position += 1
 
-        plt.subplots_adjust(wspace=0.4, hspace=0.4)
+        plt.subplots_adjust(wspace=self.config['weights_plot']['output']['spacing_horizontal'],
+                            hspace=self.config['weights_plot']['output']['spacing_vertical'])
 
-        fig.savefig(self.path_plots + fname + ".pdf", dpi=400, format="pdf")
+        fig.savefig(self.path_plots + '/' + file_name + '.' + file_format, dpi=400, format=file_format)
 
     # This is not changed yet
-    def plot_probability_grid(self, fname, p_name="gamma_a1", burn_in=0.4, title=False):
+    def plot_probability_grid(self, file_name, file_format="pdf"):
         """Creates a ridge plot for parameters with two states
 
        Args:
-           p_name (str): name of parameter vector (either alpha, beta_* or gamma_*)
-           burn_in (float): fraction of the samples which should be discarded as burn_in
+           file_name (str): name of the output file
+           file_format (str): output file format
        """
         print('Plotting probabilities...')
-        burn_in = int(len(self.results['posterior']) * burn_in)
+        burn_in = int(len(self.results['posterior']) * self.config['probabilities_plot']['burn_in'])
 
-        weights, true_weights, _ = self.get_parameters(parameter="weights", b_in=burn_in)
-
-        ordering = self.sort_by_weights(weights)
-
-        p, true_p, states = self.get_parameters(parameter=p_name, b_in=burn_in)
-
-        n_plots = 10
-        n_col = 5
+        n_plots = self.config['probabilities_plot']['k']
+        n_col = self.config['probabilities_plot']['n_columns']
         n_row = math.ceil(n_plots / n_col)
+        width = self.config['probabilities_plot']['output']['fig_width_subplot']
+        height = self.config['probabilities_plot']['output']['fig_height_subplot']
 
-        fig, axs = plt.subplots(n_row, n_col, figsize=(15, 5))
+        #weights, true_weights, _ = self.get_parameters(parameter="weights", b_in=burn_in)
+        #ordering = self.sort_by_weights(weights)
+
+        p, true_p, states = self.get_parameters(parameter=self.config['probabilities_plot']['parameter'], b_in=burn_in)
+        fig, axs = plt.subplots(n_row, n_col, figsize=(width*n_col, height*n_row), )
+
+        features = self.results['feature_names']
+        n_empty = n_row * n_col - n_plots
+
+        for e in range(1, n_empty+1):
+            axs[-1, -e].axis('off')
 
         position = 1
 
-        features = ordering[:n_plots]
-
-        for f in features:
+        for f in features[0:n_plots]:
             plt.subplot(n_row, n_col, position)
 
             if self.is_simulation:
-                self.plot_probability_vectors(p[f], feature=f, true_p=true_p[f], labels=states[f], title=title)
+                self.plot_probability_vectors(p[f], feature=f, true_p=true_p[f], labels=states[f],
+                                              title=self.config['probabilities_plot']['title'])
             else:
-                self.plot_probability_vectors(p[f], feature=f, labels=states[f], title=title)
+
+                self.plot_probability_vectors(p[f], feature=f, labels=states[f],
+                                              title=self.config['probabilities_plot']['title'])
             print(position, "of", n_plots, "plots finished")
             position += 1
 
-        plt.subplots_adjust(wspace=0.2, hspace=0.2)
-        fig.savefig(self.path_plots + fname + ".pdf", dpi=400, format="pdf")
+        plt.subplots_adjust(wspace=self.config['probabilities_plot']['output']['spacing_horizontal'],
+                            hspace=self.config['probabilities_plot']['output']['spacing_vertical'])
+        fig.savefig(self.path_plots + '/' + file_name + '.' + file_format, dpi=400,
+                    format=file_format)
 
-    def plot_dic(self, models, burn_in, true_model=None):
+    def plot_dic(self, models, file_name, file_format="pdf"):
         """This function plots the dics. What did you think?
         Args:
-
+            file_name (str): name of the output file
+            file_format (str): output file format
             models(dict): A dict of different models for which the DIC is evaluated
-            burn_in (float): Fraction of samples discarded as burn-in, when computing the DIC
-            true_model (str): id of true model
         """
         print('Plotting DIC...')
+        width = self.config['dic_plot']['output']['fig_width']
+        height = self.config['dic_plot']['output']['fig_height']
 
-        fig, ax = plt.subplots(figsize=(20, 10))
+        fig, ax = plt.subplots(figsize=(width, height))
         x = list(models.keys())
         y = []
 
         # Compute the DIC for each model
         for m in x:
             lh = models[m]['likelihood']
-            dic = compute_dic(lh, burn_in)
+            dic = compute_dic(lh, self.config['dic_plot']['burn_in'])
             y.append(dic)
 
         # Limits
@@ -461,60 +493,56 @@ class GeneralPlot(Plot):
         ax.set_yticks(y_ticks)
         yticklabels = [f'{y_tick:.0f}' for y_tick in y_ticks]
         ax.set_yticklabels(yticklabels, fontsize=10)
-        pos_true_model = [idx for idx, val in enumerate(x) if val == true_model][0]
+        try:
+            if self.config['dic_plot']['true_n'] is not None:
+                pos_true_model = [idx for idx, val in enumerate(x) if val == self.config['dic_plot']['true_n']][0]
+                color_burn_in = 'grey'
+                ax.axvline(x=pos_true_model, lw=1, color=color_burn_in, linestyle='--')
+                ypos_label = y_min + y_range * 0.15
+                plt.text(pos_true_model - 0.05, ypos_label, 'Simulated areas', rotation=90, size=10,
+                         color=color_burn_in)
+        except KeyError:
+            pass
+        fig.savefig(self.path_plots + '/' + file_name + '.' + file_format, dpi=400, format=file_format)
 
-        if true_model is not None:
-
-            color_burn_in = 'grey'
-            ax.axvline(x=pos_true_model, lw=1, color=color_burn_in, linestyle='--')
-            ypos_label = y_min + y_range * 0.15
-            plt.text(pos_true_model - 0.05, ypos_label, 'Simulated areas', rotation=90, size=10, color=color_burn_in)
-
-        fig.savefig(self.path_plots + '/dic.pdf', dpi=400, format="pdf", bbox_inches='tight')
-
-    def plot_trace(self, burn_in=0.2, parameter='likelihood', fname="trace", ylim=None, ground_truth=False,
-                   show_every_k_sample=1):
+    def plot_trace(self, file_name="trace", show_every_k_sample=1, file_format="pdf"):
         """
         Function to plot the trace of a parameter
         Args:
-            burn_in (float): First n% of samples are burn-in
-            parameter (str): Parameter for which to plot the trace
-            fname (str): a path followed by a the name of the file
-            ylim (tuple): limits on the y-axis
-            ground_truth(bool): show ground truth
+            file_name (str): a path followed by a the name of the file
+            file_format (str): format of the output file
             show_every_k_sample (int): show every 1, 1+k,1+2k sample and skip over the rest
         """
         # For Olga: change all three parameters to config file entries
         plt.rcParams["axes.linewidth"] = 1
-        fig, ax = plt.subplots(figsize=(10, 8))
-
+        fig, ax = plt.subplots(figsize=(self.config['plot_trace']['output']['fig_width'],
+                                        self.config['plot_trace']['output']['fig_height']))
+        parameter = self.config['plot_trace']['parameter']
         if parameter == 'recall_and_precision':
             y = self.results['recall'][::show_every_k_sample]
             y2 = self.results['precision'][::show_every_k_sample]
             x = self.results['sample_id'][::show_every_k_sample]
-            ax.plot(x, y, lw=0.5, color='#e41a1c', label="recall")
-            ax.plot(x, y2, lw=0.5, color='dodgerblue', label="precision")
+            ax.plot(x, y, lw=0.5, color=self.config['plot_trace']['color'][0], label="recall")
+            ax.plot(x, y2, lw=0.5, color=self.config['plot_trace']['color'][1], label="precision")
+            y_min = 0
+            y_max = 1
 
         else:
             try:
                 y = self.results[parameter][::show_every_k_sample]
 
             except KeyError:
-                raise ValueError("Cannot compute trace. " + parameter + " is not a valid parameter.")
+                raise ValueError("Cannot compute trace. " + self.config['plot_trace']['parameter']
+                                 + " is not a valid parameter.")
 
             x = self.results['sample_id'][::show_every_k_sample]
-            ax.plot(x, y, lw=0.5, color='#e41a1c', label=parameter)
-
-        if ylim is None:
+            ax.plot(x, y, lw=0.5, color=self.config['plot_trace']['color'][0], label=parameter)
             y_min, y_max = min(y), max(y)
-
-        else:
-            y_min, y_max = ylim
 
         y_range = y_max - y_min
         x_min, x_max = 0, x[-1]
 
-        if ground_truth:
+        if self.config['plot_trace']['ground_truth']['add']:
             ground_truth_parameter = 'true_' + parameter
             y_gt = self.results[ground_truth_parameter]
             ax.axhline(y=y_gt, xmin=x[0], xmax=x[-1], lw=1, color='#fdbf6f',
@@ -523,8 +551,8 @@ class GeneralPlot(Plot):
             y_min, y_max = [min(y_min, y_gt), max(y_max, y_gt)]
 
         # Show burn-in in plot
-        end_bi = math.ceil(x[-1] * burn_in)
-        end_bi_label = math.ceil(x[-1] * (burn_in - 0.03))
+        end_bi = math.ceil(x[-1] * self.config['plot_trace']['burn_in'])
+        end_bi_label = math.ceil(x[-1] * (self.config['plot_trace']['burn_in'] - 0.03))
 
         color_burn_in = 'grey'
         ax.axvline(x=end_bi, lw=1, color=color_burn_in, linestyle='--')
@@ -532,7 +560,7 @@ class GeneralPlot(Plot):
         plt.text(end_bi_label, ypos_label, 'Burn-in', rotation=90, size=10, color=color_burn_in)
 
         # Ticks and labels
-        n_ticks = 6 if int(burn_in * 100) % 20 == 0 else 12
+        n_ticks = 6 if int(self.config['plot_trace']['burn_in'] * 100) % 20 == 0 else 12
         x_ticks = np.linspace(x_min, x_max, n_ticks)
         x_ticks = [round(t, -5) for t in x_ticks]
         ax.set_xticks(x_ticks)
@@ -550,13 +578,14 @@ class GeneralPlot(Plot):
 
         # Limits
         ax.set_xlim([x_min, x_max])
-        ax.set_ylim([y_min - y_range * 0.1, y_max + y_range * 0.1])
+        ax.set_ylim([y_min - y_range * 0.01, y_max + y_range * 0.01])
 
         # Legend
         ax.legend(loc=4, prop={'size': 8}, frameon=False)
 
         # Save
-        fig.savefig(self.path_plots + fname + '.pdf', dpi=400, format="pdf", bbox_inches='tight')
+        fig.savefig(self.path_plots + '/' + file_name + '.' + file_format,
+                    dpi=400, format=file_format, bbox_inches='tight')
         plt.close(fig)
 
     def plot_trace_lh_prior(self, burn_in=0.2, fname="trace", show_every_k_sample=1, lh_lim=None, prior_lim=None):
@@ -627,9 +656,10 @@ class GeneralPlot(Plot):
         fig.savefig(self.path_plots + fname + '.pdf', dpi=400, format="pdf", bbox_inches='tight')
         plt.close(fig)
 
-    def plot_recall_precision_over_several_models(self, models):
-
-        fig, ax = plt.subplots(figsize=(10, 8))
+    def plot_recall_precision_over_all_models(self, models, file_name, file_format="pdf"):
+        width = self.config['recall_precision_over_all_models_plot']['output']['fig_width']
+        height = self.config['recall_precision_over_all_models_plot']['output']['fig_height']
+        fig, ax = plt.subplots(figsize=(width, height))
 
         recall = []
         precision = []
@@ -676,5 +706,6 @@ class GeneralPlot(Plot):
         ax.legend(loc=4, prop={'size': 6}, frameon=True, framealpha=1, facecolor='#ffffff',
                   edgecolor='#ffffff')
 
-        fig.savefig(self.path_plots + '/recall_precision_over_models.pdf', dpi=400, format="pdf", bbox_inches='tight')
+        fig.savefig(self.path_plots + '/' + file_name + '.' + file_format,
+                    dpi=400, format=file_format, bbox_inches='tight')
         plt.close(fig)

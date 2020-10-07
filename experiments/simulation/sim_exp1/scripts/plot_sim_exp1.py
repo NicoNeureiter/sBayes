@@ -1,68 +1,41 @@
-import numpy as np
-
+import warnings
 from sbayes.plotting.map import Map
 from sbayes.plotting.general_plot import GeneralPlot
-import os
+
+warnings.simplefilter(action='ignore', category=UserWarning)
 
 if __name__ == '__main__':
     results_per_model = {}
-    models = GeneralPlot(simulated_data=True)
-    models.load_config(config_file='../config_plot.json')
+    models = GeneralPlot()
+    models.load_config(config_file='../results/results_server/config_plot.json')
 
     # Get model names
     names = models.get_model_names()
-
+    map = None
     for m in names:
+
         map = Map(simulated_data=True)
-        map.load_config(config_file='../config_plot.json')
+        map.load_config(config_file='../results/results_server/config_plot.json')
         # Read sites, sites_names, network
         map.read_data()
         # Read results for each model
         map.read_results(model=m)
-        results_per_model[m] = map.results
-        #
-        # Plot Maps
         try:
-            map.posterior_map(
-                post_freq_legend=[1, 0.75, 0.5],
-                post_freq=0.95,
-                burn_in=0.2,
-                plot_families=False,
-                plot_area_stats=False,
-                add_overview=False,
-                label_languages=False,
-                fname='/posterior_map_' + m)
-
-        #     map.config['graphic']['x_extend'] = [6800, 9200]
-        #     map.config['graphic']['y_extend'] = [7700, 9700]
-        #
-        #     map.posterior_map(
-        #         post_freq_legend=[1, 0.75, 0.5],
-        #         post_freq=0.95,
-        #         burn_in=0.2,
-        #         plot_families=False,
-        #         plot_area_stats=False,
-        #         add_overview=False,
-        #         label_languages=False,
-        #         fname='/posterior_map_zoom_' + m)
-        #
+            map.posterior_map(file_name='posterior_map_' + m, return_correspondence=True)
         except ValueError:
             pass
-        plt = GeneralPlot(simulated_data=True)
-        plt.load_config(config_file='../config_plot.json')
+        results_per_model[m] = map.results
 
-        # Read sites, sites_names, network
-        plt.read_data()
-        # Read results for each model
-        plt.read_results(model=m)
-        results_per_model[m] = plt.results
-        plt.plot_trace_lh_prior(burn_in=0.2, fname="/trace_likelihood_prior_" + m, prior_lim=(-2000, 0))
-        plt.plot_trace(burn_in=0.2, parameter='precision',
-                       fname="/trace_precision_" + m, ylim=(0, 1))
-        plt.plot_trace(burn_in=0.2, parameter='likelihood', ground_truth=True,
-                       fname="/trace_lh_" + m)
-        plt.plot_trace(burn_in=0.2, parameter='recall_and_precision', ylim=(0, 1),
-                       fname="/trace_recall_precision_" + m)
+        plt = GeneralPlot()
+        plt.load_config(config_file='../results/results_server/config_plot.json')
 
+        # # In this case, we don't need to use load_results
+        plt.results = map.results
+        plt.config['plot_trace']['parameter'] = 'recall_and_precision'
+        plt.config['plot_trace']['ground_truth']['add'] = False
+        plt.plot_trace(file_name="trace_recall_precision_" + m)
 
+        plt.config['plot_trace']['parameter'] = 'likelihood'
+        plt.config['plot_trace']['ground_truth']['add'] = True
+        plt.plot_trace(file_name="trace_likelihood_" + m)
 

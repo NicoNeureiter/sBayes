@@ -6,8 +6,9 @@ import csv
 import numpy as np
 
 from sbayes.model import normalize_weights
-from sbayes.util import (compute_distance, compute_delaunay,
-                         read_feature_occurrence_from_csv, tighten_counts)
+from sbayes.util import (compute_delaunay,
+                         read_feature_occurrence_from_csv,
+                         tighten_counts)
 
 EPS = np.finfo(float).eps
 
@@ -251,7 +252,7 @@ def simulate_features(areas,  p_universal, p_contact, weights, inheritance, p_in
     cats = np.unique(features)
     features_cat = np.zeros((n_sites, n_features, len(cats)), dtype=int)
     for cat in cats:
-            features_cat[:, :, cat] = np.where(features == cat, 1, 0)
+        features_cat[:, :, cat] = np.where(features == cat, 1, 0)
 
     feature_names = {'external': ['f' + str(f+1) for f in range(features_cat.shape[1])],
                      'internal': [f for f in range(features_cat.shape[1])]}
@@ -305,8 +306,8 @@ def assign_area(area_id, sites_sim):
 
     # For multiple areas
     elif isinstance(area_id, tuple) and all(isinstance(x, int) for x in area_id):
-            for z in area_id:
-                sites_in_area[z] = np.where(area == z)[0].tolist()
+        for z in area_id:
+            sites_in_area[z] = np.where(area == z)[0].tolist()
     else:
         raise ValueError('area_id must be int or a tuple of int')
 
@@ -323,7 +324,6 @@ def assign_area(area_id, sites_sim):
 
 def assign_family(fam_id, sites_sim):
     """ This function finds out which sites belong to a family and assigns family membership accordingly.
-
         Args:
             fam_id(int): The IDs of the simulated families
             sites_sim (dict): dict with simulates sites
@@ -361,7 +361,7 @@ def assign_family(fam_id, sites_sim):
 
 
 def simulate_weights(i_universal, i_contact,  inheritance, n_features, i_inheritance=None):
-    """ Simulates weights for all features, that is the influence of global bias, inheritance and contact on the feature.
+    """ Simulates weights for all features, that is the influence of global preference, inheritance and contact.
     Args:
         i_universal (float): controls the number of features for which the influence of universal pressure is high,
             passed as alpha when drawing samples from a dirichlet distribution
