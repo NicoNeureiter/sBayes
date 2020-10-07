@@ -3,7 +3,6 @@
 Inherits basic functions from Plot
 Defines specific functions for map plots
 """
-import os
 import json
 import math
 import warnings
@@ -19,17 +18,15 @@ from matplotlib import patches
 from matplotlib.lines import Line2D
 from matplotlib.patches import Patch
 from mpl_toolkits.axes_grid1.inset_locator import inset_axes
-from scipy.sparse.csgraph import minimum_spanning_tree
+
 from scipy.spatial import Delaunay
-from scipy.special import logsumexp
 from shapely import geometry
 from shapely.ops import cascaded_union, polygonize
 
 from sbayes.plotting.plot_setup import Plot
-from sbayes.util import add_edge, compute_delaunay
-from sbayes.util import round_int
-from sbayes.util import gabriel_graph_from_delaunay
-from sbayes.util import fix_default_config
+from sbayes.util import (add_edge, fix_default_config,
+                         gabriel_graph_from_delaunay,
+                         compute_delaunay)
 
 warnings.simplefilter(action='ignore', category=FutureWarning)
 
@@ -48,14 +45,19 @@ class Map(Plot):
 
         self.geo_config = {}
         self.content_config = {}
+
         self.legend_config = {}
         self.graphic_config = {}
+        self.ground_truth_config = {}
         self.output_config = {}
 
+        # Figure parameters
         self.ax = None
         self.fig = None
+        self.x_min = self.x_max = self.y_min = self.y_max = None
+        self.bbox = None
 
-        self.leg_zones = []
+        self.leg_areas = []
         self.all_labels = []
         self.area_labels = []
 
@@ -81,73 +83,49 @@ class Map(Plot):
                 else:
                     self.config[key] = new_config[key]
 
-
-    ##############################################################
-    # Copy-pasted functions needed for plot_posterior_map
-    ##############################################################
-    # for Olga: For maps show should always be False, and can be removed
-    def style_axes(self, ax, locations, show=True, offset=None, x_extend=None, y_extend=None):
+    def style_axes(self):
         """ Function to style the axes of a plot
-        Args:
-            ax (axes.Axes): Axis of the plot.
-            locations (np.array): Locations of points.
-            show (bool): Whether to show the axes.
-            offset (float): Offset of axes.
-            x_extend (tuple): x extend of plot.
-            y_extend (tuple): y extend of plot.
+
         Returns:
             (tuple): Extend of plot.
         """
 
-        pp = self.map_parameters
-        # getting axes ranges and rounding them
-        x_min, x_max = np.min(locations[:, 0]), np.max(locations[:, 0])
-        y_min, y_max = np.min(locations[:, 1]), np.max(locations[:, 1])
+        try:
+            self.x_min, self.x_max = self.geo_config['x_extend']
+            self.y_min, self.y_max = self.geo_config['y_extend']
 
-        # if specific offsets were passed use them, otherwise use same offset for all
-        # For Olga: offsets should be provided in the config only, and if missing deduced from the data
-        if offset is not None:
-            # For Olga: remove
-            x_min, x_max = round_int(x_min, 'down', offset), round_int(x_max, 'up', offset)
-            y_min, y_max = round_int(y_min, 'down', offset), round_int(y_max, 'up', offset)
-        elif self.config['graphic']['x_extend'] is not None and self.config['graphic']['y_extend'] is not None:
-            x_min, x_max = self.config['graphic']['x_extend']
-            y_min, y_max = self.config['graphic']['y_extend']
-        else:
-            x_coords, y_coords = locations.T
-            x_min, x_max = min(x_coords), max(x_coords)
-            y_min, y_max = min(y_coords), max(y_coords)
-        # setting axes limits
-        ax.set_xlim([x_min, x_max])
-        ax.set_ylim([y_min, y_max])
+        except KeyError:
+            x_min, x_max = np.min(self.locations[:, 0]), np.max(self.locations[:, 0])
+            y_min, y_max = np.min(self.locations[:, 1]), np.max(self.locations[:, 1])
 
-        # x axis
-        # for Olga: For maps show should always be False, and can be removed
-        x_step = (x_max - x_min) // 5
-        x_ticks = np.arange(x_min, x_max + x_step, x_step) if show else []
-        ax.set_xticks(x_ticks)
-        ax.set_xticklabels(x_ticks, fontsize=pp['fontsize'])
+            x_offset = (x_max - x_min) * 0.01
+            y_offset = (y_max - y_min) * 0.01
 
-        # y axis
-        # for : For maps show should always be False, and can be removed
-        y_step = (y_max - y_min) // 5
-        y_ticks = np.arange(y_min, y_max + y_step, y_step) if show else []
-        ax.set_yticks(y_ticks)
-        ax.set_yticklabels(y_ticks, fontsize=pp['fontsize'])
+            self.x_min = x_min + x_offset
+            self.x_max = x_max + x_offset
+            self.y_min = y_min - y_offset
+            self.y_max = y_max + y_offset
 
-        return (x_min, x_max, y_min, y_max)
+        # setting axis limits
+        self.ax.set_xlim([self.x_min, self.x_max])
+        self.ax.set_ylim([self.y_min, self.y_max])
 
-    def compute_alpha_shapes(self, sites, alpha):
+        # Removing axis labels
+        self.ax.set_xticks([])
+        self.ax.set_yticks([])
 
-        # Olga: sites, net are already loaded in Plot
+        # Bounding Box
+        self.bbox = geometry.Polygon([(self.x_min, self.y_min),
+                                      (self.x_max, self.y_min),
+                                      (self.x_max, self.y_max),
+                                      (self.x_min, self.y_max),
+                                      (self.x_min, self.y_min)])
+
+    def compute_alpha_shapes(self, sites):
 
         """Compute the alpha shape (concave hull) of a set of sites
         Args:
-            sites (np.array): subset of sites around which to create the alpha shapes (e.g. family, zone, ...)
-            net (dict): The full network containing all sites.
-            alpha (float): alpha value to influence the gooeyness of the convex hull Smaller numbers don't fall inward
-            as much as larger numbers. Too large, and you lose everything!"
-
+            sites (np.array): subset of sites around which to create the alpha shapes (e.g. family, area, ...)
         Returns:
             (polygon): the alpha shape"""
 
@@ -178,8 +156,10 @@ class Map(Plot):
             area = math.sqrt(s * (s - a) * (s - b) * (s - c))
             circum_r = a * b * c / (4.0 * area)
 
-            # print(f'{circum_r} {1.0/alpha}')
-            if circum_r < 1.0 / alpha:
+            "alpha value to influence the shape of the convex hull Smaller numbers don't fall inward "
+            "as much as larger numbers. Too large, and you lose everything!"
+
+            if circum_r < 1.0 / self.ground_truth_config['area_alpha_shape']:
                 add_edge(edges, edge_nodes, points, ia, ib)
                 add_edge(edges, edge_nodes, points, ib, ic)
                 add_edge(edges, edge_nodes, points, ic, ia)
@@ -191,60 +171,54 @@ class Map(Plot):
 
         return polygon
 
-    def add_zone_boundary(self, is_in_zone, alpha, annotation=None, color='#000000'):
-        """ Function to add bounding boxes around zones
+    def add_area_boundary(self, is_in_area, annotation=None, color='#000000'):
+        """ Function to add bounding boxes around areas
         Args:
-            ax (axes.Axes): Axis of the plot.
-            locations (np.array): Locations of points.
-            net (unknown): Network of points.
-            is_in_zone (np.array): Boolean array indicating if in zone.
-            alpha (float): Value for alpha shapes.
-            annotation (string): If passed, zone is annotated with this.
-            color (string): Color of zone.
+            is_in_area (np.array): Boolean array indicating if a point is in area.
+            annotation (string): If passed, area is annotated with this.
+            color (string): Color of area.
         Returns:
-            leg_zones: Legend.
+            leg_area: Legend.
         """
 
         # use form plotting param
-        fontsize = 18
-        # color_zones = '#000000'
+        font_size = 18
+        cp_locations = self.locations[is_in_area[0], :]
 
-        cp_locations = self.locations[is_in_zone[0], :]
+        leg_area = None
+        if cp_locations.shape[0] > 0:  # at least one contact point in area
 
-        leg_zone = None
-        if cp_locations.shape[0] > 0:  # at least one contact point in zone
-
-            alpha_shape = self.compute_alpha_shapes([is_in_zone], alpha)
+            alpha_shape = self.compute_alpha_shapes([is_in_area])
 
             # smooth_shape = alpha_shape.buffer(100, resolution=16, cap_style=1, join_style=1, mitre_limit=5.0)
             smooth_shape = alpha_shape.buffer(60, resolution=16, cap_style=1, join_style=1, mitre_limit=10.0)
             # smooth_shape = alpha_shape
             patch = PolygonPatch(smooth_shape, ec=color, lw=1, ls='-', alpha=1, fill=False,
                                  zorder=1)
-            leg_zone = self.ax.add_patch(patch)
+            leg_area = self.ax.add_patch(patch)
         else:
             print('computation of bbox not possible because no contact points')
 
-        # only adding a label (numeric) if annotation turned on and more than one zone
+        # only adding a label (numeric) if annotation turned on and more than one area
         if annotation is not None:
             x_coords, y_coords = cp_locations.T
             x, y = np.mean(x_coords), np.mean(y_coords)
-            self.ax.text(x, y, annotation, fontsize=fontsize, color=color)
+            self.ax.text(x, y, annotation, fontsize=font_size, color=color)
 
-        return leg_zone
+        return leg_area
 
-    def areas_to_graph(self, area, burn_in, post_freq):
+    def areas_to_graph(self, area):
 
         # exclude burn-in
-        end_bi = math.ceil(len(area) * burn_in)
+        end_bi = math.ceil(len(area) * self.content_config['burn_in'])
         area = area[end_bi:]
 
-        # compute frequency of each point in zone
+        # compute frequency of each point in area
         area = np.asarray(area)
         n_samples = area.shape[0]
 
-        zone_freq = np.sum(area, axis=0)/n_samples
-        in_graph = zone_freq >= post_freq
+        area_freq = np.sum(area, axis=0)/n_samples
+        in_graph = area_freq >= self.content_config['min_posterior_frequency']
         locations = self.locations[in_graph]
         n_graph = len(locations)
 
@@ -263,7 +237,7 @@ class Map(Plot):
             graph_connections = np.array([[0, 1]]).astype(int)
 
         else:
-            raise ValueError('No points in contact zone!')
+            raise ValueError('No points in contact area!')
 
         lines = []
         line_weights = []
@@ -287,12 +261,14 @@ class Map(Plot):
 
     # Get relevant map parameters from the json file
     def get_config_parameters(self):
-        self.geo_config = self.config['map']['geo']
         self.content_config = self.config['map']['content']
         self.graphic_config = self.config['map']['graphic']
         self.legend_config = self.config['map']['legend']
         self.output_config = self.config['map']['output']
-        #self.map_parameters.update(self.config['plot_type']['plot_posterior_map_sa'])
+        self.geo_config = self.config['map']['geo']
+
+        if self.is_simulation:
+            self.ground_truth_config = self.config['map']['ground_truth']
 
     # Initialize the map
     def initialize_map(self):
@@ -305,36 +281,37 @@ class Map(Plot):
         if self.content_config['subset']:
             self.plot_subset()
 
-        self.ax.scatter(*self.locations.T, s=self.graphic_config['size'], c="darkgrey", alpha=1, linewidth=0)
+        self.ax.scatter(*self.locations.T, s=self.graphic_config['point_size'],
+                        c="darkgrey", alpha=1, linewidth=0)
 
     ##############################################################
     # Visualization functions for plot_posterior_map
     ##############################################################
-    def add_color(self, i, simulated_family):
+    def add_color(self, i):
         color = self.graphic_config['area_colors'][i]
         return color
 
-    def add_label(self, is_in_zone, current_color):
+    def add_label(self, is_in_area, current_color):
         # Find all languages in areas
-        loc_in_zone = self.locations[is_in_zone, :]
-        labels_in_zone = list(compress(self.sites['id'], is_in_zone))
-        self.all_labels.append(labels_in_zone)
+        loc_in_area = self.locations[is_in_area, :]
+        labels_in_area = list(compress(self.sites['id'], is_in_area))
+        self.all_labels.append(labels_in_area)
 
-        for loc in range(len(loc_in_zone)):
+        for loc in range(len(loc_in_area)):
             # add a label at a spatial offset of 20000 and 10000. Rather than hard-coding it,
             # this might go into the config.
-            x, y = loc_in_zone[loc]
+            x, y = loc_in_area[loc]
             x += 20000
             y += 10000
             # Same with the font size for annotations. Should probably go to the config.
             anno_opts = dict(xy=(x, y), fontsize=14, color=current_color)
-            self.ax.annotate(labels_in_zone[loc] + 1, **anno_opts)
+            self.ax.annotate(labels_in_area[loc] + 1, **anno_opts)
 
     # Bind together the functions above
     def visualize_areas(self):
 
         # If likelihood for single areas are displayed: add legend entries with likelihood information per area
-        if self.legend_config['area_stats']['add']:
+        if self.legend_config['areas']['add_area_stats']:
             self.add_likelihood_legend()
             self.add_likelihood_info()
         else:
@@ -346,21 +323,21 @@ class Map(Plot):
             current_color = self.add_color(i)
 
             # This function computes a Gabriel graph for all points which are in the posterior with at least p_freq
-            in_graph, lines, line_w = self.areas_to_graph(area, burn_in, post_freq=post_freq)
+            in_graph, lines, line_w = self.areas_to_graph(area)
 
-            self.ax.scatter(*self.locations[in_graph].T, s=self.config['graphic']['size'], c=current_color)
+            self.ax.scatter(*self.locations[in_graph].T, s=self.graphic_config['point_size'], c=current_color)
 
             for li in range(len(lines)):
-                self.ax.plot(*lines[li].T, color=current_color, lw=line_w[li]*self.config['graphic']['size_line'],
+                self.ax.plot(*lines[li].T, color=current_color, lw=line_w[li]*self.graphic_config['line_width'],
                              alpha=0.6)
 
             # This adds small lines to the legend (one legend entry per area)
             line_legend = Line2D([0], [0], color=current_color, lw=6, linestyle='-')
-            self.leg_zones.append(line_legend)
+            self.leg_areas.append(line_legend)
 
             # Labels the languages in the areas
             # Should go into a separate function
-            if label_languages:
+            if self.content_config['label_languages']:
                 self.add_label(in_graph, current_color)
 
             # Again, this is only relevant for simulated data and should go into a separate function
@@ -370,7 +347,7 @@ class Map(Plot):
                 try:
                     # Adds a bounding box for the ground truth areas
                     # showing if the algorithm has correctly identified them
-                    self.add_zone_boundary(self.results['true_zones'][i], alpha=0.001, color='#000000')
+                    self.add_area_boundary(self.results['true_zones'][i], color='#000000')
                 # Olga: are there any other potential errors? can we somehow get rid of this try-except statement?
                 # (maybe it would be better to add some 'verify' function above with raising some warning;
                 # try-except is better to avoid)
@@ -378,8 +355,8 @@ class Map(Plot):
                     continue
 
         # add to legend
-        legend_zones = self.ax.legend(
-            self.leg_zones,
+        legend_areas = self.ax.legend(
+            self.leg_areas,
             self.area_labels,
             title_fontsize=18,
             title='Contact areas',
@@ -390,21 +367,22 @@ class Map(Plot):
             ncol=1,
             columnspacing=1,
             loc='upper left',
-            bbox_to_anchor=self.map_parameters['area_legend_position']
+            bbox_to_anchor=self.legend_config['areas']['position']
         )
-        legend_zones._legend_box.align = "left"
-        self.ax.add_artist(legend_zones)
+        legend_areas._legend_box.align = "left"
+        self.ax.add_artist(legend_areas)
 
     # TODO: This function should be rewritten in a nicer way; probably split into two functions,
     #  or find a better way of dividing things into simulated and real
-    def color_families(self, family_array, colors, families=None):
+    def color_families(self):
         # Initialize empty legend handle
         handles = []
+        family_array = self.family_names['external']
+        families = self.families
 
         # Iterate over all family names
         for i, family in enumerate(family_array):
-
-            family_color = colors[i]
+            family_color = self.graphic_config['family_colors'][i]
             family_fill, family_border = family_color, family_color
 
             # Find all languages belonging to a family
@@ -413,8 +391,7 @@ class Map(Plot):
 
             # For simulated data
             if self.is_simulation:
-                print(self.config['graphic']['family_alpha_shape'])
-                alpha_shape = self.compute_alpha_shapes([is_in_family], self.config['graphic']['family_alpha_shape'])
+                alpha_shape = self.compute_alpha_shapes([is_in_family])
                 smooth_shape = alpha_shape.buffer(60, resolution=16, cap_style=1, join_style=1, mitre_limit=5.0)
                 patch = PolygonPatch(smooth_shape, fc=family_fill, ec=family_border, lw=1, ls='-', alpha=1, fill=True,
                                      zorder=-i)
@@ -429,22 +406,20 @@ class Map(Plot):
             else:
 
                 # Adds a color overlay for each language in a family
-                self.ax.scatter(*family_locations.T, s=self.config['graphic']['size'] * 15, c=family_color, alpha=1,
-                                linewidth=0, zorder=-i,
-                                label=family)
+                self.ax.scatter(*family_locations.T, s=self.graphic_config['point_size'] * 15,
+                                c=family_color, alpha=1, linewidth=0, zorder=-i, label=family)
 
-                # For languages with more than three members: instead of one dot per language,
-                # combine several languages in an alpha shape (a polygon)
-                if self.config['graphic']['family_alpha_shape'] is not None and np.count_nonzero(is_in_family) > 3:
-                    alpha_shape = self.compute_alpha_shapes([is_in_family],
-                                                            self.config['graphic']['family_alpha_shape'])
+                # For languages with more than three members combine several languages in an alpha shape (a polygon)
+                if np.count_nonzero(is_in_family) > 3:
+                    alpha_shape = self.compute_alpha_shapes([is_in_family])
 
                     # making sure that the alpha shape is not empty
                     if not alpha_shape.is_empty:
-                        smooth_shape = alpha_shape.buffer(40000, resolution=16, cap_style=1, join_style=1,
+                        smooth_shape = alpha_shape.buffer(40000, resolution=16,
+                                                          cap_style=1, join_style=1,
                                                           mitre_limit=5.0)
-                        patch = PolygonPatch(smooth_shape, fc=family_fill, ec=family_border, lw=1, ls='-', alpha=1,
-                                             fill=True, zorder=-i)
+                        patch = PolygonPatch(smooth_shape, fc=family_fill, ec=family_border,
+                                             lw=1, ls='-', alpha=1, fill=True, zorder=-i)
                         leg_family = self.ax.add_patch(patch)
 
                 # Add legend handle
@@ -467,13 +442,11 @@ class Map(Plot):
                 columnspacing=1,
                 handletextpad=2.3,
                 loc='upper left',
-                bbox_to_anchor=self.map_parameters['family_legend_position']
+                bbox_to_anchor=self.legend_config['families']['position']
             )
             self.ax.add_artist(legend_families)
 
         else:
-            # (Hard-coded) parameters should probably go to config
-            # Defines the legend for families
             legend_families = self.ax.legend(
                 handles=handles,
                 title='Language family',
@@ -485,25 +458,26 @@ class Map(Plot):
                 ncol=1,
                 columnspacing=1,
                 loc='upper left',
-                bbox_to_anchor=self.map_parameters['family_legend_position']
+                bbox_to_anchor=self.legend_config['families']['position']
             )
             self.ax.add_artist(legend_families)
 
-    def add_legend_lines(self, post_freq_lines):
-        # This adds a legend displaying what the line thickness corresponds to.
+    def add_legend_lines(self):
 
-        post_freq_lines.sort(reverse=True)
+        # This adds a legend displaying what line width corresponds to
+        line_width = list(self.legend_config['posterior_frequency']['default_values'])
+        line_width.sort(reverse=True)
 
         # Iterates over all values in post_freq_lines and for each adds a legend entry
-        for k in range(len(post_freq_lines)):
+        for k in line_width:
 
             # Create line
-            line = Line2D([0], [0], color="black", lw=self.config['graphic']['size_line'] * post_freq_lines[k],
-                          linestyle='-')
+            line = Line2D([0], [0], color="black", linestyle='-',
+                          lw=self.graphic_config['line_width'] * k)
             self.leg_line_width.append(line)
 
             # Add legend text
-            prop_l = int(post_freq_lines[k] * 100)
+            prop_l = int(k * 100)
             self.line_width_label.append(f'{prop_l}%')
 
         # Adds everything to the legend
@@ -519,111 +493,75 @@ class Map(Plot):
                 ncol=1,
                 columnspacing=1,
                 loc='upper left',
-                bbox_to_anchor=self.map_parameters['freq_legend_position']
+                bbox_to_anchor=self.legend_config['posterior_frequency']['position']
             )
 
         legend_line_width._legend_box.align = "left"
         self.ax.add_artist(legend_line_width)
 
-    def add_sa_legend(self):
-        self.config['graphic']['x_unit'] = (self.config['graphic']['x_extend'][1] -
-                                            self.config['graphic']['x_extend'][0]) / 100
-        self.config['graphic']['y_unit'] = (self.config['graphic']['y_extend'][1] -
-                                            self.config['graphic']['y_extend'][0]) / 100
-        self.ax.axhline(self.config['graphic']['y_extend'][0] + self.config['graphic']['y_unit'] * 71,
-                        0.02, 0.20, lw=1.5, color="black")
-
-        self.ax.add_patch(
-            patches.Rectangle(
-                (self.config['graphic']['x_extend'][0], self.config['graphic']['y_extend'][0]),
-                self.config['graphic']['x_unit'] * 25, self.config['graphic']['y_unit'] * 100,
-                color="white"
-            ))
-
-    def add_balkan_legend(self):
-        self.config['graphic']['x_unit'] = (self.config['graphic']['x_extend'][1] -
-                                            self.config['graphic']['x_extend'][0]) / 100
-        self.config['graphic']['y_unit'] = (self.config['graphic']['y_extend'][1] -
-                                            self.config['graphic']['y_extend'][0]) / 100
-
-        self.ax.add_patch(
-            patches.Rectangle(
-                (self.config['graphic']['x_extend'][0], self.config['graphic']['y_extend'][0]),
-                self.config['graphic']['x_unit'] * 25, self.config['graphic']['y_unit'] * 100,
-                color="white"
-            ))
-        self.ax.axhline(self.config['graphic']['y_extend'][0] + self.config['graphic']['y_unit'] * 56,
-                        0.02, 0.20, lw=1.5, color="black")
-        self.ax.axhline(self.config['graphic']['y_extend'][0] + self.config['graphic']['y_unit'] * 72,
-                        0.02, 0.20, lw=1.5, color="black")
-
-    def add_simulation_legend(self):
-        self.config['graphic']['x_unit'] = (self.config['graphic']['x_extend'][1] -
-                                            self.config['graphic']['x_extend'][0]) / 100
-        self.config['graphic']['y_unit'] = (self.config['graphic']['y_extend'][1] -
-                                            self.config['graphic']['y_extend'][0]) / 100
-        self.ax.add_patch(
-            patches.Rectangle(
-                (self.config['graphic']['x_extend'][0], self.config['graphic']['y_extend'][0]),
-                self.config['graphic']['x_unit'] * 55,
-                self.config['graphic']['y_unit'] * 30,
-                color="white"
-            ))
-        # The legend looks a bit different, as it has to show both the inferred areas and the ground truth
-        self.ax.annotate("INFERRED", (
-            self.config['graphic']['x_extend'][0] + self.config['graphic']['x_unit'] * 3,
-            self.config['graphic']['y_extend'][0] + self.config['graphic']['y_unit'] * 23),
-                         fontsize=20)
-        self.ax.annotate("GROUND TRUTH", (
-            self.config['graphic']['x_extend'][0] + self.config['graphic']['x_unit'] * 38.5,
-            self.config['graphic']['y_extend'][0] + self.config['graphic']['y_unit'] * 23),
-                         fontsize=20)
-        self.ax.axvline(self.config['graphic']['x_extend'][0] + self.config['graphic']['x_unit'] * 37,
-                        0.05, 0.18, lw=2, color="black")
-
     def add_secondary_legend(self):
-        # for Olga: should be defined in the config
-        # reduces to single function add_legend, with parameter "simulation"
-        # for Sa map
-        if self.config['input']['experiment'] == "sa":
-            self.add_sa_legend()
 
-        # for Balkan map
-        if self.config['input']['experiment'] == "balkan":
-            self.add_balkan_legend()
+        x_unit = (self.x_max - self.x_min) / 100
+        y_unit = (self.y_max - self.y_min) / 100
 
-        # for simulated data
-        if self.is_simulation:
-            self.add_simulation_legend()
+        if not self.is_simulation:
+
+            self.ax.axhline(self.y_min + y_unit * 71,
+                            0.02, 0.20, lw=1.5, color="black")
+
+            self.ax.add_patch(
+                patches.Rectangle(
+                    (self.x_min, self.y_min),
+                    x_unit * 25, y_unit * 100,
+                    color="white"
+                ))
+        else:
+            self.ax.add_patch(
+                patches.Rectangle(
+                    (self.x_min, self.y_min),
+                    x_unit * 55,
+                    y_unit * 30,
+                    color="white"
+                ))
+
+            # The legend looks a bit different, as it has to show both the inferred areas and the ground truth
+            self.ax.annotate("INFERRED", (
+                self.x_min + x_unit * 3,
+                self.y_min + y_unit * 23), fontsize=20)
+
+            self.ax.annotate("GROUND TRUTH", (
+                self.x_min + x_unit * 38.5,
+                self.y_min + y_unit * 23), fontsize=20)
+
+            self.ax.axvline(self.x_min + x_unit * 37, 0.05, 0.18, lw=2, color="black")
 
     def add_overview_map(self):
-        # All hard-coded parameters (width, height, lower_left, ... could go to the config file.
-        # Olga: all the input parameters should be removed later (from inset_axes)
-        axins = inset_axes(self.ax, width=self.config['overview']['width'],
-                           height=self.config['overview']['height'],
-                           bbox_to_anchor=self.map_parameters['overview_position'],
-                           loc=self.config['overview']['location'],
-                           bbox_transform=self.ax.transAxes)
-        axins.tick_params(labelleft=False, labelbottom=False, length=0)
+        if not self.is_simulation:
+            axins = inset_axes(self.ax, width=self.legend_config['overview']['width'],
+                               height=self.legend_config['overview']['height'],
+                               bbox_to_anchor=self.legend_config['overview']['position'],
+                               loc='lower left',
+                               bbox_transform=self.ax.transAxes)
+            axins.tick_params(labelleft=False, labelbottom=False, length=0)
 
-        # Map extend of the overview map
-        # x_extend_overview and y_extend_overview --> to config
-        axins.set_xlim(self.config['graphic']['x_extend_overview'])
-        axins.set_ylim(self.config['graphic']['y_extend_overview'])
+            # Map extend of the overview map
+            # x_extend_overview and y_extend_overview --> to config
+            axins.set_xlim(self.legend_config['overview']['x_extend'])
+            axins.set_ylim(self.legend_config['overview']['y_extend'])
 
-        # Again, this function needs map data to display in the overview map.
-        self.add_background_map(axins)
+            # Again, this function needs map data to display in the overview map.
+            self.add_background_map(axins)
 
-        # add overview to the map
-        axins.scatter(*self.locations.T, s=self.config['graphic']['size'] / 2, c="darkgrey", alpha=1, linewidth=0)
+            # add overview to the map
+            axins.scatter(*self.locations.T, s=self.graphic_config['point_size'] / 2, c="darkgrey",
+                          alpha=1, linewidth=0)
 
-        # adds a bounding box around the overview map
-        bbox_width = self.config['graphic']['x_extend'][1] - self.config['graphic']['x_extend'][0]
-        bbox_height = self.config['graphic']['y_extend'][1] - self.config['graphic']['y_extend'][0]
-        bbox = mpl.patches.Rectangle((self.config['graphic']['x_extend'][0], self.config['graphic']['y_extend'][0]),
-                                     bbox_width, bbox_height, ec='k', fill=False,
-                                     linestyle='-')
-        axins.add_patch(bbox)
+            # adds a bounding box around the overview map
+            bbox_width = self.geo_config['x_extend'][1] - self.geo_config['x_extend'][0]
+            bbox_height = self.geo_config['y_extend'][1] - self.geo_config['y_extend'][0]
+            bbox = mpl.patches.Rectangle((self.geo_config['x_extend'][0], self.geo_config['y_extend'][0]),
+                                         bbox_width, bbox_height, ec='k', fill=False, linestyle='-')
+            axins.add_patch(bbox)
 
     # Helper function
     @staticmethod
@@ -634,6 +572,7 @@ class Map(Plot):
         return '%.2f \cdot 10^{%i}' % (a, b)
 
     def add_likelihood_legend(self):
+
         # Legend for area labels
         self.area_labels = ["      log-likelihood per area"]
 
@@ -650,14 +589,13 @@ class Map(Plot):
     ##############################################################
     # Add background map
     def add_background_map(self, ax):
-        # If yes, the user needs to define a valid spatial coordinate reference system(proj4)
-        # and provide background map data
         if self.geo_config['proj4'] is None or self.geo_config['base_map']['geojson_map'] is None:
             raise Exception('If you want to use a map, provide a geojson and a crs!')
 
         # Adds the geojson map provided by user as background map
         self.world = gpd.read_file(self.geo_config['base_map']['geojson_map'])
         self.world = self.world.to_crs(self.geo_config['proj4'])
+        #self.world = gpd.clip(self.world, self.bbox)
         self.world.plot(ax=ax, color='w', edgecolor='black', zorder=-100000)
 
     # Add rivers
@@ -671,7 +609,7 @@ class Map(Plot):
     # Add likelihood info box
     def add_likelihood_info(self):
         extra = patches.Rectangle((0, 0), 1, 1, fc="w", fill=False, edgecolor='none', linewidth=0)
-        self.leg_zones.append(extra)
+        self.leg_areas.append(extra)
 
     # Load subset data
     # Helper function for add_subset
@@ -690,7 +628,7 @@ class Map(Plot):
         # plot all points not in the subset in light grey
         not_in_subset = np.logical_not(is_in_subset)
         other_locations = sites_all['locations'][not_in_subset]
-        self.ax.scatter(*other_locations.T, s=self.config['graphic']['size'], c="gainsboro", alpha=1, linewidth=0)
+        self.ax.scatter(*other_locations.T, s=self.graphic_config['point_size'], c="gainsboro", alpha=1, linewidth=0)
 
         # Add a visual bounding box to the map to show the location of the subset on the map
         x_coords, y_coords = self.locations.T
@@ -705,20 +643,52 @@ class Map(Plot):
         # Adds a small label that reads "Subset"
         self.ax.text(x_max, y_max + 200, 'Subset', fontsize=18, color='#000000')
 
-    # Check all the previous additional functions
     def visualize_base_map(self):
-        # Could go to extra function (add_background_map), which is only called if relevant
-        if self.geo_config['base_map']['add']:
-            self.add_background_map(self.ax)
-            self.add_rivers(self.ax)
+        if self.is_simulation:
+            pass
+        else:
+            if self.geo_config['base_map']['add']:
+                self.add_background_map(ax=self.ax)
+                self.add_rivers(ax=self.ax)
 
-    def return_correspondence_table(self, fname, ncol=3):
+    def modify_legend(self):
+        class TrueArea(object):
+            pass
+
+        class TrueAreaHandler(object):
+            def legend_artist(self, legend, orig_handle, fontsize, handlebox):
+                x0, y0 = handlebox.xdescent + 10, handlebox.ydescent + 10
+
+                patch = patches.Polygon([[x0, y0],
+                                         [x0 + 40, y0 + 20],
+                                         [x0 + 60, y0 - 10],
+                                         [x0 + 50, y0 - 20],
+                                         [x0 + 30, y0 - 20]],
+                                        ec='black', lw=1, ls='-', alpha=1, fill=False,
+                                        joinstyle="round", capstyle="butt")
+                handlebox.add_artist(patch)
+                return patch
+
+        legend_true_area = self.ax.legend([TrueArea()], ['simulated area\n(bounding polygon)'],
+                                          handler_map={TrueArea: TrueAreaHandler()},
+                                          bbox_to_anchor=self.ground_truth_config['true_area_polygon_position'],
+                                          title_fontsize=16,
+                                          loc='upper left',
+                                          frameon=True,
+                                          edgecolor='#ffffff',
+                                          handletextpad=4,
+                                          fontsize=18,
+                                          ncol=1,
+                                          columnspacing=1)
+
+        self.ax.add_artist(legend_true_area)
+
+    def return_correspondence_table(self, file_name, file_format="pdf", ncol=3):
         """ Which language belongs to which number? This table will tell you more
         Args:
-            sites(dict): dict of all languages
-            fname(str): name of the figure
-            sites_in_zone(list): list of sites per zone
-            ncol(int); number of columns in the output table
+            file_name (str): name of the plot
+            file_format (str): format of the output file
+            ncol(int): number of columns in the output table
         """
         fig, ax = plt.subplots()
 
@@ -761,159 +731,60 @@ class Map(Plot):
         for key, cell in table.get_celld().items():
             cell.set_linewidth(0)
         fig.tight_layout()
-        fig.savefig(f"{self.path_plots + '/correspondence'}.{self.map_parameters['save_format']}",
-                    bbox_inches='tight', dpi=400, format=self.map_parameters['save_format'])
+        fig.savefig(f"{self.path_plots + '/correspondence_' + file_name}.{file_format}",
+                    bbox_inches='tight', dpi=400, format=file_format)
 
     ##############################################################
     # This is the plot_posterior_map function from plotting_old
     ##############################################################
     # for Olga: all parameters should be passed from the new map config file
-    def posterior_map(self, return_correspondence=False,
-                      file_name='mst_posterior', file_format="pdf"):
+    def posterior_map(self, file_name='mst_posterior', file_format="pdf",
+                      return_correspondence=False):
 
-        """ This function creates a scatter plot of all sites in the posterior distribution. The color of a site reflects
-            its frequency in the posterior
+        """ This function creates a scatter plot of all sites in the posterior distribution.
 
             Args:
                 file_name (str): a path of the output file.
                 file_format (str): file format of output figure
-
+                return_correspondence (bool): return the labels of all languages in an area in a separate table?
             """
         print('Plotting map...')
 
-        # Is the function used for simulated data or real-world data? Both require different plotting parameters.
-        # if for real world-data: South America or Balkans?
-        # for Olga: this should be defined in the config
-        #self.get_map_parameters()
-
         # Initialize the plot
-        # Needed in every plot
-
-        ##############################################################
-        # Main initial function
-        ##############################################################
         self.initialize_map()
 
-        # Get the areas from the samples
-        # Needed in every plot
-        #areas = self.results['areas']
+        # Styling the axes
+        self.style_axes()
 
-        # This computes the Delaunay triangulation of the sites
-        # Needed in every plot
-
-        # Olga: net is already loaded in Plot; net = self.network
-        # net = compute_network(sites)
-
-        # Plots all languages on the map
-        # Needed in every plot
-        # Could go together with all the other stuff that's always done to a separate function
-        # self.cmap, _ = self.get_cmap(0.5, name='YlOrRd', lower_ts=1.2)
-        # self.ax.scatter(*self.locations.T, s=self.config['graphic']['size'], c=[self.cmap(0)], alpha=1, linewidth=0)
-
-        ##############################################################
-        # Additional check
-        ##############################################################
+        # Add a base map
         self.visualize_base_map()
 
-        ##############################################################
-        # Visualization
-        ##############################################################
-        # This iterates over all areas in the posterior and plots each with a different color
+        # Iterates over all areas in the posterior and plots each with a different color
         self.visualize_areas()
 
-        ##############################################################
-        # Legend
-        ##############################################################
-        # Add a small legend displaying what the line thickness corresponds to.
-        self.add_legend_lines(post_freq_legend)
+        # Add a small legend displaying what the line width corresponds to.
+        self.add_legend_lines()
 
-        # Depending on the background (sa, balkan, simulated), we want to place additional legend entries
-        # at different positions in the map in order not to block map content and best use the available space.
-        # This should rather go to the config file.
-        # Unfortunately, positions have to be provided in map units, which makes things a bit opaque.
-        # Once in the config, the functions below can go.
-        # this could be called: add_family_legend
+        # Places additional legend entries on the map
         self.add_secondary_legend()
 
-        # This adds an overview map to the main map
-        # Could go into a separate function
-        if add_overview:
-            # Olga: this needs testing (not sure if 'axins' should be global variable or not)
+        # This adds an overview map to the map
+        if self.legend_config['overview']['add_overview']:
             self.add_overview_map()
 
-        ##############################################################
-        # Families
-        ##############################################################
-        # If families and family names are provided, this adds an overlay color for all language families in the map
-        # including a legend entry.
-        # Should go to a separate function
-        if plot_families:
-            self.color_families(self.family_names['external'],
-                                self.config['graphic']['family_colors'],
-                                families=self.families)
-        # Again this adds alpha shapes for families for simulated data.
-        # I think the reason why this was coded separately, is that many of the parameters
-        # change compared to real world-data
-        # Should probably be handled in the config file instead
-        # and should be merged with adding families as seen above
-        # if simulated_family:
-        #     self.color_families(self.families,
-        #                         self.config['graphic']['true_family_colors'])
+        # Visualizes language families
+        if self.content_config['plot_families']:
+            self.color_families()
 
-
-        ##############################################################
-        # The following rest of the code is not rewritten yet
-        ##############################################################
-        # for simulated data: add a legend entry in the shape of a little polygon for ground truth
+        # Modify the legend for simulated data
         if self.is_simulation:
-            class TrueZone(object):
-                pass
-
-            class TrueZoneHandler(object):
-                def legend_artist(self, legend, orig_handle, fontsize, handlebox):
-                    x0, y0 = handlebox.xdescent + 10, handlebox.ydescent + 10
-
-                    patch = patches.Polygon([[x0, y0],
-                                             [x0 + 40, y0 + 20],
-                                             [x0 + 60, y0 - 10],
-                                             [x0 + 50, y0 - 20],
-                                             [x0 + 30, y0 - 20]],
-                                            ec='black', lw=1, ls='-', alpha=1, fill=False,
-                                            joinstyle="round", capstyle="butt")
-                    handlebox.add_artist(patch)
-                    return patch
-
-            # if families are simulated too add a little colored polygon for ground truth families
-            if simulated_family:
-                self.map_parameters['poly_legend_position'] = \
-                    (self.map_parameters['poly_legend_position'][0],
-                     self.map_parameters['poly_legend_position'][1] + 0.1)
-
-            # define legend
-            legend_true_zones = self.ax.legend([TrueZone()], ['simulated area\n(bounding polygon)'],
-                                          handler_map={TrueZone: TrueZoneHandler()},
-                                          bbox_to_anchor=self.map_parameters['poly_legend_position'],
-                                          title_fontsize=16,
-                                          loc='upper left',
-                                          frameon=True,
-                                          edgecolor='#ffffff',
-                                          handletextpad=4,
-                                          fontsize=18,
-                                          ncol=1,
-                                          columnspacing=1)
-
-            self.ax.add_artist(legend_true_zones)
-
-        # styling the axes, might be hardcoded
-
-        self.style_axes(self.ax, self.locations, show=False, x_extend=self.config['graphic']['x_extend'], y_extend=self.config['graphic']['y_extend'])
+            self.modify_legend()
 
         # Save the plot
+        self.fig.savefig(f"{self.path_plots + '/'+ file_name}.{file_format}",
+                         bbox_inches='tight', dpi=400, format=file_format)
 
-        self.fig.savefig(f"{self.path_plots + fname}.{self.map_parameters['save_format']}",
-                         bbox_inches='tight', dpi=400, format=self.map_parameters['save_format'])
-        # Should the labels displayed in the map be returned? These are later added as a separate legend (
-        # outside this hell of a function)
+        if return_correspondence and self.content_config['label_languages']:
+            self.return_correspondence_table(file_name=file_name)
+
         plt.close(self.fig)
-        if return_correspondence and label_languages:
-            self.return_correspondence_table(fname=fname)
