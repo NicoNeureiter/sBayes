@@ -11,10 +11,10 @@
 			"7": 0.2,
 			"8": 0.4
 		},
-		"E_UNIVERSAL": 1.0,
+		"E_UNIVERSAL": 0.75,
 		"E_CONTACT": 0.5,
 		"I_UNIVERSAL": 1.0,
-		"I_CONTACT": 2.0,
+		"I_CONTACT": 3.0,
 		"INHERITANCE": false,
 		"AREA": [
 			2,
@@ -51,11 +51,12 @@
 		"MAX_M": 200,
 		"INHERITANCE": false,
 		"PRIOR": {
-			"geo": "uniform",
+			"geo": "cost_based",
 			"weights": "uniform",
 			"universal": "uniform",
 			"contact": "uniform"
-		}
+		}, 
+		"scale_geo_prior": 200
 	},
 	"data": {
 		"simulated": true

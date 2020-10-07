@@ -46,12 +46,13 @@
 		"MAX_M": 200,
 		"INHERITANCE": "TBD",
 		"PRIOR": {
-			"geo": "uniform",
+			"geo": "cost_based",
 			"weights": "uniform",
 			"universal": "uniform",
 			"contact": "uniform",
 			"inheritance": "uniform"
-		}
+		},
+		"scale_geo_prior": 100
 	},
 	"data": {
 		"simulated": true

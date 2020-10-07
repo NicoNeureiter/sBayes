@@ -54,8 +54,8 @@ class Simulation:
         self.is_simulated = True
 
         # Correlation between features
-        self.corr_th = 0.2
-        self.n_correlated = int(self.config['N_FEATURES']/10)
+        self.corr_th = 0.1
+        self.n_correlated = 4
 
     def log_simulation(self):
         logging.basicConfig(format='%(message)s', filename=self.path_log, level=logging.DEBUG)
@@ -123,7 +123,7 @@ class Simulation:
             if attempts > 10000:
                 attempts = 0
 
-                self.corr_th += 0.02
+                self.corr_th += 0.05
                 self.n_correlated += 1
                 print("Correlation threshold for simulation increased to", self.corr_th)
                 print("Number of allowed correlated features increased to", self.n_correlated)
