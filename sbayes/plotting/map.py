@@ -343,16 +343,11 @@ class Map(Plot):
             # Again, this is only relevant for simulated data and should go into a separate function
             # Olga: doesn't seem to be a good decision to move this out to a separate function,
             # because it's called inside of a loop and looks quite short
-            if self.is_simulation:
-                try:
-                    # Adds a bounding box for the ground truth areas
-                    # showing if the algorithm has correctly identified them
-                    self.add_area_boundary(self.results['true_zones'][i], color='#000000')
-                # Olga: are there any other potential errors? can we somehow get rid of this try-except statement?
-                # (maybe it would be better to add some 'verify' function above with raising some warning;
-                # try-except is better to avoid)
-                except IndexError:
-                    continue
+        if self.is_simulation:
+            for i in self.results['true_zones']:
+                # Adds a bounding box for the ground truth areas
+                # showing if the algorithm has correctly identified them
+                self.add_area_boundary(i, color='#000000')
 
         # add to legend
         legend_areas = self.ax.legend(

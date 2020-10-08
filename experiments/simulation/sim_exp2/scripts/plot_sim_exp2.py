@@ -1,7 +1,3 @@
-from sbayes.plotting.map import Map
-from sbayes.plotting.general_plot import GeneralPlot
-
-
 import warnings
 from sbayes.plotting.map import Map
 from sbayes.plotting.general_plot import GeneralPlot
@@ -25,11 +21,19 @@ if __name__ == '__main__':
         # Read results for each model
         map.read_results(model=m)
         try:
-            map.posterior_map(file_name='posterior_map_' + m, return_correspondence=False)
+            map.posterior_map(file_name='posterior_map_' + m, return_correspondence=True)
         except ValueError:
             pass
         results_per_model[m] = map.results
 
-    models.plot_dic(results_per_model, file_name='dic')
-    models.plot_recall_precision_over_all_models(results_per_model, file_name='recall_precsion_over_all_models')
+        plt = GeneralPlot()
+        plt.load_config(config_file='../results/results_server/config_plot.json')
 
+        # # In this case, we don't need to use load_results
+        plt.results = map.results
+        plt.is_simulation = map.is_simulation
+        try:
+            plt.plot_weights_grid(file_name='weights_grid_' + m)
+        except ValueError:
+            pass
+        plt.plot_probability_grid(file_name="prob_grid_" +m)
