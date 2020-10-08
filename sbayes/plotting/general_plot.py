@@ -249,6 +249,7 @@ class GeneralPlot(Plot):
 
         if labels is not None:
             for xy, label in zip(corners, labels):
+
                 xy *= 1.08  # Stretch, s.t. labels don't overlap with corners
                 plt.text(*xy, label, ha='center', va='center', fontdict={'fontsize': 12})
 
@@ -294,10 +295,13 @@ class GeneralPlot(Plot):
 
             if labels is not None:
                 for x, label in enumerate(labels):
-                    plt.text(x, -0.25, label, ha='center', va='top', fontdict={'fontsize': 10})
+                    if x == 0:
+                        x = -0.05
+                    if x == 1:
+                        x = 1.05
+                    plt.text(x, 0.1, label, ha='center', va='top', fontdict={'fontsize': 10})
             if title:
                 plt.text(0.3, 4, str(feature), fontsize=12, fontweight='bold')
-                #plt.title(str(feature), loc='left', fontdict={'fontweight': 'bold', 'fontsize': 16})
 
             plt.plot([0, 1], [0, 0], c="k", lw=0.5)
 
@@ -312,6 +316,7 @@ class GeneralPlot(Plot):
             # Compute corners
             corners = GeneralPlot.get_corner_points(n_p)
             # Bounding box
+
             xmin, ymin = np.min(corners, axis=0)
             xmax, ymax = np.max(corners, axis=0)
 
@@ -340,10 +345,11 @@ class GeneralPlot(Plot):
 
             if labels is not None:
                 for xy, label in zip(corners, labels):
-                    xy *= 1.08  # Stretch, s.t. labels don't overlap with corners
+                    xy *= 1.1  # Stretch, s.t. labels don't overlap with corners
                     plt.text(*xy, label, ha='center', va='center', fontdict={'fontsize': 10})
 
-            plt.axis('equal')
+            plt.xlim(xmin - 0.1, xmax + 0.1)
+            plt.ylim(ymin - 0.1, ymax + 0.1)
             plt.axis('off')
             plt.tight_layout(0)
 
