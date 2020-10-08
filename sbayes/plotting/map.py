@@ -121,11 +121,12 @@ class Map(Plot):
                                       (self.x_min, self.y_max),
                                       (self.x_min, self.y_min)])
 
-    def compute_alpha_shapes(self, sites):
+    def compute_alpha_shapes(self, sites, alpha_shape):
 
         """Compute the alpha shape (concave hull) of a set of sites
         Args:
             sites (np.array): subset of sites around which to create the alpha shapes (e.g. family, area, ...)
+            alpha_shape (float): parameter controlling the convexity of the alpha shape
         Returns:
             (polygon): the alpha shape"""
 
@@ -159,7 +160,7 @@ class Map(Plot):
             "alpha value to influence the shape of the convex hull Smaller numbers don't fall inward "
             "as much as larger numbers. Too large, and you lose everything!"
 
-            if circum_r < 1.0 / self.ground_truth_config['area_alpha_shape']:
+            if circum_r < 1.0 / alpha_shape:
                 add_edge(edges, edge_nodes, points, ia, ib)
                 add_edge(edges, edge_nodes, points, ib, ic)
                 add_edge(edges, edge_nodes, points, ic, ia)
@@ -188,7 +189,8 @@ class Map(Plot):
         leg_area = None
         if cp_locations.shape[0] > 0:  # at least one contact point in area
 
-            alpha_shape = self.compute_alpha_shapes([is_in_area])
+            alpha_shape = self.compute_alpha_shapes(sites = [is_in_area],
+                                                    alpha_shape=self.ground_truth_config['area_alpha_shape'])
 
             # smooth_shape = alpha_shape.buffer(100, resolution=16, cap_style=1, join_style=1, mitre_limit=5.0)
             smooth_shape = alpha_shape.buffer(60, resolution=16, cap_style=1, join_style=1, mitre_limit=10.0)
@@ -386,7 +388,8 @@ class Map(Plot):
 
             # For simulated data
             if self.is_simulation:
-                alpha_shape = self.compute_alpha_shapes([is_in_family])
+                alpha_shape = self.compute_alpha_shapes(sites=[is_in_family],
+                                                        alpha_shape=self.graphic_config['family_alpha_shape'])
                 smooth_shape = alpha_shape.buffer(60, resolution=16, cap_style=1, join_style=1, mitre_limit=5.0)
                 patch = PolygonPatch(smooth_shape, fc=family_fill, ec=family_border, lw=1, ls='-', alpha=1, fill=True,
                                      zorder=-i)
@@ -406,7 +409,8 @@ class Map(Plot):
 
                 # For languages with more than three members combine several languages in an alpha shape (a polygon)
                 if np.count_nonzero(is_in_family) > 3:
-                    alpha_shape = self.compute_alpha_shapes([is_in_family])
+                    alpha_shape = self.compute_alpha_shapes(sites=[is_in_family],
+                                                            alpha_shape=self.graphic_config['family_alpha_shape'])
 
                     # making sure that the alpha shape is not empty
                     if not alpha_shape.is_empty:

@@ -1,0 +1,120 @@
+{
+	"results": {
+		"path_data": "../data/features/features.csv",
+		"path_results": "../results/results_server",
+		"path_data": "../data/sites.csv",
+    "path_areas": ["../results/results_server/s0a3/areas_s0a3_0.txt",
+				   "../results/results_server/s0a4/areas_s0a4_0.txt",
+				   "../results/results_server/s0a6/areas_s0a6_0.txt",
+				   "../results/results_server/s0a8/areas_s0a8_0.txt",
+				   "../results/results_server/s1a3/areas_s1a3_0.txt",
+				   "../results/results_server/s1a4/areas_s1a4_0.txt",
+				   "../results/results_server/s1a6/areas_s1a6_0.txt",
+				   "../results/results_server/s1a8/areas_s1a8_0.txt",
+				   "../results/results_server/s2a3/areas_s2a3_0.txt",
+				   "../results/results_server/s2a4/areas_s2a4_0.txt",
+				   "../results/results_server/s2a6/areas_s2a6_0.txt",
+				   "../results/results_server/s2a8/areas_s2a8_0.txt"],
+    "path_stats": ["../results/results_server/s0a3/stats_s0a3_0.txt", 
+				   "../results/results_server/s0a4/stats_s0a4_0.txt",
+				   "../results/results_server/s0a6/stats_s0a6_0.txt",
+				   "../results/results_server/s0a8/stats_s0a8_0.txt",
+				   "../results/results_server/s1a3/stats_s1a3_0.txt",
+				   "../results/results_server/s1a4/stats_s1a4_0.txt",
+				   "../results/results_server/s1a6/stats_s1a6_0.txt",
+				   "../results/results_server/s1a8/stats_s1a8_0.txt",
+				   "../results/results_server/s2a3/stats_s2a3_0.txt",
+				   "../results/results_server/s2a4/stats_s2a4_0.txt",
+				   "../results/results_server/s2a6/stats_s2a6_0.txt",
+				   "../results/results_server/s2a8/stats_s2a8_0.txt"],
+    "path_ground_truth_areas": ["../results/results_server/s0a3/ground_truth/areas.txt",
+								"../results/results_server/s0a4/ground_truth/areas.txt",
+								"../results/results_server/s0a6/ground_truth/areas.txt",
+								"../results/results_server/s0a8/ground_truth/areas.txt",
+								"../results/results_server/s1a3/ground_truth/areas.txt",
+								"../results/results_server/s1a4/ground_truth/areas.txt",
+								"../results/results_server/s1a6/ground_truth/areas.txt",
+								"../results/results_server/s1a8/ground_truth/areas.txt",
+								"../results/results_server/s2a3/ground_truth/areas.txt",
+								"../results/results_server/s2a4/ground_truth/areas.txt",
+								"../results/results_server/s2a6/ground_truth/areas.txt",
+								"../results/results_server/s2a8/ground_truth/areas.txt"],
+    "path_ground_truth_stats": ["../results/results_server/s0a3/ground_truth/stats.txt",
+								"../results/results_server/s0a4/ground_truth/stats.txt",
+								"../results/results_server/s0a6/ground_truth/stats.txt",
+								"../results/results_server/s0a8/ground_truth/stats.txt",
+								"../results/results_server/s1a3/ground_truth/stats.txt",
+								"../results/results_server/s1a4/ground_truth/stats.txt",
+								"../results/results_server/s1a6/ground_truth/stats.txt",
+								"../results/results_server/s1a8/ground_truth/stats.txt",
+								"../results/results_server/s2a3/ground_truth/stats.txt",
+								"../results/results_server/s2a4/ground_truth/stats.txt",
+								"../results/results_server/s2a6/ground_truth/stats.txt",
+								"../results/results_server/s2a8/ground_truth/stats.txt"]
+	},
+	"map": {
+		"geo": {
+			"base_map": {
+				"add": false},
+			"x_extend": [3940, 9480], 
+			"y_extend": [2780, 10110]
+		},
+		"content": {
+			"plot_families": false,
+			"label_languages": false,
+			"subset": false,
+			"min_posterior_frequency": 0.95,
+			"burn_in": 0.2
+		},
+
+		"graphic": {
+			"point_size": 25,
+			"font_size": 16,
+			"line_width": 2,
+			"frame_width": 1.5,
+			"area_colors": ["#fc8eac"]
+		},
+		"legend": {
+			"overview": {
+				"add_overview": "false"
+			},
+			"areas": {
+				"add_area_stats": false,
+				"position": [0.02, 0.2]
+			},
+			"posterior_frequency": {
+				"default_values": [
+					1,
+					0.75,
+					0.5
+				],
+				"position": [0.15, 0.2]
+			}
+		},
+		"ground_truth": {
+			"true_area_polygon_position": [0.37, 0.20],
+			"area_alpha_shape": 0.00001
+		},
+		"output": {
+			"fig_width": 20,
+			"fig_height": 10,
+			"return_correspondence": false
+		}
+	},
+	
+
+	"plot_trace": {
+		"burn_in": 0.2,
+		"ground_truth": {
+			"add": true, 
+			"color": "#fdbf6f"},
+		"parameter": "TBD",
+		"output": {
+			"fig_width": 8,
+			"fig_height": 8
+		},
+		
+		"color": ["#e41a1c", "dodgerblue"]
+		
+	}
+}

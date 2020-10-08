@@ -1,0 +1,106 @@
+{
+	"results": {
+	"path_results": "../results/results_server",
+        "path_data": "../data/sites.csv",
+        "path_areas": [
+          "../results/results_server/i0/areas_i0_0.txt",
+          "../results/results_server/i1/areas_i1_0.txt"
+        ],
+        "path_stats": [
+          "../results/results_server/i0/stats_i0_0.txt",
+          "../results/results_server/i1/stats_i1_0.txt"
+        ],
+        "path_ground_truth_areas": [
+          "../results/results_server/i0/ground_truth/areas.txt",
+          "../results/results_server/i1/ground_truth/areas.txt"
+        ],
+        "path_ground_truth_stats": [
+          "../results/results_server/i0/ground_truth/stats.txt",
+		  "../results/results_server/i1/ground_truth/stats.txt"
+        ]
+		},
+	"map": {
+		"geo": {
+			"base_map": {
+				"add": false},
+			"x_extend": [1500, 11000], 
+			"y_extend": [3940, 10520]
+		},
+		"content": {
+			"plot_families": true,
+			"label_languages": false,
+			"subset": false,
+			"min_posterior_frequency": 0.9,
+			"burn_in": 0.2
+		},
+
+		"graphic": {
+			"point_size": 25,
+			"font_size": 16,
+			"line_width": 2,
+			"frame_width": 1.5,
+			"area_colors": ["#fc8eac"],
+			"family_colors": ["#add8e6"],
+			"family_alpha_shape": 0.00001
+		},
+		"legend": {
+			"overview": {
+				"add_overview": "false"
+			},
+			"areas": {
+				"add_area_stats": false,
+				"position": [0.02, 0.2]
+			},
+			"posterior_frequency": {
+				"default_values": [
+					1,
+					0.75,
+					0.5
+				],
+				"position": [0.15, 0.2]
+			},
+			"families": {
+				"add": true,
+				"position": [
+					0.39,
+					0.10
+				]
+			}
+		},
+		"ground_truth": {
+			"true_area_polygon_position": [0.37, 0.20],
+			"area_alpha_shape": 0.00001
+		},
+		"output": {
+			"fig_width": 20,
+			"fig_height": 10,
+			"return_correspondence": false
+		}
+	},
+	"weights_plot": {
+		"labels": ["U", "C", "I"],
+		"burn_in": 0.2,
+		"k_best": 24,
+		"title": true,
+		"n_columns": 6,
+		"output": {
+			"fig_width_subplot": 2,
+			"fig_height_subplot": 2,
+			"spacing_horizontal": 0.12,
+			"spacing_vertical": 0.1
+		}
+	},
+	"probabilities_plot": {
+		"burn_in": 0.2,
+		"k": 35,
+		"parameter": "gamma_a1",
+		"title": true,
+		"n_columns": 6,
+		"output": {
+			"fig_width_subplot": 2,
+			"fig_height_subplot": 2,
+			"spacing_horizontal": 0.12,
+			"spacing_vertical": 0.15
+		}
+	}
+}
