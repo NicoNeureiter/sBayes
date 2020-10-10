@@ -56,7 +56,7 @@
 			"universal": "uniform",
 			"contact": "uniform"
 		}, 
-		"scale_geo_prior": 200
+		"scale_geo_prior": 100
 	},
 	"data": {
 		"simulated": true
