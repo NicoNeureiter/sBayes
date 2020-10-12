@@ -1,107 +1,106 @@
 {
-  "input": {
-    "path_plots": "../results/results_server",
-    "path_data": "../data/sites.csv",
-    "path_areas": ["../results/results_server/i0/areas_i0_0.txt",
-				   "../results/results_server/i1/areas_i1_0.txt"],
-    "path_stats": ["../results/results_server/i0/stats_i0_0.txt",
-				   "../results/results_server/i1/stats_i1_0.txt"],
-    "path_ground_truth_areas": ["../results/results_server/i0/ground_truth/areas.txt",
-								"../results/results_server/i1/ground_truth/areas.txt"],
-    "path_ground_truth_stats": ["../results/results_server/i0/ground_truth/stats.txt",
-								"../results/results_server/i1/ground_truth/stats.txt"],
-    "experiment": null,
-    "subset": false,
-    "proj4": null,
-    "geojson_river": null,
-    "geojson_map": null,
-    "run": 4,
-    "scenarios": [1]
-  },
+	"results": {
+	"path_results": "../results/results_server",
+        "path_data": "../data/sites.csv",
+        "path_areas": [
+          "../results/results_server/i0/areas_i0_0.txt",
+          "../results/results_server/i1/areas_i1_0.txt"
+        ],
+        "path_stats": [
+          "../results/results_server/i0/stats_i0_0.txt",
+          "../results/results_server/i1/stats_i1_0.txt"
+        ],
+        "path_ground_truth_areas": [
+          "../results/results_server/i0/ground_truth/areas.txt",
+          "../results/results_server/i1/ground_truth/areas.txt"
+        ],
+        "path_ground_truth_stats": [
+          "../results/results_server/i0/ground_truth/stats.txt",
+		  "../results/results_server/i1/ground_truth/stats.txt"
+        ]
+		},
+	"map": {
+		"geo": {
+			"base_map": {
+				"add": false},
+			"x_extend": [1500, 11000], 
+			"y_extend": [3940, 10520]
+		},
+		"content": {
+			"plot_families": true,
+			"label_languages": false,
+			"subset": false,
+			"min_posterior_frequency": 0.9,
+			"burn_in": 0.2
+		},
 
-  "graphic": {
-    "x_extend": [1750, 11360],
-    "y_extend": [400, 11950],
-    "x_extend_overview": null,
-    "y_extend_overview": null,
-    "bg_map": false,
-    "size": 25,
-    "size_line": 3,
-    "family_alpha_shape": 0.00001,
-    "family_colors": ["#add8e6"],
-    "zone_colors": ["#f49f1c"]
-  },
-
-  "plot_type": {
-    "general": {
-      "fontsize": 16,
-      "line_thickness": 2,
-      "frame_width": 1.5,
-      "save_format": "pdf"
-    },
-    "plot_empty_map": {
-      "fig_width": 20,
-      "fig_height": 10,
-      "overview_position": [0.02, 0.01, 1, 1]
-    },
-    "plot_posterior_map_simulated": {
-      "fig_width": 20,
-      "fig_height": 10,
-      "area_legend_position": [0.02, 0.2],
-      "freq_legend_position": [0.15, 0.2],
-      "poly_legend_position": [0.37, 0.20],
-      "family_legend_position": [0.39, 0.10]
-    },
-    "plot_posterior_map_sa": {
-      "fig_width": 20,
-      "fig_height": 10,
-      "area_legend_position": [0.02, 0.71],
-      "freq_legend_position": [0.3, 0.2],
-      "family_legend_position": [0.02, 0.98],
-      "overview_position": [0.02, 0.01, 1, 1]
-    },
-    "plot_posterior_map_balkan": {
-      "fig_width": 20,
-      "fig_height": 10,
-      "area_legend_position": [0.02, 0.71],
-      "freq_legend_position": [0.02, 0.55],
-      "family_legend_position": [0.02, 0.965],
-      "overview_position": [0.02, -0.01, 1, 1]
-    },
-    "plot_traces": {
-      "fig_width": 10,
-      "fig_height": 8
-    },
-    "plot_trace_lh": {
-      "fig_width": 10,
-      "fig_height": 8,
-      "color_burn_in": "grey"
-    },
-    "plot_trace_lh_with_prior": {
-      "fig_width": 8,
-      "fig_height": 7,
-      "color_burn_in": "grey"
-    },
-    "plot_trace_recall_precision": {
-       "fig_width": 10,
-       "fig_height": 8,
-       "color_burn_in": "grey"
-    },
-    "plot_dics": {
-      "fig_width": 9,
-      "fig_height": 6,
-      "color_burn_in": "grey"
-    },
-    "plot_dics_simulated": {
-      "fig_width": 10,
-      "fig_height": 8,
-      "color_burn_in": "grey"
-    }
-  },
-
-  "overview": {
-    "width": 3.8,
-    "height": 4,
-    "location": "lower left"
-  }
+		"graphic": {
+			"point_size": 25,
+			"font_size": 16,
+			"line_width": 2,
+			"frame_width": 1.5,
+			"area_colors": ["#fc8eac"],
+			"family_colors": ["#add8e6"],
+			"family_alpha_shape": 0.00001
+		},
+		"legend": {
+			"overview": {
+				"add_overview": "false"
+			},
+			"areas": {
+				"add_area_stats": false,
+				"position": [0.02, 0.2]
+			},
+			"posterior_frequency": {
+				"default_values": [
+					1,
+					0.75,
+					0.5
+				],
+				"position": [0.15, 0.2]
+			},
+			"families": {
+				"add": true,
+				"position": [
+					0.39,
+					0.10
+				]
+			}
+		},
+		"ground_truth": {
+			"true_area_polygon_position": [0.37, 0.20],
+			"area_alpha_shape": 0.00001
+		},
+		"output": {
+			"fig_width": 20,
+			"fig_height": 10,
+			"return_correspondence": false
+		}
+	},
+	"weights_plot": {
+		"labels": ["U", "C", "I"],
+		"burn_in": 0.2,
+		"k_best": 24,
+		"title": true,
+		"n_columns": 6,
+		"output": {
+			"fig_width_subplot": 2,
+			"fig_height_subplot": 2,
+			"spacing_horizontal": 0.12,
+			"spacing_vertical": 0.1
+		}
+	},
+	"probabilities_plot": {
+		"burn_in": 0.2,
+		"k": 35,
+		"parameter": "gamma_a1",
+		"title": true,
+		"n_columns": 6,
+		"output": {
+			"fig_width_subplot": 2,
+			"fig_height_subplot": 2,
+			"spacing_horizontal": 0.12,
+			"spacing_vertical": 0.15
+		}
+	}
 }

@@ -1,0 +1,71 @@
+{
+	"results": {
+		"path_results": "../results/results_server",
+		"path_data": "../data/sites.csv",
+		"path_areas": ["../results/results_server/p0/areas_p0_0.txt",
+					   "../results/results_server/p1/areas_p1_0.txt"],
+		"path_stats": ["../results/results_server/p0/stats_p0_0.txt",
+					   "../results/results_server/p1/stats_p1_0.txt"],
+		"path_ground_truth_areas": ["../results/results_server/p0/ground_truth/areas.txt",
+									"../results/results_server/p1/ground_truth/areas.txt"],
+		"path_ground_truth_stats": ["../results/results_server/p0/ground_truth/stats.txt", 
+									"../results/results_server/p1/ground_truth/stats.txt"]
+		},
+	"map": {
+		"geo": {
+			"base_map": {
+				"add": false},
+			"x_extend": [1500, 11000], 
+			"y_extend": [1040, 10520]
+		},
+		"content": {
+			"plot_families": false,
+			"label_languages": false,
+			"subset": true,
+			"min_posterior_frequency": 0.7,
+			"burn_in": 0.2
+		},
+
+		"graphic": {
+			"point_size": 25,
+			"font_size": 16,
+			"line_width": 2,
+			"frame_width": 1.5,
+			"area_colors": ["#1b9e77", "#d95f02", "#7570b3", "#e7298a", "#66a61e", "#e6ab02", "#a6761d", "#666666"],
+			"family_colors": ["#add8e6"]
+		},
+		"legend": {
+			"overview": {
+				"add_overview": "false"
+			},
+			"areas": {
+				"add_area_stats": false,
+				"position": [0.02, 0.2]
+			},
+			"posterior_frequency": {
+				"default_values": [
+					1,
+					0.75,
+					0.5
+				],
+				"position": [0.15, 0.2]
+			},
+			"families": {
+				"add": false,
+				"position": [
+					0.39,
+					0.10
+				]
+			}
+		},
+		"ground_truth": {
+			"true_area_polygon_position": [0.37, 0.20],
+			"area_alpha_shape": 0.00001
+		},
+		"output": {
+			"fig_width": 20,
+			"fig_height": 10,
+			"return_correspondence": false
+		}
+	}
+}
