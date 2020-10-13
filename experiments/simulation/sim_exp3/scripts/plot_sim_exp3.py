@@ -31,5 +31,5 @@ if __name__ == '__main__':
         results_per_model[m] = map.results
 
     models.plot_dic(results_per_model, file_name='dic')
-    models.plot_recall_precision_over_all_models(results_per_model, file_name='recall_precsion_over_all_models')
+    models.plot_recall_precision_over_all_models(results_per_model, file_name='recall_precision_over_all_models')
 
