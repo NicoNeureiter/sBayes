@@ -54,8 +54,8 @@ class Simulation:
         self.is_simulated = True
 
         # Correlation between features
-        self.corr_th = 0.1
-        self.n_correlated = 4
+        self.corr_th = 0.45
+        self.n_correlated = 15
 
     def log_simulation(self):
         logging.basicConfig(format='%(message)s', filename=self.path_log, level=logging.DEBUG)

@@ -21,13 +21,13 @@
 		]
 	},
 	"mcmc": {
-		"N_STEPS": 100000,
+		"N_STEPS": 10000,
 		"N_SAMPLES": 5000,
 		"N_RUNS": 1,
 		"P_GROW_CONNECTED": 0.85,
 		"PROPOSAL_PRECISION": {
 			"weights": 10,
-			"universal": 80,
+			"universal": 180,
 			"contact": 10
 		},
 		"STEPS": {
@@ -38,7 +38,7 @@
 		},
 		"M_INITIAL": 15,
 		"WARM_UP": {
-			"N_WARM_UP_STEPS": 10000,
+			"N_WARM_UP_STEPS": 1000,
 			"N_WARM_UP_CHAINS": 20
 		}
 	},

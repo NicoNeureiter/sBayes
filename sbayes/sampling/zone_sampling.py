@@ -241,11 +241,13 @@ class ZoneMCMCGenerative(MCMCGenerative):
         #     w_id = np.random.choice([1, 2])
         #
         # weight_current = weights_current[f_id, w_id]
-
+        print(weights_current[f_id, :], "current weights")
         # Sample new weight from dirichlet distribution with given precision
         weights_new, q, q_back = self.dirichlet_proposal(weights_current[f_id, :], self.var_proposal_weight)
         sample_new.weights[f_id, :] = weights_new
-
+        print(weights_new, "new weights")
+        print(q, q_back, "q, q_back")
+        print("----------------------------------------------")
         # The step changed the weights (which has an influence on how the lh and the prior look like)
         sample_new.what_changed['lh']['weights'] = True
         sample_new.what_changed['prior']['weights'] = True
@@ -270,8 +272,13 @@ class ZoneMCMCGenerative(MCMCGenerative):
         # Different features have different numbers of categories
         f_cats = self.applicable_states[f_id]
         p_current = p_global_current[0, f_id, f_cats]
+        print(p_current, "current p_global")
+        print(self.var_proposal_p_global, "proposal")
         # Sample new p from dirichlet distribution with given precision
         p_new, q, q_back = self.dirichlet_proposal(p_current, step_precision=self.var_proposal_p_global)
+        print(p_new, "new p_global")
+        print(q, q_back, "q and q back")
+        print("----------------------------------------------")
         sample_new.p_global[0, f_id, f_cats] = p_new
 
         # The step changed p_global (which has an influence on how the lh and the prior look like)
@@ -301,9 +308,12 @@ class ZoneMCMCGenerative(MCMCGenerative):
         p_current = p_zones_current[z_id, f_id, f_cats]
 
         # Sample new p from dirichlet distribution with given precision
+        print(p_current, "current p_zones")
         p_new, q, q_back = self.dirichlet_proposal(p_current, step_precision=self.var_proposal_p_zones)
         sample_new.p_zones[z_id, f_id, f_cats] = p_new
-
+        print(p_new, "new p_zones")
+        print(q, q_back, "q, q_back")
+        print("----------------------------------------------")
         # The step changed p_zones (which has an influence on how the lh and the prior look like)
         sample_new.what_changed['lh']['p_zones'].add((z_id, f_id))
         sample_new.what_changed['prior']['p_zones'].add((z_id, f_id))
@@ -330,10 +340,12 @@ class ZoneMCMCGenerative(MCMCGenerative):
         # assert np.allclose(np.sum(w, axis=-1), 1.), w
 
         alpha = 1 + step_precision * w
+        print(alpha, "in between alpha")
         w_new = np.random.dirichlet(alpha)
         q = dirichlet_pdf(w_new, alpha)
 
         alpha_back = 1 + step_precision * w_new
+        print(alpha_back, "in between alpha back")
         q_back = dirichlet_pdf(w, alpha_back)
 
         if not np.all(np.isfinite(w_new)):
