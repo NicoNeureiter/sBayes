@@ -225,29 +225,35 @@ class ZoneMCMCGenerative(MCMCGenerative):
             Sample: The modified sample
         """
         sample_new = sample.copy()
-        weights_current = sample.weights
 
         # Randomly choose one of the features
-        f_id = np.random.choice(range(weights_current.shape[0]))
+        f_id = np.random.choice(range(self.n_features))
 
-        # if not self.inheritance:
-        #     # The contact weights (column 1 in weights) is modified,
-        #     # the inheritance weight is not relevant, the global weight is adjusted during normalization
-        #     w_id = 1
-        #
-        # else:
-        #     # The contact or family weights (column 1 or 2 in weights) are modified,
-        #     # the global weight is adjusted during normalization
-        #     w_id = np.random.choice([1, 2])
-        #
-        # weight_current = weights_current[f_id, w_id]
-        print(weights_current[f_id, :], "current weights")
-        # Sample new weight from dirichlet distribution with given precision
-        weights_new, q, q_back = self.dirichlet_proposal(weights_current[f_id, :], self.var_proposal_weight)
-        sample_new.weights[f_id, :] = weights_new
-        print(weights_new, "new weights")
-        print(q, q_back, "q, q_back")
-        print("----------------------------------------------")
+        if self.inheritance:
+            # Randomly choose two weights that will be changed, leave the others untouched
+            weights_to_alter = _random.sample([0, 1, 2], 2)
+
+            # Get the current weights
+            weights_current = sample.weights[f_id, weights_to_alter]
+
+            # Transform the weights such that they sum to 1
+            weights_current_t = weights_current / weights_current.sum()
+
+            # Propose new sample
+            weights_new_t, q, q_back = self.dirichlet_proposal(weights_current_t, self.var_proposal_weight)
+
+            # Transform back
+            weights_new = weights_new_t * weights_current.sum()
+
+            # Update
+            sample_new.weights[f_id, weights_to_alter] = weights_new
+
+        else:
+            # if inheritance is not considered, there are only two weights.
+            weights_current = sample.weights[f_id, :]
+            weights_new, q, q_back = self.dirichlet_proposal(weights_current, self.var_proposal_weight)
+            sample_new.weights[f_id, :] = weights_new
+
         # The step changed the weights (which has an influence on how the lh and the prior look like)
         sample_new.what_changed['lh']['weights'] = True
         sample_new.what_changed['prior']['weights'] = True
@@ -264,22 +270,30 @@ class ZoneMCMCGenerative(MCMCGenerative):
                  Sample: The modified sample
         """
         sample_new = sample.copy()
-        p_global_current = sample.p_global
 
-        # Randomly choose one of the features and one of the categories
+        # Randomly choose one of the features
         f_id = np.random.choice(range(self.n_features))
 
-        # Different features have different numbers of categories
-        f_cats = self.applicable_states[f_id]
-        p_current = p_global_current[0, f_id, f_cats]
-        print(p_current, "current p_global")
-        print(self.var_proposal_p_global, "proposal")
-        # Sample new p from dirichlet distribution with given precision
-        p_new, q, q_back = self.dirichlet_proposal(p_current, step_precision=self.var_proposal_p_global)
-        print(p_new, "new p_global")
-        print(q, q_back, "q and q back")
-        print("----------------------------------------------")
-        sample_new.p_global[0, f_id, f_cats] = p_new
+        # Different features have different applicable states
+        f_states = np.nonzero(self.applicable_states[f_id])[0]
+
+        # Randomly choose two applicable states for which the probabilities will be changed, leave the others untouched
+        states_to_alter = _random.sample(list(f_states), 2)
+
+        # Get the current probabilities
+        p_current = sample.p_global[0, f_id, states_to_alter]
+
+        # Transform the probabilities such that they sum to 1
+        p_current_t = p_current / p_current.sum()
+
+        # Propose new sample
+        p_new_t, q, q_back = self.dirichlet_proposal(p_current_t, step_precision=self.var_proposal_p_global)
+
+        # Transform back
+        p_new = p_new_t * p_current.sum()
+
+        # Update sample
+        sample_new.p_global[0, f_id, states_to_alter] = p_new
 
         # The step changed p_global (which has an influence on how the lh and the prior look like)
         sample_new.what_changed['lh']['p_global'].add(f_id)
@@ -297,23 +311,32 @@ class ZoneMCMCGenerative(MCMCGenerative):
                 Sample: The modified sample
                 """
         sample_new = sample.copy()
-        p_zones_current = sample.p_zones
 
         # Randomly choose one of the zones, one of the features and one of the categories
         z_id = np.random.choice(range(self.n_zones))
         f_id = np.random.choice(range(self.n_features))
 
-        # Different features have different numbers of categories
-        f_cats = self.applicable_states[f_id]
-        p_current = p_zones_current[z_id, f_id, f_cats]
+        # Different features have different applicable states
+        f_states = np.nonzero(self.applicable_states[f_id])[0]
+
+        # Randomly choose two applicable states for which the probabilities will be changed, leave the others untouched
+        states_to_alter = _random.sample(list(f_states), 2)
+
+        # Get the current probabilities
+        p_current = sample.p_zones[0, f_id, states_to_alter]
+
+        # Transform the probabilities such that they sum to 1
+        p_current_t = p_current / p_current.sum()
 
         # Sample new p from dirichlet distribution with given precision
-        print(p_current, "current p_zones")
-        p_new, q, q_back = self.dirichlet_proposal(p_current, step_precision=self.var_proposal_p_zones)
-        sample_new.p_zones[z_id, f_id, f_cats] = p_new
-        print(p_new, "new p_zones")
-        print(q, q_back, "q, q_back")
-        print("----------------------------------------------")
+        p_new_t, q, q_back = self.dirichlet_proposal(p_current_t, step_precision=self.var_proposal_p_zones)
+
+        # Transform back
+        p_new = p_new_t * p_current.sum()
+
+        # Update sample
+        sample_new.p_zones[z_id, f_id, states_to_alter] = p_new
+
         # The step changed p_zones (which has an influence on how the lh and the prior look like)
         sample_new.what_changed['lh']['p_zones'].add((z_id, f_id))
         sample_new.what_changed['prior']['p_zones'].add((z_id, f_id))
@@ -340,12 +363,10 @@ class ZoneMCMCGenerative(MCMCGenerative):
         # assert np.allclose(np.sum(w, axis=-1), 1.), w
 
         alpha = 1 + step_precision * w
-        print(alpha, "in between alpha")
         w_new = np.random.dirichlet(alpha)
         q = dirichlet_pdf(w_new, alpha)
 
         alpha_back = 1 + step_precision * w_new
-        print(alpha_back, "in between alpha back")
         q_back = dirichlet_pdf(w, alpha_back)
 
         if not np.all(np.isfinite(w_new)):
@@ -366,20 +387,31 @@ class ZoneMCMCGenerative(MCMCGenerative):
         """
 
         sample_new = sample.copy()
-        p_families_current = sample.p_families
 
-        # Randomly choose one of the families, one of the features and one of the categories
+        # Randomly choose one of the families and one of the features
         fam_id = np.random.choice(range(self.n_families))
         f_id = np.random.choice(range(self.n_features))
 
-        # Different features have different numbers of categories
-        f_cats = self.applicable_states[f_id]
-        p_current = p_families_current[fam_id, f_id, f_cats]
+        # Different features have different applicable states
+        f_states = np.nonzero(self.applicable_states[f_id])[0]
+
+        # Randomly choose two applicable states for which the probabilities will be changed, leave the others untouched
+        states_to_alter = _random.sample(list(f_states), 2)
+
+        # Get the current probabilities
+        p_current = sample.p_families[fam_id, f_id, states_to_alter]
+
+        # Transform the probabilities such that they sum to 1
+        p_current_t = p_current / p_current.sum()
 
         # Sample new p from dirichlet distribution with given precision
-        p_new, q, q_back = self.dirichlet_proposal(p_current, step_precision=self.var_proposal_p_families)
+        p_new_t, q, q_back = self.dirichlet_proposal(p_current_t, step_precision=self.var_proposal_p_families)
 
-        sample_new.p_families[fam_id, f_id, f_cats] = p_new
+        # Transform back
+        p_new = p_new_t * p_current.sum()
+
+        # Update sample
+        sample_new.p_families[fam_id, f_id, states_to_alter] = p_new
 
         # The step changed p_families (which has an influence on how the lh and the prior look like)
         sample_new.what_changed['lh']['p_families'].add((fam_id, f_id))
