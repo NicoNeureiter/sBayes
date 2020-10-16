@@ -1,14 +1,14 @@
 {
 	"simulation": {
 		"SITES": "data/sites.csv",
-		"N_FEATURES": 40,
+		"N_FEATURES": 35,
 		"P_N_CATEGORIES": {
 			"2": 0.2,
 			"3": 0.2,
 			"4": 0.3, 
 			"5": 0.3
 		},
-		"E_UNIVERSAL": 1,
+		"E_UNIVERSAL": 1.0,
 		"E_CONTACT": 0.5,
 		"I_UNIVERSAL": 1.0,
 		"I_CONTACT": 2.0,
@@ -21,7 +21,7 @@
 		]
 	},
 	"mcmc": {
-		"N_STEPS": 1000000,
+		"N_STEPS": 3000000,
 		"N_SAMPLES": 5000,
 		"N_RUNS": 1,
 		"P_GROW_CONNECTED": 0.85,
@@ -38,7 +38,7 @@
 		},
 		"M_INITIAL": 15,
 		"WARM_UP": {
-			"N_WARM_UP_STEPS": 100000,
+			"N_WARM_UP_STEPS": 300000,
 			"N_WARM_UP_CHAINS": 20
 		}
 	},

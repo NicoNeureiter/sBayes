@@ -323,7 +323,7 @@ class ZoneMCMCGenerative(MCMCGenerative):
         states_to_alter = _random.sample(list(f_states), 2)
 
         # Get the current probabilities
-        p_current = sample.p_zones[0, f_id, states_to_alter]
+        p_current = sample.p_zones[z_id, f_id, states_to_alter]
 
         # Transform the probabilities such that they sum to 1
         p_current_t = p_current / p_current.sum()
