@@ -936,3 +936,329 @@ class ZoneMCMCGenerative(MCMCGenerative):
 
     def log_sample_statistics(self, sample, c, sample_id):
         super(ZoneMCMCGenerative, self).log_sample_statistics(sample, c, sample_id)
+
+
+class ZoneMCMCWarmup(ZoneMCMCGenerative):
+
+    IS_WARMUP = True
+    
+    def __init__(self, **kwargs):
+        super(ZoneMCMCWarmup, self).__init__(**kwargs)
+
+    def alter_weights(self, sample, c=0):
+        """This function modifies one weight of one feature in the current sample
+
+        Args:
+            sample(Sample): The current sample with zones and parameters.
+            c(int): The current warmup chain
+        Returns:
+            Sample: The modified sample
+        """
+        sample_new = sample.copy()
+
+        # Randomly choose one of the features
+        f_id = np.random.choice(range(self.n_features))
+
+        if self.inheritance:
+            # Randomly choose two weights that will be changed, leave the others untouched
+            weights_to_alter = _random.sample([0, 1, 2], 2)
+
+            # Get the current weights
+            weights_current = sample.weights[f_id, weights_to_alter]
+
+            # Transform the weights such that they sum to 1
+            weights_current_t = weights_current / weights_current.sum()
+
+            # Propose new sample
+            weights_new_t, q, q_back = self.dirichlet_proposal(weights_current_t, self.var_proposal_weight)
+
+            # Transform back
+            weights_new = weights_new_t * weights_current.sum()
+
+            # Update
+            sample_new.weights[f_id, weights_to_alter] = weights_new
+
+        else:
+            # if inheritance is not considered, there are only two weights.
+            weights_current = sample.weights[f_id, :]
+            weights_new, q, q_back = self.dirichlet_proposal(weights_current, self.var_proposal_weight)
+            sample_new.weights[f_id, :] = weights_new
+
+        # The step changed the weights (which has an influence on how the lh and the prior look like)
+        sample_new.what_changed['lh']['weights'] = True
+        sample_new.what_changed['prior']['weights'] = True
+        sample.what_changed['lh']['weights'] = True
+        sample.what_changed['prior']['weights'] = True
+
+        return sample_new, q, q_back
+
+    def alter_p_global(self, sample, c=0):
+        """This function modifies one p_global of one category and one feature in the current sample
+            Args:
+                 sample(Sample): The current sample with zones and parameters.
+                 c(int): The current warmup chain
+            Returns:
+                 Sample: The modified sample
+        """
+        sample_new = sample.copy()
+
+        # Randomly choose one of the features
+        f_id = np.random.choice(range(self.n_features))
+
+        # Different features have different applicable states
+        f_states = np.nonzero(self.applicable_states[f_id])[0]
+
+        # Randomly choose two applicable states for which the probabilities will be changed, leave the others untouched
+        states_to_alter = _random.sample(list(f_states), 2)
+
+        # Get the current probabilities
+        p_current = sample.p_global[0, f_id, states_to_alter]
+
+        # Transform the probabilities such that they sum to 1
+        p_current_t = p_current / p_current.sum()
+
+        # Propose new sample
+        p_new_t, q, q_back = self.dirichlet_proposal(p_current_t, step_precision=self.var_proposal_p_global)
+
+        # Transform back
+        p_new = p_new_t * p_current.sum()
+
+        # Update sample
+        sample_new.p_global[0, f_id, states_to_alter] = p_new
+
+        # The step changed p_global (which has an influence on how the lh and the prior look like)
+        sample_new.what_changed['lh']['p_global'].add(f_id)
+        sample_new.what_changed['prior']['p_global'].add(f_id)
+        sample.what_changed['lh']['p_global'].add(f_id)
+        sample.what_changed['prior']['p_global'].add(f_id)
+
+        return sample_new, q, q_back
+
+    def alter_p_zones(self, sample, c=0):
+        """This function modifies one p_zones of one category, one feature and in zone in the current sample
+            Args:
+                sample(Sample): The current sample with zones and parameters.
+                c(int): The current warmup chain
+            Returns:
+                Sample: The modified sample
+                """
+        sample_new = sample.copy()
+
+        # Randomly choose one of the zones, one of the features and one of the categories
+        z_id = np.random.choice(range(self.n_zones))
+        f_id = np.random.choice(range(self.n_features))
+
+        # Different features have different applicable states
+        f_states = np.nonzero(self.applicable_states[f_id])[0]
+
+        # Randomly choose two applicable states for which the probabilities will be changed, leave the others untouched
+        states_to_alter = _random.sample(list(f_states), 2)
+
+        # Get the current probabilities
+        p_current = sample.p_zones[z_id, f_id, states_to_alter]
+
+        # Transform the probabilities such that they sum to 1
+        p_current_t = p_current / p_current.sum()
+
+        # Sample new p from dirichlet distribution with given precision
+        p_new_t, q, q_back = self.dirichlet_proposal(p_current_t, step_precision=self.var_proposal_p_zones)
+
+        # Transform back
+        p_new = p_new_t * p_current.sum()
+
+        # Update sample
+        sample_new.p_zones[z_id, f_id, states_to_alter] = p_new
+
+        # The step changed p_zones (which has an influence on how the lh and the prior look like)
+        sample_new.what_changed['lh']['p_zones'].add((z_id, f_id))
+        sample_new.what_changed['prior']['p_zones'].add((z_id, f_id))
+        sample.what_changed['lh']['p_zones'].add((z_id, f_id))
+        sample.what_changed['prior']['p_zones'].add((z_id, f_id))
+
+        return sample_new, q, q_back
+
+    def swap_zone(self, sample, c=0):
+        """ This functions swaps sites in one of the zones of the current sample
+        (i.e. in of the zones a site is removed and another one added)
+        Args:
+            sample(Sample): The current sample with zones and weights.
+            c(int): The current warmup chain
+        Returns:
+            Sample: The modified sample.
+         """
+        sample_new = sample.copy()
+        zones_current = sample.zones
+        occupied = np.any(zones_current, axis=0)
+
+        # Randomly choose one of the zones to modify
+        z_id = np.random.choice(range(zones_current.shape[0]))
+        zone_current = zones_current[z_id, :]
+
+        neighbours = get_neighbours(zone_current, occupied, self.adj_mat)
+        connected_step = (_random.random() < self.p_grow_connected[c])
+        if connected_step:
+            # All neighbors that are not yet occupied by other zones are candidates
+            candidates = neighbours
+        else:
+            # All free sites are candidates
+            candidates = ~occupied
+
+        # When stuck (all neighbors occupied) return current sample and reject the step (q_back = 0)
+        if not np.any(candidates):
+            q, q_back = 1., 0.
+            return sample, q, q_back
+
+        # Add a site to the zone
+        site_new = _random.choice(candidates.nonzero()[0])
+        sample_new.zones[z_id, site_new] = 1
+
+        # Remove a site from the zone
+        removal_candidates = self.get_removal_candidates(zone_current)
+        site_removed = _random.choice(removal_candidates)
+        sample_new.zones[z_id, site_removed] = 0
+
+        # # Compute transition probabilities
+        back_neighbours = get_neighbours(zone_current, occupied, self.adj_mat)
+        # q = 1. / np.count_nonzero(candidates)
+        # q_back = 1. / np.count_nonzero(back_neighbours)
+
+        # Transition probability growing to the new zone
+        q_non_connected = 1 / np.count_nonzero(~occupied)
+
+        q = (1 - self.p_grow_connected[c]) * q_non_connected
+        if neighbours[site_new]:
+            q_connected = 1 / np.count_nonzero(neighbours)
+            q += self.p_grow_connected[c] * q_connected
+
+        # Transition probability of growing back to the original zone
+        q_back_non_connected = 1 / np.count_nonzero(~occupied)
+        q_back = (1 - self.p_grow_connected[c]) * q_back_non_connected
+        # If z is a neighbour of the new zone, the back step could also be a connected grow step
+        if back_neighbours[site_removed]:
+            q_back_connected = 1 / np.count_nonzero(back_neighbours)
+            q_back += self.p_grow_connected[c] * q_back_connected
+
+        # The step changed the zone (which has an influence on how the lh and the prior look like)
+        sample_new.what_changed['lh']['zones'].add(z_id)
+        sample.what_changed['lh']['zones'].add(z_id)
+        sample_new.what_changed['prior']['zones'].add(z_id)
+        sample.what_changed['prior']['zones'].add(z_id)
+
+        return sample_new, q, q_back
+
+    def grow_zone(self, sample, c=0):
+        """ This functions grows one of the zones in the current sample (i.e. it adds a new site to one of the zones)
+        Args:
+            sample(Sample): The current sample with zones and weights.
+            c(int): The current warmup chain
+        Returns:
+            (Sample): The modified sample.
+        """
+        sample_new = sample.copy()
+        zones_current = sample.zones
+        occupied = np.any(zones_current, axis=0)
+
+        # Randomly choose one of the zones to modify
+        z_id = np.random.choice(range(zones_current.shape[0]))
+        zone_current = zones_current[z_id, :]
+
+        # Check if zone is small enough to grow
+        current_size = np.count_nonzero(zone_current)
+
+        if current_size >= self.max_size[c]:
+            # Zone too big to grow: don't modify the sample and reject the step (q_back = 0)
+            q, q_back = 1., 0.
+            return sample, q, q_back
+
+        neighbours = get_neighbours(zone_current, occupied, self.adj_mat)
+        connected_step = (_random.random() < self.p_grow_connected[c])
+        if connected_step:
+            # All neighbors that are not yet occupied by other zones are candidates
+            candidates = neighbours
+        else:
+            # All free sites are candidates
+            candidates = ~occupied
+
+        # When stuck (no candidates) return current sample and reject the step (q_back = 0)
+        if not np.any(candidates):
+            q, q_back = 1., 0.
+            return sample, q, q_back
+
+        # Choose a random candidate and add it to the zone
+        site_new = _random.choice(candidates.nonzero()[0])
+        sample_new.zones[z_id, site_new] = 1
+
+        # Transition probability when growing
+        q_non_connected = 1 / np.count_nonzero(~occupied)
+        q = (1 - self.p_grow_connected[c]) * q_non_connected
+        if neighbours[site_new]:
+            q_connected = 1 / np.count_nonzero(neighbours)
+            q += self.p_grow_connected[c] * q_connected
+
+        # Back-probability (shrinking)
+        q_back = 1 / (current_size + 1)
+
+        # q = q_back = 1.
+
+        # The step changed the zone (which has an influence on how the lh and the prior look like)
+        sample_new.what_changed['lh']['zones'].add(z_id)
+        sample.what_changed['lh']['zones'].add(z_id)
+        sample_new.what_changed['prior']['zones'].add(z_id)
+        sample.what_changed['prior']['zones'].add(z_id)
+
+        return sample_new, q, q_back
+
+    def shrink_zone(self, sample, c=0):
+        """ This functions shrinks one of the zones in the current sample (i.e. it removes one site from one zone)
+
+        Args:
+            sample(Sample): The current sample with zones and weights.
+            c(int): The current warmup chain
+        Returns:
+            (Sample): The modified sample.
+        """
+        sample_new = sample.copy()
+        zones_current = sample.zones
+
+        # Randomly choose one of the zones to modify
+        z_id = np.random.choice(range(zones_current.shape[0]))
+        zone_current = zones_current[z_id, :]
+
+        # Check if zone is big enough to shrink
+        current_size = np.count_nonzero(zone_current)
+        if current_size <= self.min_size:
+            # Zone is too small to shrink: don't modify the sample and reject the step (q_back = 0)
+            q, q_back = 1., 0.
+            return sample, q, q_back
+
+        # Zone is big enough: shrink
+        removal_candidates = self.get_removal_candidates(zone_current)
+        site_removed = _random.choice(removal_candidates)
+        sample_new.zones[z_id, site_removed] = 0
+
+        # Transition probability when shrinking.
+        q = 1 / len(removal_candidates)
+        # Back-probability (growing)
+        zone_new = sample_new.zones[z_id]
+        occupied_new = np.any(sample_new.zones, axis=0)
+        back_neighbours = get_neighbours(zone_new, occupied_new, self.adj_mat)
+
+        # The back step could always be a non-connected grow step
+        q_back_non_connected = 1 / np.count_nonzero(~occupied_new)
+        q_back = (1 - self.p_grow_connected[c]) * q_back_non_connected
+
+        # If z is a neighbour of the new zone, the back step could also be a connected grow step
+        if back_neighbours[site_removed]:
+            q_back_connected = 1 / np.count_nonzero(back_neighbours)
+            q_back += self.p_grow_connected[c] * q_back_connected
+
+        # q = q_back = 1.
+
+        # The step changed the zone (which has an influence on how the lh and the prior look like)
+        sample_new.what_changed['lh']['zones'].add(z_id)
+        sample.what_changed['lh']['zones'].add(z_id)
+        sample_new.what_changed['prior']['zones'].add(z_id)
+        sample.what_changed['prior']['zones'].add(z_id)
+
+        return sample_new, q, q_back
+

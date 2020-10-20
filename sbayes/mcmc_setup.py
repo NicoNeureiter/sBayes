@@ -8,12 +8,13 @@ from __future__ import absolute_import, division, print_function, unicode_litera
 import logging
 import numpy as np
 import os
+import random
 
 from sbayes.postprocessing import (contribution_per_area, log_operator_statistics,
                                    log_operator_statistics_header, match_areas, rank_areas)
-from sbayes.sampling.zone_sampling import Sample, ZoneMCMCGenerative
+from sbayes.sampling.zone_sampling import Sample, ZoneMCMCGenerative, ZoneMCMCWarmup
 from sbayes.util import (normalize, counts_to_dirichlet,
-                         inheritance_counts_to_dirichlet, samples2file, scale_counts)
+                         inheritance_counts_to_dirichlet, samples2file, scale_counts, get_max_size_list)
 
 
 class MCMC:
@@ -304,24 +305,35 @@ class MCMC:
 
     def warm_up(self):
         initial_sample = self.empty_sample()
-        sampler = ZoneMCMCGenerative(network=self.data.network, features=self.data.features,
-                                     min_size=self.config['model']['MIN_M'],
-                                     max_size=self.config['model']['MAX_M'],
-                                     n_zones=self.config['model']['N_AREAS'],
-                                     prior=self.prior_structured,
-                                     inheritance=self.config['model']['INHERITANCE'],
-                                     n_chains=self.config['mcmc']['WARM_UP']['N_WARM_UP_CHAINS'],
-                                     operators=self.ops, families=self.data.families,
-                                     var_proposal=self.config['mcmc']['PROPOSAL_PRECISION'],
-                                     p_grow_connected=self.config['mcmc']['P_GROW_CONNECTED'],
-                                     initial_sample=initial_sample,
-                                     initial_size=self.config['mcmc']['M_INITIAL'])
 
-        self.sample_from_warm_up = sampler.generate_samples(n_steps=0,
-                                                            n_samples=0,
-                                                            warm_up=True,
-                                                            warm_up_steps=
-                                                            self.config['mcmc']['WARM_UP']['N_WARM_UP_STEPS'])
+        # In warmup chains have a different max_size for areas
+        max_size_list = get_max_size_list((self.config['mcmc']['M_INITIAL'] + self.config['model']['MAX_M'])/4,
+                                          self.config['model']['MAX_M'],
+                                          self.config['mcmc']['WARM_UP']['N_WARM_UP_CHAINS'], 4)
+
+        # Some chains only have connected steps, whereas others also have random steps
+
+        p_grow_connected_list = \
+            random.choices([1, self.config['mcmc']['P_GROW_CONNECTED']],
+                           k=self.config['mcmc']['WARM_UP']['N_WARM_UP_CHAINS'])
+
+        warmup = ZoneMCMCWarmup(network=self.data.network, features=self.data.features,
+                                min_size=self.config['model']['MIN_M'],
+                                max_size=max_size_list,
+                                n_zones=self.config['model']['N_AREAS'],
+                                prior=self.prior_structured,
+                                inheritance=self.config['model']['INHERITANCE'],
+                                n_chains=self.config['mcmc']['WARM_UP']['N_WARM_UP_CHAINS'],
+                                operators=self.ops, families=self.data.families,
+                                var_proposal=self.config['mcmc']['PROPOSAL_PRECISION'],
+                                p_grow_connected=p_grow_connected_list,
+                                initial_sample=initial_sample,
+                                initial_size=self.config['mcmc']['M_INITIAL'])
+
+        self.sample_from_warm_up = warmup.generate_samples(n_steps=0,
+                                                           n_samples=0,
+                                                           warm_up=True,
+                                                           warm_up_steps=self.config['mcmc']['WARM_UP']['N_WARM_UP_STEPS'])
 
     def save_samples(self, run=1):
 

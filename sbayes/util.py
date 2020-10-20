@@ -1096,6 +1096,26 @@ def assess_correlation_probabilities(p_universal, p_contact, p_inheritance, corr
     return correlated_probability_vectors
 
 
+def get_max_size_list(start, end, n_total, k_groups):
+    """Returns a list of maximum area sizes between a start and end size 
+    Entries of the list are  later used for max_size in different chains during warmup
+    
+    Args: 
+        start(int): start size
+        end(int): end size
+        n_total(int): entries in the final list, i.e.number of chains
+        k_groups(int): number of groups with the same max_size
+
+    Returns:
+        (list) list of different max_sizes
+    """
+    n_per_group = ceil(n_total/k_groups)
+    max_sizes = np.linspace(start=start, stop=end, num=k_groups, endpoint=False, dtype=int)
+    max_size_list = list(np.repeat(max_sizes, n_per_group))
+
+    return max_size_list[0:n_total]
+
+
 def log_binom(n, k):
     """Compute the logarithm of (n choose k), i.e. the binomial coefficient of n and k.
 
