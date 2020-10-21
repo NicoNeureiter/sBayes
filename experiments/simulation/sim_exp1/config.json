@@ -33,7 +33,7 @@
 		"M_INITIAL": 15,
 		"WARM_UP": {
 			"N_WARM_UP_STEPS": 300000,
-			"N_WARM_UP_CHAINS": 60
+			"N_WARM_UP_CHAINS": 30
 		}
 	},
 	"model": {
