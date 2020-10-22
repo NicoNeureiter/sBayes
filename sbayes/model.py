@@ -769,8 +769,7 @@ def geo_prior_distance(zones: np.array, network: dict, scale: float):
     return np.mean(log_prior)
 
 
-def prior_p_global_dirichlet(p_global, dirichlet, categories, outdated_features,
-                             cached_prior=None):
+def prior_p_global_dirichlet(p_global, dirichlet, categories, outdated_features, cached_prior=None):
     """" This function evaluates the prior for p_families
     Args:
         p_global (np.array): p_global from the sample

@@ -306,7 +306,7 @@ class MCMC:
     def warm_up(self):
         initial_sample = self.empty_sample()
 
-        # In warmup chains have a different max_size for areas
+        # In warmup chains can have a different max_size for areas
         max_size_list = get_max_size_list((self.config['mcmc']['M_INITIAL'] + self.config['model']['MAX_M'])/4,
                                           self.config['model']['MAX_M'],
                                           self.config['mcmc']['WARM_UP']['N_WARM_UP_CHAINS'], 4)

@@ -1143,8 +1143,9 @@ class ZoneMCMCWarmup(ZoneMCMCGenerative):
         sample.what_changed['lh']['zones'].add(z_id)
         sample_new.what_changed['prior']['zones'].add(z_id)
         sample.what_changed['prior']['zones'].add(z_id)
+        return sample_new, 1, 1
 
-        return sample_new, q, q_back
+        #return sample_new, q, q_back
 
     def grow_zone(self, sample, c=0):
         """ This functions grows one of the zones in the current sample (i.e. it adds a new site to one of the zones)
@@ -1206,7 +1207,8 @@ class ZoneMCMCWarmup(ZoneMCMCGenerative):
         sample_new.what_changed['prior']['zones'].add(z_id)
         sample.what_changed['prior']['zones'].add(z_id)
 
-        return sample_new, q, q_back
+        return sample_new, 1, 1
+        #return sample_new, q, q_back
 
     def shrink_zone(self, sample, c=0):
         """ This functions shrinks one of the zones in the current sample (i.e. it removes one site from one zone)
@@ -1259,6 +1261,6 @@ class ZoneMCMCWarmup(ZoneMCMCGenerative):
         sample.what_changed['lh']['zones'].add(z_id)
         sample_new.what_changed['prior']['zones'].add(z_id)
         sample.what_changed['prior']['zones'].add(z_id)
-
-        return sample_new, q, q_back
+        return sample_new, 1, 1
+        #return sample_new, q, q_back
 
