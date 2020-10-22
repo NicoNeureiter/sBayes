@@ -268,7 +268,6 @@ class MCMCGenerative(metaclass=_abc.ABCMeta):
 
         # Randomly choose one operator to propose new sample (grow/shrink/swap zones, alter weights/p_zones/p_families)
         propose_step = _np.random.choice(self.fn_operators, 1, p=self.p_operators)[0]
-
         if self.IS_WARMUP:
             candidate, q, q_back = propose_step(sample, c)
         else:
