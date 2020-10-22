@@ -9,6 +9,7 @@ import logging
 import numpy as np
 import os
 import random
+import typing
 
 from sbayes.postprocessing import (contribution_per_area, log_operator_statistics,
                                    log_operator_statistics_header, match_areas, rank_areas)
@@ -207,12 +208,13 @@ class MCMC:
                'alter_p_families': self.config['mcmc']['STEPS']['inheritance']}
         self.ops = ops
 
-    def sample(self, lh_per_area=True):
+    def sample(self, lh_per_area=True, initial_sample: typing.Optional[typing.Any] = None):
 
-        if self.sample_from_warm_up is None:
-            initial_sample = self.empty_sample()
-        else:
-            initial_sample = self.sample_from_warm_up
+        if initial_sample is None:
+            if self.sample_from_warm_up is None:
+                initial_sample = self.empty_sample()
+            else:
+                initial_sample = self.sample_from_warm_up
 
         self.sampler = ZoneMCMCGenerative(network=self.data.network, features=self.data.features,
                                           inheritance=self.config['model']['INHERITANCE'],

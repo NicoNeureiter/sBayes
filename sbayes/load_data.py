@@ -3,6 +3,10 @@
 
 """ Imports the real world data """
 
+from __future__ import absolute_import, division, print_function, unicode_literals
+
+import pyproj
+
 import logging
 
 from sbayes.util import read_features_from_csv
@@ -19,6 +23,12 @@ class Data:
 
         # Config file
         self.config = experiment.config
+
+        proj4_string = experiment.config['data'].get('CRS')
+        if proj4_string is None:
+            self.crs = None
+        else:
+            self.crs = pyproj.CRS(proj4_string)
 
         # Features to be imported
         self.sites = None
@@ -48,7 +58,7 @@ class Data:
          self.state_names, self.states, self.families, self.family_names,
          self.log_load_features) = read_features_from_csv(file=self.config['data']['FEATURES'],
                                                           feature_states_file=self.config['data']['FEATURE_STATES'])
-        self.network = compute_network(self.sites)
+        self.network = compute_network(self.sites, crs=self.crs)
 
     def load_universal_counts(self):
         config_universal = self.config['model']['PRIOR']['universal']

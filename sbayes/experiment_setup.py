@@ -14,6 +14,9 @@ try:
 except ImportError:
     import importlib_resources as pkg_resources     # PYTHON < 3.7
 
+import typing
+from pathlib import Path
+
 from sbayes.util import set_experiment_name
 from sbayes import config
 
@@ -23,7 +26,7 @@ DEFAULT_CONFIG_SIMULATION = json.loads(pkg_resources.read_text(config, 'default_
 
 
 class Experiment:
-    def __init__(self, experiment_name="default", config_file=None, log=False):
+    def __init__(self, experiment_name="default", config_file: typing.Optional[Path]=None, log=False):
 
         # Naming and shaming
         if experiment_name == "default":
@@ -42,8 +45,7 @@ class Experiment:
         if log:
             self.log_experiment()
 
-    def load_config(self, config_file, custom_settings=None):
-
+    def load_config(self, config_file: Path, custom_settings=None):
         # Get parameters from config_file
         self.base_directory, self.config_file = self.decompose_config_path(config_file)
 
@@ -80,9 +82,7 @@ class Experiment:
     @staticmethod
     def decompose_config_path(config_path):
         abs_config_path = Path(config_path).absolute()
-
         base_directory = abs_config_path.parent
-
         return base_directory, abs_config_path
 
     def fix_relative_path(self, path):

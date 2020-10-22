@@ -145,8 +145,22 @@ def compute_delaunay(locations):
     return csr_matrix((data, indices, indptr), shape=(n, n))
 
 
-def n_smallest_distances(a, n, return_idx):
+def n_smallest_distances(a, n, return_idx: bool):
     """ This function finds the n smallest distances in a distance matrix
+
+    >>> n_smallest_distances([
+    ... [0, 2, 3, 4],
+    ... [2, 0, 5, 6],
+    ... [3, 5, 0, 7],
+    ... [4, 6, 7, 0]], 3, return_idx=False)
+    array([2, 3, 4])
+
+    >>> n_smallest_distances([
+    ... [0, 2, 3, 4],
+    ... [2, 0, 5, 6],
+    ... [3, 5, 0, 7],
+    ... [4, 6, 7, 0]], 3, return_idx=True)
+    (array([1, 2, 3]), array([0, 0, 0])
 
     Args:
         a (np.array): The distane matrix
@@ -155,6 +169,8 @@ def n_smallest_distances(a, n, return_idx):
 
     Returns:
         (np.array): the n_smallest distances
+    or
+        (np.array, np.array): the indices between which the distances are smallest
     """
     a_tril = np.tril(a)
     a_nn = a_tril[np.nonzero(a_tril)]

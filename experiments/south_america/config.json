@@ -18,14 +18,15 @@
 			"inheritance": 0.25
 		},
 		"M_INITIAL": 10,
+		"N_AREAS": "tbd",
 		"WARM_UP": {
 			"N_WARM_UP_STEPS": 100000,
 			"N_WARM_UP_CHAINS": 15
 		}
 	},
 	"model": {
-		"N_AREAS": "TBD",
 		"MIN_M": 3,
+		"N_AREAS": 5,
 		"MAX_M": 30,
 		"INHERITANCE": true,
 		"PRIOR": {
@@ -52,6 +53,7 @@
 		}
 	},
 	"data": {
+    "CRS": "+proj=eqdc +lat_0=-32 +lon_0=-60 +lat_1=-5 +lat_2=-42 +x_0=0 +y_0=0 +ellps=aust_SA +units=m +no_defs",
 		"FEATURES": "data/features/features.csv",
 		"FEATURE_STATES": "data/features/feature_states.csv"
 	}
