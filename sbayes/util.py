@@ -248,7 +248,7 @@ def read_features_from_csv(file):
     """
     columns = []
     feature_names_ordered = []
-    with open(file, 'rU', encoding="utf-8") as f:
+    with open(file, 'rU', encoding="utf-8-sig") as f:
         reader = csv.reader(f)
         for row in reader:
             if columns:
@@ -256,8 +256,8 @@ def read_features_from_csv(file):
                     columns[i].append(value)
             else:
                 # first row
-                feature_names_ordered = [value for value in row]
-                columns = [[value] for value in row]
+                feature_names_ordered = [value.strip() for value in row]
+                columns = [[value.strip()] for value in row]
 
     csv_as_dict = {c[0]: c[1:] for c in columns}
     try:
