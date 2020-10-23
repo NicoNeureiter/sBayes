@@ -954,136 +954,13 @@ class ZoneMCMCWarmup(ZoneMCMCGenerative):
         super(ZoneMCMCWarmup, self).__init__(**kwargs)
 
     def alter_weights(self, sample, c=0):
-        """This function modifies one weight of one feature in the current sample
-
-        Args:
-            sample(Sample): The current sample with zones and parameters.
-            c(int): The current warmup chain
-        Returns:
-            Sample: The modified sample
-        """
-        sample_new = sample.copy()
-
-        # Randomly choose one of the features
-        f_id = np.random.choice(range(self.n_features))
-
-        if self.inheritance:
-            # Randomly choose two weights that will be changed, leave the others untouched
-            weights_to_alter = _random.sample([0, 1, 2], 2)
-
-            # Get the current weights
-            weights_current = sample.weights[f_id, weights_to_alter]
-
-            # Transform the weights such that they sum to 1
-            weights_current_t = weights_current / weights_current.sum()
-
-            # Propose new sample
-            weights_new_t, q, q_back = self.dirichlet_proposal(weights_current_t, self.var_proposal_weight)
-
-            # Transform back
-            weights_new = weights_new_t * weights_current.sum()
-
-            # Update
-            sample_new.weights[f_id, weights_to_alter] = weights_new
-
-        else:
-            # if inheritance is not considered, there are only two weights.
-            weights_current = sample.weights[f_id, :]
-            weights_new, q, q_back = self.dirichlet_proposal(weights_current, self.var_proposal_weight)
-            sample_new.weights[f_id, :] = weights_new
-
-        # The step changed the weights (which has an influence on how the lh and the prior look like)
-        sample_new.what_changed['lh']['weights'] = True
-        sample_new.what_changed['prior']['weights'] = True
-        sample.what_changed['lh']['weights'] = True
-        sample.what_changed['prior']['weights'] = True
-
-        return sample_new, q, q_back
+        return super(ZoneMCMCWarmup, self).alter_weights(sample)
 
     def alter_p_global(self, sample, c=0):
-        """This function modifies one p_global of one category and one feature in the current sample
-            Args:
-                 sample(Sample): The current sample with zones and parameters.
-                 c(int): The current warmup chain
-            Returns:
-                 Sample: The modified sample
-        """
-        sample_new = sample.copy()
-
-        # Randomly choose one of the features
-        f_id = np.random.choice(range(self.n_features))
-
-        # Different features have different applicable states
-        f_states = np.nonzero(self.applicable_states[f_id])[0]
-
-        # Randomly choose two applicable states for which the probabilities will be changed, leave the others untouched
-        states_to_alter = _random.sample(list(f_states), 2)
-
-        # Get the current probabilities
-        p_current = sample.p_global[0, f_id, states_to_alter]
-
-        # Transform the probabilities such that they sum to 1
-        p_current_t = p_current / p_current.sum()
-
-        # Propose new sample
-        p_new_t, q, q_back = self.dirichlet_proposal(p_current_t, step_precision=self.var_proposal_p_global)
-
-        # Transform back
-        p_new = p_new_t * p_current.sum()
-
-        # Update sample
-        sample_new.p_global[0, f_id, states_to_alter] = p_new
-
-        # The step changed p_global (which has an influence on how the lh and the prior look like)
-        sample_new.what_changed['lh']['p_global'].add(f_id)
-        sample_new.what_changed['prior']['p_global'].add(f_id)
-        sample.what_changed['lh']['p_global'].add(f_id)
-        sample.what_changed['prior']['p_global'].add(f_id)
-
-        return sample_new, q, q_back
+        return super(ZoneMCMCWarmup, self).alter_p_global(sample)
 
     def alter_p_zones(self, sample, c=0):
-        """This function modifies one p_zones of one category, one feature and in zone in the current sample
-            Args:
-                sample(Sample): The current sample with zones and parameters.
-                c(int): The current warmup chain
-            Returns:
-                Sample: The modified sample
-                """
-        sample_new = sample.copy()
-
-        # Randomly choose one of the zones, one of the features and one of the categories
-        z_id = np.random.choice(range(self.n_zones))
-        f_id = np.random.choice(range(self.n_features))
-
-        # Different features have different applicable states
-        f_states = np.nonzero(self.applicable_states[f_id])[0]
-
-        # Randomly choose two applicable states for which the probabilities will be changed, leave the others untouched
-        states_to_alter = _random.sample(list(f_states), 2)
-
-        # Get the current probabilities
-        p_current = sample.p_zones[z_id, f_id, states_to_alter]
-
-        # Transform the probabilities such that they sum to 1
-        p_current_t = p_current / p_current.sum()
-
-        # Sample new p from dirichlet distribution with given precision
-        p_new_t, q, q_back = self.dirichlet_proposal(p_current_t, step_precision=self.var_proposal_p_zones)
-
-        # Transform back
-        p_new = p_new_t * p_current.sum()
-
-        # Update sample
-        sample_new.p_zones[z_id, f_id, states_to_alter] = p_new
-
-        # The step changed p_zones (which has an influence on how the lh and the prior look like)
-        sample_new.what_changed['lh']['p_zones'].add((z_id, f_id))
-        sample_new.what_changed['prior']['p_zones'].add((z_id, f_id))
-        sample.what_changed['lh']['p_zones'].add((z_id, f_id))
-        sample.what_changed['prior']['p_zones'].add((z_id, f_id))
-
-        return sample_new, q, q_back
+        return super(ZoneMCMCWarmup, self).alter_p_zones(sample)
 
     def swap_zone(self, sample, c=0):
         """ This functions swaps sites in one of the zones of the current sample
@@ -1151,9 +1028,9 @@ class ZoneMCMCWarmup(ZoneMCMCGenerative):
         sample.what_changed['lh']['zones'].add(z_id)
         sample_new.what_changed['prior']['zones'].add(z_id)
         sample.what_changed['prior']['zones'].add(z_id)
-        return sample_new, 1., 1.
+        # return sample_new, 1., 1.
 
-        #return sample_new, q, q_back
+        return sample_new, q, q_back
 
     def grow_zone(self, sample, c=0):
         """ This functions grows one of the zones in the current sample (i.e. it adds a new site to one of the zones)
@@ -1225,8 +1102,8 @@ class ZoneMCMCWarmup(ZoneMCMCGenerative):
         sample_new.what_changed['prior']['zones'].add(z_id)
         sample.what_changed['prior']['zones'].add(z_id)
 
-        return sample_new, 1., 1.
-        #return sample_new, q, q_back
+        #return sample_new, 1., 1.
+        return sample_new, q, q_back
 
     def shrink_zone(self, sample, c=0):
         """ This functions shrinks one of the zones in the current sample (i.e. it removes one site from one zone)
@@ -1283,8 +1160,8 @@ class ZoneMCMCWarmup(ZoneMCMCGenerative):
         sample.what_changed['lh']['zones'].add(z_id)
         sample_new.what_changed['prior']['zones'].add(z_id)
         sample.what_changed['prior']['zones'].add(z_id)
-        return sample_new, 1., 1.
-        #return sample_new, q, q_back
+        #return sample_new, 1., 1.
+        return sample_new, q, q_back
 
-    def alter_p_families(self, sample, c):
+    def alter_p_families(self, sample, c=0):
         return super(ZoneMCMCWarmup, self).alter_p_families(sample)
