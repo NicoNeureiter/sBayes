@@ -155,6 +155,13 @@ class ZoneMCMCGenerative(MCMCGenerative):
 
         self.sample_from_prior = sample_from_prior
 
+        # todo remove after testing
+        self.q_areas_stats = {'q_grow': [],
+                              'q_back_grow': [],
+                              'q_shrink': [],
+                              'q_back_shrink': []
+                              }
+
         self.compute_lh_per_chain = [
             # GenerativeLikelihood(features, self.inheritance, self.families) for _ in range(self.n_chains)
             GenerativeLikelihood(data=features, families=self.families, inheritance=self.inheritance)
@@ -535,6 +542,7 @@ class ZoneMCMCGenerative(MCMCGenerative):
         # Transition probability when growing
         q_non_connected = 1 / np.count_nonzero(~occupied)
         q = (1 - self.p_grow_connected) * q_non_connected
+
         if neighbours[site_new]:
             q_connected = 1 / np.count_nonzero(neighbours)
             q += self.p_grow_connected * q_connected
@@ -1192,6 +1200,7 @@ class ZoneMCMCWarmup(ZoneMCMCGenerative):
         # Transition probability when growing
         q_non_connected = 1 / np.count_nonzero(~occupied)
         q = (1 - self.p_grow_connected[c]) * q_non_connected
+
         if neighbours[site_new]:
             q_connected = 1 / np.count_nonzero(neighbours)
             q += self.p_grow_connected[c] * q_connected
@@ -1199,7 +1208,16 @@ class ZoneMCMCWarmup(ZoneMCMCGenerative):
         # Back-probability (shrinking)
         q_back = 1 / (current_size + 1)
 
-        # q = q_back = 1.
+        # self.q_areas_stats['q_grow'].append(q)
+        # self.q_areas_stats['q_back_grow'].append(q_back)
+        # 
+        # try:
+        #     print(sum(self.q_areas_stats['q_grow']) / len(self.q_areas_stats['q_grow']), "avg_q_grow")
+        #     print(sum(self.q_areas_stats['q_back_grow']) / len(self.q_areas_stats['q_back_grow']), "avg_q_back_grow")
+        #     print(sum(self.q_areas_stats['q_shrink']) / len(self.q_areas_stats['q_shrink']), "avg_q_shrink")
+        #     print(sum(self.q_areas_stats['q_back_shrink']) / len(self.q_areas_stats['q_back_shrink']), "avg_q_back_shrink")
+        # except ZeroDivisionError:
+        #     pass
 
         # The step changed the zone (which has an influence on how the lh and the prior look like)
         sample_new.what_changed['lh']['zones'].add(z_id)
@@ -1254,7 +1272,11 @@ class ZoneMCMCWarmup(ZoneMCMCGenerative):
             q_back_connected = 1 / np.count_nonzero(back_neighbours)
             q_back += self.p_grow_connected[c] * q_back_connected
 
-        # q = q_back = 1.
+        # Back-probability (shrinking)
+        q_back = 1 / (current_size + 1)
+
+        # self.q_areas_stats['q_shrink'].append(q)
+        # self.q_areas_stats['q_back_shrink'].append(q_back)
 
         # The step changed the zone (which has an influence on how the lh and the prior look like)
         sample_new.what_changed['lh']['zones'].add(z_id)
