@@ -1264,3 +1264,5 @@ class ZoneMCMCWarmup(ZoneMCMCGenerative):
         return sample_new, 1., 1.
         #return sample_new, q, q_back
 
+    def alter_p_families(self, sample, c):
+        return super(ZoneMCMCWarmup, self).alter_p_families(sample)
