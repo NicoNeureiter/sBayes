@@ -665,8 +665,8 @@ class GenerativePrior(object):
             float: Logarithm of the prior probability density.
         """
         if self.size_prior_outdated(sample):
-            # size_prior = evaluate_size_prior(sample.zones)
-            size_prior = 0.
+            size_prior = evaluate_size_prior(sample.zones)
+            # size_prior = 0.
             self.size_prior = size_prior
 
         return self.size_prior
@@ -689,8 +689,22 @@ def evaluate_size_prior(zones):
     # TODO It would be quite natural to allow informative priors here.
     logp = 0.
 
-    # P(zone | size)   =   1 / |{zones of size k}|   =   1 / (n choose k)
-    logp += -np.sum(log_binom(n_sites, sizes))
+    MODE = 'quadratic'
+
+    if MODE == 'uniform':
+        # P(zone | size)   =   1 / |{zones of size k}|   =   1 / (n choose k)
+        logp += -np.sum(log_binom(n_sites, sizes))
+    elif MODE == 'quadratic':
+        # Here we assume that only a quadratically growing subset of zones is plausibly
+        # permitted the likelihood and/or geo-prior.
+        # P(zone | size) = 1 / |{"plausible" zones of size k}| = 1 / k**2
+        log_plausible_zones = np.log(sizes**2)
+
+        # We could bound the number of plausible zones by the number of possible zones:
+        # log_possible_zones = log_binom(n_sites, sizes)
+        # log_plausible_zones = np.minimum(np.log(sizes**2), log_possible_zones)
+
+        logp += -np.sum(log_plausible_zones)
 
     return logp
 
