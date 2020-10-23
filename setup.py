@@ -21,10 +21,13 @@ setup(
         "pygobject",
         "descartes",
         "seaborn",
+        "pyproj",
+        "cartopy",
         "numpy",
         "fastcluster",
         "scipy",
-        "matplotlib",],
+        "matplotlib",
+    ],
     entry_points={
         'console_scripts': [
             'sbayes = sbayes.cli:main',
