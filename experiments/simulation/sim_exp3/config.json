@@ -9,7 +9,7 @@
 			"5": 0.3
 		},
 		"E_UNIVERSAL": 1.0,
-		"E_CONTACT": 0.5,
+		"E_CONTACT": 0.25,
 		"I_UNIVERSAL": 1.0,
 		"I_CONTACT": 2.0,
 		"INHERITANCE": false,
@@ -21,7 +21,7 @@
 		]
 	},
 	"mcmc": {
-		"N_STEPS": 5000000,
+		"N_STEPS": 100000,
 		"N_SAMPLES": 5000,
 		"N_RUNS": 1,
 		"P_GROW_CONNECTED": 0.85,
@@ -38,8 +38,8 @@
 		},
 		"M_INITIAL": 15,
 		"WARM_UP": {
-			"N_WARM_UP_STEPS": 300000,
-			"N_WARM_UP_CHAINS": 30
+			"N_WARM_UP_STEPS": 50000,
+			"N_WARM_UP_CHAINS": 15
 		}
 	},
 	"model": {

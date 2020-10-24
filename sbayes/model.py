@@ -690,7 +690,6 @@ def evaluate_size_prior(zones):
     logp = 0.
 
     MODE = 'uniform'
-
     if MODE == 'uniform':
         # P(zone | size)   =   1 / |{zones of size k}|   =   1 / (n choose k)
         logp += -np.sum(log_binom(n_sites, sizes))
