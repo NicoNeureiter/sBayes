@@ -689,7 +689,7 @@ def evaluate_size_prior(zones):
     # TODO It would be quite natural to allow informative priors here.
     logp = 0.
 
-    MODE = 'quadratic'
+    MODE = 'uniform'
 
     if MODE == 'uniform':
         # P(zone | size)   =   1 / |{zones of size k}|   =   1 / (n choose k)
