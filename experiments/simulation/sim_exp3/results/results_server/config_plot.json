@@ -42,7 +42,7 @@
 			"plot_families": false,
 			"label_languages": false,
 			"subset": false,
-			"min_posterior_frequency": 0.7,
+			"min_posterior_frequency": 0.9,
 			"burn_in": 0.2
 		},
 
