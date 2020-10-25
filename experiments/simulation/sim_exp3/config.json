@@ -48,12 +48,11 @@
 		"MAX_M": 200,
 		"INHERITANCE": false,
 		"PRIOR": {
-			"geo": "cost_based",
+			"geo": "uniform",
 			"weights": "uniform",
 			"universal": "uniform",
 			"contact": "uniform"
-		}, 
-		"scale_geo_prior": 100
+		}
 	},
 	"data": {
 		"simulated": true
