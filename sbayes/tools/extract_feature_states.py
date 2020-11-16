@@ -38,7 +38,7 @@ def ask_more_files():
 
 
 def collect_feature_states(features_path):
-    features = pd.read_csv(features_path, sep=',')
+    features = pd.read_csv(features_path, sep=',', dtype=str)
     features = features.drop(['id', 'name', 'family', 'x', 'y'], axis=1)
     features = features.applymap(normalize_str)
     return {f: set(features[f].unique()) for f in features.columns}

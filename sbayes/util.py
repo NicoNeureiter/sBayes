@@ -283,7 +283,7 @@ def read_features_from_csv(file, feature_states_file):
         raise KeyError('The csv must contain columns "x", "y", "id","name", "family"')
 
     # Load the valid features-states
-    feature_states = pd.read_csv(feature_states_file)
+    feature_states = pd.read_csv(feature_states_file, dtype=str)
     feature_states = feature_states.applymap(normalize_str)
     feature_names_ext = feature_states.columns.to_numpy()
 
@@ -410,7 +410,7 @@ def read_feature_occurrence_from_csv(file, feature_states_file):
 
     # Load data and feature states
     counts_raw = pd.read_csv(file, index_col='feature')
-    feature_states = pd.read_csv(feature_states_file)
+    feature_states = pd.read_csv(feature_states_file, dtype=str)
     n_states, n_features = feature_states.shape
 
     # Check that features match
