@@ -42,10 +42,10 @@
 		"MAX_M": 200,
 		"INHERITANCE": false,
 		"PRIOR": {
-			"geo": "uniform",
-			"weights": "uniform",
-			"universal": "uniform",
-			"contact": "uniform"
+			"geo": {"type": "uniform"},
+			"weights": {"type": "uniform"},
+			"universal": {"type": "uniform"},
+			"contact": {"type": "uniform"}
 		}
 	},
 	"data": {

@@ -22,17 +22,17 @@
 		"N_RUNS": 1,
 		"P_GROW_CONNECTED": 0.85,
 		"PROPOSAL_PRECISION": {
-			"weights": "TBD",
-			"universal": "TBD",
-			"contact": "TBD",
-			"inheritance": "TBD"
+			"weights": 20,
+			"universal": 30,
+			"contact": 10,
+			"inheritance": 10
 		},
 		"STEPS": {
-			"area": "TBD",
-			"weights": "TBD",
-			"universal": "TBD",
-			"contact": "TBD",
-			"inheritance": "TBD"
+			"area": 0.1,
+			"weights": 0.4,
+			"universal": 0.1,
+			"contact": 0.3,
+			"inheritance": 0.1
 		},
 		"M_INITIAL": 15,
 		"WARM_UP": {
@@ -46,11 +46,11 @@
 		"MAX_M": 200,
 		"INHERITANCE": "TBD",
 		"PRIOR": {
-			"geo": "cost_based",
-			"weights": "uniform",
-			"universal": "uniform",
-			"contact": "uniform",
-			"inheritance": "uniform"
+			"geo": {"type": "cost_based"},
+			"weights": {"type": "uniform"},
+			"universal": {"type": "uniform"},
+			"contact": {"type": "uniform"},
+			"inheritance": {"type": "uniform"}
 		},
 		"scale_geo_prior": 100
 	},

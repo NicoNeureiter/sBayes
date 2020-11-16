@@ -5,21 +5,27 @@ from sbayes.mcmc_setup import MCMC
 
 if __name__ == '__main__':
 
-    # 1. Initialize the experiment
-    exp = Experiment()
-    exp.load_config(config_file='experiments/simulation/sim_exp4/config.json')
-    exp.log_experiment()
-
-    # 2. Simulate contact areas
-    sim = Simulation(experiment=exp)
-    sim.run_simulation()
-    sim.log_simulation()
-
     # Iterate over different setups (priors)
     PRIOR_UNIVERSAL = [False, True]
 
     for P in PRIOR_UNIVERSAL:
-        exp.config['model']['PRIOR']['universal'] = "simulated_counts" if P else "uniform"
+        if P:
+            universal_prior = {'type': 'simulated_counts'}
+        else:
+            universal_prior = {'type': 'uniform'}
+        custom_settings = {'model': {'PRIOR': {'universal': universal_prior}}}
+
+        # 1. Initialize the experiment
+        exp = Experiment()
+        exp.load_config(config_file='experiments/simulation/sim_exp4/config.json',
+                        custom_settings=custom_settings)
+        exp.log_experiment()
+
+        # 2. Simulate contact areas
+        sim = Simulation(experiment=exp)
+        sim.run_simulation()
+        sim.log_simulation()
+
         # 3. Configure MCMC
         mc = MCMC(data=sim, experiment=exp)
         mc.log_setup()
