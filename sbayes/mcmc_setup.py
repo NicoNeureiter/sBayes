@@ -47,30 +47,30 @@ class MCMC:
         self.prior_structured = dict.fromkeys(self.config['model']['PRIOR'])
 
         # geo prior
-        if self.config['model']['PRIOR']['geo'] == 'uniform':
+        if self.config['model']['PRIOR']['geo']['type'] == 'uniform':
             self.prior_structured['geo'] = {'type': 'uniform'}
-        elif self.config['model']['PRIOR']['geo'] == 'cost_based':
+        elif self.config['model']['PRIOR']['geo']['type'] == 'cost_based':
             # todo:  change prior if cost matrix is provided
+            # todo: move config['model']['scale_geo_prior'] to config['model']['PRIOR']['geo']['scale']
             self.prior_structured['geo'] = {'type': 'cost_based',
                                             'scale': self.config['model']['scale_geo_prior']}
         else:
             raise ValueError('Geo prior not supported')
         # weights
-        if self.config['model']['PRIOR']['weights'] == 'uniform':
+        if self.config['model']['PRIOR']['weights']['type'] == 'uniform':
             self.prior_structured['weights'] = {'type': 'uniform'}
         else:
             raise ValueError('Currently only uniform prior_weights are supported.')
 
         # universal preference
-        if self.config['model']['PRIOR']['universal'] == 'uniform':
+        cfg_universal = self.config['model']['PRIOR']['universal']
+        if cfg_universal['type'] == 'uniform':
             self.prior_structured['universal'] = {'type': 'uniform'}
 
-        elif self.config['model']['PRIOR']['universal'] == 'simulated_counts':
-
-            if self.config['model']['PRIOR']['scale_counts'] is not None:
-                self.data.prior_universal['counts'] = \
-                    scale_counts(counts=self.data.prior_universal['counts'],
-                                 scale_to=self.config['model']['PRIOR']['scale_counts'])
+        elif cfg_universal['type'] == 'simulated_counts':
+            if cfg_universal['scale_counts'] is not None:
+                self.data.prior_universal['counts'] = scale_counts(counts=self.data.prior_universal['counts'],
+                                                                   scale_to=cfg_universal['scale_counts'])
 
             dirichlet = counts_to_dirichlet(self.data.prior_universal['counts'],
                                             self.data.prior_universal['states'])
@@ -78,12 +78,10 @@ class MCMC:
                                                   'dirichlet': dirichlet,
                                                   'states': self.data.prior_universal['states']}
 
-        elif self.config['model']['PRIOR']['universal'] == 'counts':
-
-            if self.config['model']['PRIOR']['scale_counts'] is not None:
-                self.data.prior_universal['counts'] = \
-                    scale_counts(counts=self.data.prior_universal['counts'],
-                                 scale_to=self.config['model']['PRIOR']['scale_counts'])
+        elif cfg_universal['type'] == 'counts':
+            if cfg_universal['scale_counts'] is not None:
+                self.data.prior_universal['counts'] = scale_counts(counts=self.data.prior_universal['counts'],
+                                                                   scale_to=cfg_universal['scale_counts'])
 
             dirichlet = counts_to_dirichlet(self.data.prior_universal['counts'],
                                             self.data.prior_universal['states'])
@@ -94,37 +92,42 @@ class MCMC:
             raise ValueError('Prior for universal must be uniform or counts.')
 
         # inheritance
+        cfg_inheritance = self.config['model']['PRIOR']['inheritance']
         if self.config['model']['INHERITANCE']:
-            if self.config['model']['PRIOR']['inheritance'] == 'uniform':
+            if cfg_inheritance['type'] == 'uniform':
                 self.prior_structured['inheritance'] = {'type': 'uniform'}
 
-            elif self.config['model']['PRIOR']['inheritance'] is None:
+            elif cfg_inheritance['type'] is None:
                 self.prior_structured['inheritance'] = {'type': None}
 
-            elif self.config['model']['PRIOR']['inheritance'] == 'universal':
+            elif cfg_inheritance['type'] == 'universal':
                 self.prior_structured['inheritance'] = {'type': 'universal',
-                                                        'strength': self.config['model']['UNIVERSAL_PRIOR_STRENGTH'],
-                                                        'states': self.data.prior_inheritance['states']}
+                                                        'strength': cfg_inheritance['scale_counts'],
+                                                        'states': self.data.state_names['internal']}
 
-            elif self.config['model']['PRIOR']['inheritance'] == 'counts':
-
-                if self.config['model']['PRIOR']['scale_counts'] is not None:
-
-                    self.data.prior_inheritance['counts'] = \
-                        scale_counts(counts=self.data.prior_inheritance['counts'],
-                                     scale_to=self.config['model']['PRIOR']['scale_counts'],
-                                     prior_inheritance=True)
-
+            elif cfg_inheritance['type'] == 'counts':
+                if cfg_inheritance['scale_counts'] is not None:
+                    self.data.prior_inheritance['counts'] = scale_counts(
+                        counts=self.data.prior_inheritance['counts'],
+                        scale_to=cfg_inheritance['scale_counts'],
+                        prior_inheritance=True
+                    )
                 dirichlet = inheritance_counts_to_dirichlet(self.data.prior_inheritance['counts'],
                                                             self.data.prior_inheritance['states'])
                 self.prior_structured['inheritance'] = {'type': 'counts',
                                                         'dirichlet': dirichlet,
                                                         'states': self.data.prior_inheritance['states']}
 
-            elif self.config['model']['PRIOR']['inheritance'] == 'counts_and_universal':
+            elif cfg_inheritance['type'] == 'counts_and_universal':
+                if cfg_inheritance['scale_counts'] is not None:
+                    self.data.prior_inheritance['counts'] = scale_counts(
+                        counts=self.data.prior_inheritance['counts'],
+                        scale_to=cfg_inheritance['scale_counts'],
+                        prior_inheritance=True
+                    )
                 self.prior_structured['inheritance'] = {'type': 'counts_and_universal',
                                                         'counts': self.data.prior_inheritance['counts'],
-                                                        'strength': self.config['model']['UNIVERSAL_PRIOR_STRENGTH'],
+                                                        'strength': cfg_inheritance['scale_counts'],
                                                         'states': self.data.prior_inheritance['states']}
             else:
                 raise ValueError('Prior for inheritance must be uniform, counts or  counts_and_universal')
@@ -132,13 +135,14 @@ class MCMC:
             self.prior_structured['inheritance'] = None
 
         # contact
-        if self.config['model']['PRIOR']['contact'] == 'uniform':
+        cfg_contact = self.config['model']['PRIOR']['contact']
+        if cfg_contact['type'] == 'uniform':
             self.prior_structured['contact'] = {'type': 'uniform'}
 
-        elif self.config['model']['PRIOR']['contact'] == 'universal':
+        elif cfg_contact['type'] == 'universal':
             self.prior_structured['contact'] = {'type': 'universal',
-                                                'strength': 10,
-                                                'states': self.data.prior_inheritance['states']}
+                                                'strength': cfg_contact['scale_counts'],
+                                                'states': self.data.state_names['internal']}
         else:
             raise ValueError('Prior for contact must be uniform or universal.')
 
@@ -165,9 +169,6 @@ class MCMC:
             logging.info("Prior on inheritance (beta): %s ", self.prior_structured['inheritance']['type'])
 
         logging.info("Prior on contact (gamma): %s ", self.prior_structured['contact']['type'])
-        if self.config['model']['PRIOR']['scale_counts'] is not None:
-            logging.info("All count priors (universal pressure or inheritance) are scaled to %s pseudocounts",
-                         self.config['model']['PRIOR']['scale_counts'])
         logging.info('\n')
 
         logging.info("MCMC SETUP")
