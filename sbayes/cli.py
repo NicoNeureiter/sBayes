@@ -45,7 +45,7 @@ def main(args=None):
         )
 
     # Initialize the experiment
-    experiment = Experiment(config_file=config, logging=True)
+    experiment = Experiment(config_file=config, log=True)
 
     if experiment.is_simulation():
         # The data is defined by a ´Simulation´ object

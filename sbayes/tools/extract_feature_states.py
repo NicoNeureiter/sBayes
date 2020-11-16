@@ -6,6 +6,8 @@ import pandas as pd
 import tkinter as tk
 from tkinter import filedialog, messagebox
 
+from sbayes.util import normalize_str
+
 
 ORDER_STATES = True
 '''bool: Whether to order the features states alphabetically'''
@@ -38,6 +40,7 @@ def ask_more_files():
 def collect_feature_states(features_path):
     features = pd.read_csv(features_path, sep=',')
     features = features.drop(['id', 'name', 'family', 'x', 'y'], axis=1)
+    features = features.applymap(normalize_str)
     return {f: set(features[f].unique()) for f in features.columns}
 
 
@@ -73,7 +76,11 @@ if __name__ == '__main__':
         if feature_states is None:
             feature_states = new_feature_states
         else:
-            assert set(feature_states.keys()) == set(new_feature_states.keys())
+            if set(feature_states.keys()) != set(new_feature_states.keys()):
+                out = '\nFeatures do not match between the different input files:'
+                out += '\n\tPreviously loaded features: \t %s' % sorted(feature_states.keys())
+                out += '\n\tFeatures in %s: \t %s' % (path, sorted(new_feature_states.keys()))
+                raise ValueError(out)
 
             for f in feature_states.keys():
                 feature_states[f].update(new_feature_states[f])

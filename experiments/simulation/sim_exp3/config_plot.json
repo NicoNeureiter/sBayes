@@ -1,18 +1,19 @@
 {
   "input": {
-    "path_results": "../results/test_data/south_america/n3",
-    "path_data": "../data",
-    "path_areas": "../results/test_data/south_america/n3/areas_n3_0.txt",
-    "path_stats": "../results/test_data/south_america/n3/stats_n3_0.txt",
-    "path_ground_truth_areas": null,
-    "path_ground_truth_stats": null,
+    "path_data": "../data/sites.csv",
+    "path_data": "../data/sites.csv",
+    "path_plots": "../results/2020-10-31_14-16/n1",
+    "path_areas": ["../results/2020-10-31_14-16/n1/areas_n1_1.txt"],
+    "path_stats": ["../results/2020-10-31_14-16/n1/stats_n1_1.txt"],
+    "path_ground_truth_areas": "../results/2020-10-31_14-16/n1/ground_truth/areas.txt",
+    "path_ground_truth_stats": "../results/2020-10-31_14-16/n1/ground_truth/stats.txt",
     "experiment": null,
     "subset": false,
     "proj4": null,
     "geojson_river": null,
     "geojson_map": null,
     "run": 4,
-    "scenarios": [1]
+    "scenarios": ["n1"]
   },
 
   "graphic": {

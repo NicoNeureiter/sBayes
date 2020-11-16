@@ -27,7 +27,7 @@
 		"N_AREAS": "<REQUIRED>",
 		"MIN_M": 3,
 		"MAX_M": 50,
-		"INHERITANCE": true,
+		"INHERITANCE": "<REQUIRED>",
 		"PRIOR": {
 			"geo": {"type": "uniform"},
 			"weights": {"type": "uniform"},
