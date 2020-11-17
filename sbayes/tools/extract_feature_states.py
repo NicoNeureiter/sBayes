@@ -98,4 +98,4 @@ if __name__ == '__main__':
 
     # Ask user for the output file and save the feature_states there
     output_path = select_save_file(default_dir=current_directory)
-    feature_states_df.to_csv(output_path, index=False)
+    feature_states_df.to_csv(output_path, index=False, line_terminator='\n')
