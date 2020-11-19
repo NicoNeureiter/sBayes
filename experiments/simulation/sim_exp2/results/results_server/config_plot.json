@@ -3,19 +3,15 @@
 	"path_results": "../results/results_server",
         "path_data": "../data/sites.csv",
         "path_areas": [
-          "../results/results_server/i0/areas_i0_0.txt",
           "../results/results_server/i1/areas_i1_0.txt"
         ],
         "path_stats": [
-          "../results/results_server/i0/stats_i0_0.txt",
           "../results/results_server/i1/stats_i1_0.txt"
         ],
         "path_ground_truth_areas": [
-          "../results/results_server/i0/ground_truth/areas.txt",
           "../results/results_server/i1/ground_truth/areas.txt"
         ],
         "path_ground_truth_stats": [
-          "../results/results_server/i0/ground_truth/stats.txt",
 		  "../results/results_server/i1/ground_truth/stats.txt"
         ]
 		},
@@ -79,26 +75,26 @@
 	},
 	"weights_plot": {
 		"labels": ["U", "C", "I"],
-		"burn_in": 0.2,
-		"k_best": 24,
+		"burn_in": 0.3,
+		"k_best": 11,
 		"title": true,
-		"n_columns": 6,
+		"n_columns": 4,
 		"output": {
-			"fig_width_subplot": 2,
-			"fig_height_subplot": 2,
+			"fig_width_subplot": 4,
+			"fig_height_subplot": 4,
 			"spacing_horizontal": 0.12,
 			"spacing_vertical": 0.1
 		}
 	},
 	"probabilities_plot": {
-		"burn_in": 0.2,
-		"k": 35,
-		"parameter": "gamma_a1",
+		"burn_in": 0.3,
+		"k": 11,
+		"parameter": "beta_fam1",
 		"title": true,
-		"n_columns": 6,
+		"n_columns": 5,
 		"output": {
-			"fig_width_subplot": 2,
-			"fig_height_subplot": 2,
+			"fig_width_subplot": 4,
+			"fig_height_subplot": 4,
 			"spacing_horizontal": 0.12,
 			"spacing_vertical": 0.15
 		}

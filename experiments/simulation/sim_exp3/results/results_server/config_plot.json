@@ -92,14 +92,14 @@
 		"burn_in": 0.2,
 		"true_n": "n4",
 		"output": {
-			"fig_width": 15,
-			"fig_height": 9
+			"fig_width": 11,
+			"fig_height": 8
 		}
 	},
 	"recall_precision_over_all_models_plot": {
 		"output": {
-			"fig_width": 8,
-			"fig_height": 4
+			"fig_width": 11,
+			"fig_height": 8
 		}
 	}
 	

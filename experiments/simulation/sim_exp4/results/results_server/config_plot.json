@@ -15,8 +15,8 @@
 		"geo": {
 			"base_map": {
 				"add": false},
-			"x_extend": [1500, 11000], 
-			"y_extend": [1040, 10520]
+			"x_extend": [4000, 9000],
+			"y_extend": [2500, 9020]
 		},
 		"content": {
 			"plot_families": false,
@@ -59,12 +59,12 @@
 			}
 		},
 		"ground_truth": {
-			"true_area_polygon_position": [0.37, 0.20],
+			"true_area_polygon_position": [0.5, 0.20],
 			"area_alpha_shape": 0.00001
 		},
 		"output": {
-			"fig_width": 20,
-			"fig_height": 10,
+			"fig_width": 15,
+			"fig_height": 8,
 			"return_correspondence": false
 		}
 	}

@@ -110,11 +110,11 @@
 			"color": "#fdbf6f"},
 		"parameter": "TBD",
 		"output": {
-			"fig_width": 8,
+			"fig_width": 11,
 			"fig_height": 8
 		},
 		
-		"color": ["#e41a1c", "dodgerblue"]
+		"color": ["dodgerblue", "#e41a1c"]
 		
 	}
 }
