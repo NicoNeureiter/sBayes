@@ -130,7 +130,7 @@ class Map(Plot):
         Returns:
             (polygon): the alpha shape"""
 
-        all_sites = self.network['locations']
+        all_sites = self.locations
         points = all_sites[sites[0]]
         # print(points.shape)
         tri = Delaunay(points, qhull_options="QJ Pp")
@@ -548,8 +548,20 @@ class Map(Plot):
             axins.set_xlim(self.legend_config['overview']['x_extend'])
             axins.set_ylim(self.legend_config['overview']['y_extend'])
 
+            ov_x_min = self.legend_config['overview']['x_extend'][0]
+            ov_x_max = self.legend_config['overview']['x_extend'][1]
+            ov_y_min = self.legend_config['overview']['y_extend'][0]
+            ov_y_max = self.legend_config['overview']['y_extend'][1]
+
+            # Bounding Box
+            ov_bbox = geometry.Polygon([(ov_x_min, ov_y_min),
+                                        (ov_x_max, ov_y_min),
+                                        (ov_x_max, ov_y_max),
+                                        (ov_x_min, ov_y_max),
+                                        (ov_x_min, ov_y_min)])
+
             # Again, this function needs map data to display in the overview map.
-            self.add_background_map(axins)
+            self.add_background_map(axins, clip_mask=ov_bbox)
 
             # add overview to the map
             axins.scatter(*self.locations.T, s=self.graphic_config['point_size'] / 2, c="darkgrey",
@@ -573,10 +585,10 @@ class Map(Plot):
     def add_likelihood_legend(self):
 
         # Legend for area labels
-        self.area_labels = ["      log-likelihood per area"]
+        self.area_labels = ["      log-posterior per area"]
 
-        lh_per_area = np.array(list(self.results['likelihood_single_areas'].values())).astype(float)
-        to_rank = np.mean(lh_per_area, axis=1)
+        post_per_area = np.array(list(self.results['posterior_single_areas'].values())).astype(float)
+        to_rank = np.mean(post_per_area, axis=1)
         p = to_rank[np.argsort(-to_rank)]
 
         for i, lh in enumerate(p):
@@ -587,15 +599,16 @@ class Map(Plot):
     # (likelihood info box, background map, subset related stuff)
     ##############################################################
     # Add background map
-    def add_background_map(self, ax):
+    def add_background_map(self, ax, clip_mask):
         if self.geo_config['proj4'] is None or self.geo_config['base_map']['geojson_map'] is None:
             raise Exception('If you want to use a map, provide a geojson and a crs!')
 
         # Adds the geojson map provided by user as background map
         self.world = gpd.read_file(self.geo_config['base_map']['geojson_map'])
         self.world = self.world.to_crs(self.geo_config['proj4'])
-        #self.world = gpd.clip(self.world, self.bbox)
-        self.world.plot(ax=ax, color='w', edgecolor='black', zorder=-100000)
+        # Clip to extent
+        world_clip = gpd.clip(self.world, clip_mask)
+        world_clip.plot(ax=ax, color='w', edgecolor='black', zorder=-100000)
 
     # Add rivers
     def add_rivers(self, ax):
@@ -647,7 +660,7 @@ class Map(Plot):
             pass
         else:
             if self.geo_config['base_map']['add']:
-                self.add_background_map(ax=self.ax)
+                self.add_background_map(ax=self.ax, clip_mask=self.bbox)
                 self.add_rivers(ax=self.ax)
 
     def modify_legend(self):
@@ -682,7 +695,7 @@ class Map(Plot):
 
         self.ax.add_artist(legend_true_area)
 
-    def return_correspondence_table(self, file_name, file_format="pdf", ncol=3):
+    def return_correspondence_table(self, file_name, file_format="pdf", ncol=2):
         """ Which language belongs to which number? This table will tell you more
         Args:
             file_name (str): name of the plot
@@ -693,12 +706,14 @@ class Map(Plot):
 
         sites_id = []
         sites_names = []
-        s = [j for sub in self.all_labels for j in sub]
+        sites_color = []
 
         for i in range(len(self.sites['id'])):
-            if i in s:
-                sites_id.append(self.sites['id'][i])
-                sites_names.append(self.sites['names'][i])
+            for s in range(len(self.all_labels)):
+                if i in self.all_labels[s]:
+                    sites_id.append(self.sites['id'][i])
+                    sites_names.append(self.sites['names'][i])
+                    sites_color.append(self.graphic_config['area_colors'][s])
 
         # hide axes
         fig.patch.set_visible(False)
@@ -708,12 +723,16 @@ class Map(Plot):
         n_row = math.ceil(len(sites_names) / n_col)
 
         l = [[] for _ in range(n_row)]
-
+        color_for_cells = []
         for i in range(len(sites_id)):
             col = i % n_row
             nr = str(sites_id[i] + 1)
             l[col].append(nr)
             l[col].append(sites_names[i])
+
+            # That's not a bug! One for the name, one for the number
+            color_for_cells.append(sites_color[i])
+            color_for_cells.append(sites_color[i])
 
         # Fill up empty cells
         for i in range(len(l)):
@@ -726,6 +745,15 @@ class Map(Plot):
 
         table = ax.table(cellText=l, loc='center', cellLoc="left", colWidths=widths)
         table.set_fontsize(40)
+
+        # iterate through cells of a table and set color to the one used in the map
+        table_props = table.properties()
+        table_cells = table_props['child_artists']
+        for c in range(len(table_cells)):
+            try:
+                table_cells[c].get_text().set_color(color_for_cells[c])
+            except IndexError:
+                pass
 
         for key, cell in table.get_celld().items():
             cell.set_linewidth(0)

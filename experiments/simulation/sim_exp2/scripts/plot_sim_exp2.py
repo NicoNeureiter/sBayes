@@ -20,10 +20,10 @@ if __name__ == '__main__':
         map.read_data()
         # Read results for each model
         map.read_results(model=m)
-        try:
-            map.posterior_map(file_name='posterior_map_' + m, return_correspondence=True)
-        except ValueError:
-            pass
+        # try:
+        #     map.posterior_map(file_name='posterior_map_' + m, return_correspondence=True)
+        # except ValueError:
+        #     pass
         results_per_model[m] = map.results
 
         plt = GeneralPlot()
@@ -36,4 +36,10 @@ if __name__ == '__main__':
             plt.plot_weights_grid(file_name='weights_grid_' + m)
         except ValueError:
             pass
-        plt.plot_probability_grid(file_name="prob_grid_" +m)
+        parameter = ["alpha", "beta_fam1", "gamma_a1"]
+        for p in parameter:
+            try:
+                plt.config['probabilities_plot']['parameter'] = p
+                plt.plot_probability_grid(file_name='prob_grid_' + m + '_' + p)
+            except ValueError:
+                pass

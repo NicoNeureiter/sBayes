@@ -232,7 +232,7 @@ class GeneralPlot(Plot):
         y = samples_projected.T[1]
         sns.kdeplot(x, y, shade=True, shade_lowest=True, cut=30, n_levels=100,
                     clip=([xmin, xmax], [ymin, ymax]), cmap=cmap)
-        plt.scatter(x, y, color='k', lw=0, s=1, alpha=0.2)
+        #plt.scatter(x, y, color='k', lw=0, s=1, alpha=0.2)
 
         # Draw simplex and crop outside
         plt.fill(*corners.T, edgecolor='k', fill=False)
@@ -240,12 +240,12 @@ class GeneralPlot(Plot):
 
         if true_weights is not None:
             true_weights_projected = true_weights.dot(corners)
-            plt.scatter(*true_weights_projected.T, color="#ed1696", lw=0, s=50, marker="*")
+            plt.scatter(*true_weights_projected.T, color="#ed1696", lw=0, s=200, marker="*")
 
         if mean_weights:
 
             mean_projected = np.mean(samples, axis=0).dot(corners)
-            plt.scatter(*mean_projected.T, color="#ed1696", lw=0, s=50, marker="o")
+            plt.scatter(*mean_projected.T, color="#ed1696", lw=0, s=200, marker="o")
 
         if labels is not None:
             for xy, label in zip(corners, labels):
@@ -258,7 +258,6 @@ class GeneralPlot(Plot):
         plt.axis('off')
         plt.tight_layout(0)
         plt.plot()
-
 
     @staticmethod
     def plot_probability_vectors(samples, feature, true_p=None, labels=None, ax=None, title=False):
@@ -291,7 +290,7 @@ class GeneralPlot(Plot):
             #            arrowprops=dict(arrowstyle="-", color='b'))
 
             if true_p is not None:
-                plt.scatter(true_p[1], 0, color="#ed1696", lw=0, s=100, marker="*")
+                plt.scatter(true_p[1], 0, color="#ed1696", lw=0, s=200, marker="*")
 
             if labels is not None:
                 for x, label in enumerate(labels):
@@ -299,7 +298,7 @@ class GeneralPlot(Plot):
                         x = -0.05
                     if x == 1:
                         x = 1.05
-                    plt.text(x, 0.1, label, ha='center', va='top', fontdict={'fontsize': 10})
+                    plt.text(x, 0.1, label, ha='center', va='top', fontdict={'fontsize': 12})
             if title:
                 plt.text(0.3, 4, str(feature), fontsize=12, fontweight='bold')
 
@@ -331,7 +330,7 @@ class GeneralPlot(Plot):
             y = samples_projected.T[1]
             sns.kdeplot(x, y, shade=True, shade_lowest=True, cut=30, n_levels=100,
                         clip=([xmin, xmax], [ymin, ymax]), cmap=cmap)
-            plt.scatter(x, y, color='k', lw=0, s=1, alpha=0.05)
+            # plt.scatter(x, y, color='k', lw=0, s=1, alpha=0.05)
 
             # Draw simplex and crop outside
 
@@ -341,12 +340,12 @@ class GeneralPlot(Plot):
             if true_p is not None:
 
                 true_projected = true_p.dot(corners)
-                plt.scatter(*true_projected.T, color="#ed1696", lw=0, s=100, marker="*")
+                plt.scatter(*true_projected.T, color="#ed1696", lw=0, s=200, marker="*")
 
             if labels is not None:
                 for xy, label in zip(corners, labels):
                     xy *= 1.1  # Stretch, s.t. labels don't overlap with corners
-                    plt.text(*xy, label, ha='center', va='center', fontdict={'fontsize': 10})
+                    plt.text(*xy, label, ha='center', va='center', fontdict={'fontsize': 12})
 
             plt.xlim(xmin - 0.1, xmax + 0.1)
             plt.ylim(ymin - 0.1, ymax + 0.1)
@@ -372,8 +371,8 @@ class GeneralPlot(Plot):
         burn_in = int(len(self.results['posterior']) * self.config['weights_plot']['burn_in'])
 
         weights, true_weights, _ = self.get_parameters(parameter="weights", b_in=burn_in)
-
-        ordering = self.sort_by_weights(weights)
+        # ordering = self.sort_by_weights(weights)
+        ordering = self.results['feature_names']
 
         n_plots = self.config['weights_plot']['k_best']
         n_col = self.config['weights_plot']['n_columns']
@@ -398,7 +397,7 @@ class GeneralPlot(Plot):
                                   true_weights=true_weights[f], labels=labels)
             else:
                 self.plot_weights(weights[f], feature=f, title=self.config['weights_plot']['title'],
-                                  labels=labels, mean_weights=True)
+                                  labels=labels, mean_weights=False)
             print(position, "of", n_plots, "plots finished")
             position += 1
 
@@ -406,6 +405,7 @@ class GeneralPlot(Plot):
                             hspace=self.config['weights_plot']['output']['spacing_vertical'])
 
         fig.savefig(self.path_plots + '/' + file_name + '.' + file_format, dpi=400, format=file_format)
+        plt.close(fig)
 
     # This is not changed yet
     def plot_probability_grid(self, file_name, file_format="pdf"):
@@ -455,6 +455,7 @@ class GeneralPlot(Plot):
                             hspace=self.config['probabilities_plot']['output']['spacing_vertical'])
         fig.savefig(self.path_plots + '/' + file_name + '.' + file_format, dpi=400,
                     format=file_format)
+        plt.close(fig)
 
     def plot_dic(self, models, file_name, file_format="pdf"):
         """This function plots the dics. What did you think?
@@ -478,7 +479,7 @@ class GeneralPlot(Plot):
             y.append(dic)
 
         # Limits
-        ax.plot(x, y, lw=1, color='#000000', label='DIC')
+        ax.plot(x, y, lw=2, color='#000000', label='DIC')
         y_min, y_max = min(y), max(y)
         y_range = y_max - y_min
 
@@ -489,27 +490,28 @@ class GeneralPlot(Plot):
         ax.set_ylim([y_min - y_range * 0.1, y_max + y_range * 0.1])
 
         # Labels and ticks
-        ax.set_xlabel('Number of areas', fontsize=10, fontweight='bold')
-        ax.set_ylabel('DIC', fontsize=10, fontweight='bold')
+        ax.set_xlabel('Number of areas', fontsize=16, fontweight='bold')
+        ax.set_ylabel('DIC', fontsize=16, fontweight='bold')
 
         labels = list(range(1, len(x) + 1))
-        ax.set_xticklabels(labels, fontsize=8)
+        ax.set_xticklabels(labels, fontsize=14)
 
         y_ticks = np.linspace(y_min, y_max, 6)
         ax.set_yticks(y_ticks)
         yticklabels = [f'{y_tick:.0f}' for y_tick in y_ticks]
-        ax.set_yticklabels(yticklabels, fontsize=10)
+        ax.set_yticklabels(yticklabels, fontsize=14)
         try:
             if self.config['dic_plot']['true_n'] is not None:
                 pos_true_model = [idx for idx, val in enumerate(x) if val == self.config['dic_plot']['true_n']][0]
                 color_burn_in = 'grey'
-                ax.axvline(x=pos_true_model, lw=1, color=color_burn_in, linestyle='--')
+                ax.axvline(x=pos_true_model, lw=2, color=color_burn_in, linestyle='--')
                 ypos_label = y_min + y_range * 0.15
-                plt.text(pos_true_model - 0.05, ypos_label, 'Simulated areas', rotation=90, size=10,
+                plt.text(pos_true_model - 0.25, ypos_label, 'Simulated areas', rotation=90, size=16,
                          color=color_burn_in)
         except KeyError:
             pass
-        fig.savefig(self.path_plots + '/' + file_name + '.' + file_format, dpi=400, format=file_format)
+        fig.savefig(self.path_plots + '/' + file_name + '.' + file_format, dpi=400, bbox_inches='tight',
+                    format=file_format)
 
     def plot_trace(self, file_name="trace", show_every_k_sample=1, file_format="pdf"):
         """
@@ -551,43 +553,43 @@ class GeneralPlot(Plot):
         if self.config['plot_trace']['ground_truth']['add']:
             ground_truth_parameter = 'true_' + parameter
             y_gt = self.results[ground_truth_parameter]
-            ax.axhline(y=y_gt, xmin=x[0], xmax=x[-1], lw=1, color='#fdbf6f',
+            ax.axhline(y=y_gt, xmin=x[0], xmax=x[-1], lw=3, color='#fdbf6f',
                        linestyle='-',
                        label='ground truth')
             y_min, y_max = [min(y_min, y_gt), max(y_max, y_gt)]
 
         # Show burn-in in plot
         end_bi = math.ceil(x[-1] * self.config['plot_trace']['burn_in'])
-        end_bi_label = math.ceil(x[-1] * (self.config['plot_trace']['burn_in'] - 0.03))
+        end_bi_label = math.ceil(x[-1] * (self.config['plot_trace']['burn_in'] - 0.04))
 
         color_burn_in = 'grey'
-        ax.axvline(x=end_bi, lw=1, color=color_burn_in, linestyle='--')
-        ypos_label = y_min + y_range * 0.15
-        plt.text(end_bi_label, ypos_label, 'Burn-in', rotation=90, size=10, color=color_burn_in)
+        ax.axvline(x=end_bi, lw=2, color=color_burn_in, linestyle='--')
+        ypos_label = y_min + y_range * 0.05
+        plt.text(end_bi_label, ypos_label, 'Burn-in', rotation=90, size=16, color=color_burn_in)
 
         # Ticks and labels
         n_ticks = 6 if int(self.config['plot_trace']['burn_in'] * 100) % 20 == 0 else 12
         x_ticks = np.linspace(x_min, x_max, n_ticks)
         x_ticks = [round(t, -5) for t in x_ticks]
         ax.set_xticks(x_ticks)
-        ax.set_xticklabels([f'{x_tick:.0f}' for x_tick in x_ticks], fontsize=6)
+        ax.set_xticklabels([f'{x_tick:.0f}' for x_tick in x_ticks], fontsize=14)
 
         f = mtick.ScalarFormatter(useOffset=False, useMathText=True)
         g = lambda x, pos: "${}$".format(f._formatSciNotation('%1.10e' % x))
         plt.gca().xaxis.set_major_formatter(mtick.FuncFormatter(g))
-        ax.set_xlabel('Iteration', fontsize=8, fontweight='bold')
+        ax.set_xlabel('Iteration', fontsize=16, fontweight='bold')
 
         y_ticks = np.linspace(y_min, y_max, 5)
         ax.set_yticks(y_ticks)
         y_ticklabels = [f'{y_tick:.1f}' for y_tick in y_ticks]
-        ax.set_yticklabels(y_ticklabels, fontsize=6)
+        ax.set_yticklabels(y_ticklabels, fontsize=14)
 
         # Limits
         ax.set_xlim([x_min, x_max])
         ax.set_ylim([y_min - y_range * 0.01, y_max + y_range * 0.01])
 
         # Legend
-        ax.legend(loc=4, prop={'size': 8}, frameon=False)
+        ax.legend(loc=4, prop={'size': 14}, frameon=False)
 
         # Save
         fig.savefig(self.path_plots + '/' + file_name + '.' + file_format,
@@ -696,7 +698,7 @@ class GeneralPlot(Plot):
         ax.set_xticks(x_ticks)
         x_ticklabels = [f'{x_ticklabel:.0f} areas' for x_ticklabel in np.linspace(1, n_models, n_models)]
         x_ticklabels[0] = '1 area'
-        ax.set_xticklabels(x_ticklabels, fontsize=6)
+        ax.set_xticklabels(x_ticklabels, fontsize=14)
 
         minor_locator = AutoMinorLocator(2)
         ax.xaxis.set_minor_locator(minor_locator)
@@ -707,9 +709,9 @@ class GeneralPlot(Plot):
         ax.set_yticks(y_ticks)
         y_ticklabels = [f'{y_tick:.1f}' for y_tick in y_ticks]
         y_ticklabels[0] = '0'
-        ax.set_yticklabels(y_ticklabels, fontsize=6)
+        ax.set_yticklabels(y_ticklabels, fontsize=14)
 
-        ax.legend(loc=4, prop={'size': 6}, frameon=True, framealpha=1, facecolor='#ffffff',
+        ax.legend(loc=4, prop={'size': 14}, frameon=True, framealpha=1, facecolor='#ffffff',
                   edgecolor='#ffffff')
 
         fig.savefig(self.path_plots + '/' + file_name + '.' + file_format,
