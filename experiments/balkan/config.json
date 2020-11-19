@@ -45,7 +45,8 @@
 				"Greek": "data/prior_inheritance/greek_counts.csv",
 				"Romance": "data/prior_inheritance/romance_counts.csv",
 				"Slavic": "data/prior_inheritance/slavic_counts.csv",
-				"Turkish": "data/prior_inheritance/turkish_counts.csv"
+				"Turkish": "data/prior_inheritance/turkish_counts.csv",
+				"Albanian": "data/prior_universal/universal_counts.csv"
 			}
 		}
 	}
