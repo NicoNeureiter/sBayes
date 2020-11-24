@@ -64,8 +64,14 @@ if __name__ == '__main__':
     current_directory = '.'
     more_files = True
     while more_files:
-        csv_paths.append(select_open_file(default_dir=current_directory))
-        current_directory = os.path.dirname(csv_paths[-1])
+        new_path = select_open_file(default_dir=current_directory)
+        if new_path == '':
+            # Skip when user presses cancel
+            pass
+        else:
+            csv_paths.append(new_path)
+            current_directory = os.path.dirname(new_path)
+
         more_files = ask_more_files()
 
     # Read all input files and collect all states for each feature
