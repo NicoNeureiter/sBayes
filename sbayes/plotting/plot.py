@@ -41,6 +41,8 @@ class Plot:
         if self.is_simulation:
             self.path_ground_truth_areas = None
             self.path_ground_truth_stats = None
+        else:
+            self.path_feature_states = None
 
         # Input areas and stats
         self.areas = []
@@ -95,6 +97,8 @@ class Plot:
         if self.is_simulation:
             self.path_ground_truth_areas = self.config['input']['path_ground_truth_areas']
             self.path_ground_truth_stats = self.config['input']['path_ground_truth_stats']
+        else:
+            self.path_feature_states = self.config['input']['path_feature_states']
 
         if not os.path.exists(self.path_plots):
             os.makedirs(self.path_plots)
@@ -135,8 +139,8 @@ class Plot:
         if self.is_simulation:
             self.sites, self.site_names, _ = read_sites(self.path_data)
         else:
-            self.sites, self.site_names, _, _, _, self.families, self.family_names, _ = \
-                read_features_from_csv(self.path_data)
+            self.sites, self.site_names, _, _, _, _, self.families, self.family_names, _ = \
+                read_features_from_csv(self.path_data, self.path_feature_states)
         self.network = compute_network(self.sites)
         self.locations, self.dist_mat = self.network['locations'], self.network['dist_mat']
 
