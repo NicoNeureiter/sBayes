@@ -74,7 +74,6 @@ class Plot:
         self.base_directory = None
 
         # Path to all default configs
-        #self.config_default = "config/plotting/config_plot_maps.json"
         self.config_default = "config/plotting"
 
         self.geo_config = {}
@@ -386,7 +385,6 @@ class Plot:
         return name
 
     # From map.py:
-
     ##############################################################
     # Copy-pasted functions needed for plot_posterior_map
     ##############################################################
@@ -633,6 +631,8 @@ class Plot:
 
     # Bind together the functions above
     def visualize_areas(self):
+        self.all_labels = []
+        self.area_labels = []
 
         # If likelihood for single areas are displayed: add legend entries with likelihood information per area
         if self.legend_config['areas']['add_area_stats']:
@@ -891,7 +891,7 @@ class Plot:
     # Helper function
     @staticmethod
     def scientific(x):
-        print(x)
+
         b = int(np.log10(x))
         a = x / 10 ** b
         return '%.2f \cdot 10^{%i}' % (a, b)
@@ -1008,7 +1008,7 @@ class Plot:
 
         self.ax.add_artist(legend_true_area)
 
-    def return_correspondence_table(self, file_name, file_format="pdf", ncol=3):
+    def return_correspondence_table(self, file_name, file_format="pdf", ncol=2):
         """ Which language belongs to which number? This table will tell you more
         Args:
             file_name (str): name of the plot
@@ -1019,12 +1019,14 @@ class Plot:
 
         sites_id = []
         sites_names = []
-        s = [j for sub in self.all_labels for j in sub]
+        sites_color = []
 
         for i in range(len(self.sites['id'])):
-            if i in s:
-                sites_id.append(self.sites['id'][i])
-                sites_names.append(self.sites['names'][i])
+            for s in range(len(self.all_labels)):
+                if i in self.all_labels[s]:
+                    sites_id.append(self.sites['id'][i])
+                    sites_names.append(self.sites['names'][i])
+                    sites_color.append(self.graphic_config['area_colors'][s])
 
         # hide axes
         fig.patch.set_visible(False)
@@ -1034,12 +1036,16 @@ class Plot:
         n_row = math.ceil(len(sites_names) / n_col)
 
         l = [[] for _ in range(n_row)]
-
+        color_for_cells = []
         for i in range(len(sites_id)):
             col = i % n_row
             nr = str(sites_id[i] + 1)
             l[col].append(nr)
             l[col].append(sites_names[i])
+
+            # That's not a bug! One for the name, one for the number
+            color_for_cells.append(sites_color[i])
+            color_for_cells.append(sites_color[i])
 
         # Fill up empty cells
         for i in range(len(l)):
@@ -1052,6 +1058,15 @@ class Plot:
 
         table = ax.table(cellText=l, loc='center', cellLoc="left", colWidths=widths)
         table.set_fontsize(40)
+
+        # iterate through cells of a table and set color to the one used in the map
+        table_props = table.properties()
+        table_cells = table_props['child_artists']
+        for c in range(len(table_cells)):
+            try:
+                table_cells[c].get_text().set_color(color_for_cells[c])
+            except IndexError:
+                pass
 
         for key, cell in table.get_celld().items():
             cell.set_linewidth(0)
