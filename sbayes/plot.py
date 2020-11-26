@@ -213,7 +213,6 @@ class Plot:
 
                     # Add each item in parsed_area_columns to the corresponding array in result
                     for j in range(len(parsed_sample)):
-
                         # todo: fix
                         # # For ground truth
                         # if len(parsed_sample) == 1:
@@ -301,10 +300,10 @@ class Plot:
     # <experiment_path>/stats_<scenario>.txt
     def read_stats(self, txt_path, simulation_flag):
         sample_id, posterior, likelihood, prior, recall, precision = [], [], [], [], [], []
-        weights, alpha, beta, gamma, posterior_single_areas, likelihood_single_areas, prior_single_areas =\
+        weights, alpha, beta, gamma, posterior_single_areas, likelihood_single_areas, prior_single_areas = \
             {}, {}, {}, {}, {}, {}, {}
         true_posterior, true_likelihood, true_prior, true_weights, \
-            true_alpha, true_beta, true_gamma = None, None, None, None, None, None, None
+        true_alpha, true_beta, true_gamma = None, None, None, None, None, None, None
 
         with open(txt_path, 'r') as f_stats:
             csv_reader = csv.DictReader(f_stats, delimiter='\t')
@@ -328,8 +327,8 @@ class Plot:
 
                 if simulation_flag:
                     if 'ground_truth' in txt_path:
-                        true_posterior, true_likelihood, true_prior, true_weights,\
-                            true_alpha, true_beta, true_gamma = Plot.read_simulation_stats(txt_path, lines)
+                        true_posterior, true_likelihood, true_prior, true_weights, \
+                        true_alpha, true_beta, true_gamma = Plot.read_simulation_stats(txt_path, lines)
                     else:
                         recall.append(float(lines['recall']))
                         precision.append(float(lines['precision']))
@@ -342,7 +341,8 @@ class Plot:
 
         self.bind_stats(txt_path, sample_id, posterior, likelihood, prior, weights, alpha, beta, gamma,
                         posterior_single_areas, likelihood_single_areas, prior_single_areas, recall, precision,
-                        true_posterior, true_likelihood, true_prior, true_weights, true_alpha, true_beta, true_gamma, feature_names)
+                        true_posterior, true_likelihood, true_prior, true_weights, true_alpha, true_beta, true_gamma,
+                        feature_names)
 
     # Read results
     # Call all the previous functions
@@ -450,7 +450,7 @@ class Plot:
         Returns:
             (polygon): the alpha shape"""
 
-        all_sites = self.network['locations']
+        all_sites = self.locations
         points = all_sites[sites[0]]
         # print(points.shape)
         tri = Delaunay(points, qhull_options="QJ Pp")
@@ -509,7 +509,7 @@ class Plot:
         leg_area = None
         if cp_locations.shape[0] > 0:  # at least one contact point in area
 
-            alpha_shape = self.compute_alpha_shapes(sites = [is_in_area],
+            alpha_shape = self.compute_alpha_shapes(sites=[is_in_area],
                                                     alpha_shape=self.ground_truth_config['area_alpha_shape'])
 
             # smooth_shape = alpha_shape.buffer(100, resolution=16, cap_style=1, join_style=1, mitre_limit=5.0)
@@ -539,7 +539,7 @@ class Plot:
         area = np.asarray(area)
         n_samples = area.shape[0]
 
-        area_freq = np.sum(area, axis=0)/n_samples
+        area_freq = np.sum(area, axis=0) / n_samples
         in_graph = area_freq >= self.content_config['min_posterior_frequency']
         locations = self.locations[in_graph]
         n_graph = len(locations)
@@ -652,7 +652,7 @@ class Plot:
             self.ax.scatter(*self.locations[in_graph].T, s=self.graphic_config['point_size'], c=current_color)
 
             for li in range(len(lines)):
-                self.ax.plot(*lines[li].T, color=current_color, lw=line_w[li]*self.graphic_config['line_width'],
+                self.ax.plot(*lines[li].T, color=current_color, lw=line_w[li] * self.graphic_config['line_width'],
                              alpha=0.6)
 
             # This adds small lines to the legend (one legend entry per area)
@@ -795,7 +795,6 @@ class Plot:
 
         # Iterates over all values in post_freq_lines and for each adds a legend entry
         for k in line_width:
-
             # Create line
             line = Line2D([0], [0], color="black", linestyle='-',
                           lw=self.graphic_config['line_width'] * k)
@@ -807,19 +806,19 @@ class Plot:
 
         # Adds everything to the legend
         legend_line_width = self.ax.legend(
-                self.leg_line_width,
-                self.line_width_label,
-                title_fontsize=18,
-                title='Frequency of edge in posterior',
-                frameon=True,
-                edgecolor='#ffffff',
-                framealpha=1,
-                fontsize=16,
-                ncol=1,
-                columnspacing=1,
-                loc='upper left',
-                bbox_to_anchor=self.legend_config['posterior_frequency']['position']
-            )
+            self.leg_line_width,
+            self.line_width_label,
+            title_fontsize=18,
+            title='Frequency of edge in posterior',
+            frameon=True,
+            edgecolor='#ffffff',
+            framealpha=1,
+            fontsize=16,
+            ncol=1,
+            columnspacing=1,
+            loc='upper left',
+            bbox_to_anchor=self.legend_config['posterior_frequency']['position']
+        )
 
         legend_line_width._legend_box.align = "left"
         self.ax.add_artist(legend_line_width)
@@ -920,7 +919,7 @@ class Plot:
         # Adds the geojson map provided by user as background map
         self.world = gpd.read_file(self.geo_config['base_map']['geojson_map'])
         self.world = self.world.to_crs(self.geo_config['proj4'])
-        #self.world = gpd.clip(self.world, self.bbox)
+        # self.world = gpd.clip(self.world, self.bbox)
         self.world.plot(ax=ax, color='w', edgecolor='black', zorder=-100000)
 
     # Add rivers
@@ -967,7 +966,8 @@ class Plot:
         self.ax.add_patch(bbox)
         # Adds a small label that reads "Subset"
         self.ax.text(x_max, y_max + 200, 'Subset', fontsize=18, color='#000000')
-
+        self.sites = sites_all
+        
     def visualize_base_map(self):
         if self.is_simulation:
             pass
@@ -1121,7 +1121,7 @@ class Plot:
             self.modify_legend()
 
         # Save the plot
-        self.fig.savefig(f"{self.path_plots + '/'+ file_name}.{file_format}",
+        self.fig.savefig(f"{self.path_plots + '/' + file_name}.{file_format}",
                          bbox_inches='tight', dpi=400, format=file_format)
 
         if return_correspondence and self.content_config['label_languages']:
@@ -1353,18 +1353,16 @@ class Plot:
             plt.scatter(*true_weights_projected.T, color="#ed1696", lw=0, s=50, marker="*")
 
         if mean_weights:
-
             mean_projected = np.mean(samples, axis=0).dot(corners)
             plt.scatter(*mean_projected.T, color="#ed1696", lw=0, s=50, marker="o")
 
         if labels is not None:
             for xy, label in zip(corners, labels):
-
                 xy *= 1.08  # Stretch, s.t. labels don't overlap with corners
                 plt.text(*xy, label, ha='center', va='center', fontdict={'fontsize': 12})
 
-        plt.xlim(xmin-0.1, xmax+0.1)
-        plt.ylim(ymin-0.1, ymax+0.1)
+        plt.xlim(xmin - 0.1, xmax + 0.1)
+        plt.ylim(ymin - 0.1, ymax + 0.1)
         plt.axis('off')
         plt.tight_layout(0)
         plt.plot()
@@ -1444,7 +1442,6 @@ class Plot:
             Plot.fill_outside(corners, color='w', ax=ax)
 
             if true_p is not None:
-
                 true_projected = true_p.dot(corners)
                 plt.scatter(*true_projected.T, color="#ed1696", lw=0, s=100, marker="*")
 
@@ -1474,7 +1471,7 @@ class Plot:
         n_row = math.ceil(n_plots / n_col)
         width = self.config['weights_plot']['output']['fig_width_subplot']
         height = self.config['weights_plot']['output']['fig_height_subplot']
-        fig, axs = plt.subplots(n_row, n_col, figsize=(width*n_col, height*n_row))
+        fig, axs = plt.subplots(n_row, n_col, figsize=(width * n_col, height * n_row))
         position = 1
 
         features = ordering[:n_plots]
@@ -1518,16 +1515,16 @@ class Plot:
         width = self.config['probabilities_plot']['output']['fig_width_subplot']
         height = self.config['probabilities_plot']['output']['fig_height_subplot']
 
-        #weights, true_weights, _ = self.get_parameters(parameter="weights", b_in=burn_in)
-        #ordering = self.sort_by_weights(weights)
+        # weights, true_weights, _ = self.get_parameters(parameter="weights", b_in=burn_in)
+        # ordering = self.sort_by_weights(weights)
 
         p, true_p, states = self.get_parameters(parameter=self.config['probabilities_plot']['parameter'], b_in=burn_in)
-        fig, axs = plt.subplots(n_row, n_col, figsize=(width*n_col, height*n_row), )
+        fig, axs = plt.subplots(n_row, n_col, figsize=(width * n_col, height * n_row), )
 
         features = self.results['feature_names']
         n_empty = n_row * n_col - n_plots
 
-        for e in range(1, n_empty+1):
+        for e in range(1, n_empty + 1):
             axs[-1, -e].axis('off')
 
         position = 1
@@ -1577,7 +1574,7 @@ class Plot:
         y_range = y_max - y_min
 
         x_min = 0
-        x_max = len(x)-1
+        x_max = len(x) - 1
 
         ax.set_xlim([x_min, x_max])
         ax.set_ylim([y_min - y_range * 0.1, y_max + y_range * 0.1])

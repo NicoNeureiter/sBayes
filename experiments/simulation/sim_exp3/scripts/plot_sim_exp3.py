@@ -19,7 +19,7 @@ if __name__ == '__main__':
 
         # Read results for each model
         plot.read_results(model=m)
-        
+
         # Plot map
         try:
             plot.posterior_map(file_name='posterior_map_' + m, return_correspondence=False)
