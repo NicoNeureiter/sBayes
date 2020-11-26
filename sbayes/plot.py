@@ -789,6 +789,10 @@ class Plot:
         line_width = list(self.legend_config['posterior_frequency']['default_values'])
         line_width.sort(reverse=True)
 
+        self.line_width_label = []
+        self.leg_line_width = []
+        self.leg_areas = []
+
         # Iterates over all values in post_freq_lines and for each adds a legend entry
         for k in line_width:
 
@@ -1107,7 +1111,7 @@ class Plot:
 
         if return_correspondence and self.content_config['label_languages']:
             self.return_correspondence_table(file_name=file_name)
-
+        plt.clf()
         plt.close(self.fig)
 
     # From general_plot.py
@@ -1285,7 +1289,7 @@ class Plot:
     # Probability simplex (for one feature)
     @staticmethod
     def plot_weights(samples, feature, title, true_weights=None,
-                     labels=None, ax=None, mean_weights=False):
+                     labels=None, ax=None, mean_weights=False, plot_samples=False):
         """Plot a set of weight vectors in a 2D representation of the probability simplex.
 
         Args:
@@ -1295,6 +1299,7 @@ class Plot:
             labels (list[str]): Labels for each weight dimension.
             ax (plt.Axis): The pyplot axis.
             mean_weights (bool): Plot the mean of the weights?
+            plot_samples (bool): Add a scatter plot overlay of the actual samples?
         """
 
         if ax is None:
@@ -1320,7 +1325,9 @@ class Plot:
         y = samples_projected.T[1]
         sns.kdeplot(x, y, shade=True, shade_lowest=True, cut=30, n_levels=100,
                     clip=([xmin, xmax], [ymin, ymax]), cmap=cmap)
-        plt.scatter(x, y, color='k', lw=0, s=1, alpha=0.2)
+
+        if plot_samples:
+            plt.scatter(x, y, color='k', lw=0, s=1, alpha=0.2)
 
         # Draw simplex and crop outside
         plt.fill(*corners.T, edgecolor='k', fill=False)
@@ -1347,9 +1354,8 @@ class Plot:
         plt.tight_layout(0)
         plt.plot()
 
-
     @staticmethod
-    def plot_probability_vectors(samples, feature, true_p=None, labels=None, ax=None, title=False):
+    def plot_probability_vectors(samples, feature, true_p=None, labels=None, ax=None, title=False, plot_samples=False):
         """Plot a set of weight vectors in a 2D representation of the probability simplex.
 
         Args:
@@ -1359,6 +1365,7 @@ class Plot:
             labels (list[str]): Labels for each weight dimension.
             title (bool): plot title
             ax (plt.Axis): The pyplot axis.
+            plot_samples (bool): Add a scatter plot overlay of the actual samples?
         """
         if ax is None:
             ax = plt.gca()
@@ -1370,13 +1377,8 @@ class Plot:
             x = samples.T[1]
             sns.distplot(x, rug=True, hist=False, kde_kws={"shade": True, "lw": 0, "clip": (0, 1)}, color="g",
                          rug_kws={"color": "k", "alpha": 0.01, "height": 0.03})
-            # sns.kdeplot(x, shade=True, color="r", clip=(0, 1))
-            # plt.scatter(x, y, color='k', lw=0, s=1, alpha=0.2)
-            # plt.axhline(y=0, color='k', linestyle='-', lw=0.5, xmin=0, xmax=1)
 
             ax.axes.get_yaxis().set_visible(False)
-            # ax.annotate('', xy=(0, -0.5), xytext=(1, -0.1),
-            #            arrowprops=dict(arrowstyle="-", color='b'))
 
             if true_p is not None:
                 plt.scatter(true_p[1], 0, color="#ed1696", lw=0, s=100, marker="*")
@@ -1393,7 +1395,6 @@ class Plot:
 
             plt.plot([0, 1], [0, 0], c="k", lw=0.5)
 
-            #y_max = ax.get_ylim()[1]
             ax.axes.set_ylim([-0.2, 5])
             ax.axes.set_xlim([0, 1])
 
@@ -1414,15 +1415,16 @@ class Plot:
             # Density and scatter plot
             if title:
                 plt.text(-0.8, 0.8, str(feature), fontsize=12, fontweight='bold')
-                #plt.title(str(feature), loc='left', fontdict={'fontweight': 'bold', 'fontsize': 16})
+
             x = samples_projected.T[0]
             y = samples_projected.T[1]
             sns.kdeplot(x, y, shade=True, shade_lowest=True, cut=30, n_levels=100,
                         clip=([xmin, xmax], [ymin, ymax]), cmap=cmap)
-            plt.scatter(x, y, color='k', lw=0, s=1, alpha=0.05)
+
+            if plot_samples:
+                plt.scatter(x, y, color='k', lw=0, s=1, alpha=0.05)
 
             # Draw simplex and crop outside
-
             plt.fill(*corners.T, edgecolor='k', fill=False)
             Plot.fill_outside(corners, color='w', ax=ax)
 
@@ -1443,17 +1445,6 @@ class Plot:
 
         plt.plot()
 
-    # Find number of features
-    # def find_num_features(self):
-    #     for key in self.results['weights']:
-    #         num = re.search('[0-9]+', key)
-    #         if num:
-    #             if int(num.group(0)) > self.number_features:
-    #                 self.number_features = int(num.group(0))
-
-    # Make a grid with all features (sorted by median contact)
-    # By now we assume number of features to be 35; later this should be rewritten for any number of features
-    # using find_num_features
     def plot_weights_grid(self, file_name, file_format="pdf"):
 
         print('Plotting weights...')
