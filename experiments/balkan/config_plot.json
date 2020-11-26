@@ -8,7 +8,8 @@
 			"../results/scaled_prior/n3/areas_n3_0.txt",
 			"../results/scaled_prior/n4/areas_n4_0.txt",
 			"../results/scaled_prior/n5/areas_n5_0.txt",
-			"../results/scaled_prior/n6/areas_n6_0.txt"
+			"../results/scaled_prior/n6/areas_n6_0.txt",
+			"../results/scaled_prior/n7/areas_n7_0.txt"
 		],
 		"path_stats": [
 			"../results/scaled_prior/n1/stats_n1_0.txt",
@@ -16,27 +17,22 @@
 			"../results/scaled_prior/n3/stats_n3_0.txt",
 			"../results/scaled_prior/n4/stats_n4_0.txt",
 			"../results/scaled_prior/n5/stats_n5_0.txt",
-			"../results/scaled_prior/n6/stats_n6_0.txt"
+			"../results/scaled_prior/n6/stats_n6_0.txt",
+			"../results/scaled_prior/n7/stats_n7_0.txt"
 		],
 		"path_ground_truth_areas": null,
 		"path_ground_truth_stats": null
 	},
 	"map": {
 		"geo": {
-			"proj4": "+proj=eqdc +lat_0=-32 +lon_0=-60 +lat_1=-5 +lat_2=-42 +x_0=0 +y_0=0 +ellps=aust_SA +units=m +no_defs ",
+            "proj4": "+proj=lcc +lat_1=43 +lat_2=62 +lat_0=30 +lon_0=10 +x_0=0 +y_0=0 +ellps=intl +units=m",
 			"base_map": {
 				"add": true,
 				"geojson_river": "../data/map/rivers_lake.geojson",
 				"geojson_map": "../data/map/land.geojson"
 			},
-			"x_extend": [
-				-3756000,
-				420000
-			],
-			"y_extend": [
-				1100000,
-				3800000
-			]
+			"x_extend": [-500000, 1700000],
+			"y_extend": [600000, 2000000]
 		},
 		"content": {
 			"plot_families": true,
@@ -47,7 +43,7 @@
 		},
 
 		"graphic": {
-			"family_alpha_shape": 0.00001,
+			"family_alpha_shape": 0.001,
 			"point_size": 25,
 			"font_size": 16,
 			"line_width": 2,
@@ -83,14 +79,8 @@
 				"add_overview": "true",
 				"width": 3.8,
 				"height": 4,
-				"x_extend": [
-					-4800000,
-					3900000
-				],
-				"y_extend": [
-					-3000000,
-					6200000
-				],
+				"x_extend": [-2000000, 2500000],
+			    "y_extend": [400000, 4300000],
 				"position": [
 					0.01,
 					0.01
@@ -141,7 +131,7 @@
 	"weights_plot": {
 		"labels": ["U", "C", "I"],
 		"burn_in": 0.2,
-		"k_best": 35,
+		"k_best": 47,
 		"title": true,
 		"n_columns": 6,
 		"output": {
@@ -154,7 +144,7 @@
 
 	"probabilities_plot": {
 		"burn_in": 0.2,
-		"k": 35,
+		"k": 47,
 		"parameter": "TBD",
 		"title": true,
 		"n_columns": 6,
