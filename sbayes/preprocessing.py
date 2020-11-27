@@ -147,7 +147,8 @@ class compute_network:
         adj_mat = delaunay.tocsr()
 
         if crs is None:
-            diff = sites['locations'][:, None] - sites['locations']
+            loc = np.asarray(sites['locations'])
+            diff = loc[:, None] - loc
             dist_mat = np.linalg.norm(diff, axis=-1)
         else:
             transformer = pyproj.transformer.Transformer.from_crs(

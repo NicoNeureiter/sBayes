@@ -151,15 +151,18 @@ class Prior:
 class Sites:
     id: t.Any
     locations: t.Tuple[float, float]
+    names: t.Any
 
     def __getitem__(self, item: Literal["id"]):
         if item == "id":
             return self.id
         elif item == "locations":
             return self.locations
+        elif item == "names":
+            return self.names
         else:
             raise AttributeError(
-                f"{item:} is no valid attribute of a count prior"
+                f"{item:} is no valid attribute of Sites"
             )
 
     def __setitem__(self, item: Literal["id"], value: t.Any):
@@ -167,9 +170,11 @@ class Sites:
             self.id = value
         elif item == "locations":
             self.locations = value
+        elif item == "names":
+            self.names = value
         else:
             raise AttributeError(
-                f"{item:} is no valid attribute of a count prior"
+                f"{item:} is no valid attribute of Sites"
             )
 
 
@@ -184,8 +189,13 @@ class CLDFData(Data):
         for feature in self.ds["ParameterTable"]:
             self.features.append(feature[c_id])
         self.features = numpy.array([[1, 2]])
+
+        c_id = self.ds["LanguageTable", 'id'].name
+        c_name = self.ds["LanguageTable", 'name'].name
+        c_lon = self.ds["LanguageTable", 'longitude'].name
+        c_lat = self.ds["LanguageTable", 'latitude'].name
         self.sites = Sites(*zip(*
-            [(site["ID"], (site["Longitude"], site["Latitude"]))
+            [(site[c_id], (site[c_lon], site[c_lat]), site[c_name])
              for site in self.ds["LanguageTable"]]))
         self.network = compute_network(self.sites)
 
