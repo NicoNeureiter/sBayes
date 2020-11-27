@@ -364,21 +364,19 @@ class MCMC:
             raise ValueError("file_info must be 'n', 's', 'i' or 'p'")
 
         run = '_{run}'.format(run=run)
-        pth = self.path_results + fi + '/'
+        pth = self.path_results / fi
         ext = '.txt'
-        gt_pth = pth + 'ground_truth/'
+        gt_pth = pth / 'ground_truth'
 
-        paths = {'parameters': pth + 'stats_' + fi + run + ext,
-                 'areas': pth + 'areas_' + fi + run + ext,
-                 'gt': gt_pth + 'stats' + ext,
-                 'gt_areas': gt_pth + 'areas' + ext}
+        paths = {'parameters': pth / ('stats_' + fi + run + ext),
+                 'areas': pth / ('areas_' + fi + run + ext),
+                 'gt': gt_pth / ('stats' + ext),
+                 'gt_areas': gt_pth / ('areas' + ext)}
 
-        if not os.path.exists(pth):
-            os.makedirs(pth)
+        pth.mkdir(exist_ok=True)
 
         if self.data.is_simulated:
             self.eval_ground_truth()
-            if not os.path.exists(gt_pth):
-                os.makedirs(gt_pth)
+            gt_pth.mkdir(exist_ok=True)
 
         samples2file(self.samples, self.data, self.config, paths)
