@@ -6,6 +6,9 @@ import json
 import logging
 import os
 import warnings
+
+from pathlib import Path
+
 try:
     import importlib.resources as pkg_resources     # PYTHON >= 3.7
 except ImportError:
@@ -76,15 +79,11 @@ class Experiment:
 
     @staticmethod
     def decompose_config_path(config_path):
-        config_path = config_path.strip()
-        if os.path.isabs(config_path):
-            abs_config_path = config_path
-        else:
-            abs_config_path = os.path.abspath(config_path)
+        abs_config_path = Path(config_path).absolute()
 
-        base_directory = os.path.dirname(abs_config_path)
+        base_directory = abs_config_path.parent
 
-        return base_directory, abs_config_path.replace("\\", "/")
+        return base_directory, abs_config_path
 
     def fix_relative_path(self, path):
         """Make sure that the provided path is either absolute or relative to
@@ -96,11 +95,11 @@ class Experiment:
         Returns:
             str: The fixed path.
          """
-        path = path.strip()
-        if os.path.isabs(path):
+        path = Path(path)
+        if path.is_absolute():
             return path
         else:
-            return os.path.join(self.base_directory, path).replace("\\", "/")
+            return self.base_directory / path
 
     def is_simulation(self):
         return 'simulation' in self.config
@@ -427,7 +426,7 @@ class Experiment:
                     self.config['data']['FEATURE_STATES'] = self.fix_relative_path(self.config['data']['FEATURE_STATES'])
 
     def log_experiment(self):
-        log_path = self.path_results + 'experiment.log'
+        log_path = self.path_results / 'experiment.log'
         logging.basicConfig(format='%(message)s', filename=log_path, level=logging.DEBUG)
         logging.getLogger().addHandler(logging.StreamHandler())
         logging.info("Experiment: %s", self.experiment_name)
