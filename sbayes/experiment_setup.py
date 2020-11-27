@@ -17,6 +17,8 @@ except ImportError:
 import typing
 from pathlib import Path
 
+import pycldf
+
 from sbayes.util import set_experiment_name
 from sbayes import config
 
@@ -411,19 +413,33 @@ class Experiment:
         # Data
         if 'data' not in self.config:
             raise NameError("Provide file paths to data.")
+        elif type(self.config['data']) == str:
+            # TODO: type comparison is considered bad form in Python. What to
+            # use instead?
+            self.config['data'] = {
+                'simulated': False,
+                'cldf_dataset': pycldf.StructureDataset.from_metadata(
+                    self.base_directory / self.config['data']
+                ),
+            }
         else:
             if 'simulated' not in self.config['data']:
                 self.config['data']['simulated'] = False
 
             if not self.config['data']['simulated']:
-                if not self.config['data']['FEATURES']:
-                    raise NameError("FEATURES is empty. Provide file paths to features file (e.g. features.csv)")
+                if 'cldf_dataset' in self.config['data']:
+                    self.config['data']['cldf_dataset'] = pycldf.StructureDataset.from_metadata(
+                        self.base_directory / self.config['data']
+                    )
                 else:
-                    self.config['data']['FEATURES'] = self.fix_relative_path(self.config['data']['FEATURES'])
-                if not self.config['data']['FEATURE_STATES']:
-                    raise NameError("FEATURE_STATES is empty. Provide file paths to feature_states file (e.g. feature_states.csv)")
-                else:
-                    self.config['data']['FEATURE_STATES'] = self.fix_relative_path(self.config['data']['FEATURE_STATES'])
+                    if not self.config['data']['FEATURES']:
+                        raise NameError("FEATURES is empty. Provide file paths to features file (e.g. features.csv)")
+                    else:
+                        self.config['data']['FEATURES'] = self.fix_relative_path(self.config['data']['FEATURES'])
+                    if not self.config['data']['FEATURE_STATES']:
+                        raise NameError("FEATURE_STATES is empty. Provide file paths to feature_states file (e.g. feature_states.csv)")
+                    else:
+                        self.config['data']['FEATURE_STATES'] = self.fix_relative_path(self.config['data']['FEATURE_STATES'])
 
     def log_experiment(self):
         log_path = self.path_results / 'experiment.log'

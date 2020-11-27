@@ -138,6 +138,7 @@ class compute_network:
             self.names = [sites['names'][i] for i in sub_idx]
 
         # Delaunay triangulation
+
         delaunay = compute_delaunay(locations)
         v1, v2 = delaunay.toarray().nonzero()
         edges = np.column_stack((v1, v2))

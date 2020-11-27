@@ -6,8 +6,16 @@
 from __future__ import absolute_import, division, print_function, unicode_literals
 
 import pyproj
+from dataclasses import dataclass
+import typing as t
+try:
+    from typing import Literal
+except ImportError:
+    from typing_extensions import Literal
 
 import logging
+
+import numpy
 
 from sbayes.util import read_features_from_csv
 from sbayes.preprocessing import (compute_network,
@@ -104,7 +112,7 @@ class Data:
                                   'states': self.state_names['internal']}
 
     def log_loading(self):
-        log_path = self.path_results + 'experiment.log'
+        log_path = self.path_results / 'experiment.log'
         logging.basicConfig(format='%(message)s', filename=log_path, level=logging.DEBUG)
         logging.info("\n")
         logging.info("DATA IMPORT")
@@ -112,3 +120,96 @@ class Data:
         logging.info(self.log_load_features)
         logging.info(self.log_load_universal_counts)
         logging.info(self.log_load_inheritance_counts)
+
+
+@dataclass
+class Prior:
+    counts: t.Any
+    states: t.Any
+
+    def __getitem__(self, item: Literal["counts", "states"]):
+        if item == "counts":
+            return self.counts
+        elif item == "states":
+            return self.states
+        else:
+            raise AttributeError(
+                f"{item:} is no valid attribute of a count prior"
+            )
+
+    def __setitem__(self, item: Literal["counts", "states"], value: t.Any):
+        if item == "counts":
+            self.counts = value
+        elif item == "states":
+            self.states = value
+        else:
+            raise AttributeError(
+                f"{item:} is no valid attribute of a count prior"
+            )
+
+@dataclass
+class Sites:
+    id: t.Any
+    locations: t.Tuple[float, float]
+
+    def __getitem__(self, item: Literal["id"]):
+        if item == "id":
+            return self.id
+        elif item == "locations":
+            return self.locations
+        else:
+            raise AttributeError(
+                f"{item:} is no valid attribute of a count prior"
+            )
+
+    def __setitem__(self, item: Literal["id"], value: t.Any):
+        if item == "id":
+            self.id = value
+        elif item == "locations":
+            self.locations = value
+        else:
+            raise AttributeError(
+                f"{item:} is no valid attribute of a count prior"
+            )
+
+
+class CLDFData(Data):
+    def __init__(self, experiment):
+        super().__init__(experiment)
+        self.ds = self.config['data']['cldf_dataset']
+
+    def load_features(self):
+        self.features = []
+        c_id = self.ds["ParameterTable", 'id'].name
+        for feature in self.ds["ParameterTable"]:
+            self.features.append(feature[c_id])
+        self.features = numpy.array([[1, 2]])
+        self.sites = Sites(*zip(*
+            [(site["ID"], (site["Longitude"], site["Latitude"]))
+             for site in self.ds["LanguageTable"]]))
+        self.network = compute_network(self.sites)
+
+    def load_universal_counts(self):
+        config_universal = self.config['model']['PRIOR']['universal']
+
+        if config_universal['type'] != 'counts':
+            return
+
+        counts, self.log_load_universal_counts = numpy.array([[0, 1]]), False
+
+        self.prior_universal = Prior(counts=counts, states=numpy.array([[0, 1]]))
+
+    def load_inheritance_counts(self):
+        if self.config['model']['INHERITANCE'] == False:
+            # Inheritance is not modeled -> nothing to do
+            return
+
+        config_inheritance = self.config['model']['PRIOR']['inheritance']
+        if config_inheritance['type'] != 'counts':
+            # Inharitance prior does not use counts -> nothing to do
+            return
+
+        counts, self.log_load_inheritance_counts = numpy.array([[[0, 1]]]), False
+
+        self.prior_inheritance = Prior(counts=counts, states=numpy.array([[0, 1]]))
+

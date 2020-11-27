@@ -28,7 +28,7 @@ class MCMC:
         self.config = experiment.config
 
         # Paths
-        self.path_log = experiment.path_results + 'experiment.log'
+        self.path_log = experiment.path_results / 'experiment.log'
         self.path_results = experiment.path_results
 
         # Assign steps to operators

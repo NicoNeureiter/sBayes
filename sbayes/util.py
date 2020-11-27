@@ -6,6 +6,8 @@ import csv
 import os
 from math import sqrt, floor, ceil
 
+import typing as t
+
 import numpy as np
 import pandas as pd
 import scipy.spatial as spatial
@@ -136,7 +138,7 @@ def compute_delaunay(locations):
             shape (n_edges, n_edges)
     """
 
-    n, _ = locations.shape
+    n = len(locations)
     delaunay = spatial.Delaunay(locations, qhull_options="QJ Pp")
 
     indptr, indices = delaunay.vertex_neighbor_vertices
@@ -491,35 +493,21 @@ def scale_counts(counts, scale_to, prior_inheritance=False):
 
         Args:
             counts(np.array): the counts of categorical data.
-                        shape(n_features, n_states)
+                        shape(n_features, n_states) or shape (n_families, n_features, n_states)
             scale_to (float): the counts are scaled to this value
             prior_inheritance (bool): are these inheritance counts?
         Returns:
             np.array: the rescaled counts
     """
-    if prior_inheritance:
-        # Sum counts remove counts of zeros
-        counts_sum = np.sum(counts, axis=2)
-        counts_sum = np.where(counts_sum == 0, EPS, counts_sum)
-        scale_factor = scale_to/counts_sum
+    counts_sum = np.sum(counts, axis=-1)
+    counts_sum = np.where(counts_sum == 0, EPS, counts_sum)
+    scale_factor = scale_to/counts_sum
 
-        # Counts are only downscaled, not upscaled
-        scale_factor = np.where(scale_factor < 1, scale_factor, 1)
-        return counts * scale_factor[:, :, np.newaxis]
-
-    else:
-
-        counts_sum = np.sum(counts, axis=1)
-        counts_sum = np.where(counts_sum == 0, EPS, counts_sum)
-
-        scale_factor = scale_to / counts_sum
-
-        # Counts are only downscaled, not upscaled
-        scale_factor = np.where(scale_factor < 1, scale_factor, 1)
-        return counts * scale_factor[:, np.newaxis]
+    scale_factor = np.where(scale_factor < 1, scale_factor, 1)
+    return counts * scale_factor[..., None]
 
 
-def counts_to_dirichlet(counts, categories, prior='uniform', outdated_features=None, dirichlet=None):
+def counts_to_dirichlet(counts: t.Sequence[t.Sequence[int]], categories: t.Sequence[int], prior='uniform', outdated_features=None, dirichlet=None):
     """This is a helper function to transform counts of categorical data
     to parameters of a dirichlet distribution.
 
@@ -536,7 +524,7 @@ def counts_to_dirichlet(counts, categories, prior='uniform', outdated_features=N
     Returns:
         list: a dirichlet distribution derived from pseudocounts
     """
-    n_features, n_categories = counts.shape
+    n_features = len(counts)
 
     prior_map = {'uniform': 1, 'jeffrey': 0.5, 'naught': 0}
 
@@ -549,7 +537,7 @@ def counts_to_dirichlet(counts, categories, prior='uniform', outdated_features=N
     for feat in outdated_features:
         cat = categories[feat]
         # Add 1 to alpha values (1,1,...1 is a uniform prior)
-        pseudocounts = counts[feat, cat] + prior_map[prior]
+        pseudocounts = counts[feat][cat] + prior_map[prior]
         # dirichlet[feat] = stats.dirichlet(pseudocounts)
         dirichlet[feat] = pseudocounts
 
