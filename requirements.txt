@@ -32,3 +32,6 @@ six==1.14.0
 texttable==1.6.2
 traitlets==4.3.3
 wcwidth==0.1.8
+seaborn~=0.11.0
+fastcluster~=1.1.26
+setuptools~=49.6.0

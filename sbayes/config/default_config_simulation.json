@@ -1,0 +1,18 @@
+{
+	"SITES": "<REQUIRED>",
+	"N_FEATURES": 35,
+	"P_N_CATEGORIES": {
+		"2": 0.4,
+		"3": 0.3,
+		"4": 0.3
+	},
+	"E_UNIVERSAL": 1.0,
+	"E_CONTACT": "<REQUIRED>",
+	"E_INHERITANCE": 2.0,
+	"I_UNIVERSAL": 1.0,
+	"I_CONTACT": "<REQUIRED>",
+	"I_INHERITANCE": 0.2,
+	"INHERITANCE": "<REQUIRED>",
+	"SUBSET": false,
+	"AREA": "<REQUIRED>"
+}

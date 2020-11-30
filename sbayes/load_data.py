@@ -3,8 +3,6 @@
 
 """ Imports the real world data """
 
-from __future__ import absolute_import, division, print_function, unicode_literals
-
 import logging
 
 from sbayes.util import read_features_from_csv
@@ -21,8 +19,6 @@ class Data:
 
         # Config file
         self.config = experiment.config
-        self.universal_counts_file = experiment.config['data']['PRIOR']['universal']
-        self.inheritance_counts_files = experiment.config['data']['PRIOR']['inheritance']
 
         # Features to be imported
         self.sites = None
@@ -48,27 +44,51 @@ class Data:
         self.is_simulated = False
 
     def load_features(self):
-        self.sites, self.site_names, self.features, self.feature_names, \
-            self.state_names, self.states, self.families, self.family_names, self.log_load_features = \
-            read_features_from_csv(file=self.config['data']['FEATURES'])
+        (self.sites, self.site_names, self.features, self.feature_names,
+         self.state_names, self.states, self.families, self.family_names,
+         self.log_load_features) = read_features_from_csv(file=self.config['data']['FEATURES'],
+                                                          feature_states_file=self.config['data']['FEATURE_STATES'])
         self.network = compute_network(self.sites)
 
     def load_universal_counts(self):
+        config_universal = self.config['model']['PRIOR']['universal']
+
+        if config_universal['type'] != 'counts':
+            return
 
         counts, self.log_load_universal_counts = \
             read_universal_counts(feature_names=self.feature_names,
                                   state_names=self.state_names,
-                                  file=self.config['data']['PRIOR']['universal'])
+                                  file=config_universal['file'],
+                                  file_type=config_universal['file_type'],
+                                  feature_states_file=self.config['data']['FEATURE_STATES'])
 
         self.prior_universal = {'counts': counts,
                                 'states': self.states}
 
+        import pandas as pd
+        n_states = counts.shape[-1]
+        df = pd.DataFrame(counts,
+                          index=self.feature_names['external'])
+        df.to_csv('universal_counts.csv')
+
     def load_inheritance_counts(self):
+        if self.config['model']['INHERITANCE'] == False:
+            # Inheritance is not modeled -> nothing to do
+            return
+
+        config_inheritance = self.config['model']['PRIOR']['inheritance']
+        if config_inheritance['type'] != 'counts':
+            # Inharitance prior does not use counts -> nothing to do
+            return
+
         counts, self.log_load_inheritance_counts = \
             read_inheritance_counts(family_names=self.family_names,
                                     feature_names=self.feature_names,
                                     state_names=self.state_names,
-                                    files=self.config['data']['PRIOR']['inheritance'])
+                                    files=config_inheritance['files'],
+                                    file_type=config_inheritance['file_type'],
+                                    feature_states_file=self.config['data']['FEATURE_STATES'])
 
         self.prior_inheritance = {'counts': counts,
                                   'states': self.state_names['internal']}

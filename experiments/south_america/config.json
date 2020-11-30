@@ -1,6 +1,6 @@
 {
 	"mcmc": {
-		"N_STEPS": 6000000,
+		"N_STEPS": 5000000,
 		"N_SAMPLES": 5000,
 		"N_RUNS": 1,
 		"P_GROW_CONNECTED": 0.85,
@@ -29,25 +29,30 @@
 		"MAX_M": 30,
 		"INHERITANCE": true,
 		"PRIOR": {
-			"geo": "uniform",
-			"weights": "uniform",
-			"universal": "uniform",
-			"inheritance": "counts",
-			"contact": "uniform",
-			"scale_counts": 10
+			"geo": {"type": "uniform"},
+			"weights": {"type": "uniform"},
+			"universal": {
+				"type": "counts",
+				"file_type": "counts_file",
+				"file": "data/prior_universal/universal_counts.csv"
+			},
+			"inheritance": {
+				"type": "counts",
+				"file_type": "counts_file",
+				"files": {
+					"Arawak": "data/prior_inheritance/arawak_counts.csv",
+					"Panoan": "data/prior_inheritance/panoan_counts.csv",
+					"Quechuan": "data/prior_inheritance/quechuan_counts.csv",
+					"Tucanoan": "data/prior_inheritance/tucanoan_counts.csv",
+					"Tupian": "data/prior_inheritance/tupian_counts.csv"
+				},
+				"scale_counts": 10
+			},
+			"contact": {"type": "uniform"}
 		}
 	},
 	"data": {
 		"FEATURES": "data/features/features.csv",
-		"PRIOR": {
-			"universal": "data/prior_universal/universal_counts.csv",
-			"inheritance": {
-				"Arawak": "data/prior_inheritance/arawak_counts.csv",
-				"Panoan": "data/prior_inheritance/panoan_counts.csv",
-				"Quechuan": "data/prior_inheritance/quechuan_counts.csv",
-				"Tucanoan": "data/prior_inheritance/tucanoan_counts.csv",
-				"Tupian": "data/prior_inheritance/tupian_counts.csv"
-			}
-		}
+		"FEATURE_STATES": "data/features/feature_states.csv"
 	}
 }

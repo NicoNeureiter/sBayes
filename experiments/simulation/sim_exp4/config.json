@@ -43,10 +43,10 @@
 		"MAX_M": 200,
 		"INHERITANCE": false,
 		"PRIOR": {
-			"geo": "uniform",
-			"weights": "uniform",
+			"geo": {"type": "uniform"},
+			"weights": {"type": "uniform"},
 			"universal": "TBD",
-			"contact": "uniform"
+			"contact": {"type": "uniform"}
 		}
 	},
 	"data": {

@@ -29,25 +29,30 @@
 		"MAX_M": 30,
 		"INHERITANCE": true,
 		"PRIOR": {
-			"geo": "uniform",
-			"weights": "uniform",
-			"universal": "counts",
-			"inheritance": "counts",
-			"contact": "uniform",
-			"scale_counts": 10
+			"geo": {"type": "uniform"},
+			"weights": {"type": "uniform"},
+			"universal": {
+				"type": "counts",
+				"file_type": "counts_file",
+				"file": "data/prior_universal/universal_counts.csv",
+				"scale_counts": 10
+			},
+			"inheritance": {
+				"type": "counts",
+				"file_type": "counts_file",
+				"files": {
+					"Greek": "data/prior_inheritance/greek_counts.csv",
+					"Romance": "data/prior_inheritance/romance_counts.csv",
+					"Slavic": "data/prior_inheritance/slavic_counts.csv",
+					"Turkish": "data/prior_inheritance/turkish_counts.csv"
+				},
+				"scale_counts": 10
+			},
+			"contact": {"type": "uniform"}
 		}
 	},
 	"data": {
 		"FEATURES": "data/features/features.csv",
-		"PRIOR": {
-			"universal": "data/prior_universal/universal_counts.csv",
-			"inheritance": {
-				"Greek": "data/prior_inheritance/greek_counts.csv",
-				"Romance": "data/prior_inheritance/romance_counts.csv",
-				"Slavic": "data/prior_inheritance/slavic_counts.csv",
-				"Turkish": "data/prior_inheritance/turkish_counts.csv",
-				"Albanian": "data/prior_universal/universal_counts.csv"
-			}
-		}
+		"FEATURE_STATES": "data/features/feature_states.csv"
 	}
 }

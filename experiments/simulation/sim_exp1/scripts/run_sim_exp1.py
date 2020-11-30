@@ -6,10 +6,6 @@ import itertools
 
 if __name__ == '__main__':
 
-    # 1. Initialize the experiment
-    exp = Experiment()
-    exp.load_config(config_file='experiments/simulation/sim_exp1/config.json')
-    exp.log_experiment()
 
     # When simulating iterate over different setups (different areas and strengths of contact)
     I_CONTACT = [2, 3, 4]
@@ -22,10 +18,18 @@ if __name__ == '__main__':
     for S in SETUP:
 
         # Update config information according to the current setup
-        exp.config['simulation']['I_CONTACT'] = I_CONTACT[S[0]]
-        exp.config['simulation']['E_CONTACT'] = E_CONTACT[S[0]]
-        exp.config['simulation']['STRENGTH'] = S[0]
-        exp.config['simulation']['AREA'] = S[1]
+        custom_settings = {
+            'I_CONTACT': I_CONTACT[S[0]],
+            'E_CONTACT': E_CONTACT[S[0]],
+            'STRENGTH': S[0],
+            'AREA': S[1]
+        }
+
+        # 1. Initialize the experiment
+        exp = Experiment()
+        exp.load_config(config_file='experiments/simulation/sim_exp1/config.json',
+                        custom_settings=custom_settings)
+        exp.log_experiment()
 
         # 2. Simulate contact areas
         sim = Simulation(experiment=exp)
