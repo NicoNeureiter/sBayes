@@ -1,16 +1,17 @@
 {
 	"simulation": {
 		"SITES": "data/sites.csv",
-		"N_FEATURES": 35,
+		"N_FEATURES": 40,
 		"P_N_CATEGORIES": {
 			"2": 0.1,
-			"3": 0.3,
-			"4": 0.6
+			"3": 0.2,
+			"4": 0.3,
+			"5": 0.4
 		},
 		"E_UNIVERSAL": 0.6,
 		"E_CONTACT": 0.25,
 		"I_UNIVERSAL": 1.0,
-		"I_CONTACT": 3.0,
+		"I_CONTACT": 2.0,
 		"INHERITANCE": false,
 		"AREA": [
 			2,
@@ -25,20 +26,20 @@
 		"N_RUNS": 1,
 		"P_GROW_CONNECTED": 0.85,
 		"PROPOSAL_PRECISION": {
-			"weights": 20,
-			"universal": 30,
+			"weights": 10,
+			"universal": 20,
 			"contact": 10
 		},
 		"STEPS": {
 			"area": 0.1,
-			"weights": 0.4,
-			"universal": 0.1,
+			"weights": 0.3,
+			"universal": 0.2,
 			"contact": 0.4
 		},
 		"M_INITIAL": 15,
 		"WARM_UP": {
-			"N_WARM_UP_STEPS": 1000,
-			"N_WARM_UP_CHAINS": 10
+			"N_WARM_UP_STEPS": 80000,
+			"N_WARM_UP_CHAINS": 20
 		}
 	},
 	"model": {
@@ -47,10 +48,10 @@
 		"MAX_M": 200,
 		"INHERITANCE": false,
 		"PRIOR": {
-			"geo": "uniform",
-			"weights": "uniform",
-			"universal": "uniform",
-			"contact": "uniform"
+			"geo": {"type": "uniform"},
+			"weights": {"type": "uniform"},
+			"universal": {"type": "uniform"},
+			"contact": {"type": "uniform"}
 		}
 	},
 	"data": {

@@ -8,12 +8,13 @@ from __future__ import absolute_import, division, print_function, unicode_litera
 import logging
 import numpy as np
 import os
+import random
 
 from sbayes.postprocessing import (contribution_per_area, log_operator_statistics,
                                    log_operator_statistics_header, match_areas, rank_areas)
-from sbayes.sampling.zone_sampling import Sample, ZoneMCMCGenerative
+from sbayes.sampling.zone_sampling import Sample, ZoneMCMCGenerative, ZoneMCMCWarmup
 from sbayes.util import (normalize, counts_to_dirichlet,
-                         inheritance_counts_to_dirichlet, samples2file)
+                         inheritance_counts_to_dirichlet, samples2file, scale_counts, get_max_size_list)
 
 
 class MCMC:
@@ -46,28 +47,42 @@ class MCMC:
         self.prior_structured = dict.fromkeys(self.config['model']['PRIOR'])
 
         # geo prior
-        if self.config['model']['PRIOR']['geo'] == 'uniform':
+        if self.config['model']['PRIOR']['geo']['type'] == 'uniform':
             self.prior_structured['geo'] = {'type': 'uniform'}
+        elif self.config['model']['PRIOR']['geo']['type'] == 'cost_based':
+            # todo:  change prior if cost matrix is provided
+            # todo: move config['model']['scale_geo_prior'] to config['model']['PRIOR']['geo']['scale']
+            self.prior_structured['geo'] = {'type': 'cost_based',
+                                            'scale': self.config['model']['scale_geo_prior']}
         else:
-            raise ValueError('Currently only uniform geo-prior available.')
+            raise ValueError('Geo prior not supported')
         # weights
-        if self.config['model']['PRIOR']['weights'] == 'uniform':
+        if self.config['model']['PRIOR']['weights']['type'] == 'uniform':
             self.prior_structured['weights'] = {'type': 'uniform'}
         else:
             raise ValueError('Currently only uniform prior_weights are supported.')
 
-        # universal pressure
-        if self.config['model']['PRIOR']['universal'] == 'uniform':
+        # universal preference
+        cfg_universal = self.config['model']['PRIOR']['universal']
+        if cfg_universal['type'] == 'uniform':
             self.prior_structured['universal'] = {'type': 'uniform'}
 
-        elif self.config['model']['PRIOR']['universal'] == 'simulated_counts':
+        elif cfg_universal['type'] == 'simulated_counts':
+            if cfg_universal['scale_counts'] is not None:
+                self.data.prior_universal['counts'] = scale_counts(counts=self.data.prior_universal['counts'],
+                                                                   scale_to=cfg_universal['scale_counts'])
+
             dirichlet = counts_to_dirichlet(self.data.prior_universal['counts'],
                                             self.data.prior_universal['states'])
             self.prior_structured['universal'] = {'type': 'counts',
                                                   'dirichlet': dirichlet,
                                                   'states': self.data.prior_universal['states']}
 
-        elif self.config['model']['PRIOR']['universal'] == 'counts':
+        elif cfg_universal['type'] == 'counts':
+            if cfg_universal['scale_counts'] is not None:
+                self.data.prior_universal['counts'] = scale_counts(counts=self.data.prior_universal['counts'],
+                                                                   scale_to=cfg_universal['scale_counts'])
+
             dirichlet = counts_to_dirichlet(self.data.prior_universal['counts'],
                                             self.data.prior_universal['states'])
             self.prior_structured['universal'] = {'type': 'counts',
@@ -77,29 +92,42 @@ class MCMC:
             raise ValueError('Prior for universal must be uniform or counts.')
 
         # inheritance
+        cfg_inheritance = self.config['model']['PRIOR']['inheritance']
         if self.config['model']['INHERITANCE']:
-            if self.config['model']['PRIOR']['inheritance'] == 'uniform':
+            if cfg_inheritance['type'] == 'uniform':
                 self.prior_structured['inheritance'] = {'type': 'uniform'}
 
-            elif self.config['model']['PRIOR']['inheritance'] is None:
+            elif cfg_inheritance['type'] is None:
                 self.prior_structured['inheritance'] = {'type': None}
 
-            elif self.config['model']['PRIOR']['inheritance'] == 'universal':
+            elif cfg_inheritance['type'] == 'universal':
                 self.prior_structured['inheritance'] = {'type': 'universal',
-                                                        'strength': self.config['model']['UNIVERSAL_PRIOR_STRENGTH'],
-                                                        'states': self.data.prior_inheritance['states']}
+                                                        'strength': cfg_inheritance['scale_counts'],
+                                                        'states': self.data.state_names['internal']}
 
-            elif self.config['model']['PRIOR']['inheritance'] == 'counts':
+            elif cfg_inheritance['type'] == 'counts':
+                if cfg_inheritance['scale_counts'] is not None:
+                    self.data.prior_inheritance['counts'] = scale_counts(
+                        counts=self.data.prior_inheritance['counts'],
+                        scale_to=cfg_inheritance['scale_counts'],
+                        prior_inheritance=True
+                    )
                 dirichlet = inheritance_counts_to_dirichlet(self.data.prior_inheritance['counts'],
                                                             self.data.prior_inheritance['states'])
                 self.prior_structured['inheritance'] = {'type': 'counts',
                                                         'dirichlet': dirichlet,
                                                         'states': self.data.prior_inheritance['states']}
 
-            elif self.config['model']['PRIOR']['inheritance'] == 'counts_and_universal':
+            elif cfg_inheritance['type'] == 'counts_and_universal':
+                if cfg_inheritance['scale_counts'] is not None:
+                    self.data.prior_inheritance['counts'] = scale_counts(
+                        counts=self.data.prior_inheritance['counts'],
+                        scale_to=cfg_inheritance['scale_counts'],
+                        prior_inheritance=True
+                    )
                 self.prior_structured['inheritance'] = {'type': 'counts_and_universal',
                                                         'counts': self.data.prior_inheritance['counts'],
-                                                        'strength': self.config['model']['UNIVERSAL_PRIOR_STRENGTH'],
+                                                        'strength': cfg_inheritance['scale_counts'],
                                                         'states': self.data.prior_inheritance['states']}
             else:
                 raise ValueError('Prior for inheritance must be uniform, counts or  counts_and_universal')
@@ -107,13 +135,14 @@ class MCMC:
             self.prior_structured['inheritance'] = None
 
         # contact
-        if self.config['model']['PRIOR']['contact'] == 'uniform':
+        cfg_contact = self.config['model']['PRIOR']['contact']
+        if cfg_contact['type'] == 'uniform':
             self.prior_structured['contact'] = {'type': 'uniform'}
 
-        elif self.config['model']['PRIOR']['contact'] == 'universal':
+        elif cfg_contact['type'] == 'universal':
             self.prior_structured['contact'] = {'type': 'universal',
-                                                'strength': 10,
-                                                'states': self.data.prior_inheritance['states']}
+                                                'strength': cfg_contact['scale_counts'],
+                                                'states': self.data.state_names['internal']}
         else:
             raise ValueError('Prior for contact must be uniform or universal.')
 
@@ -136,7 +165,6 @@ class MCMC:
         logging.info("Geo-prior: %s ", self.prior_structured['geo']['type'])
         logging.info("Prior on weights: %s ", self.prior_structured['weights']['type'])
         logging.info("Prior on universal pressure (alpha): %s ", self.prior_structured['universal']['type'])
-
         if self.config['model']['INHERITANCE']:
             logging.info("Prior on inheritance (beta): %s ", self.prior_structured['inheritance']['type'])
 
@@ -278,24 +306,35 @@ class MCMC:
 
     def warm_up(self):
         initial_sample = self.empty_sample()
-        sampler = ZoneMCMCGenerative(network=self.data.network, features=self.data.features,
-                                     min_size=self.config['model']['MIN_M'],
-                                     max_size=self.config['model']['MAX_M'],
-                                     n_zones=self.config['model']['N_AREAS'],
-                                     prior=self.prior_structured,
-                                     inheritance=self.config['model']['INHERITANCE'],
-                                     n_chains=self.config['mcmc']['WARM_UP']['N_WARM_UP_CHAINS'],
-                                     operators=self.ops, families=self.data.families,
-                                     var_proposal=self.config['mcmc']['PROPOSAL_PRECISION'],
-                                     p_grow_connected=self.config['mcmc']['P_GROW_CONNECTED'],
-                                     initial_sample=initial_sample,
-                                     initial_size=self.config['mcmc']['M_INITIAL'])
 
-        self.sample_from_warm_up = sampler.generate_samples(n_steps=0,
-                                                            n_samples=0,
-                                                            warm_up=True,
-                                                            warm_up_steps=
-                                                            self.config['mcmc']['WARM_UP']['N_WARM_UP_STEPS'])
+        # In warmup chains can have a different max_size for areas
+        max_size_list = get_max_size_list((self.config['mcmc']['M_INITIAL'] + self.config['model']['MAX_M'])/4,
+                                          self.config['model']['MAX_M'],
+                                          self.config['mcmc']['WARM_UP']['N_WARM_UP_CHAINS'], 4)
+
+        # Some chains only have connected steps, whereas others also have random steps
+
+        p_grow_connected_list = \
+            random.choices([1, self.config['mcmc']['P_GROW_CONNECTED']],
+                           k=self.config['mcmc']['WARM_UP']['N_WARM_UP_CHAINS'])
+
+        warmup = ZoneMCMCWarmup(network=self.data.network, features=self.data.features,
+                                min_size=self.config['model']['MIN_M'],
+                                max_size=max_size_list,
+                                n_zones=self.config['model']['N_AREAS'],
+                                prior=self.prior_structured,
+                                inheritance=self.config['model']['INHERITANCE'],
+                                n_chains=self.config['mcmc']['WARM_UP']['N_WARM_UP_CHAINS'],
+                                operators=self.ops, families=self.data.families,
+                                var_proposal=self.config['mcmc']['PROPOSAL_PRECISION'],
+                                p_grow_connected=p_grow_connected_list,
+                                initial_sample=initial_sample,
+                                initial_size=self.config['mcmc']['M_INITIAL'])
+
+        self.sample_from_warm_up = warmup.generate_samples(n_steps=0,
+                                                           n_samples=0,
+                                                           warm_up=True,
+                                                           warm_up_steps=self.config['mcmc']['WARM_UP']['N_WARM_UP_STEPS'])
 
     def save_samples(self, run=1):
 
@@ -308,8 +347,8 @@ class MCMC:
             fi = 'n{n}'.format(n=self.config['model']['N_AREAS'])
 
         elif file_info == "s":
-            fi = 's{s}_a{a}'.format(s=self.config['simulation']['STRENGTH'],
-                                    a=self.config['simulation']['AREA'])
+            fi = 's{s}a{a}'.format(s=self.config['simulation']['STRENGTH'],
+                                   a=self.config['simulation']['AREA'])
 
         elif file_info == "i":
             fi = 'i{i}'.format(i=int(self.config['model']['INHERITANCE']))

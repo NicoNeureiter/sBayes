@@ -12,7 +12,7 @@ EPS = np.finfo(float).eps
 
 
 def compute_global_likelihood(features, p_global=None,
-                              outdated_features=None, cached_lh=None):
+                              outdated_indices=None, cached_lh=None):
     """Computes the global likelihood, that is the likelihood per site and features
     without knowledge about family or zones.
 
@@ -21,7 +21,7 @@ def compute_global_likelihood(features, p_global=None,
                 shape: (n_sites, n_features, n_categories)
         p_global (np.array): The estimated global probabilities of all features in all site
             shape: (1, n_features, n_sites)
-        outdated_features (IndexSet): Features which changed, i.e. where lh needs to be recomputed.
+        outdated_indices (IndexSet): Features which changed, i.e. where lh needs to be recomputed.
         cached_lh (np.array): the global likelihood computed previously
     Returns:
         (np.array): the global likelihood per site and feature
@@ -29,28 +29,26 @@ def compute_global_likelihood(features, p_global=None,
     """
     n_sites, n_features, n_categories = features.shape
 
-    # Estimate the global probability to find a feature/category
-
-    p_glob = np.sum(features, axis=0) / n_sites
-
-    # Division by zero could cause troubles
-    p_glob = p_glob.clip(EPS, 1 - EPS)
+    # # Estimate the global probability to find a feature/category
+    # p_glob = np.sum(features, axis=0) / n_sites
+    #
+    # # Division by zero could cause troubles
+    # p_glob = p_glob.clip(EPS, 1 - EPS)
 
     if cached_lh is None:
         lh_global = np.ones((n_sites, n_features))
-        assert outdated_features.all
+        assert outdated_indices.all
     else:
         lh_global = cached_lh
 
-    if outdated_features.all:
-        outdated_features = range(n_features)
+    if outdated_indices.all:
+        outdated_indices = range(n_features)
 
-    for i_f in outdated_features:
+    for i_f in outdated_indices:
         f = features[:, i_f, :]
-        # f.shape = (n_sites, n_categories)
 
         # Compute the feature likelihood vector (for all sites in zone)
-        lh_global[:, i_f] = f.dot(p_glob[i_f, :])
+        lh_global[:, i_f] = f.dot(p_global[0, i_f, :])
 
     return lh_global
 
@@ -196,7 +194,7 @@ class GenerativeLikelihood(object):
         self.all_lh = None
 
         # Assignment and lh (global, per zone and family)
-        self.global_assignment = np.ones(self.n_sites)
+        self.global_assignment = np.ones(self.n_sites, dtype=bool)
         self.family_assignment = None
         self.zone_assignment = None
 
@@ -252,7 +250,6 @@ class GenerativeLikelihood(object):
         global_assignment, global_lh = self.get_global_lh(sample)
         family_assignment, family_lh = self.get_family_lh(sample)
         zone_assignment, zone_lh = self.get_zone_lh(sample)
-
         ##############################
         # Combination
         ##############################
@@ -325,8 +322,9 @@ class GenerativeLikelihood(object):
 
             self.global_lh = compute_global_likelihood(features=self.data,
                                                        p_global=sample.p_global,
-                                                       outdated_features=sample.what_changed['lh']['p_global'],
+                                                       outdated_indices=sample.what_changed['lh']['p_global'],
                                                        cached_lh=self.global_lh)
+
         return self.global_assignment, self.global_lh
 
     def get_family_lh(self, sample):
@@ -485,20 +483,22 @@ class GenerativePrior(object):
                 prior_p_zones = 0.
 
             elif prior_type == 'universal':
-                s = prior_p_zones_meta['strength']
-                c_universal = s * sample.p_global[0]
-
-                self.prior_p_zones_distr = counts_to_dirichlet(counts=c_universal,
-                                                               categories=prior_p_zones_meta['states'],
-                                                               outdated_features=what_changed['p_global'],
-                                                               dirichlet=self.prior_p_zones_distr)
-                prior_p_zones = prior_p_families_dirichlet(p_families=sample.p_zones,
-                                                                dirichlet=self.prior_p_zones_distr,
-                                                                categories=prior_p_zones_meta['states'],
-                                                                outdated_indices=what_changed['p_zones'],
-                                                                outdated_distributions=what_changed['p_global'],
-                                                                cached_prior=self.prior_p_zones,
-                                                                broadcast=True)
+                raise ValueError('Currently only uniform p_zones priors are supported.')
+                # todo: check!
+                # s = prior_p_zones_meta['strength']
+                # c_universal = s * sample.p_global[0]
+                #
+                # self.prior_p_zones_distr = counts_to_dirichlet(counts=c_universal,
+                #                                                categories=prior_p_zones_meta['states'],
+                #                                                outdated_features=what_changed['p_global'],
+                #                                                dirichlet=self.prior_p_zones_distr)
+                # prior_p_zones = prior_p_families_dirichlet(p_families=sample.p_zones,
+                #                                                 dirichlet=self.prior_p_zones_distr,
+                #                                                 categories=prior_p_zones_meta['states'],
+                #                                                 outdated_indices=what_changed['p_zones'],
+                #                                                 outdated_distributions=what_changed['p_global'],
+                #                                                 cached_prior=self.prior_p_zones,
+                #                                                 broadcast=True)
             else:
                 raise ValueError('Currently only uniform p_zones priors are supported.')
 
@@ -639,16 +639,13 @@ class GenerativePrior(object):
                 geo_prior = 0.
 
             elif geo_prior_meta['type'] == 'gaussian':
-                geo_prior = geo_prior_gaussian(sample.zones, network, geo_prior_meta['parameters']['gaussian'])
+                geo_prior = geo_prior_gaussian(sample.zones, network, geo_prior_meta['gaussian'])
 
-            elif geo_prior_meta['type'] == 'distance':
-                geo_prior = geo_prior_distance(sample.zones, network, geo_prior_meta['parameters']['distance'])
+            elif geo_prior_meta['type'] == 'cost_based':
+                geo_prior = geo_prior_distance(sample.zones, network, geo_prior_meta['scale'])
 
             else:
-                raise ValueError('geo_prior must be either \"uniform\", \"gaussian\" or \"distance\".')
-
-            # if "magnification_factor" in geo_prior_meta['parameters']:
-            #    geo_prior = geo_prior * geo_prior_meta['parameters']['magnification_factor']
+                raise ValueError('geo_prior must be either \"uniform\", \"gaussian\" or \"cost_based\".')
 
             self.geo_prior = geo_prior
 
@@ -668,8 +665,8 @@ class GenerativePrior(object):
             float: Logarithm of the prior probability density.
         """
         if self.size_prior_outdated(sample):
-            # size_prior = evaluate_size_prior(sample.zones)
-            size_prior = 0.
+            size_prior = evaluate_size_prior(sample.zones)
+            # size_prior = 0.
             self.size_prior = size_prior
 
         return self.size_prior
@@ -692,8 +689,21 @@ def evaluate_size_prior(zones):
     # TODO It would be quite natural to allow informative priors here.
     logp = 0.
 
-    # P(zone | size)   =   1 / |{zones of size k}|   =   1 / (n choose k)
-    logp += -np.sum(log_binom(n_sites, sizes))
+    # MODE = 'uniform'
+    # if MODE == 'uniform':
+    #     # P(zone | size)   =   1 / |{zones of size k}|   =   1 / (n choose k)
+    #     logp += -np.sum(log_binom(n_sites, sizes))
+    # elif MODE == 'quadratic':
+    #     # Here we assume that only a quadratically growing subset of zones is plausibly
+    #     # permitted the likelihood and/or geo-prior.
+    #     # P(zone | size) = 1 / |{"plausible" zones of size k}| = 1 / k**2
+    #     log_plausible_zones = np.log(sizes**2)
+    #
+    #     # We could bound the number of plausible zones by the number of possible zones:
+    #     # log_possible_zones = log_binom(n_sites, sizes)
+    #     # log_plausible_zones = np.minimum(np.log(sizes**2), log_possible_zones)
+    #
+    #     logp += -np.sum(log_plausible_zones)
 
     return logp
 
@@ -772,8 +782,7 @@ def geo_prior_distance(zones: np.array, network: dict, scale: float):
     return np.mean(log_prior)
 
 
-def prior_p_global_dirichlet(p_global, dirichlet, categories, outdated_features,
-                             cached_prior=None):
+def prior_p_global_dirichlet(p_global, dirichlet, categories, outdated_features, cached_prior=None):
     """" This function evaluates the prior for p_families
     Args:
         p_global (np.array): p_global from the sample
@@ -799,11 +808,7 @@ def prior_p_global_dirichlet(p_global, dirichlet, categories, outdated_features,
         diri = dirichlet[f]
         p_glob = p_global[0, f, idx]
 
-        if 0. in p_glob:
-            p_glob[np.where(p_glob == 0.)] = EPS
-
         log_prior[f] = dirichlet_logpdf(x=p_glob, alpha=diri)
-        # log_prior[f] = diri.logpdf(p_glob)
 
     return log_prior
 

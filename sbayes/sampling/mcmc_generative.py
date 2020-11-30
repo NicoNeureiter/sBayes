@@ -21,6 +21,8 @@ class MCMCGenerative(metaclass=_abc.ABCMeta):
         statistics (dict): Container for a set of statistics about the sampling run.
     """
 
+    IS_WARMUP = False
+
     def __init__(self, operators, inheritance, families, prior, n_zones, n_chains,
                  mc3=False, swap_period=None, chain_swaps=None, show_screen_log=False, **kwargs):
 
@@ -165,9 +167,10 @@ class MCMCGenerative(metaclass=_abc.ABCMeta):
                 for c in self.chain_idx:
                     sample[c] = self.step(sample[c], c)
 
-            # For the last sample find the chain with the best likelihood
-            lh_samples = [self.likelihood(sample[c], c) for c in self.chain_idx]
-            best_chain = lh_samples.index(max(lh_samples))
+            # For the last sample find the best chain (highest posterior)
+            posterior_samples = [self._ll[c] + self._prior[c] for c in self.chain_idx]
+
+            best_chain = posterior_samples.index(max(posterior_samples))
 
             # Return the best sample
             return sample[best_chain]
@@ -259,13 +262,16 @@ class MCMCGenerative(metaclass=_abc.ABCMeta):
 
         Args:
             sample(Sample): A Sample object consisting of zones and weights
-            c(int): the current chain of the MC3
+            c(int): the current chain
         Returns:
             Sample: A Sample object consisting of zones and weights"""
 
         # Randomly choose one operator to propose new sample (grow/shrink/swap zones, alter weights/p_zones/p_families)
         propose_step = _np.random.choice(self.fn_operators, 1, p=self.p_operators)[0]
-        candidate, q, q_back = propose_step(sample)
+        if self.IS_WARMUP:
+            candidate, q, q_back = propose_step(sample, c)
+        else:
+            candidate, q, q_back = propose_step(sample)
 
         # Compute the log-likelihood of the candidate
         ll_candidate = self.likelihood(candidate, c)

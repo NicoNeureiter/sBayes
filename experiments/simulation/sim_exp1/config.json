@@ -20,20 +20,20 @@
 		"N_RUNS": 1,
 		"P_GROW_CONNECTED": 0.85,
 		"PROPOSAL_PRECISION": {
-			"weights": 20,
-			"universal": 30,
+			"weights": 10,
+			"universal": 20,
 			"contact": 10
 		},
 		"STEPS": {
 			"area": 0.1,
-			"weights": 0.4,
-			"universal": 0.1,
+			"weights": 0.3,
+			"universal": 0.2,
 			"contact": 0.4
 		},
 		"M_INITIAL": 15,
 		"WARM_UP": {
-			"N_WARM_UP_STEPS": 100000,
-			"N_WARM_UP_CHAINS": 20
+			"N_WARM_UP_STEPS": 80000,
+			"N_WARM_UP_CHAINS": 15
 		}
 	},
 	"model": {
@@ -42,10 +42,10 @@
 		"MAX_M": 200,
 		"INHERITANCE": false,
 		"PRIOR": {
-			"geo": "uniform",
-			"weights": "uniform",
-			"universal": "uniform",
-			"contact": "uniform"
+			"geo": {"type": "uniform"},
+			"weights": {"type": "uniform"},
+			"universal": {"type": "uniform"},
+			"contact": {"type": "uniform"}
 		}
 	},
 	"data": {

@@ -116,7 +116,14 @@ class ZoneMCMCGenerative(MCMCGenerative):
         # Data
         self.features = features
         self.n_features = features.shape[1]
-        self.sites_per_category = np.count_nonzero(features, axis=0)
+        try:
+            # If possible, applicable states per feature are deduced from the prior
+            self.applicable_states = self.prior_p_global['states']
+
+        except KeyError:
+            # Applicable states per feature are deduced from the data
+            counts_per_states = np.count_nonzero(features, axis=0)
+            self.applicable_states = counts_per_states > 0
 
         # Network
         self.network = network
@@ -147,6 +154,13 @@ class ZoneMCMCGenerative(MCMCGenerative):
             pass
 
         self.sample_from_prior = sample_from_prior
+
+        # todo remove after testing
+        self.q_areas_stats = {'q_grow': [],
+                              'q_back_grow': [],
+                              'q_shrink': [],
+                              'q_back_shrink': []
+                              }
 
         self.compute_lh_per_chain = [
             # GenerativeLikelihood(features, self.inheritance, self.families) for _ in range(self.n_chains)
@@ -218,26 +232,34 @@ class ZoneMCMCGenerative(MCMCGenerative):
             Sample: The modified sample
         """
         sample_new = sample.copy()
-        weights_current = sample.weights
 
         # Randomly choose one of the features
-        f_id = np.random.choice(range(weights_current.shape[0]))
+        f_id = np.random.choice(range(self.n_features))
 
-        # if not self.inheritance:
-        #     # The contact weights (column 1 in weights) is modified,
-        #     # the inheritance weight is not relevant, the global weight is adjusted during normalization
-        #     w_id = 1
-        #
-        # else:
-        #     # The contact or family weights (column 1 or 2 in weights) are modified,
-        #     # the global weight is adjusted during normalization
-        #     w_id = np.random.choice([1, 2])
-        #
-        # weight_current = weights_current[f_id, w_id]
+        if self.inheritance:
+            # Randomly choose two weights that will be changed, leave the others untouched
+            weights_to_alter = _random.sample([0, 1, 2], 2)
 
-        # Sample new weight from dirichlet distribution with given precision
-        weights_new, q, q_back = self.dirichlet_proposal(weights_current[f_id, :], self.var_proposal_weight)
-        sample_new.weights[f_id, :] = weights_new
+            # Get the current weights
+            weights_current = sample.weights[f_id, weights_to_alter]
+
+            # Transform the weights such that they sum to 1
+            weights_current_t = weights_current / weights_current.sum()
+
+            # Propose new sample
+            weights_new_t, q, q_back = self.dirichlet_proposal(weights_current_t, self.var_proposal_weight)
+
+            # Transform back
+            weights_new = weights_new_t * weights_current.sum()
+
+            # Update
+            sample_new.weights[f_id, weights_to_alter] = weights_new
+
+        else:
+            # if inheritance is not considered, there are only two weights.
+            weights_current = sample.weights[f_id, :]
+            weights_new, q, q_back = self.dirichlet_proposal(weights_current, self.var_proposal_weight)
+            sample_new.weights[f_id, :] = weights_new
 
         # The step changed the weights (which has an influence on how the lh and the prior look like)
         sample_new.what_changed['lh']['weights'] = True
@@ -255,18 +277,30 @@ class ZoneMCMCGenerative(MCMCGenerative):
                  Sample: The modified sample
         """
         sample_new = sample.copy()
-        p_global_current = sample.p_global
 
-        # Randomly choose one of the features and one of the categories
+        # Randomly choose one of the features
         f_id = np.random.choice(range(self.n_features))
 
-        # Different features have different numbers of categories
-        f_cats = np.where(self.sites_per_category[f_id] != 0)[0]
-        p_current = p_global_current[0, f_id, f_cats]
+        # Different features have different applicable states
+        f_states = np.nonzero(self.applicable_states[f_id])[0]
 
-        # Sample new p from dirichlet distribution with given precision
-        p_new, q, q_back = self.dirichlet_proposal(p_current, step_precision=self.var_proposal_p_global)
-        sample_new.p_global[0, f_id, f_cats] = p_new
+        # Randomly choose two applicable states for which the probabilities will be changed, leave the others untouched
+        states_to_alter = _random.sample(list(f_states), 2)
+
+        # Get the current probabilities
+        p_current = sample.p_global[0, f_id, states_to_alter]
+
+        # Transform the probabilities such that they sum to 1
+        p_current_t = p_current / p_current.sum()
+
+        # Propose new sample
+        p_new_t, q, q_back = self.dirichlet_proposal(p_current_t, step_precision=self.var_proposal_p_global)
+
+        # Transform back
+        p_new = p_new_t * p_current.sum()
+
+        # Update sample
+        sample_new.p_global[0, f_id, states_to_alter] = p_new
 
         # The step changed p_global (which has an influence on how the lh and the prior look like)
         sample_new.what_changed['lh']['p_global'].add(f_id)
@@ -284,19 +318,31 @@ class ZoneMCMCGenerative(MCMCGenerative):
                 Sample: The modified sample
                 """
         sample_new = sample.copy()
-        p_zones_current = sample.p_zones
 
         # Randomly choose one of the zones, one of the features and one of the categories
         z_id = np.random.choice(range(self.n_zones))
         f_id = np.random.choice(range(self.n_features))
 
-        # Different features have different numbers of categories
-        f_cats = np.where(self.sites_per_category[f_id] != 0)[0]
-        p_current = p_zones_current[z_id, f_id, f_cats]
+        # Different features have different applicable states
+        f_states = np.nonzero(self.applicable_states[f_id])[0]
+
+        # Randomly choose two applicable states for which the probabilities will be changed, leave the others untouched
+        states_to_alter = _random.sample(list(f_states), 2)
+
+        # Get the current probabilities
+        p_current = sample.p_zones[z_id, f_id, states_to_alter]
+
+        # Transform the probabilities such that they sum to 1
+        p_current_t = p_current / p_current.sum()
 
         # Sample new p from dirichlet distribution with given precision
-        p_new, q, q_back = self.dirichlet_proposal(p_current, step_precision=self.var_proposal_p_zones)
-        sample_new.p_zones[z_id, f_id, f_cats] = p_new
+        p_new_t, q, q_back = self.dirichlet_proposal(p_current_t, step_precision=self.var_proposal_p_zones)
+
+        # Transform back
+        p_new = p_new_t * p_current.sum()
+
+        # Update sample
+        sample_new.p_zones[z_id, f_id, states_to_alter] = p_new
 
         # The step changed p_zones (which has an influence on how the lh and the prior look like)
         sample_new.what_changed['lh']['p_zones'].add((z_id, f_id))
@@ -348,20 +394,31 @@ class ZoneMCMCGenerative(MCMCGenerative):
         """
 
         sample_new = sample.copy()
-        p_families_current = sample.p_families
 
-        # Randomly choose one of the families, one of the features and one of the categories
+        # Randomly choose one of the families and one of the features
         fam_id = np.random.choice(range(self.n_families))
         f_id = np.random.choice(range(self.n_features))
 
-        # Different features have different numbers of categories
-        f_cats = np.where(self.sites_per_category[f_id] != 0)[0]
-        p_current = p_families_current[fam_id, f_id, f_cats]
+        # Different features have different applicable states
+        f_states = np.nonzero(self.applicable_states[f_id])[0]
+
+        # Randomly choose two applicable states for which the probabilities will be changed, leave the others untouched
+        states_to_alter = _random.sample(list(f_states), 2)
+
+        # Get the current probabilities
+        p_current = sample.p_families[fam_id, f_id, states_to_alter]
+
+        # Transform the probabilities such that they sum to 1
+        p_current_t = p_current / p_current.sum()
 
         # Sample new p from dirichlet distribution with given precision
-        p_new, q, q_back = self.dirichlet_proposal(p_current, step_precision=self.var_proposal_p_families)
+        p_new_t, q, q_back = self.dirichlet_proposal(p_current_t, step_precision=self.var_proposal_p_families)
 
-        sample_new.p_families[fam_id, f_id, f_cats] = p_new
+        # Transform back
+        p_new = p_new_t * p_current.sum()
+
+        # Update sample
+        sample_new.p_families[fam_id, f_id, states_to_alter] = p_new
 
         # The step changed p_families (which has an influence on how the lh and the prior look like)
         sample_new.what_changed['lh']['p_families'].add((fam_id, f_id))
@@ -436,7 +493,7 @@ class ZoneMCMCGenerative(MCMCGenerative):
         sample.what_changed['lh']['zones'].add(z_id)
         sample_new.what_changed['prior']['zones'].add(z_id)
         sample.what_changed['prior']['zones'].add(z_id)
-
+        #return sample_new, 1., 1.
         return sample_new, q, q_back
 
     def grow_zone(self, sample):
@@ -485,6 +542,7 @@ class ZoneMCMCGenerative(MCMCGenerative):
         # Transition probability when growing
         q_non_connected = 1 / np.count_nonzero(~occupied)
         q = (1 - self.p_grow_connected) * q_non_connected
+
         if neighbours[site_new]:
             q_connected = 1 / np.count_nonzero(neighbours)
             q += self.p_grow_connected * q_connected
@@ -499,7 +557,7 @@ class ZoneMCMCGenerative(MCMCGenerative):
         sample.what_changed['lh']['zones'].add(z_id)
         sample_new.what_changed['prior']['zones'].add(z_id)
         sample.what_changed['prior']['zones'].add(z_id)
-
+        #return sample_new, 1., 1.
         return sample_new, q, q_back
 
     def shrink_zone(self, sample):
@@ -553,7 +611,7 @@ class ZoneMCMCGenerative(MCMCGenerative):
         sample.what_changed['lh']['zones'].add(z_id)
         sample_new.what_changed['prior']['zones'].add(z_id)
         sample.what_changed['prior']['zones'].add(z_id)
-
+        #return sample_new, 1., 1.
         return sample_new, q, q_back
 
     def generate_initial_zones(self):
@@ -700,24 +758,19 @@ class ZoneMCMCGenerative(MCMCGenerative):
 
         # A: Initialize new p_global using the MLE
         else:
-            l_per_cat = np.sum(self.features, axis=0)
-            p_global = normalize(l_per_cat)
 
-            for p in range(len(p_global)):
+            sites_per_state = np.count_nonzero(self.features, axis=0)
+            # Some areas have nan for all states, resulting in a non-defined MLE
+            # other areas have only a single state, resulting in an MLE including 1.
+            # to avoid both, we add 1 to all applicable states of each feature,
+            # which gives a well-defined initial p_zone without 1., slightly nudged away from the MLE
 
-                # Check for nonzero p_idx
-                p_idx = np.where(self.sites_per_category[p] != 0)[0]
-
-                # If any of the remaining is zero -> balance
-                if 0. in p_global[p, p_idx]:
-                    p_global[p, p_idx] = balance_p_array(p_array=p_global[p, p_idx], balance_by=0.1)
+            sites_per_state[np.isnan(sites_per_state)] = 0
+            sites_per_state[self.applicable_states] += 1
+            site_sums = np.sum(sites_per_state, axis=1)
+            p_global = sites_per_state / site_sums[:, np.newaxis]
 
             initial_p_global[0, :, :] = p_global
-
-            # The probabilities of categories without data are set to 0 (or -inf in log space)
-            sites_per_category = np.count_nonzero(self.features, axis=0)
-            initial_p_global[0, sites_per_category == 0] = 0.
-
         return initial_p_global
 
     def set_p_zones_to_mle(self, updated_zone):
@@ -735,11 +788,6 @@ class ZoneMCMCGenerative(MCMCGenerative):
         features_zone = self.features[idx, :, :]
         l_per_cat = np.sum(features_zone, axis=0)
         p_zones = normalize(l_per_cat)
-
-        # The probabilities of categories without data are set to 0
-        # Sampling no-longer in log space. Not needed anymore.
-        # sites_per_category = np.count_nonzero(self.features, axis=0)
-        # p_zones[sites_per_category == 0] = 0.
 
         return p_zones
 
@@ -773,19 +821,18 @@ class ZoneMCMCGenerative(MCMCGenerative):
             idx = initial_zones[i].nonzero()[0]
             features_zone = self.features[idx, :, :]
 
-            l_per_cat = np.nansum(features_zone, axis=0)
+            sites_per_state = np.nansum(features_zone, axis=0)
 
             # Some areas have nan for all states, resulting in a non-defined MLE
             # other areas have only a single state, resulting in an MLE including 1.
             # to avoid both, we add 1 to all applicable states of each feature,
             # which gives a well-defined initial p_zone without 1., slightly nudged away from the MLE
 
-            sites_per_category = np.count_nonzero(self.features, axis=0)
-            l_per_cat[np.isnan(l_per_cat)] = 0
-            l_per_cat[sites_per_category != 0] += 1
+            sites_per_state[np.isnan(sites_per_state)] = 0
+            sites_per_state[self.applicable_states] += 1
 
-            l_sums = np.sum(l_per_cat, axis=1)
-            p_zones = l_per_cat / l_sums[:, np.newaxis]
+            site_sums = np.sum(sites_per_state, axis=1)
+            p_zones = sites_per_state / site_sums[:, np.newaxis]
 
             initial_p_zones[i, :, :] = p_zones
 
@@ -815,7 +862,7 @@ class ZoneMCMCGenerative(MCMCGenerative):
                 idx = self.families[fam].nonzero()[0]
                 features_family = self.features[idx, :, :]
 
-                l_per_cat = np.nansum(features_family, axis=0)
+                sites_per_state = np.nansum(features_family, axis=0)
 
                 # Compute the MLE for each category and each family
                 # Some families have only NAs for some features, resulting in a non-defined MLE
@@ -823,12 +870,11 @@ class ZoneMCMCGenerative(MCMCGenerative):
                 # to avoid both, we add 1 to all applicable states of each feature,
                 # which gives a well-defined initial p_family without 1., slightly nudged away from the MLE
 
-                sites_per_category = np.count_nonzero(self.features, axis=0)
-                l_per_cat[np.isnan(l_per_cat)] = 0
-                l_per_cat[sites_per_category != 0] += 1
+                sites_per_state[np.isnan(sites_per_state)] = 0
+                sites_per_state[self.applicable_states] += 1
 
-                l_sums = np.sum(l_per_cat, axis=1)
-                p_family = l_per_cat / l_sums[:, np.newaxis]
+                state_sums = np.sum(sites_per_state, axis=1)
+                p_family = sites_per_state / state_sums[:, np.newaxis]
                 initial_p_families[fam, :, :] = p_family
 
         return initial_p_families
@@ -898,3 +944,224 @@ class ZoneMCMCGenerative(MCMCGenerative):
 
     def log_sample_statistics(self, sample, c, sample_id):
         super(ZoneMCMCGenerative, self).log_sample_statistics(sample, c, sample_id)
+
+
+class ZoneMCMCWarmup(ZoneMCMCGenerative):
+
+    IS_WARMUP = True
+    
+    def __init__(self, **kwargs):
+        super(ZoneMCMCWarmup, self).__init__(**kwargs)
+
+    def alter_weights(self, sample, c=0):
+        return super(ZoneMCMCWarmup, self).alter_weights(sample)
+
+    def alter_p_global(self, sample, c=0):
+        return super(ZoneMCMCWarmup, self).alter_p_global(sample)
+
+    def alter_p_zones(self, sample, c=0):
+        return super(ZoneMCMCWarmup, self).alter_p_zones(sample)
+
+    def swap_zone(self, sample, c=0):
+        """ This functions swaps sites in one of the zones of the current sample
+        (i.e. in of the zones a site is removed and another one added)
+        Args:
+            sample(Sample): The current sample with zones and weights.
+            c(int): The current warmup chain
+        Returns:
+            Sample: The modified sample.
+         """
+        sample_new = sample.copy()
+        zones_current = sample.zones
+        occupied = np.any(zones_current, axis=0)
+
+        # Randomly choose one of the zones to modify
+        z_id = np.random.choice(range(zones_current.shape[0]))
+        zone_current = zones_current[z_id, :]
+
+        neighbours = get_neighbours(zone_current, occupied, self.adj_mat)
+        connected_step = (_random.random() < self.p_grow_connected[c])
+        if connected_step:
+            # All neighbors that are not yet occupied by other zones are candidates
+            candidates = neighbours
+        else:
+            # All free sites are candidates
+            candidates = ~occupied
+
+        # When stuck (all neighbors occupied) return current sample and reject the step (q_back = 0)
+        if not np.any(candidates):
+            q, q_back = 1., 0.
+            return sample, q, q_back
+
+        # Add a site to the zone
+        site_new = _random.choice(candidates.nonzero()[0])
+        sample_new.zones[z_id, site_new] = 1
+
+        # Remove a site from the zone
+        removal_candidates = self.get_removal_candidates(zone_current)
+        site_removed = _random.choice(removal_candidates)
+        sample_new.zones[z_id, site_removed] = 0
+
+        # # Compute transition probabilities
+        back_neighbours = get_neighbours(zone_current, occupied, self.adj_mat)
+        # q = 1. / np.count_nonzero(candidates)
+        # q_back = 1. / np.count_nonzero(back_neighbours)
+
+        # Transition probability growing to the new zone
+        q_non_connected = 1 / np.count_nonzero(~occupied)
+
+        q = (1 - self.p_grow_connected[c]) * q_non_connected
+        if neighbours[site_new]:
+            q_connected = 1 / np.count_nonzero(neighbours)
+            q += self.p_grow_connected[c] * q_connected
+
+        # Transition probability of growing back to the original zone
+        q_back_non_connected = 1 / np.count_nonzero(~occupied)
+        q_back = (1 - self.p_grow_connected[c]) * q_back_non_connected
+        # If z is a neighbour of the new zone, the back step could also be a connected grow step
+        if back_neighbours[site_removed]:
+            q_back_connected = 1 / np.count_nonzero(back_neighbours)
+            q_back += self.p_grow_connected[c] * q_back_connected
+
+        # The step changed the zone (which has an influence on how the lh and the prior look like)
+        sample_new.what_changed['lh']['zones'].add(z_id)
+        sample.what_changed['lh']['zones'].add(z_id)
+        sample_new.what_changed['prior']['zones'].add(z_id)
+        sample.what_changed['prior']['zones'].add(z_id)
+        # return sample_new, 1., 1.
+
+        return sample_new, q, q_back
+
+    def grow_zone(self, sample, c=0):
+        """ This functions grows one of the zones in the current sample (i.e. it adds a new site to one of the zones)
+        Args:
+            sample(Sample): The current sample with zones and weights.
+            c(int): The current warmup chain
+        Returns:
+            (Sample): The modified sample.
+        """
+        sample_new = sample.copy()
+        zones_current = sample.zones
+        occupied = np.any(zones_current, axis=0)
+
+        # Randomly choose one of the zones to modify
+        z_id = np.random.choice(range(zones_current.shape[0]))
+        zone_current = zones_current[z_id, :]
+
+        # Check if zone is small enough to grow
+        current_size = np.count_nonzero(zone_current)
+
+        if current_size >= self.max_size[c]:
+            # Zone too big to grow: don't modify the sample and reject the step (q_back = 0)
+            q, q_back = 1., 0.
+            return sample, q, q_back
+
+        neighbours = get_neighbours(zone_current, occupied, self.adj_mat)
+        connected_step = (_random.random() < self.p_grow_connected[c])
+        if connected_step:
+            # All neighbors that are not yet occupied by other zones are candidates
+            candidates = neighbours
+        else:
+            # All free sites are candidates
+            candidates = ~occupied
+
+        # When stuck (no candidates) return current sample and reject the step (q_back = 0)
+        if not np.any(candidates):
+            q, q_back = 1., 0.
+            return sample, q, q_back
+
+        # Choose a random candidate and add it to the zone
+        site_new = _random.choice(candidates.nonzero()[0])
+        sample_new.zones[z_id, site_new] = 1
+
+        # Transition probability when growing
+        q_non_connected = 1 / np.count_nonzero(~occupied)
+        q = (1 - self.p_grow_connected[c]) * q_non_connected
+
+        if neighbours[site_new]:
+            q_connected = 1 / np.count_nonzero(neighbours)
+            q += self.p_grow_connected[c] * q_connected
+
+        # Back-probability (shrinking)
+        q_back = 1 / (current_size + 1)
+
+        # self.q_areas_stats['q_grow'].append(q)
+        # self.q_areas_stats['q_back_grow'].append(q_back)
+        # 
+        # try:
+        #     print(sum(self.q_areas_stats['q_grow']) / len(self.q_areas_stats['q_grow']), "avg_q_grow")
+        #     print(sum(self.q_areas_stats['q_back_grow']) / len(self.q_areas_stats['q_back_grow']), "avg_q_back_grow")
+        #     print(sum(self.q_areas_stats['q_shrink']) / len(self.q_areas_stats['q_shrink']), "avg_q_shrink")
+        #     print(sum(self.q_areas_stats['q_back_shrink']) / len(self.q_areas_stats['q_back_shrink']), "avg_q_back_shrink")
+        # except ZeroDivisionError:
+        #     pass
+
+        # The step changed the zone (which has an influence on how the lh and the prior look like)
+        sample_new.what_changed['lh']['zones'].add(z_id)
+        sample.what_changed['lh']['zones'].add(z_id)
+        sample_new.what_changed['prior']['zones'].add(z_id)
+        sample.what_changed['prior']['zones'].add(z_id)
+
+        #return sample_new, 1., 1.
+        return sample_new, q, q_back
+
+    def shrink_zone(self, sample, c=0):
+        """ This functions shrinks one of the zones in the current sample (i.e. it removes one site from one zone)
+
+        Args:
+            sample(Sample): The current sample with zones and weights.
+            c(int): The current warmup chain
+        Returns:
+            (Sample): The modified sample.
+        """
+        sample_new = sample.copy()
+        zones_current = sample.zones
+
+        # Randomly choose one of the zones to modify
+        z_id = np.random.choice(range(zones_current.shape[0]))
+        zone_current = zones_current[z_id, :]
+
+        # Check if zone is big enough to shrink
+        current_size = np.count_nonzero(zone_current)
+        if current_size <= self.min_size:
+            # Zone is too small to shrink: don't modify the sample and reject the step (q_back = 0)
+            q, q_back = 1., 0.
+            return sample, q, q_back
+
+        # Zone is big enough: shrink
+        removal_candidates = self.get_removal_candidates(zone_current)
+        site_removed = _random.choice(removal_candidates)
+        sample_new.zones[z_id, site_removed] = 0
+
+        # Transition probability when shrinking.
+        q = 1 / len(removal_candidates)
+        # Back-probability (growing)
+        zone_new = sample_new.zones[z_id]
+        occupied_new = np.any(sample_new.zones, axis=0)
+        back_neighbours = get_neighbours(zone_new, occupied_new, self.adj_mat)
+
+        # The back step could always be a non-connected grow step
+        q_back_non_connected = 1 / np.count_nonzero(~occupied_new)
+        q_back = (1 - self.p_grow_connected[c]) * q_back_non_connected
+
+        # If z is a neighbour of the new zone, the back step could also be a connected grow step
+        if back_neighbours[site_removed]:
+            q_back_connected = 1 / np.count_nonzero(back_neighbours)
+            q_back += self.p_grow_connected[c] * q_back_connected
+
+        # Back-probability (shrinking)
+        q_back = 1 / (current_size + 1)
+
+        # self.q_areas_stats['q_shrink'].append(q)
+        # self.q_areas_stats['q_back_shrink'].append(q_back)
+
+        # The step changed the zone (which has an influence on how the lh and the prior look like)
+        sample_new.what_changed['lh']['zones'].add(z_id)
+        sample.what_changed['lh']['zones'].add(z_id)
+        sample_new.what_changed['prior']['zones'].add(z_id)
+        sample.what_changed['prior']['zones'].add(z_id)
+        #return sample_new, 1., 1.
+        return sample_new, q, q_back
+
+    def alter_p_families(self, sample, c=0):
+        return super(ZoneMCMCWarmup, self).alter_p_families(sample)

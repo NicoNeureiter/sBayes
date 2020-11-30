@@ -1,18 +1,18 @@
 {
 	"simulation": {
 		"SITES": "data/sites.csv",
-		"N_FEATURES": 35,
+		"N_FEATURES": 50,
 		"P_N_CATEGORIES": {
-			"2": 0.4,
-			"3": 0.3,
-			"4": 0.3
+			"2": 0.2,
+			"3": 0.6,
+			"4": 0.2
 		},
-		"I_GLOBAL": 1.0,
-		"I_INHERITANCE": 2.0,
-		"I_CONTACT": 3.0,
-		"E_GLOBAL": 1.0,
-		"E_INHERITANCE": 0.1,
-		"E_CONTACT": 0.25,
+		"I_UNIVERSAL": 1.0,
+		"I_INHERITANCE": 4.0,
+		"I_CONTACT": 2.0,
+		"E_UNIVERSAL": 1.0,
+		"E_INHERITANCE": 0.25,
+		"E_CONTACT": 0.75,
 		"INHERITANCE": true,
 		"AREA": 10
 	},
@@ -22,17 +22,17 @@
 		"N_RUNS": 1,
 		"P_GROW_CONNECTED": 0.85,
 		"PROPOSAL_PRECISION": {
-			"weights": "TBD",
-			"universal": "TBD",
-			"contact": "TBD",
-			"inheritance": "TBD"
+			"weights": 20,
+			"universal": 30,
+			"contact": 10,
+			"inheritance": 10
 		},
 		"STEPS": {
-			"area": "TBD",
-			"weights": "TBD",
-			"universal": "TBD",
-			"contact": "TBD",
-			"inheritance": "TBD"
+			"area": 0.1,
+			"weights": 0.4,
+			"universal": 0.1,
+			"contact": 0.3,
+			"inheritance": 0.1
 		},
 		"M_INITIAL": 15,
 		"WARM_UP": {
@@ -46,12 +46,13 @@
 		"MAX_M": 200,
 		"INHERITANCE": "TBD",
 		"PRIOR": {
-			"geo": "uniform",
-			"weights": "uniform",
-			"universal": "uniform",
-			"contact": "uniform",
-			"inheritance": "uniform"
-		}
+			"geo": {"type": "cost_based"},
+			"weights": {"type": "uniform"},
+			"universal": {"type": "uniform"},
+			"contact": {"type": "uniform"},
+			"inheritance": {"type": "uniform"}
+		},
+		"scale_geo_prior": 100
 	},
 	"data": {
 		"simulated": true

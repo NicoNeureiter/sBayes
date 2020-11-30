@@ -7,6 +7,7 @@ import os
 from math import sqrt, floor, ceil
 
 import numpy as np
+import pandas as pd
 import scipy.spatial as spatial
 from scipy.special import betaln
 import scipy.stats as stats
@@ -14,17 +15,20 @@ from scipy.sparse import csr_matrix
 import matplotlib.pyplot as plt
 from matplotlib.collections import LineCollection
 from scipy.stats import chi2_contingency
+
 from itertools import combinations
+from fastcluster import linkage
 
 EPS = np.finfo(float).eps
 
-FAST_DIRICHLET = False
+FAST_DIRICHLET = True
 if FAST_DIRICHLET:
     def dirichlet_pdf(x, alpha): return np.exp(stats.dirichlet._logpdf(x, alpha))
     dirichlet_logpdf = stats.dirichlet._logpdf
 else:
     dirichlet_pdf = stats.dirichlet.pdf
     dirichlet_logpdf = stats.dirichlet.logpdf
+
 
 class FamilyError(Exception):
     pass
@@ -62,7 +66,7 @@ def compute_distance(a, b):
 
     Returns:
         float: Distance between a and b
-        """
+    """
 
     a = np.asarray(a)
     b = np.asarray(b)
@@ -231,85 +235,103 @@ def zones_autosimilarity(zones, t):
     return np.mean(sim_norm)
 
 
+def range_like(a):
+    """Return a list of incrementing integers (range) with same length as `a`."""
+    return list(range(len(a)))
+
+
 # Encoding
-def encode_states(features_in):
-    state_names = {'external': [],
-                   'internal': []}
-    features_enc = []
-    for f in np.swapaxes(features_in, 0, 1):
-        states_ext = list(np.unique(f))
-        states_int = []
-        if "" in states_ext:
-            states_ext.remove("")
+def encode_states(features_raw, feature_states):
+    # Define shapes
+    n_states, n_features = feature_states.shape
+    features_bin_shape = features_raw.shape + (n_states,)
+    n_sites, _ = features_raw.shape
+    assert n_features == _
 
-        s_idx = 0
-        for s in list(states_ext):
-            f = np.where(f == s, s_idx, f)
-            states_int.append(s_idx)
-            s_idx += 1
-        state_names['external'].append(states_ext)
-        state_names['internal'].append(states_int)
-        features_enc.append(f)
-
-    features_enc = np.column_stack([f for f in features_enc])
-    enc_states = list(np.unique(features_enc))
-
-    features_bin = []
+    # Initialize arrays and counts
+    features_bin = np.zeros(features_bin_shape, dtype=int)
+    applicable_states = np.zeros((n_features, n_states), dtype=bool)
+    state_names = {'external': [], 'internal': []}
     na_number = 0
-    for cat in enc_states:
-        if cat == "":
-            na_number = np.count_nonzero(np.where(features_enc == cat, 1, 0))
-        else:
-            cat_axis = np.expand_dims(np.where(features_enc == cat, 1, 0), axis=2)
-            features_bin.append(cat_axis)
 
-    return np.concatenate(features_bin, axis=2), state_names, na_number
+    # Binary vectors used for encoding
+    one_hot = np.eye(n_states)
+
+    for f_idx in range(n_features):
+        f_name = feature_states.columns[f_idx]
+        f_states = feature_states[f_name]
+
+        # Define applicable states for feature f
+        applicable_states[f_idx] = ~f_states.isna()
+
+        # Define external and internal state names
+        s_ext = f_states.dropna().to_list()
+        s_int = range_like(s_ext)
+        state_names['external'].append(s_ext)
+        state_names['internal'].append(s_int)
+
+        # Map external to internal states for feature f
+        ext_to_int = dict(zip(s_ext, s_int))
+        f_raw = features_raw[f_name]
+        f_enc = f_raw.map(ext_to_int)
+        if not (set(f_raw.dropna()).issubset(set(s_ext))):
+            print(set(f_raw.dropna()) - set(s_ext))
+            print(s_ext)
+        assert set(f_raw.dropna()).issubset(set(s_ext))  # All states should map to an encoding
+
+        # Binarize features
+        f_applicable = ~f_enc.isna().to_numpy()
+        f_enc_applicable = f_enc[f_applicable].astype(int)
+
+        features_bin[f_applicable, f_idx] = one_hot[f_enc_applicable]
+
+        # Count NA
+        na_number += np.count_nonzero(f_enc.isna())
+
+    return features_bin.astype(bool), state_names, applicable_states, na_number
 
 
-def read_features_from_csv(file):
+def normalize_str(s):
+    if pd.isna(s):
+        return s
+    return str.strip(s)
+
+
+def read_features_from_csv(file, feature_states_file):
     """This is a helper function to import data (sites, features, family membership,...) from a csv file
     Args:
         file (str): file location of the csv file
     Returns:
-        (dict, dict, np.array, dict, dict, np.array, dict, str) :
+        (dict, dict, np.array, dict, dict, np.array, np.array, dict, str) :
         The language date including sites, site names, all features, feature names and state names per feature,
         as well as family membership and family names and log information
     """
-    columns = []
-    feature_names_ordered = []
-    with open(file, 'rU', encoding="utf-8") as f:
-        reader = csv.reader(f)
-        for row in reader:
-            if columns:
-                for i, value in enumerate(row):
-                    columns[i].append(value)
-            else:
-                # first row
-                feature_names_ordered = [value for value in row]
-                columns = [[value] for value in row]
+    data = pd.read_csv(file, dtype=str)
+    data = data.applymap(normalize_str)
 
-    csv_as_dict = {c[0]: c[1:] for c in columns}
     try:
-        x = csv_as_dict.pop('x')
-        y = csv_as_dict.pop('y')
-        l_id = csv_as_dict.pop('id')
-        name = csv_as_dict.pop('name')
-        family = csv_as_dict.pop('family')
-        family = np.array(family)
-
-        feature_names_ordered.remove('x')
-        feature_names_ordered.remove('y')
-        feature_names_ordered.remove('id')
-        feature_names_ordered.remove('name')
-        feature_names_ordered.remove('family')
+        x = data.pop('x')
+        y = data.pop('y')
+        l_id = data.pop('id')
+        name = data.pop('name')
+        family = data.pop('family')
     except KeyError:
-        raise KeyError('The csv  must contain columns "x", "y", "id","name", "family"')
+        raise KeyError('The csv must contain columns "x", "y", "id","name", "family"')
+
+    # Load the valid features-states
+    feature_states = pd.read_csv(feature_states_file, dtype=str)
+    feature_states = feature_states.applymap(normalize_str)
+    feature_names_ext = feature_states.columns.to_numpy()
+
+    # Make sure the same features are specified in the data file and in the feature_states file
+    assert set(feature_states.columns) == set(data.columns)
 
     # sites
-    locations = np.zeros((len(l_id), 2))
+    n_sites, n_features = data.shape
+    locations = np.zeros((n_sites, 2))
     site_id = []
 
-    for i in range(len(l_id)):
+    for i in range(n_sites):
         # Define location tuples
         locations[i, 0] = float(x[i])
         locations[i, 1] = float(y[i])
@@ -323,32 +345,27 @@ def read_features_from_csv(file):
              'cz': None,
              'names': name}
     site_names = {'external': l_id,
-                  'internal': list(range(0, len(l_id)))}
+                  'internal': list(range(n_sites))}
 
     # features
-    features_s = np.ndarray.transpose(np.array([csv_as_dict[i] for i in feature_names_ordered]))
-    features, state_names, na_number = encode_states(features_s)
-
-    feature_names = {'external': feature_names_ordered,
-                     'internal': list(range(0, len(feature_names_ordered)))}
+    features, state_names, applicable_states, na_number = encode_states(data, feature_states)
+    feature_names = {'external': feature_names_ext,
+                     'internal': list(range(n_features))}
 
     # family
-    family_names_ordered = np.unique(family).tolist()
-    family_names_ordered = list(filter(None, family_names_ordered))
+    family_names_ordered = np.unique(family.dropna()).tolist()
+    n_families = len(family_names_ordered)
 
-    families = np.zeros((len(family_names_ordered), len(l_id)), dtype=int)
-
-    for fam in range(len(family_names_ordered)):
+    families = np.zeros((n_families, n_sites), dtype=int)
+    for fam in range(n_families):
         families[fam, np.where(family == family_names_ordered[fam])] = 1
 
     family_names = {'external': family_names_ordered,
-                    'internal': list(range(0, len(family_names_ordered)))}
-    log = \
-        str(len(site_names['internal'])) + " sites with " + \
-        str(len(feature_names['internal'])) + " features read from " + \
-        file + ". " + str(na_number) + " NA value(s) found."
+                    'internal': list(range(n_families))}
 
-    return sites, site_names, features, feature_names, state_names, families, family_names, log
+    log = f"{n_sites} sites with {n_features} features read from {file}. {na_number} NA value(s) found."
+
+    return sites, site_names, features, feature_names, state_names, applicable_states, families, family_names, log
 
 
 def write_languages_to_csv(features, sites, families, file):
@@ -415,85 +432,56 @@ def write_feature_occurrence_to_csv(occurr, categories, file):
             writer.writerow([f_name] + p)
 
 
-def read_feature_occurrence_from_csv(file):
+def read_feature_occurrence_from_csv(file, feature_states_file):
     """This is a helper function to import the occurrence of features in families (or globally) from a csv
         Args:
-            file(str): file location of the csv file
+            file(str): path to the csv file containing feature-state counts
+            feature_states_file (str): path to csv file containing features and states
+
         Returns:
             np.array :
             The occurrence of each feature, either as relative frequencies or counts, together with feature
             and category names
     """
 
-    columns = []
-    names = []
+    # Load data and feature states
+    counts_raw = pd.read_csv(file, index_col='feature')
+    feature_states = pd.read_csv(feature_states_file, dtype=str)
+    n_states, n_features = feature_states.shape
 
-    with open(file, 'rU', encoding='utf-8') as f:
-        reader = csv.reader(f)
-        for row in reader:
-            if columns:
-                for i, value in enumerate(row):
-                    columns[i].append(value)
-            else:
-                # first row
-                names = [value for value in row]
-                columns = [[value] for value in row]
-    csv_as_dict = {c[0]: c[1:] for c in columns}
+    # Check that features match
+    assert set(counts_raw.index) == set(feature_states.columns)
 
-    try:
-        feature_names_ordered = csv_as_dict.pop('feature')
-        names.remove('feature')
+    # Replace NAs by 0.
+    counts_raw[counts_raw.isna()] = 0.
 
-    except KeyError:
-        raise KeyError('The csv must contain column "feature"')
+    # Collect feature and state names
+    feature_names = {'external': feature_states.columns.to_list(),
+                     'internal': list(range(n_features))}
+    state_names = {'external': [[] for _ in range(n_features)],
+                   'internal': [[] for _ in range(n_features)]}
 
-    occurr = np.zeros((len(feature_names_ordered), len(names)))
+    # Align state columns with feature_states file
+    counts = np.zeros((n_features, n_states))
+    for f_idx in range(n_features):
+        f_name = feature_states.columns[f_idx]         # Feature order is given by ´feature_states_file´
+        for s_idx in range(n_states):
+            s_name = feature_states[f_name][s_idx]     # States order is given by ´feature_states_file´
+            if pd.isnull(s_name):                      # ...same for applicable states per feature
+                continue
 
-    feature_names = {'external': feature_names_ordered,
-                     'internal': list(range(0, len(feature_names_ordered)))}
+            counts[f_idx, s_idx] = counts_raw.loc[f_name, s_name]
 
-    names = np.unique(names)
+            state_names['external'][f_idx].append(s_name)
+            state_names['internal'][f_idx].append(s_idx)
 
-    state_names_ordered = [[] for _ in range(len(feature_names_ordered))]
-    for c in range(len(names)):
-        row = csv_as_dict[names[c]]
+    # # Sanity check
+    # Are the data count data?
+    if not all(float(y).is_integer() for y in np.nditer(counts)):
+        out = f"The data in {file} must be count data."
+        raise ValueError(out)
 
-        # Handle missing data
-        for f in range(len(row)):
-            try:
-                row[f] = float(row[f])
-                state_names_ordered[f].append(names[c])
-
-            except ValueError:
-                if row[f] == '':
-                    row[f] = 0
-                else:
-                    raise ValueError("Frequencies must be numeric!")
-
-        occurr[:, c] = row
-
-    state_names = {'external': state_names_ordered,
-                   'internal': [list(range(0, len(c))) for c in state_names_ordered]}
-
-    return occurr, list(names), state_names, feature_names,
-
-
-def tighten_counts(counts, state_names, count_names):
-
-    # Tighten count matrix
-    max_n_states = max([len(s) for s in state_names['external']])
-
-    counts_tight = []
-    for f in range(len(counts)):
-        c = np.zeros(max_n_states)
-        for s in range(len(state_names['external'][f])):
-            external = state_names['external'][f][s]
-            internal = state_names['internal'][f][s]
-            idx = count_names.index(external)
-            c[internal] = counts[f][idx]
-        counts_tight.append(c)
-
-    return np.row_stack([c for c in counts_tight]).astype(int)
+    return counts.astype(int), feature_names, state_names
 
 
 def inheritance_counts_to_dirichlet(counts, categories, outdated_features=None, dirichlet=None):
@@ -518,6 +506,39 @@ def inheritance_counts_to_dirichlet(counts, categories, outdated_features=None, 
     return dirichlet
 
 
+def scale_counts(counts, scale_to, prior_inheritance=False):
+    """Scales the counts for parametrizing the prior on universal probabilities (or inheritance in a family)
+
+        Args:
+            counts(np.array): the counts of categorical data.
+                        shape(n_features, n_states)
+            scale_to (float): the counts are scaled to this value
+            prior_inheritance (bool): are these inheritance counts?
+        Returns:
+            np.array: the rescaled counts
+    """
+    if prior_inheritance:
+        # Sum counts remove counts of zeros
+        counts_sum = np.sum(counts, axis=2)
+        counts_sum = np.where(counts_sum == 0, EPS, counts_sum)
+        scale_factor = scale_to/counts_sum
+
+        # Counts are only downscaled, not upscaled
+        scale_factor = np.where(scale_factor < 1, scale_factor, 1)
+        return counts * scale_factor[:, :, np.newaxis]
+
+    else:
+
+        counts_sum = np.sum(counts, axis=1)
+        counts_sum = np.where(counts_sum == 0, EPS, counts_sum)
+
+        scale_factor = scale_to / counts_sum
+
+        # Counts are only downscaled, not upscaled
+        scale_factor = np.where(scale_factor < 1, scale_factor, 1)
+        return counts * scale_factor[:, np.newaxis]
+
+
 def counts_to_dirichlet(counts, categories, prior='uniform', outdated_features=None, dirichlet=None):
     """This is a helper function to transform counts of categorical data
     to parameters of a dirichlet distribution.
@@ -525,7 +546,7 @@ def counts_to_dirichlet(counts, categories, prior='uniform', outdated_features=N
     Args:
         counts(np.array): the counts of categorical data.
                     shape(n_features, n_states)
-        categories(list): states/categories per feature
+        categories(np.array): applicable states/categories per feature
         prior (str): Use one of the following uninformative priors:
             'uniform': A uniform prior probability over the probability simplex Dir(1,...,1)
             'jeffrey': The Jeffrey's prior Dir(0.5,...,0.5)
@@ -742,10 +763,11 @@ def collect_row_for_writing(s, samples, data, config, steps_per_sample):
 
     # Recall and precision
     if data.is_simulated:
-        sample_z = samples['sample_zones'][s][0]
+        sample_z = np.any(samples['sample_zones'][s], axis=0)
         true_z = np.any(samples['true_zones'], axis=0)
         n_true = np.sum(true_z)
         intersections = np.minimum(sample_z, true_z)
+
         total_recall = np.sum(intersections, axis=0) / n_true
         precision = np.sum(intersections, axis=0) / np.sum(sample_z, axis=0)
 
@@ -856,17 +878,30 @@ def linear_rescale(value, old_min, old_max, new_min, new_max):
 def round_single_int(n, mode='up', position=2, offset=1):
     """
     Function to round an integer for the calculation of axes limits.
-    For example:
+    For example (position=2, offset=0):
     up: 113 -> 120, 3456 -> 3500
-    down: 113 -> 110, 3456 -> 3450
+    down: 113 -> 110, 3456 -> 3400
 
     Args:
          n (int): integer number to round
          mode (str): round 'up' or 'down'
+         position (int):
          offset (int): adding offset to rounded number
-    """
 
-    # print(f'rounding {mode} {n} (position {position} offset {offset})')
+    == Usage ===
+    >>> round_single_int(113, 'up', 2, 0)
+    120
+    >>> round_single_int(3456, 'up', 2, 0)
+    3500
+    >>> round_single_int(113, 'down', 2, 0)
+    110
+    >>> round_single_int(3456, 'down', 2, 0)
+    3400
+    >>> round_single_int(3456, 'down', 3, 0)
+    3450
+    >>> round_single_int(3456, 'down', 2, 1)
+    3300
+    """
 
     # convert to int if necessary and get number of digits
     n = int(n) if isinstance(n, float) else n
@@ -874,11 +909,9 @@ def round_single_int(n, mode='up', position=2, offset=1):
 
     # check for validity of input parameters
     if mode != 'up' and mode != 'down':
-        raise Exception('unkown mode')
-        # raise Exception(f'Unknown mode: "{mode}". Use either "up" or "down".')
+        raise Exception(f'Unknown mode: "{mode}". Use either "up" or "down".')
     if position > n_digits:
-        raise Exception('unkown mode')
-        # raise Exception(f'Position {position} is not valid for a number with only {n_digits} digits.')
+        raise Exception(f'Position {position} is not valid for a number with only {n_digits} digits.')
 
     # special rules for 1 and 2 digit numbers
     if n_digits == 1:
@@ -901,7 +934,6 @@ def round_single_int(n, mode='up', position=2, offset=1):
         else:
             n_rounded = n - offset if mode == 'down' else n + offset
 
-    # print(f'rounded to {n_rounded}')
     return n_rounded
 
 
@@ -946,9 +978,6 @@ def round_int(n, mode='up', offset=0):
 
     n = int(n) if isinstance(n, float) else n
     convertor = 10 ** (len(str(offset)) - 1)
-
-    # print(f'rounding {n} {mode} by {offset}')
-    # print(convertor)
 
     if n > offset: # number is larger than offset (must be positive)
         if mode == 'up':
@@ -1014,19 +1043,29 @@ def normalize(x, axis=-1):
 
     Args:
         x (np.array): Array to be normalized.
+        axis (int): The axis to be normalized (will sum up to 1).
 
     Returns:
          np.array: x with normalized s.t. the last axis sums to 1.
+
+    == Usage ===
+    >>> normalize(np.ones((2, 4)))
+    array([[0.25, 0.25, 0.25, 0.25],
+           [0.25, 0.25, 0.25, 0.25]])
+    >>> normalize(np.ones((2, 4)), axis=0)
+    array([[0.5, 0.5, 0.5, 0.5],
+           [0.5, 0.5, 0.5, 0.5]])
     """
     return x / np.sum(x, axis=axis, keepdims=True)
 
 
 def mle_weights(samples):
-    """
+    """Compute the maximum likelihood estimate for categorical samples.
 
     Args:
         samples (np.array):
     Returns:
+        np.array: the MLE for the probability vector in the categorical distribution.
     """
     counts = np.sum(samples, axis=0)
     return normalize(counts)
@@ -1053,36 +1092,65 @@ def assign_na(features, n_na):
     return features
 
 
-def assess_correlation_probabilities(p_universal, p_contact, p_inheritance):
-    """Asses the correlation of probabilities
+def assess_correlation_probabilities(p_universal, p_contact, p_inheritance, corr_th, include_universal=False):
+    """Asses the correlation of probabilities in simulated data
 
         Args:
             p_universal (np.array): universal state probabilities
-                shape: (1, n_states)
+                shape (n_features, n_states)
             p_contact (np.array): state probabilities in areas
-                shape: (n_features, n_states)
-            p_families (np.array): state probabilities in families
-                shape: (n_families, n_states)
-            states(list): available states per feature
+                shape: (n_areas, n_features, n_states)
+            p_inheritance (np.array): state probabilities in families
+                shape: (n_families, n_features, n_states)
+            corr_th (float): correlation threshold
+            include_universal (bool): Should p_universal also be checked for independence?
 
         """
-    # p_contact
-    samples = p_contact
+    if include_universal:
+        if p_inheritance is not None:
+            samples = np.vstack((p_universal[np.newaxis, :, :], p_contact, p_inheritance))
+        else:
+            samples = np.vstack((p_universal[np.newaxis, :, :], p_contact))
+    else:
+        if p_inheritance is not None:
+            samples = np.vstack((p_contact, p_inheritance))
+        else:
+            samples = p_contact
+
     n_samples = samples.shape[0]
     n_features = samples.shape[1]
 
     comb = list(combinations(list(range(n_samples)), 2))
-    threshold = 0.5
-    correlated_probability_vectors = 1
+    correlated_probability_vectors = 0
+
     for f in range(n_features):
         for c in comb:
             p0 = samples[c[0], f]
             p1 = samples[c[1], f]
             p_same_state = np.dot(p0, p1)
-            if p_same_state > threshold:
+            if p_same_state > corr_th:
                 correlated_probability_vectors += 1
     return correlated_probability_vectors
 
+
+def get_max_size_list(start, end, n_total, k_groups):
+    """Returns a list of maximum area sizes between a start and end size 
+    Entries of the list are later used to vary max_size in different chains during warmup
+    
+    Args: 
+        start(int): start size
+        end(int): end size
+        n_total(int): entries in the final list, i.e.number of chains
+        k_groups(int): number of groups with the same max_size
+
+    Returns:
+        (list) list of different max_sizes
+    """
+    n_per_group = ceil(n_total/k_groups)
+    max_sizes = np.linspace(start=start, stop=end, num=k_groups, endpoint=False, dtype=int)
+    max_size_list = list(np.repeat(max_sizes, n_per_group))
+
+    return max_size_list[0:n_total]
 
 def log_binom(n, k):
     """Compute the logarithm of (n choose k), i.e. the binomial coefficient of n and k.
@@ -1100,7 +1168,6 @@ def log_binom(n, k):
     array([0.        , 0.69314718, 1.09861229])
     """
     return -betaln(1 + n - k, 1 + k) - np.log(n + 1)
-
 
 # Fix path for default config files (in the folder sbayes/sbayes/config)
 def fix_default_config(default_config_path):
@@ -1161,6 +1228,48 @@ def fix_relative_path(base_directory, path):
         return path
     else:
         return os.path.join(base_directory, path).replace("\\", "/")
+
+def seriation(Z, N, cur_index):
+    if cur_index < N:
+        return [cur_index]
+    else:
+        left = int(Z[cur_index - N, 0])
+        right = int(Z[cur_index - N, 1])
+        return seriation(Z, N, left) + seriation(Z, N, right)
+
+
+def sort_by_similarity(similarity_matrix):
+    n, _ = similarity_matrix.shape
+    assert n == _, 'Similarity matrix needs to be a square matrix.'
+
+    max_sim = np.max(similarity_matrix)
+    dendrogram = linkage(max_sim-similarity_matrix, method='ward', preserve_input=True)
+    order = seriation(dendrogram, n, 2 * n - 2)
+
+    return order
+
+
+def plot_similarity_matrix(similarities, names, show_similarity_overlay=False):
+    n = len(similarities)
+
+    order = sort_by_similarity(similarities)
+    similarities = similarities[order, :][:, order]
+    names_ordered = names[order]
+
+    fig, ax = plt.subplots(figsize=(12, 12), dpi=200)
+    plt.imshow(similarities, origin='lower')
+    ax.set_xticks(np.arange(n))
+    ax.set_yticks(np.arange(n))
+    ax.set_xticklabels(names_ordered, rotation=-90, fontsize=9)
+    ax.set_yticklabels(names_ordered, fontsize=9)
+
+    if show_similarity_overlay:
+        for i in range(n):
+            for j in range(n):
+                ax.text(j, i, '%.2f' % similarities[i, j],
+                        ha='center', va='center', color='w', fontsize=5)
+
+    plt.show()
 
 
 if __name__ == "__main__":

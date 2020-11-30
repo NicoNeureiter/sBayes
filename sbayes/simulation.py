@@ -53,6 +53,10 @@ class Simulation:
         # Is a simulation
         self.is_simulated = True
 
+        # Correlation between features
+        self.corr_th = 0.3
+        self.n_correlated = 10
+
     def log_simulation(self):
         logging.basicConfig(format='%(message)s', filename=self.path_log, level=logging.DEBUG)
         logging.info("\n")
@@ -80,8 +84,6 @@ class Simulation:
                                                                       retrieve_subset=self.subset)
 
         self.network = compute_network(self.sites)
-
-        #
         self.areas = assign_area(area_id=self.config['AREA'], sites_sim=self.sites)
 
         # Simulate families
@@ -96,8 +98,9 @@ class Simulation:
                                         i_inheritance=self.config['I_INHERITANCE'],
                                         inheritance=self.inheritance,
                                         n_features=self.config['N_FEATURES'])
-
+        attempts = 0
         while True:
+            attempts += 1
 
             # Simulate probabilities for features to be universally preferred,
             # passed through contact (and inherited if available)
@@ -110,10 +113,19 @@ class Simulation:
                                                     p_number_categories=self.config['P_N_CATEGORIES'],
                                                     areas=self.areas, families=self.families)
 
-            correlated = assess_correlation_probabilities(self.p_universal, self.p_contact, self.p_inheritance)
-            print(correlated)
-            if correlated <= 10:
+            correlated = assess_correlation_probabilities(self.p_universal, self.p_contact, self.p_inheritance,
+                                                          corr_th=self.corr_th)
+
+            if correlated <= self.n_correlated:
                 break
+
+            if attempts > 10000:
+                attempts = 0
+
+                self.corr_th += 0.05
+                self.n_correlated += 1
+                print("Correlation threshold for simulation increased to", self.corr_th)
+                print("Number of allowed correlated features increased to", self.n_correlated)
 
         # Simulate features
         self.features, self.states, self.feature_names, self.state_names = \
