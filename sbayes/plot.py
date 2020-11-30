@@ -452,7 +452,7 @@ class Plot:
 
         all_sites = self.locations
         points = all_sites[sites[0]]
-        # print(points.shape)
+
         tri = Delaunay(points, qhull_options="QJ Pp")
 
         edges = set()
@@ -1023,7 +1023,8 @@ class Plot:
 
         for i in range(len(self.sites['id'])):
             for s in range(len(self.all_labels)):
-                if i in self.all_labels[s]:
+                if self.sites['id'][i] in self.all_labels[s]:
+
                     sites_id.append(self.sites['id'][i])
                     sites_names.append(self.sites['names'][i])
                     sites_color.append(self.graphic_config['area_colors'][s])
@@ -1035,38 +1036,44 @@ class Plot:
         n_col = ncol
         n_row = math.ceil(len(sites_names) / n_col)
 
-        l = [[] for _ in range(n_row)]
-        color_for_cells = []
+        table_fill = [[] for _ in range(n_row)]
+        color_fill = [[] for _ in range(n_row)]
+
         for i in range(len(sites_id)):
             col = i % n_row
             nr = str(sites_id[i] + 1)
-            l[col].append(nr)
-            l[col].append(sites_names[i])
 
-            # That's not a bug! One for the name, one for the number
-            color_for_cells.append(sites_color[i])
-            color_for_cells.append(sites_color[i])
+            # Append label and Name
+            table_fill[col].append(nr)
+            color_fill[col].append(sites_color[i])
+
+            table_fill[col].append(sites_names[i])
+            color_fill[col].append(sites_color[i])
 
         # Fill up empty cells
-        for i in range(len(l)):
-            if len(l[i]) != n_col * 2:
-                fill_up_nr = n_col * 2 - len(l[i])
+        for i in range(len(table_fill)):
+            if len(table_fill[i]) != n_col * 2:
+                fill_up_nr = n_col * 2 - len(table_fill[i])
                 for f in range(fill_up_nr):
-                    l[i].append("")
+                    table_fill[i].append("")
+                    color_fill[i].append("#000000")
 
-        widths = [0.05, 0.3] * int(((len(l[0])) / 2))
+        widths = [0.05, 0.3] * int(((len(table_fill[0])) / 2))
 
-        table = ax.table(cellText=l, loc='center', cellLoc="left", colWidths=widths)
+        table = ax.table(cellText=table_fill, loc='center', cellLoc="left", colWidths=widths)
         table.set_fontsize(40)
 
         # iterate through cells of a table and set color to the one used in the map
-        table_props = table.properties()
-        table_cells = table_props['child_artists']
-        for c in range(len(table_cells)):
-            try:
-                table_cells[c].get_text().set_color(color_for_cells[c])
-            except IndexError:
-                pass
+        # table_props = table.properties()
+        # table_cells = table_props['child_artists']
+        # # for c in range(len(table_cells)):
+        # #     try:
+        # #         table_cells[c].get_text().set_color(color_for_cells[c])
+        # #     except IndexError:
+        # #         pass
+        for i in range(n_row):
+            for j in range(2 * n_col):
+                table[(i, j)].get_text().set_color(color_fill[i][j])
 
         for key, cell in table.get_celld().items():
             cell.set_linewidth(0)
