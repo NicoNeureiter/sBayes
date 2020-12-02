@@ -301,6 +301,7 @@ def read_features_from_csv(file, feature_states_file):
     """This is a helper function to import data (sites, features, family membership,...) from a csv file
     Args:
         file (str): file location of the csv file
+        feature_states_file (str): file location of the meta data for the features
     Returns:
         (dict, dict, np.array, dict, dict, np.array, np.array, dict, str) :
         The language date including sites, site names, all features, feature names and state names per feature,
@@ -570,8 +571,6 @@ def counts_to_dirichlet(counts, categories, prior='uniform', outdated_features=N
         cat = categories[feat]
         # Add 1 to alpha values (1,1,...1 is a uniform prior)
         pseudocounts = counts[feat, cat] + prior_map[prior]
-        print(counts, pseudocounts, "jjj")
-        # dirichlet[feat] = stats.dirichlet(pseudocounts)
         dirichlet[feat] = pseudocounts
     return dirichlet
 
@@ -929,7 +928,6 @@ def round_single_int(n, mode='up', position=2, offset=1):
         if not position == n_digits:
             factor = 10 ** (n_digits - position)
             base = (n // factor) * factor
-            # print(f'factor {factor} base {base}')
             n_rounded = base - offset * factor if mode == 'down' else base + ((offset + 1) * factor)
         else:
             n_rounded = n - offset if mode == 'down' else n + offset
@@ -1228,6 +1226,7 @@ def fix_relative_path(base_directory, path):
         return path
     else:
         return os.path.join(base_directory, path).replace("\\", "/")
+
 
 def seriation(Z, N, cur_index):
     if cur_index < N:

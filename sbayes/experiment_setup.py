@@ -106,14 +106,16 @@ class Experiment:
         return 'simulation' in self.config
 
     def verify_priors(self, priors_cfg: dict, inheritance: bool):
+
         # Define which priors are required
         required_priors = ['geo', 'weights', 'universal', 'contact']
         if inheritance:
             required_priors.append('inheritance')
         else:
+
             if 'inheritance' in priors_cfg:
 
-                warnings.warn("Inheritance is not considered in the model. PRIOR for inheritance"
+                warnings.warn("Inheritance is not considered in the model. PRIOR for inheritance "
                               "defined in " + self.config_file + " will not be used.")
                 priors_cfg['inheritance'] = None
 

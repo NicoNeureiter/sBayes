@@ -41,8 +41,10 @@ class Plot:
         self.config_file = None
 
         # Path variables
-        self.path_results = None
-        self.path_data = None
+        self.path_output = None
+        self.path_features = None
+        self.path_feature_states = None
+        self.path_sites = None
         self.path_plots = None
 
         self.path_areas = None
@@ -121,15 +123,20 @@ class Plot:
         self.verify_config()
 
         # Assign global variables for more convenient workflow
-        self.path_results = self.config['results']['path_results']
-        self.path_data = self.config['results']['path_data']
-        self.path_plots = self.config['results']['path_results'] + '/plots'
-        self.path_areas = list(self.config['results']['path_areas'])
-        self.path_stats = list(self.config['results']['path_stats'])
+        self.path_output = self.config['output_folder']
+        if self.is_simulation:
+            self.path_sites = self.config['data']['sites']
+        else:
+            self.path_features = self.config['data']['features']
+            self.path_feature_states = self.config['data']['feature_states']
+
+        self.path_plots = self.path_output + '/plots'
+        self.path_areas = list(self.config['results']['areas'])
+        self.path_stats = list(self.config['results']['stats'])
 
         if self.is_simulation:
-            self.path_ground_truth_areas = self.config['results']['path_ground_truth_areas']
-            self.path_ground_truth_stats = self.config['results']['path_ground_truth_stats']
+            self.path_ground_truth_areas = self.config['results']['ground_truth_areas']
+            self.path_ground_truth_stats = self.config['results']['ground_truth_stats']
 
         if not os.path.exists(self.path_plots):
             os.makedirs(self.path_plots)
@@ -166,14 +173,16 @@ class Plot:
 
     # Read sites, site_names, network
     def read_data(self):
+
         print('Reading input data...')
         if self.is_simulation:
-            self.sites, self.site_names, _ = read_sites(self.path_data,
+
+            self.sites, self.site_names, _ = read_sites(self.path_sites,
                                                         retrieve_family=True, retrieve_subset=True)
             self.families, self.family_names = assign_family(1, self.sites)
         else:
-            self.sites, self.site_names, _, _, _, self.families, self.family_names, _ = \
-                read_features_from_csv(self.path_data)
+            self.sites, self.site_names, _, _, _, _, self.families, self.family_names, _ = \
+                read_features_from_csv(self.path_features, self.path_feature_states)
         self.network = compute_network(self.sites)
         self.locations, self.dist_mat = self.network['locations'], self.network['dist_mat']
 

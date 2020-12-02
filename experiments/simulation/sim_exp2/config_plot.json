@@ -1,24 +1,25 @@
 {
 	"results": {
-	"path_results": "../results/results_server",
-        "path_data": "../data/sites.csv",
-        "path_areas": [
+        "areas": [
 		  "../results/results_server/i0/areas_i0_0.txt",
           "../results/results_server/i1/areas_i1_0.txt"
         ],
-        "path_stats": [
+        "stats": [
 		  "../results/results_server/i0/stats_i0_0.txt",
           "../results/results_server/i1/stats_i1_0.txt"
         ],
-        "path_ground_truth_areas": [
+        "ground_truth_areas": [
 		  "../results/results_server/i0/ground_truth/areas.txt", 
           "../results/results_server/i1/ground_truth/areas.txt"
         ],
-        "path_ground_truth_stats": [
+        "ground_truth_stats": [
 		  "../results/results_server/i0/ground_truth/stats.txt",
 		  "../results/results_server/i1/ground_truth/stats.txt"
         ]
 		},
+	"output_folder": "../results/results_server",
+	"data": {
+		"sites": "../data/sites.csv"},
 	"map": {
 		"geo": {
 			"base_map": {

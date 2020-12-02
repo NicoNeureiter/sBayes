@@ -1,105 +1,158 @@
 {
-  "input": {
-    "path_data": "<REQUIRED>",
-    "path_plots": "<REQUIRED>",
-    "path_feature_states": "<REQUIRED>",
-    "path_areas": [],
-    "path_stats": [],
-    "path_ground_truth_areas": null,
-    "path_ground_truth_stats": null,
-    "experiment": null,
-    "subset": false,
-    "proj4": "EPSG:4326",
-    "geojson_river": null,
-    "geojson_map": null,
-    "run": "<REQUIRED>",
-    "scenarios": "<REQUIRED>"
-  },
-  "graphic": {
-    "x_extend": [-3756000, 420000],
-    "y_extend": [1100000, 3800000],
-    "x_extend_overview": [-4800000, 3900000],
-    "y_extend_overview": [-3000000, 6200000],
-    "bg_map": true,
-    "size": 25,
-    "size_line": 3,
-    "family_alpha_shape": 0.00001,
-    "family_colors": ["#b3e2cd", "#f1e2cc", "#cbd5e8", "#f4cae4", "#e6f5c9", "#d3d3d3", "#f48aa7", "#f49f1c", "#f48aa7", "#f48aa7","#f48aa7","#f48aa7", "#f48aa7"],
-    "true_family_colors": ["#add8e6", "#f1e2cc", "#cbd5e8", "#f4cae4", "#e6f5c9"],
-    "zone_colors": ["#1b9e77", "#d95f02", "#7570b3", "#e7298a", "#66a61e", "#e6ab02", "#a6761d", "#666666"],
-    "flamingo_color": "#f48aa7",
-    "banana_color": "#f49f1c"
-  },
-
-  "plot_type": {
-    "general": {
-      "fontsize": 16,
-      "line_thickness": 2,
-      "frame_width": 1.5,
-      "save_format": "pdf"
-    },
-    "plot_empty_map": {
-      "fig_width": 20,
-      "fig_height": 10,
-      "overview_position": [0.02, 0.01, 1, 1]
-    },
-    "plot_posterior_map_simulated": {
-      "fig_width": 20,
-      "fig_height": 10,
-      "area_legend_position": [0.02, 0.2],
-      "freq_legend_position": [0.15, 0.2],
-      "poly_legend_position": [0.37, 0.15],
-      "family_legend_position": [0.39, 0.10]
-    },
-    "plot_posterior_map_sa": {
-      "fig_width": 20,
-      "fig_height": 10,
-      "area_legend_position": [0.02, 0.71],
-      "freq_legend_position": [0.3, 0.2],
-      "family_legend_position": [0.02, 0.98],
-      "overview_position": [0.02, 0.01, 1, 1]
-    },
-    "plot_posterior_map_balkan": {
-      "fig_width": 20,
-      "fig_height": 10,
-      "area_legend_position": [0.02, 0.71],
-      "freq_legend_position": [0.02, 0.55],
-      "family_legend_position": [0.02, 0.965],
-      "overview_position": [0.02, -0.01, 1, 1]
-    },
-    "plot_traces": {
-      "fig_width": 10,
-      "fig_height": 8
-    },
-    "plot_trace_lh": {
-      "fig_width": 10,
-      "fig_height": 8,
-      "color_burn_in": "grey"
-    },
-    "plot_trace_lh_with_prior": {
-      "fig_width": 8,
-      "fig_height": 7,
-      "color_burn_in": "grey"
-    },
-    "plot_trace_recall_precision": {
-       "fig_width": 10,
-       "fig_height": 8,
-       "color_burn_in": "grey"
-    },
-    "plot_dics": {
-      "fig_width": 9,
-      "fig_height": 6,
-      "color_burn_in": "grey"
-    },
-    "plot_dics_simulated": {
-      "fig_width": 10,
-      "fig_height": 8,
-      "color_burn_in": "grey"
-    }
-  },
-  "overview": {
-    "width": 3.8,
-    "height": 4,
-    "location": "lower left"
-  }
+	"results": {
+		"areas": "<REQUIRED>",
+		"stats": "<REQUIRED>",
+		"path_ground_truth_areas": null,
+		"path_ground_truth_stats": null
+	},
+	"output_folder": "<REQUIRED>",
+	"data": {
+		"features": "<REQUIRED>",
+		"feature_states": "<REQUIRED>",
+		"sites": null, 
+	},
+	"map": {
+		"geo": {
+			"proj4": "EPSG:4326",
+			"base_map": {
+				"add": false,
+				"geojson_river": null,
+				"geojson_map": null
+			},
+			"x_extend": null,
+			"y_extend": null
+		},
+		"content": {
+			"plot_families": true,
+			"label_languages": true,
+			"subset": false,
+			"min_posterior_frequency": 0.7,
+			"burn_in": 0.2
+		},
+		"graphic": {
+			"family_alpha_shape": 0.00001,
+			"point_size": 25,
+			"font_size": 16,
+			"line_width": 2,
+			"frame_width": 1.5,
+			"family_colors": [
+				"#b3e2cd",
+				"#f1e2cc",
+				"#cbd5e8",
+				"#f4cae4",
+				"#e6f5c9",
+				"#d3d3d3",
+				"#f48aa7",
+				"#f49f1c",
+				"#f48aa7",
+				"#f48aa7",
+				"#f48aa7",
+				"#f48aa7",
+				"#f48aa7"
+			],
+			"area_colors": [
+				"#1b9e77",
+				"#d95f02",
+				"#7570b3",
+				"#e7298a",
+				"#66a61e",
+				"#e6ab02",
+				"#a6761d",
+				"#666666"
+			]
+		},
+		"legend": {
+			"overview": {
+				"add_overview": "true",
+				"width": 3.8,
+				"height": 4,
+				"x_extend": null,
+				"y_extend": null,
+				"position": [
+					0.01,
+					0.01
+				]
+			},
+			"areas": {
+				"add_area_stats": true,
+				"position": [
+					0.02,
+					0.71
+				]
+			},
+			"posterior_frequency": {
+				"default_values": [
+					1,
+					0.75,
+					0.5
+				],
+				"position": [
+					0.3,
+					0.2
+				]
+			},
+			"families": {
+				"add": true,
+				"position": [
+					0.02,
+					0.98
+				]
+			}
+		},
+		"ground_truth": {
+			"true_family_legend_position": [
+				0.37,
+				0.15
+			],
+			"true_family_colors": [
+				"#add8e6",
+				"#f1e2cc",
+				"#cbd5e8",
+				"#f4cae4",
+				"#e6f5c9"
+			]
+		},
+		"output": {
+			"fig_width": 20,
+			"fig_height": 10,
+			"return_correspondence": false
+		}
+	},
+	"weights_plot": {
+		"labels": [
+			"U",
+			"C",
+			"I"
+		],
+		"burn_in": 0.2,
+		"k": 10,
+		"title": true,
+		"n_columns": 6,
+		"output": {
+			"fig_width_subplot": 2,
+			"fig_height_subplot": 2,
+			"spacing_horizontal": 0.13,
+			"spacing_vertical": 0.1
+		}
+	},
+	"probabilities_plot": {
+		"burn_in": 0.2,
+		"k": 36,
+		"parameter": "TBD",
+		"title": true,
+		"n_columns": 6,
+		"output": {
+			"fig_width_subplot": 2,
+			"fig_height_subplot": 2,
+			"spacing_horizontal": 0.22,
+			"spacing_vertical": 0.15
+		}
+	},
+	"dic_plot": {
+		"burn_in": 0.2,
+		"output": {
+			"fig_width": 9,
+			"fig_height": 6
+		}
+	}
 }

@@ -1,8 +1,6 @@
 {
 	"results": {
-		"path_data": "../data/features/features.csv",
-		"path_results": "../results/scaled_prior",
-		"path_areas": [
+		"areas": [
 			"../results/scaled_prior/n1/areas_n1_0.txt",
 			"../results/scaled_prior/n2/areas_n2_0.txt",
 			"../results/scaled_prior/n3/areas_n3_0.txt",
@@ -11,7 +9,7 @@
 			"../results/scaled_prior/n6/areas_n6_0.txt",
 			"../results/scaled_prior/n7/areas_n7_0.txt"
 		],
-		"path_stats": [
+		"stats": [
 			"../results/scaled_prior/n1/stats_n1_0.txt",
 			"../results/scaled_prior/n2/stats_n2_0.txt",
 			"../results/scaled_prior/n3/stats_n3_0.txt",
@@ -19,10 +17,12 @@
 			"../results/scaled_prior/n5/stats_n5_0.txt",
 			"../results/scaled_prior/n6/stats_n6_0.txt",
 			"../results/scaled_prior/n7/stats_n7_0.txt"
-		],
-		"path_ground_truth_areas": null,
-		"path_ground_truth_stats": null
+		]
 	},
+	"data": {
+		"features": "../data/features/features.csv",
+		"feature_states": "../data/features/feature_states.csv"},
+	"output_folder": "../results/scaled_prior",
 	"map": {
 		"geo": {
             "proj4": "+proj=lcc +lat_1=43 +lat_2=62 +lat_0=30 +lon_0=10 +x_0=0 +y_0=0 +ellps=intl +units=m",

@@ -6,7 +6,6 @@ import itertools
 
 if __name__ == '__main__':
 
-
     # When simulating iterate over different setups (different areas and strengths of contact)
     I_CONTACT = [2, 3, 4]
     E_CONTACT = [0.75, 0.5, 0.25]
@@ -19,11 +18,11 @@ if __name__ == '__main__':
 
         # Update config information according to the current setup
         custom_settings = {
-            'I_CONTACT': I_CONTACT[S[0]],
-            'E_CONTACT': E_CONTACT[S[0]],
-            'STRENGTH': S[0],
-            'AREA': S[1]
-        }
+            'simulation': {
+                'I_CONTACT': I_CONTACT[S[0]],
+                'E_CONTACT': E_CONTACT[S[0]],
+                'STRENGTH': S[0],
+                'AREA': S[1]}}
 
         # 1. Initialize the experiment
         exp = Experiment()

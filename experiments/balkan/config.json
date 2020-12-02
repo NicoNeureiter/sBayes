@@ -52,7 +52,7 @@
 		}
 	},
 	"data": {
-		"FEATURES": "data/features/features.csv",
-		"FEATURE_STATES": "data/features/feature_states.csv"
+		"features": "data/features/features.csv",
+		"feature_states": "data/features/feature_states.csv"
 	}
 }

@@ -7,7 +7,7 @@ import numpy as np
 from sbayes.model import normalize_weights
 from sbayes.util import (compute_delaunay,
                          read_feature_occurrence_from_csv,
-                         tighten_counts, read_features_from_csv)
+                         read_features_from_csv)
 
 EPS = np.finfo(float).eps
 

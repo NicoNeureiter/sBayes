@@ -1,25 +1,26 @@
 {
 	"results": {
-		"path_data": "../data/features/features.csv",
-		"path_results": "../results/scaled_prior",
-		"path_areas": [
+		"areas": [
 			"../results/scaled_prior/n1/areas_n1_0.txt",
 			"../results/scaled_prior/n2/areas_n2_0.txt",
 			"../results/scaled_prior/n3/areas_n3_0.txt",
 			"../results/scaled_prior/n4/areas_n4_0.txt",
-			"../results/scaled_prior/n5/areas_n5_0.txt",
-			"../results/scaled_prior/n6/areas_n6_0.txt"
+			"../results/scaled_prior/n5/areas_n5_0.txt"
 		],
-		"path_stats": [
+		"stats": [
 			"../results/scaled_prior/n1/stats_n1_0.txt",
 			"../results/scaled_prior/n2/stats_n2_0.txt",
 			"../results/scaled_prior/n3/stats_n3_0.txt",
 			"../results/scaled_prior/n4/stats_n4_0.txt",
-			"../results/scaled_prior/n5/stats_n5_0.txt",
-			"../results/scaled_prior/n6/stats_n6_0.txt"
+			"../results/scaled_prior/n5/stats_n5_0.txt"
 		],
 		"path_ground_truth_areas": null,
 		"path_ground_truth_stats": null
+	},
+	"output_folder": "../results/scaled_prior",
+	"data": {
+		"features": "../data/features/features.csv",
+		"feature_states": "../data/features/feature_states.csv"
 	},
 	"map": {
 		"geo": {
@@ -42,10 +43,9 @@
 			"plot_families": true,
 			"label_languages": true,
 			"subset": false,
-			"min_posterior_frequency": 0.5,
+			"min_posterior_frequency": "TBD",
 			"burn_in": 0.2
 		},
-
 		"graphic": {
 			"family_alpha_shape": 0.00001,
 			"point_size": 25,
@@ -123,7 +123,10 @@
 			}
 		},
 		"ground_truth": {
-			"true_family_legend_position": [0.37, 0.15],
+			"true_family_legend_position": [
+				0.37,
+				0.15
+			],
 			"true_family_colors": [
 				"#add8e6",
 				"#f1e2cc",
@@ -139,37 +142,40 @@
 		}
 	},
 	"weights_plot": {
-		"labels": ["U", "C", "I"],
+		"labels": [
+			"U",
+			"C",
+			"I"
+		],
 		"burn_in": 0.2,
-		"k_best": 35,
+		"k_best": 36,
 		"title": true,
 		"n_columns": 6,
 		"output": {
 			"fig_width_subplot": 2,
 			"fig_height_subplot": 2,
-			"spacing_horizontal": 0.12,
+			"spacing_horizontal": 0.13,
 			"spacing_vertical": 0.1
 		}
 	},
-
 	"probabilities_plot": {
 		"burn_in": 0.2,
-		"k": 35,
+		"k": 36,
 		"parameter": "TBD",
 		"title": true,
 		"n_columns": 6,
 		"output": {
 			"fig_width_subplot": 2,
 			"fig_height_subplot": 2,
-			"spacing_horizontal": 0.12,
+			"spacing_horizontal": 0.22,
 			"spacing_vertical": 0.15
 		}
 	},
 	"dic_plot": {
 		"burn_in": 0.2,
 		"output": {
-			"fig_width": 15,
-			"fig_height": 9
+			"fig_width": 9,
+			"fig_height": 6
 		}
 	}
 }

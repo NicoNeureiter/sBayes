@@ -1,28 +1,25 @@
-from sbayes.plotting.map import Map
-from sbayes.plotting.general_plot import GeneralPlot
-
-
 import warnings
-from sbayes.plotting.map import Map
-from sbayes.plotting.general_plot import GeneralPlot
+from sbayes.plot import Plot
 
 warnings.simplefilter(action='ignore', category=UserWarning)
+warnings.simplefilter(action='ignore', category=FutureWarning)
+warnings.simplefilter(action='ignore', category=RuntimeWarning)
+
 
 if __name__ == '__main__':
-    models = GeneralPlot()
-    models.load_config(config_file='../results/results_server/config_plot.json')
+    plot = Plot(simulated_data=True)
+    plot.load_config(config_file='../results/results_server/config_plot.json')
+    plot.read_data()
 
     # Get model names
-    names = models.get_model_names()
+    names = plot.get_model_names()
 
     for m in names:
-        map = Map(simulated_data=True)
-        map.load_config(config_file='../results/results_server/config_plot.json')
-        # Read sites, sites_names, network
-        map.read_data()
         # Read results for each model
-        map.read_results(model=m)
+        plot.read_results(model=m)
+
+        # Plot map
         try:
-            map.posterior_map(file_name='posterior_map_' + m, return_correspondence=False)
+            plot.posterior_map(file_name='posterior_map_' + m, return_correspondence=True)
         except ValueError:
             pass

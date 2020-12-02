@@ -1,42 +1,59 @@
 {
 	"results": {
-		"path_results": "../results/results_server",
-		"path_data": "../data/sites.csv",
-		"path_areas": ["../results/results_server/n1/areas_n1_1.txt",
-					   "../results/results_server/n2/areas_n2_1.txt", 
-					   "../results/results_server/n3/areas_n3_1.txt",
-					   "../results/results_server/n4/areas_n4_1.txt",
-					   "../results/results_server/n5/areas_n5_1.txt",
-					   "../results/results_server/n6/areas_n6_1.txt",
-					   "../results/results_server/n7/areas_n7_1.txt"],
-		"path_stats": ["../results/results_server/n1/stats_n1_1.txt",
-					   "../results/results_server/n2/stats_n2_1.txt", 
-					   "../results/results_server/n3/stats_n3_1.txt",
-					   "../results/results_server/n4/stats_n4_1.txt",
-					   "../results/results_server/n5/stats_n5_1.txt",
-					   "../results/results_server/n6/stats_n6_1.txt",
-					   "../results/results_server/n7/stats_n7_1.txt"],
-		"path_ground_truth_areas": ["../results/results_server/n1/ground_truth/areas.txt", 
-									"../results/results_server/n2/ground_truth/areas.txt",
-									"../results/results_server/n3/ground_truth/areas.txt",
-									"../results/results_server/n4/ground_truth/areas.txt",
-									"../results/results_server/n5/ground_truth/areas.txt",
-									"../results/results_server/n6/ground_truth/areas.txt",
-									"../results/results_server/n7/ground_truth/areas.txt"],
-		"path_ground_truth_stats": ["../results/results_server/n1/ground_truth/stats.txt", 
-									"../results/results_server/n2/ground_truth/stats.txt",
-									"../results/results_server/n3/ground_truth/stats.txt",
-									"../results/results_server/n4/ground_truth/stats.txt",
-									"../results/results_server/n5/ground_truth/stats.txt",
-									"../results/results_server/n6/ground_truth/stats.txt",
-									"../results/results_server/n7/ground_truth/stats.txt"]
-		},
+		"areas": [
+			"../results/results_server/n1/areas_n1_1.txt",
+			"../results/results_server/n2/areas_n2_1.txt",
+			"../results/results_server/n3/areas_n3_1.txt",
+			"../results/results_server/n4/areas_n4_1.txt",
+			"../results/results_server/n5/areas_n5_1.txt",
+			"../results/results_server/n6/areas_n6_1.txt",
+			"../results/results_server/n7/areas_n7_1.txt"
+		],
+		"stats": [
+			"../results/results_server/n1/stats_n1_1.txt",
+			"../results/results_server/n2/stats_n2_1.txt",
+			"../results/results_server/n3/stats_n3_1.txt",
+			"../results/results_server/n4/stats_n4_1.txt",
+			"../results/results_server/n5/stats_n5_1.txt",
+			"../results/results_server/n6/stats_n6_1.txt",
+			"../results/results_server/n7/stats_n7_1.txt"
+		],
+		"ground_truth_areas": [
+			"../results/results_server/n1/ground_truth/areas.txt",
+			"../results/results_server/n2/ground_truth/areas.txt",
+			"../results/results_server/n3/ground_truth/areas.txt",
+			"../results/results_server/n4/ground_truth/areas.txt",
+			"../results/results_server/n5/ground_truth/areas.txt",
+			"../results/results_server/n6/ground_truth/areas.txt",
+			"../results/results_server/n7/ground_truth/areas.txt"
+		],
+		"ground_truth_stats": [
+			"../results/results_server/n1/ground_truth/stats.txt",
+			"../results/results_server/n2/ground_truth/stats.txt",
+			"../results/results_server/n3/ground_truth/stats.txt",
+			"../results/results_server/n4/ground_truth/stats.txt",
+			"../results/results_server/n5/ground_truth/stats.txt",
+			"../results/results_server/n6/ground_truth/stats.txt",
+			"../results/results_server/n7/ground_truth/stats.txt"
+		]
+	},
+	"output_folder": "../results/results_server",
+	"data": {
+		"sites": "../data/sites.csv"
+	},
 	"map": {
 		"geo": {
 			"base_map": {
-				"add": false},
-			"x_extend": [1500, 11000], 
-			"y_extend": [1040, 10520]
+				"add": false
+			},
+			"x_extend": [
+				1500,
+				11000
+			],
+			"y_extend": [
+				1040,
+				10520
+			]
 		},
 		"content": {
 			"plot_families": false,
@@ -45,14 +62,24 @@
 			"min_posterior_frequency": 0.9,
 			"burn_in": 0.2
 		},
-
 		"graphic": {
 			"point_size": 25,
 			"font_size": 16,
 			"line_width": 2,
 			"frame_width": 1.5,
-			"area_colors": ["#1b9e77", "#d95f02", "#7570b3", "#e7298a", "#66a61e", "#e6ab02", "#a6761d", "#666666"],
-			"family_colors": ["#add8e6"]
+			"area_colors": [
+				"#1b9e77",
+				"#d95f02",
+				"#7570b3",
+				"#e7298a",
+				"#66a61e",
+				"#e6ab02",
+				"#a6761d",
+				"#666666"
+			],
+			"family_colors": [
+				"#add8e6"
+			]
 		},
 		"legend": {
 			"overview": {
@@ -60,7 +87,10 @@
 			},
 			"areas": {
 				"add_area_stats": false,
-				"position": [0.02, 0.2]
+				"position": [
+					0.02,
+					0.2
+				]
 			},
 			"posterior_frequency": {
 				"default_values": [
@@ -68,18 +98,24 @@
 					0.75,
 					0.5
 				],
-				"position": [0.15, 0.2]
+				"position": [
+					0.15,
+					0.2
+				]
 			},
 			"families": {
 				"add": false,
 				"position": [
 					0.39,
-					0.10
+					0.1
 				]
 			}
 		},
 		"ground_truth": {
-			"true_area_polygon_position": [0.37, 0.20],
+			"true_area_polygon_position": [
+				0.37,
+				0.2
+			],
 			"area_alpha_shape": 0.00001
 		},
 		"output": {
@@ -102,5 +138,4 @@
 			"fig_height": 8
 		}
 	}
-	
 }
