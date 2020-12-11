@@ -25,6 +25,7 @@
 		"content": {
 			"plot_families": true,
 			"label_languages": true,
+			"label_offset": [1, 1], 
 			"subset": false,
 			"min_posterior_frequency": 0.7,
 			"burn_in": 0.2

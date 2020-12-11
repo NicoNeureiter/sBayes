@@ -420,6 +420,7 @@ class Plot:
         """
 
         try:
+
             self.x_min, self.x_max = self.geo_config['x_extend']
             self.y_min, self.y_max = self.geo_config['y_extend']
 
@@ -632,8 +633,8 @@ class Plot:
             # add a label at a spatial offset of 20000 and 10000. Rather than hard-coding it,
             # this might go into the config.
             x, y = loc_in_area[loc]
-            x += 20000
-            y += 10000
+            x += self.content_config['label_offset'][0]
+            y += self.content_config['label_offset'][1]
             # Same with the font size for annotations. Should probably go to the config.
             anno_opts = dict(xy=(x, y), fontsize=14, color=current_color)
             self.ax.annotate(labels_in_area[loc] + 1, **anno_opts)
@@ -878,9 +879,17 @@ class Plot:
             axins.tick_params(labelleft=False, labelbottom=False, length=0)
 
             # Map extend of the overview map
-            # x_extend_overview and y_extend_overview --> to config
-            axins.set_xlim(self.legend_config['overview']['x_extend'])
-            axins.set_ylim(self.legend_config['overview']['y_extend'])
+            if self.legend_config['overview']['x_extend'] is not None:
+                axins.set_xlim(self.legend_config['overview']['x_extend'])
+
+            else:
+                x_overview = [self.x_min - self.x_min * 0.1, self.x_max + self.x_max * 0.1]
+                axins.set_xlim(x_overview)
+
+            if self.legend_config['overview']['y_extend'] is not None:
+
+                y_overview = [self.y_min - self.y_min * 0.1, self.y_max + self.y_max * 0.1]
+                axins.set_xlim(y_overview)
 
             # Again, this function needs map data to display in the overview map.
             self.add_background_map(axins)
@@ -890,9 +899,9 @@ class Plot:
                           alpha=1, linewidth=0)
 
             # adds a bounding box around the overview map
-            bbox_width = self.geo_config['x_extend'][1] - self.geo_config['x_extend'][0]
-            bbox_height = self.geo_config['y_extend'][1] - self.geo_config['y_extend'][0]
-            bbox = mpl.patches.Rectangle((self.geo_config['x_extend'][0], self.geo_config['y_extend'][0]),
+            bbox_width = self.x_max - self.x_min
+            bbox_height = self.y_max - self.y_min
+            bbox = mpl.patches.Rectangle((self.x_min, self.x_max),
                                          bbox_width, bbox_height, ec='k', fill=False, linestyle='-')
             axins.add_patch(bbox)
 
@@ -1125,7 +1134,7 @@ class Plot:
         self.add_secondary_legend()
 
         # This adds an overview map to the map
-        if self.legend_config['overview']['add_overview']:
+        if self.legend_config['overview']['add_overview'] == 'true':
             self.add_overview_map()
 
         # Visualizes language families
