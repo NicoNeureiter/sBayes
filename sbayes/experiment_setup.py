@@ -108,7 +108,7 @@ class Experiment:
     def verify_priors(self, priors_cfg: dict, inheritance: bool):
 
         # Define which priors are required
-        required_priors = ['geo', 'weights', 'universal', 'contact']
+        required_priors = ['geo', 'area_size', 'weights', 'universal', 'contact']
         if inheritance:
             required_priors.append('inheritance')
         else:

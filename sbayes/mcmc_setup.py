@@ -56,7 +56,17 @@ class MCMC:
                                             'scale': self.config['model']['scale_geo_prior']}
         else:
             raise ValueError('Geo prior not supported')
-        # weights
+
+        # area_size prior
+        VALID_SIZE_PRIOR_TYPES = ['none', 'uniform', 'quadratic']
+        size_prior_type = self.config['model']['PRIOR']['area_size']['type']
+        if size_prior_type in VALID_SIZE_PRIOR_TYPES:
+            self.prior_structured['area_size'] = {'type': size_prior_type}
+        else:
+            raise ValueError(f'Area-size prior ´{size_prior_type}´ not supported' +
+                             f'(valid types: {VALID_SIZE_PRIOR_TYPES}).')
+
+        # weights prior
         if self.config['model']['PRIOR']['weights']['type'] == 'uniform':
             self.prior_structured['weights'] = {'type': 'uniform'}
         else:
