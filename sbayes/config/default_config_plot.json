@@ -9,7 +9,7 @@
 	"data": {
 		"features": "<REQUIRED>",
 		"feature_states": "<REQUIRED>",
-		"sites": null, 
+		"sites": null
 	},
 	"map": {
 		"geo": {
