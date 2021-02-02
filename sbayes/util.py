@@ -7,6 +7,8 @@ import csv
 import os
 from math import sqrt, floor, ceil
 
+import typing as t
+
 import numpy as np
 import pandas as pd
 import scipy.spatial as spatial
@@ -164,7 +166,7 @@ def compute_delaunay(locations):
             shape (n_edges, n_edges)
     """
 
-    n, _ = locations.shape
+    n = len(locations)
     delaunay = spatial.Delaunay(locations, qhull_options="QJ Pp")
 
     indptr, indices = delaunay.vertex_neighbor_vertices
@@ -208,8 +210,22 @@ def gabriel_graph_from_delaunay(delaunay, locations):
     return delaunay_connections[g]
 
 
-def n_smallest_distances(a, n, return_idx):
+def n_smallest_distances(a, n, return_idx: bool):
     """ This function finds the n smallest distances in a distance matrix
+
+    >>> n_smallest_distances([
+    ... [0, 2, 3, 4],
+    ... [2, 0, 5, 6],
+    ... [3, 5, 0, 7],
+    ... [4, 6, 7, 0]], 3, return_idx=False)
+    array([2, 3, 4])
+
+    >>> n_smallest_distances([
+    ... [0, 2, 3, 4],
+    ... [2, 0, 5, 6],
+    ... [3, 5, 0, 7],
+    ... [4, 6, 7, 0]], 3, return_idx=True)
+    (array([1, 2, 3]), array([0, 0, 0])
 
     Args:
         a (np.array): The distane matrix
@@ -218,6 +234,8 @@ def n_smallest_distances(a, n, return_idx):
 
     Returns:
         (np.array): the n_smallest distances
+    or
+        (np.array, np.array): the indices between which the distances are smallest
     """
     a_tril = np.tril(a)
     a_nn = a_tril[np.nonzero(a_tril)]
@@ -539,35 +557,21 @@ def scale_counts(counts, scale_to, prior_inheritance=False):
 
         Args:
             counts(np.array): the counts of categorical data.
-                        shape(n_features, n_states)
+                        shape(n_features, n_states) or shape (n_families, n_features, n_states)
             scale_to (float): the counts are scaled to this value
             prior_inheritance (bool): are these inheritance counts?
         Returns:
             np.array: the rescaled counts
     """
-    if prior_inheritance:
-        # Sum counts remove counts of zeros
-        counts_sum = np.sum(counts, axis=2)
-        counts_sum = np.where(counts_sum == 0, EPS, counts_sum)
-        scale_factor = scale_to/counts_sum
+    counts_sum = np.sum(counts, axis=-1)
+    counts_sum = np.where(counts_sum == 0, EPS, counts_sum)
+    scale_factor = scale_to/counts_sum
 
-        # Counts are only downscaled, not upscaled
-        scale_factor = np.where(scale_factor < 1, scale_factor, 1)
-        return counts * scale_factor[:, :, np.newaxis]
-
-    else:
-
-        counts_sum = np.sum(counts, axis=1)
-        counts_sum = np.where(counts_sum == 0, EPS, counts_sum)
-
-        scale_factor = scale_to / counts_sum
-
-        # Counts are only downscaled, not upscaled
-        scale_factor = np.where(scale_factor < 1, scale_factor, 1)
-        return counts * scale_factor[:, np.newaxis]
+    scale_factor = np.where(scale_factor < 1, scale_factor, 1)
+    return counts * scale_factor[..., None]
 
 
-def counts_to_dirichlet(counts, categories, prior='uniform', outdated_features=None, dirichlet=None):
+def counts_to_dirichlet(counts: t.Sequence[t.Sequence[int]], categories: t.Sequence[int], prior='uniform', outdated_features=None, dirichlet=None):
     """This is a helper function to transform counts of categorical data
     to parameters of a dirichlet distribution.
 
@@ -584,7 +588,7 @@ def counts_to_dirichlet(counts, categories, prior='uniform', outdated_features=N
     Returns:
         list: a dirichlet distribution derived from pseudocounts
     """
-    n_features, n_categories = counts.shape
+    n_features = len(counts)
 
     prior_map = {'uniform': 1, 'jeffrey': 0.5, 'naught': 0}
 

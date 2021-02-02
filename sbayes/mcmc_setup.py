@@ -9,6 +9,7 @@ import logging
 import numpy as np
 import os
 import random
+import typing
 
 from sbayes.postprocessing import (contribution_per_area, log_operator_statistics,
                                    log_operator_statistics_header, match_areas, rank_areas)
@@ -27,7 +28,7 @@ class MCMC:
         self.config = experiment.config
 
         # Paths
-        self.path_log = experiment.path_results + 'experiment.log'
+        self.path_log = experiment.path_results / 'experiment.log'
         self.path_results = experiment.path_results
 
         # Assign steps to operators
@@ -217,12 +218,13 @@ class MCMC:
                'alter_p_families': self.config['mcmc']['STEPS']['inheritance']}
         self.ops = ops
 
-    def sample(self, lh_per_area=True):
+    def sample(self, lh_per_area=True, initial_sample: typing.Optional[typing.Any] = None):
 
-        if self.sample_from_warm_up is None:
-            initial_sample = self.empty_sample()
-        else:
-            initial_sample = self.sample_from_warm_up
+        if initial_sample is None:
+            if self.sample_from_warm_up is None:
+                initial_sample = self.empty_sample()
+            else:
+                initial_sample = self.sample_from_warm_up
 
         self.sampler = ZoneMCMCGenerative(network=self.data.network, features=self.data.features,
                                           inheritance=self.config['model']['INHERITANCE'],
@@ -372,21 +374,19 @@ class MCMC:
             raise ValueError("file_info must be 'n', 's', 'i' or 'p'")
 
         run = '_{run}'.format(run=run)
-        pth = self.path_results + fi + '/'
+        pth = self.path_results / fi
         ext = '.txt'
-        gt_pth = pth + 'ground_truth/'
+        gt_pth = pth / 'ground_truth'
 
-        paths = {'parameters': pth + 'stats_' + fi + run + ext,
-                 'areas': pth + 'areas_' + fi + run + ext,
-                 'gt': gt_pth + 'stats' + ext,
-                 'gt_areas': gt_pth + 'areas' + ext}
+        paths = {'parameters': pth / ('stats_' + fi + run + ext),
+                 'areas': pth / ('areas_' + fi + run + ext),
+                 'gt': gt_pth / ('stats' + ext),
+                 'gt_areas': gt_pth / ('areas' + ext)}
 
-        if not os.path.exists(pth):
-            os.makedirs(pth)
+        pth.mkdir(exist_ok=True)
 
         if self.data.is_simulated:
             self.eval_ground_truth()
-            if not os.path.exists(gt_pth):
-                os.makedirs(gt_pth)
+            gt_pth.mkdir(exist_ok=True)
 
         samples2file(self.samples, self.data, self.config, paths)
