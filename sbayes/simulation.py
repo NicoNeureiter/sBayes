@@ -24,7 +24,7 @@ from sbayes.util import assess_correlation_probabilities
 class Simulation:
     def __init__(self, experiment):
 
-        self.path_log = experiment.path_results + 'experiment.log'
+        self.path_log = experiment.path_results / 'experiment.log'
         self.config = experiment.config['simulation']
 
         self.sites_file = experiment.config['simulation']['SITES']
