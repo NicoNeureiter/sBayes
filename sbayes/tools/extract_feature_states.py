@@ -1,4 +1,6 @@
 import os
+import argparse
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -57,22 +59,36 @@ def dict_to_df(d):
 
 
 if __name__ == '__main__':
-    tk.Tk().withdraw()
+    # CLI
+    parser = argparse.ArgumentParser(description="Tool to extract feature states from sBayes data files.")
+    parser.add_argument("--input", nargs="*", type=Path, help="The input CSV files")
+    parser.add_argument("--output", nargs="?", type=Path, help="The output CSV file")
 
-    # Ask the user for input files
-    csv_paths = []
-    current_directory = '.'
-    more_files = True
-    while more_files:
-        new_path = select_open_file(default_dir=current_directory)
-        if new_path == '':
-            # Skip when user presses cancel
-            pass
-        else:
-            csv_paths.append(new_path)
-            current_directory = os.path.dirname(new_path)
+    args = parser.parse_args()
+    csv_paths = args.input
 
-        more_files = ask_more_files()
+    # GUI
+    if len(csv_paths) == 0:
+        tk.Tk().withdraw()
+
+        # Ask the user for input files
+        csv_paths = []
+        current_directory = '.'
+        more_files = True
+        while more_files:
+            new_path = select_open_file(default_dir=current_directory)
+            if new_path == '':
+                # Skip when user presses cancel
+                pass
+            else:
+                csv_paths.append(new_path)
+                current_directory = os.path.dirname(new_path)
+
+            more_files = ask_more_files()
+
+    else:
+        # If input paths are provided through CLI, use the first path as the current directory
+        current_directory = os.path.dirname(csv_paths[0])
 
     # Read all input files and collect all states for each feature
     feature_states = None
@@ -103,5 +119,10 @@ if __name__ == '__main__':
     feature_states_df = dict_to_df(feature_states)
 
     # Ask user for the output file and save the feature_states there
-    output_path = select_save_file(default_dir=current_directory)
+    if args.output:
+        output_path = args.output
+    else:
+        output_path = select_save_file(default_dir=current_directory)
+
+    # Store the feature_states in a csv file
     feature_states_df.to_csv(output_path, index=False, line_terminator='\n')
