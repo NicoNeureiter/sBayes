@@ -314,7 +314,7 @@ class Plot:
         true_posterior, true_likelihood, true_prior, true_weights, \
         true_alpha, true_beta, true_gamma = None, None, None, None, None, None, None
 
-        with open(txt_path, 'r') as f_stats:
+        with open(txt_path, 'r', encoding="utf8") as f_stats:
             csv_reader = csv.DictReader(f_stats, delimiter='\t')
             for lines in csv_reader:
                 try:
@@ -1479,7 +1479,6 @@ class Plot:
             plt.ylim(ymin - 0.1, ymax + 0.1)
             plt.axis('off')
             plt.tight_layout(0)
-
         plt.plot()
 
     def plot_weights_grid(self, file_name, file_format="pdf"):
@@ -1517,7 +1516,6 @@ class Plot:
                                   labels=labels, mean_weights=True)
             print(position, "of", n_plots, "plots finished")
             position += 1
-
         plt.subplots_adjust(wspace=self.config['weights_plot']['output']['spacing_horizontal'],
                             hspace=self.config['weights_plot']['output']['spacing_vertical'])
 
