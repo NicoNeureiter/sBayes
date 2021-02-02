@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 import pickle
 import datetime
+import time
 import csv
 import os
 from math import sqrt, floor, ceil
@@ -25,6 +26,32 @@ FAST_DIRICHLET = True
 if FAST_DIRICHLET:
     def dirichlet_pdf(x, alpha): return np.exp(stats.dirichlet._logpdf(x, alpha))
     dirichlet_logpdf = stats.dirichlet._logpdf
+
+    # ## Since the PDF is evaluated on the same samples again we could use
+    # ## an LRU cache for further speed-up (not properly tested yet):
+    #
+    # from lru import LRU
+    # from scipy.special import gammaln, xlogy
+    #
+    # cache = LRU(10000)
+    #
+    # def dirichlet_logpdf(x, alpha):
+    #     key = alpha.tobytes()
+    #
+    #     if hash in cache:
+    #         lnB = cache[key]
+    #
+    #     else:
+    #         lnB = np.sum(gammaln(alpha)) - gammaln(np.sum(alpha))
+    #         cache[key] = lnB
+    #
+    #     return -lnB  np.sum((xlogy(alpha - 1, x.T)).T, 0)
+    #
+    # # dirichlet_logpdf = stats.dirichlet._logpdf
+    #
+    # def dirichlet_pdf(x, alpha):
+    #     return np.exp(dirichlet_logpdf(x, alpha))
+
 else:
     dirichlet_pdf = stats.dirichlet.pdf
     dirichlet_logpdf = stats.dirichlet.logpdf
@@ -1269,6 +1296,21 @@ def plot_similarity_matrix(similarities, names, show_similarity_overlay=False):
                         ha='center', va='center', color='w', fontsize=5)
 
     plt.show()
+
+
+def timeit(func):
+
+    def timed_func(*args, **kwargs):
+
+        start = time.time()
+        result = func(*args, **kwargs)
+        end = time.time()
+
+        print('Runtime %s: %.4fs' % (func.__name__, (end - start)))
+
+        return result
+
+    return timed_func
 
 
 if __name__ == "__main__":
