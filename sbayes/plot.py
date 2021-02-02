@@ -6,6 +6,7 @@ from copy import deepcopy
 from itertools import compress
 from statistics import median
 
+import pandas as pd
 import geopandas as gpd
 import matplotlib as mpl
 import matplotlib.pyplot as plt
@@ -236,17 +237,15 @@ class Plot:
     # Helper function for read_stats
     # Used for reading: weights, alpha, beta, gamma
     @staticmethod
-    def read_dictionary(txt_path, lines, current_key, search_key, param_dict):
-        if 'ground_truth' in txt_path:
-            if current_key.startswith(search_key):
-                param_dict[current_key] = float(lines[current_key])
-        else:
-            if current_key.startswith(search_key):
-                if current_key in param_dict:
-                    param_dict[current_key].append(float(lines[current_key]))
-                else:
-                    param_dict[current_key] = []
-                    param_dict[current_key].append(float(lines[current_key]))
+    def read_dictionary(dataframe, search_key, ground_truth=False):
+        param_dict = {}
+        for column_name in dataframe.columns:
+            if column_name.startswith(search_key):
+                param_dict[column_name] = dataframe[column_name].to_numpy(dtype=float)
+                if ground_truth:
+                    assert param_dict[column_name].shape == (1,)
+                    param_dict[column_name] = param_dict[column_name][0]
+
         return param_dict
 
     # Helper function for read_stats
@@ -254,20 +253,29 @@ class Plot:
     # true_weights, true_alpha, true_beta, true_gamma,
     # recall, precision
     @staticmethod
-    def read_simulation_stats(txt_path, lines):
-        true_weights, true_alpha, true_beta, true_gamma = {}, {}, {}, {}
+    def read_simulation_stats(txt_path, dataframe):
+        if 'ground_truth' in txt_path:
+            true_posterior = dataframe['posterior'][0]
+            true_likelihood = dataframe['likelihood'][0]
+            true_prior = dataframe['prior'][0]
 
-        true_posterior = float(lines['posterior'])
-        true_likelihood = float(lines['likelihood'])
-        true_prior = float(lines['prior'])
+            true_weights = Plot.read_dictionary(dataframe, 'w_', ground_truth=True)
+            true_alpha = Plot.read_dictionary(dataframe, 'alpha_', ground_truth=True)
+            true_beta = Plot.read_dictionary(dataframe, 'beta_', ground_truth=True)
+            true_gamma = Plot.read_dictionary(dataframe, 'gamma_', ground_truth=True)
 
-        for key in lines:
-            true_weights = Plot.read_dictionary(txt_path, lines, key, 'w_', true_weights)
-            true_alpha = Plot.read_dictionary(txt_path, lines, key, 'alpha_', true_alpha)
-            true_beta = Plot.read_dictionary(txt_path, lines, key, 'beta_', true_beta)
-            true_gamma = Plot.read_dictionary(txt_path, lines, key, 'gamma_', true_gamma)
+            recall, precision = None, None
 
-        return true_posterior, true_likelihood, true_prior, true_weights, true_alpha, true_beta, true_gamma
+        else:
+            recall = dataframe['recall'].to_numpy(dtype=int)
+            precision = dataframe['precision'].to_numpy(dtype=int)
+
+            true_weights, true_alpha, true_beta, true_gamma = None, None, None, None
+            true_posterior, true_likelihood, true_prior = None, None, None
+
+        return recall, precision, \
+            true_posterior, true_likelihood, true_prior, \
+            true_weights, true_alpha, true_beta, true_gamma
 
     # Helper function for read_stats
     # Bind all statistics together into the dictionary self.results
@@ -308,39 +316,33 @@ class Plot:
     # ground_truth/stats.txt
     # <experiment_path>/stats_<scenario>.txt
     def read_stats(self, txt_path, simulation_flag):
-        sample_id, posterior, likelihood, prior, recall, precision = [], [], [], [], [], []
-        weights, alpha, beta, gamma, posterior_single_areas, likelihood_single_areas, prior_single_areas = \
-            {}, {}, {}, {}, {}, {}, {}
-        true_posterior, true_likelihood, true_prior, true_weights, \
-        true_alpha, true_beta, true_gamma = None, None, None, None, None, None, None
+        sample_id, recall, precision = None, None, None
+        true_posterior, true_likelihood, true_prior, true_weights = None, None, None, None
+        true_alpha, true_beta, true_gamma = None, None, None
 
-        with open(txt_path, 'r') as f_stats:
-            csv_reader = csv.DictReader(f_stats, delimiter='\t')
-            for lines in csv_reader:
-                try:
-                    sample_id.append(int(lines['Sample']))
-                except KeyError:
-                    pass
-                posterior.append(float(lines['posterior']))
-                likelihood.append(float(lines['likelihood']))
-                prior.append(float(lines['prior']))
+        # Load the stats using pandas
+        df_stats = pd.read_csv(txt_path, delimiter='\t')
 
-                for key in lines:
-                    weights = Plot.read_dictionary(txt_path, lines, key, 'w_', weights)
-                    alpha = Plot.read_dictionary(txt_path, lines, key, 'alpha_', alpha)
-                    beta = Plot.read_dictionary(txt_path, lines, key, 'beta_', beta)
-                    gamma = Plot.read_dictionary(txt_path, lines, key, 'gamma_', gamma)
-                    posterior_single_areas = Plot.read_dictionary(txt_path, lines, key, 'post_', posterior_single_areas)
-                    likelihood_single_areas = Plot.read_dictionary(txt_path, lines, key, 'lh_', likelihood_single_areas)
-                    prior_single_areas = Plot.read_dictionary(txt_path, lines, key, 'prior_', prior_single_areas)
+        # Read scalar parameters from the dataframe
+        if 'Sample' in df_stats:
+            sample_id = df_stats['Sample'].to_numpy(dtype=int)
+        posterior = df_stats['posterior'].to_numpy(dtype=float)
+        likelihood = df_stats['likelihood'].to_numpy(dtype=float)
+        prior = df_stats['prior'].to_numpy(dtype=float)
 
-                if simulation_flag:
-                    if 'ground_truth' in txt_path:
-                        true_posterior, true_likelihood, true_prior, true_weights, \
-                        true_alpha, true_beta, true_gamma = Plot.read_simulation_stats(txt_path, lines)
-                    else:
-                        recall.append(float(lines['recall']))
-                        precision.append(float(lines['precision']))
+        # Read multivalued parameters from the dataframe into dicts
+        weights = Plot.read_dictionary(df_stats, 'w_')
+        alpha = Plot.read_dictionary(df_stats, 'alpha_')
+        beta = Plot.read_dictionary(df_stats, 'beta_')
+        gamma = Plot.read_dictionary(df_stats, 'gamma_')
+        posterior_single_areas = Plot.read_dictionary(df_stats, 'post_')
+        likelihood_single_areas = Plot.read_dictionary(df_stats, 'lh_')
+        prior_single_areas = Plot.read_dictionary(df_stats, 'prior_')
+
+        # For simulation runs: read statistics based on ground-truth
+        if simulation_flag:
+            recall, precision, true_posterior, true_likelihood, true_prior, \
+                true_weights, true_alpha, true_beta, true_gamma = Plot.read_simulation_stats(txt_path, df_stats)
 
         # Names of distinct features
         feature_names = []
@@ -348,6 +350,7 @@ class Plot:
             if 'universal' in key:
                 feature_names.append(str(key).rsplit('_', 1)[1])
 
+        # Bind all statistics together into the dictionary self.results
         self.bind_stats(txt_path, sample_id, posterior, likelihood, prior, weights, alpha, beta, gamma,
                         posterior_single_areas, likelihood_single_areas, prior_single_areas, recall, precision,
                         true_posterior, true_likelihood, true_prior, true_weights, true_alpha, true_beta, true_gamma,
@@ -563,10 +566,10 @@ class Plot:
             graph_connections = gabriel_graph_from_delaunay(delaunay, locations)
 
         elif n_graph == 3:
-            graph_connections = np.array([[0, 1], [1, 2], [2, 0]]).astype(int)
+            graph_connections = np.array([[0, 1], [1, 2], [2, 0]], dtype=int)
 
         elif n_graph == 2:
-            graph_connections = np.array([[0, 1]]).astype(int)
+            graph_connections = np.array([[0, 1]], dtype=int)
 
         else:
             raise ValueError('No points in contact area!')
@@ -918,7 +921,7 @@ class Plot:
         # Legend for area labels
         self.area_labels = ["      log-likelihood per area"]
 
-        lh_per_area = np.array(list(self.results['likelihood_single_areas'].values())).astype(float)
+        lh_per_area = np.array(list(self.results['likelihood_single_areas'].values()), dtype=float)
         to_rank = np.mean(lh_per_area, axis=1)
         p = to_rank[np.argsort(-to_rank)]
 
@@ -1265,6 +1268,9 @@ class Plot:
                     p_dict[state] = sample_dict[key][b_in:]
                     states.append(state)
 
+            if len(p_dict) == 0:
+                raise ValueError(f'No samples found for parameter {parameter}')
+
             sample = np.column_stack([p_dict[s] for s in p_dict]).astype(np.float)
             return sample, states
         else:
@@ -1283,7 +1289,7 @@ class Plot:
                 if str(feature + '_') in key and parameter in key:
                     true_prob.append(true_dict[key])
 
-            return np.array(true_prob).astype(np.float)
+            return np.array(true_prob, dtype=float)
 
     # Sort weights by median contact
     def get_parameters(self, b_in, parameter="weights"):
@@ -1478,8 +1484,8 @@ class Plot:
             plt.xlim(xmin - 0.1, xmax + 0.1)
             plt.ylim(ymin - 0.1, ymax + 0.1)
             plt.axis('off')
-            plt.tight_layout(0)
 
+        plt.tight_layout(0)
         plt.plot()
 
     def plot_weights_grid(self, file_name, file_format="pdf"):
@@ -1561,7 +1567,6 @@ class Plot:
                 self.plot_probability_vectors(p[f], feature=f, true_p=true_p[f], labels=states[f],
                                               title=self.config['probabilities_plot']['title'])
             else:
-
                 self.plot_probability_vectors(p[f], feature=f, labels=states[f],
                                               title=self.config['probabilities_plot']['title'])
             print(position, "of", n_plots, "plots finished")
