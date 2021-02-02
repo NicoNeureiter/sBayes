@@ -42,6 +42,7 @@ class MCMCGenerative(metaclass=_abc.ABCMeta):
 
         # Prior
         self.geo_prior = prior['geo']
+        self.prior_area_size = prior['area_size']
         self.prior_weights = prior['weights']
         self.prior_p_global = prior['universal']
         self.prior_p_zones = prior['contact']

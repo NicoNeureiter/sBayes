@@ -182,6 +182,7 @@ class ZoneMCMCGenerative(MCMCGenerative):
         # Compute the prior
         log_prior = self.compute_prior_per_chain[chain](sample=sample, inheritance=self.inheritance,
                                                         geo_prior_meta=self.geo_prior,
+                                                        prior_area_size_meta=self.prior_area_size,
                                                         prior_weights_meta=self.prior_weights,
                                                         prior_p_global_meta=self.prior_p_global,
                                                         prior_p_zones_meta=self.prior_p_zones,
@@ -193,6 +194,7 @@ class ZoneMCMCGenerative(MCMCGenerative):
             sample.everything_changed()
             log_prior_stable = self.compute_prior_per_chain[chain](sample=sample, inheritance=self.inheritance,
                                                                    geo_prior_meta=self.geo_prior,
+                                                                   prior_area_size_meta=self.prior_area_size,
                                                                    prior_weights_meta=self.prior_weights,
                                                                    prior_p_global_meta=self.prior_p_global,
                                                                    prior_p_zones_meta=self.prior_p_zones,

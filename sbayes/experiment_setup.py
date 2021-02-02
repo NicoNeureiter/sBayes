@@ -108,7 +108,7 @@ class Experiment:
     def verify_priors(self, priors_cfg: dict, inheritance: bool):
 
         # Define which priors are required
-        required_priors = ['geo', 'weights', 'universal', 'contact']
+        required_priors = ['geo', 'area_size', 'weights', 'universal', 'contact']
         if inheritance:
             required_priors.append('inheritance')
         else:
@@ -159,96 +159,6 @@ class Experiment:
             if type(self.config['simulation']['AREA']) is list:
                 self.config['simulation']['AREA'] = tuple(self.config['simulation']['AREA'])
 
-            ### NN: replaced by default_config.json
-            # if 'SITES' not in self.config['simulation']:
-            #     raise NameError("SITES is not defined in " + self.config_file)
-            # else:
-            #     self.config['simulation']['SITES'] = self.fix_relative_path(self.config['simulation']['SITES'])
-            # # Does the simulation part of the config file provide all required simulation parameters?
-            # # Simulate inheritance?
-            # if 'INHERITANCE' not in self.config['simulation']:
-            #     raise NameError("INHERITANCE is not defined in " + self.config_file)
-            # Strength of the contact signal
-            # if 'E_CONTACT' not in self.config['simulation']:
-            #     raise NameError("E_CONTACT is not defined in " + self.config_file)
-            # if 'I_CONTACT' not in self.config['simulation']:
-            #     raise NameError("I_CONTACT is not defined in " + self.config_file)
-            # Area for which contact is simulated
-            # if 'AREA' not in self.config['simulation']:
-            #     raise NameError("AREA is not defined in " + self.config_file)
-            # if type(self.config['simulation']['AREA']) is list:
-            #     self.config['simulation']['AREA'] = tuple(self.config['simulation']['AREA'])
-            #
-            # # Which optional parameters are provided in the config file?
-            # # Number of simulated features and states
-            # if 'N_FEATURES' not in self.config['simulation']:
-            #     self.config['simulation']['N_FEATURES'] = 35
-            # if 'P_N_STATES' not in self.config['simulation']:
-            #     self.config['simulation']['P_N_STATES'] = {"2": 0.4, "3": 0.3, "4": 0.3}
-            #
-            # # Strength of universal pressure
-            # if 'I_UNIVERSAL' not in self.config['simulation']:
-            #     self.config['simulation']['I_UNIVERSAL'] = 1.0
-            # if 'E_UNIVERSAL' not in self.config['simulation']:
-            # #     self.config['simulation']['E_UNIVERSAL'] = 1.0
-            #
-            # # Use only a subset of the data for simulation?
-            # if 'SUBSET' not in self.config['simulation']:
-            #     self.config['simulation']['SUBSET'] = False
-            #
-            # # Strength of inheritance
-            # if self.config['simulation']['INHERITANCE']:
-            #     if 'I_INHERITANCE' not in self.config['simulation']:
-            #         self.config['simulation']['I_INHERITANCE'] = 0.2
-            #     if 'E_INHERITANCE' not in self.config['simulation']:
-            #         self.config['simulation']['E_INHERITANCE'] = 2
-            # else:
-            #     self.config['simulation']['I_INHERITANCE'] = None
-            #     self.config['simulation']['E_INHERITANCE'] = None
-
-        ### NN: Replaced by default_config.json
-        # # Model
-        # # Does the config file define a model?
-        # if 'model' not in self.config:
-        #     raise NameError("Information about the model was not found in"
-        #                     + self.config_file + ". Include model as a key.")
-        # # Number of areas
-        # if 'N_AREAS' not in self.config['model']:
-        #     raise NameError("N_AREAS is not defined in " + self.config_file)
-        # # Consider inheritance as a confounder?
-        # if 'INHERITANCE' not in self.config['model']:
-        #     raise NameError("INHERITANCE is not defined in " + self.config_file)
-        # # Priors
-        # if 'PRIOR' not in self.config['model']:
-        #     raise NameError("PRIOR is not defined in " + self.config_file)
-        # if 'geo' not in self.config['model']['PRIOR']:
-        #     raise NameError("geo PRIOR is not defined in " + self.config_file)
-        # if 'weights' not in self.config['model']['PRIOR']:
-        #     raise NameError("PRIOR for weights is not defined in " + self.config_file)
-        # if 'contact' not in self.config['model']['PRIOR']:
-        #     raise NameError("PRIOR for contact is not defined in " + self.config_file)
-        # if 'universal' not in self.config['model']['PRIOR']:
-        #     raise NameError("PRIOR for universal pressure is not defined in " + self.config_file)
-        # if 'type' not in self.config['model']['PRIOR']['universal']:
-        #     raise NameError("type for universal prior is not defined in " + self.config_file)
-        # if self.config['model']['PRIOR']['universal']['type'] == 'counts':
-        #     self.config['model']['PRIOR']['universal']['file'] = \
-        #         self.fix_relative_path(self.config['model']['PRIOR']['universal']['file'])
-        # if self.config['model']['PRIOR']['inheritance']:
-        #     for fam in self.config['model']['PRIOR']['inheritance']:
-        #         self.config['model']['PRIOR']['inheritance'][fam] = \
-        #             self.fix_relative_path(self.config['model']['PRIOR']['inheritance'][fam])
-        # if 'scale_counts' not in self.config['model']['PRIOR']:
-        #     self.config['model']['PRIOR']['scale_counts'] = None
-        # if self.config['model']['INHERITANCE']:
-        #     if 'inheritance' not in self.config['model']['PRIOR']:
-        #         raise NameError("PRIOR for inheritance (families) is not defined in " + self.config_file)
-        # else:
-        #     if 'inheritance' in self.config['model']['PRIOR']:
-        #         warnings.warn("Inheritance is not considered in the model. PRIOR for inheritance"
-        #                       "defined in " + self.config_file + "will not be used.")
-        #         self.config['model']['PRIOR']['inheritance'] = None
-
         if 'NEIGHBOR_DIST' not in self.config['model']:
             self.config['model']['NEIGHBOR_DIST'] = "euclidean"
         if 'LAMBDA_GEO_PRIOR' not in self.config['model']:
@@ -267,22 +177,6 @@ class Experiment:
         if 'mcmc' not in self.config:
             raise NameError("Information about the MCMC setup was not found in"
                             + self.config_file + ". Include mcmc as a key.")
-
-        ### NN: Moved to default_config.json
-        # # Which optional parameters are provided in the config file?
-        # # Number of steps
-        # if 'N_STEPS' not in self.config['mcmc']:
-        #     self.config['mcmc']['N_STEPS'] = 30000
-        # # Number of samples
-        # if 'N_SAMPLES' not in self.config['mcmc']:
-        #     self.config['mcmc']['N_SAMPLES'] = 1000
-        # # Number of runs
-        # if 'N_RUNS' not in self.config['mcmc']:
-        #     self.config['mcmc']['N_RUNS'] = 1
-        # if 'P_GROW_CONNECTED' not in self.config['mcmc']:
-        #     self.config['mcmc']['P_GROW_CONNECTED'] = 0.85
-        # if 'M_INITIAL' not in self.config['mcmc']:
-        #     self.config['mcmc']['M_INITIAL'] = 5
 
         # todo: activate for MC3
         # Number of parallel Markov chains
@@ -305,89 +199,6 @@ class Experiment:
 
         if spacing != 0.:
             raise ValueError("Non-consistent spacing between samples. Set N_STEPS to be a multiple of N_SAMPLES. ")
-
-        ### NN: Moved to default_config.json
-        # # Precision of the proposal distribution
-        # # PROPOSAL_PRECISION is in config --> check for consistency
-        # if 'PROPOSAL_PRECISION' in self.config['mcmc']:
-        #     if 'weights' not in self.config['mcmc']['PROPOSAL_PRECISION']:
-        #         self.config['mcmc']['PROPOSAL_PRECISION']['weights'] = 30
-        #     if 'universal' not in self.config['mcmc']['PROPOSAL_PRECISION']:
-        #         self.config['mcmc']['PROPOSAL_PRECISION']['universal'] = 30
-        #     if 'contact' not in self.config['mcmc']['PROPOSAL_PRECISION']:
-        #         self.config['mcmc']['PROPOSAL_PRECISION']['contact'] = 30
-        #     if self.config['model']['INHERITANCE']:
-        #         if 'inheritance' not in self.config['mcmc']['PROPOSAL_PRECISION']:
-        #             self.config['mcmc']['PROPOSAL_PRECISION']['inheritance'] = 30
-        #     else:
-        #         self.config['mcmc']['PROPOSAL_PRECISION']['inheritance'] = None
-        #
-        # # PROPOSAL_PRECISION is not in config --> use default values
-        # else:
-        #     if not self.config['model']['INHERITANCE']:
-        #         self.config['mcmc']['PROPOSAL_PRECISION'] = {"weights": 15,
-        #                                                      "universal": 40,
-        #                                                      "contact": 20,
-        #                                                      "inheritance": None}
-        #     else:
-        #         self.config['model']['PROPOSAL_PRECISION'] = {"weights": 15,
-        #                                                       "universal": 40,
-        #                                                       "contact": 20,
-        #                                                       "inheritance": 20}
-
-        ### NN: Moved to default_config.json
-        # # Steps per operator
-        # # STEPS is in config --> check for consistency
-        # steps_complete = True
-        # if 'STEPS' in self.config['mcmc']:
-        #     if 'area' not in self.config['mcmc']['STEPS']:
-        #         warnings.warn("STEPS for area are not defined in the config file, default STEPS will be used instead.")
-        #         steps_complete = False
-        #
-        #     if 'weights' not in self.config['mcmc']['STEPS']:
-        #         warnings.warn("STEPS for weights are not defined in the config file, "
-        #                       "default STEPS will be used instead.")
-        #         steps_complete = False
-        #
-        #     if 'universal' not in self.config['mcmc']['STEPS']:
-        #         warnings.warn("STEPS for universal are not defined in the config file, "
-        #                       "default STEPS will be used instead.")
-        #         steps_complete = False
-        #
-        #     if 'universal' not in self.config['mcmc']['STEPS']:
-        #         warnings.warn("STEPS for contact are not defined in the config file, "
-        #                       "default STEPS will be used instead.")
-        #         steps_complete = False
-        #
-        #     if self.config['model']['INHERITANCE']:
-        #         if 'inheritance' not in self.config['mcmc']['STEPS']:
-        #             warnings.warn("Inheritance is modelled in the MCMC, but STEPS for inheritance are not defined "
-        #                           "in the config file, default STEPS will be used instead.")
-        #             steps_complete = False
-        #
-        #     else:
-        #         if 'inheritance' not in self.config['mcmc']['STEPS']:
-        #             self.config['mcmc']['STEPS']['inheritance'] = 0.0
-        #         elif self.config['mcmc']['STEPS']['inheritance'] > 0.0:
-        #             warnings.warn("Inheritance is not modelled in the MCMC, but STEPS for inheritance are defined"
-        #                           "in the config file, default STEPS will be used instead.")
-        #             steps_complete = False
-        #
-        # ### NN: Moved to default_congig.json
-        # # # STEPS is not in config --> use default
-        # # if 'STEPS' not in self.config['mcmc'] or not steps_complete:
-        # #     if self.config['model']['INHERITANCE']:
-        # #         self.config['mcmc']['STEPS'] = {"area": 0.05,
-        # #                                         "weights": 0.4,
-        # #                                         "universal": 0.05,
-        # #                                         "contact": 0.4,
-        # #                                         "inheritance": 0.1}
-        # #     else:
-        # #         self.config['mcmc']['STEPS'] = {"area": 0.05,
-        # #                                          "weights": 0.45,
-        # #                                          "universal": 0.05,
-        # #                                          "contact": 0.45,
-        # #                                          "inheritance": 0.00}
 
         # Do not use inheritance steps if inheritance is disabled
         if not self.config['model']['INHERITANCE']:

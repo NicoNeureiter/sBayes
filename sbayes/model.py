@@ -379,13 +379,14 @@ class GenerativePrior(object):
         self.prior_p_zones_distr = None
         self.prior_p_families_distr = None
 
-    def __call__(self, sample, inheritance, geo_prior_meta, prior_weights_meta, prior_p_global_meta,
+    def __call__(self, sample, inheritance, geo_prior_meta, prior_area_size_meta, prior_weights_meta, prior_p_global_meta,
                  prior_p_zones_meta, prior_p_families_meta, network):
         """Compute the prior of the current sample.
         Args:
             sample (Sample): A Sample object consisting of zones and weights
             inheritance (bool): Does the model consider inheritance?
             geo_prior_meta (dict): The geo-prior used in the analysis
+            prior_area_size_meta (dict): The area-size prior used in the analysis
             prior_weights_meta (dict): The prior for weights used in the analysis
             prior_p_global_meta (dict): The prior for p_global
             prior_p_zones_meta (dict): The prior for p_zones
@@ -397,7 +398,7 @@ class GenerativePrior(object):
         """
 
         # zone-size prior
-        size_prior = self.get_size_prior(sample)
+        size_prior = self.get_size_prior(sample, prior_area_size_meta)
         # geo-prior
         geo_prior = self.get_geo_prior(sample, geo_prior_meta, network)
         # weights
@@ -655,55 +656,61 @@ class GenerativePrior(object):
         """Check whether the cached size_prior is up-to-date or needs to be recomputed."""
         return self.size_prior is None or sample.what_changed['prior']['zones']
 
-    def get_size_prior(self, sample):
+    def get_size_prior(self, sample, prior_area_size_meta):
         """Compute the size-prior of the current zone (or load from cache).
 
         Args:
             sample (Sample): Current MCMC sample.
+            prior_area_size_meta (dict): Meta-information about the prior.
 
         Returns:
             float: Logarithm of the prior probability density.
         """
         if self.size_prior_outdated(sample):
-            size_prior = evaluate_size_prior(sample.zones)
-            # size_prior = 0.
+            size_prior = evaluate_size_prior(zones=sample.zones,
+                                             size_prior_type=prior_area_size_meta['type'])
             self.size_prior = size_prior
 
         return self.size_prior
 
 
-def evaluate_size_prior(zones):
+def evaluate_size_prior(zones, size_prior_type):
     """This function computes the prior probability of a set of zones, based on
     the number of languages in each zone.
 
     Args:
         zones (np.array): boolean array representing the current zone.
             shape: (n_zones, n_sites)
+        size_prior_type (str): string identifier describing which type of area size prior to use.
     Returns:
         float: log-probability of the zone sizes.
     """
+    # TODO It would be quite natural to allow informative priors here.
+
     n_zones, n_sites = zones.shape
     sizes = np.sum(zones, axis=-1)
 
-    # P(size)   =   uniform
-    # TODO It would be quite natural to allow informative priors here.
-    logp = 0.
+    if size_prior_type == 'uniform':
+        # P(size)   =   uniform
+        # P(zone | size)   =   1 / |{zones of size k}|   =   1 / (n choose k)
+        logp = -np.sum(log_binom(n_sites, sizes))
+    elif size_prior_type == 'quadratic':
+        # Here we assume that only a quadratically growing subset of zones is plausibly
+        # permitted the likelihood and/or geo-prior.
+        # P(zone | size) = 1 / |{"plausible" zones of size k}| = 1 / k**2
+        log_plausible_zones = np.log(sizes**2)
 
-    # MODE = 'uniform'
-    # if MODE == 'uniform':
-    #     # P(zone | size)   =   1 / |{zones of size k}|   =   1 / (n choose k)
-    #     logp += -np.sum(log_binom(n_sites, sizes))
-    # elif MODE == 'quadratic':
-    #     # Here we assume that only a quadratically growing subset of zones is plausibly
-    #     # permitted the likelihood and/or geo-prior.
-    #     # P(zone | size) = 1 / |{"plausible" zones of size k}| = 1 / k**2
-    #     log_plausible_zones = np.log(sizes**2)
-    #
-    #     # We could bound the number of plausible zones by the number of possible zones:
-    #     # log_possible_zones = log_binom(n_sites, sizes)
-    #     # log_plausible_zones = np.minimum(np.log(sizes**2), log_possible_zones)
-    #
-    #     logp += -np.sum(log_plausible_zones)
+        # We could bound the number of plausible zones by the number of possible zones:
+        # log_possible_zones = log_binom(n_sites, sizes)
+        # log_plausible_zones = np.minimum(np.log(sizes**2), log_possible_zones)
+
+        logp = -np.sum(log_plausible_zones)
+    elif size_prior_type == 'none':
+        # No size prior
+        # P(zone | size) = P(zone) = const.
+        logp = 0.
+    else:
+        raise ValueError('Unknown size_prior_type: %s' % size_prior_type)
 
     return logp
 

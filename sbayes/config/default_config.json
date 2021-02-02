@@ -30,6 +30,7 @@
 		"INHERITANCE": "<REQUIRED>",
 		"PRIOR": {
 			"geo": {"type": "uniform"},
+			"area_size": {"type":  "none"},
 			"weights": {"type": "uniform"},
 			"universal": {"type": "uniform"},
 			"inheritance": {"type": "uniform"},
