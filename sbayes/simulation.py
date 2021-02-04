@@ -22,7 +22,7 @@ from sbayes.util import assess_correlation_probabilities
 
 
 class Simulation:
-    def __init__(self, experiment):
+    def __init__(self, experiment, correlation_threshold=0.3, n_correlated=10):
 
         self.path_log = experiment.path_results / 'experiment.log'
         self.config = experiment.config['simulation']
@@ -54,8 +54,8 @@ class Simulation:
         self.is_simulated = True
 
         # Correlation between features
-        self.corr_th = 0.3
-        self.n_correlated = 10
+        self.corr_th = correlation_threshold
+        self.n_correlated = n_correlated
 
     def log_simulation(self):
         logging.basicConfig(format='%(message)s', filename=self.path_log, level=logging.DEBUG)
