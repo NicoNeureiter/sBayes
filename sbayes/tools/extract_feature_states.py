@@ -43,7 +43,7 @@ def collect_feature_states(features_path):
     features = pd.read_csv(features_path, sep=',', dtype=str)
     features = features.drop(['id', 'name', 'family', 'x', 'y'], axis=1)
     features = features.applymap(normalize_str)
-    return {f: set(features[f].unique()) for f in features.columns}
+    return {f: set(features[f].dropna().unique()) for f in features.columns}
 
 
 def dict_to_df(d):
@@ -68,7 +68,7 @@ if __name__ == '__main__':
     csv_paths = args.input
 
     # GUI
-    if len(csv_paths) == 0:
+    if (csv_paths is None) or (len(csv_paths) == 0):
         tk.Tk().withdraw()
 
         # Ask the user for input files
@@ -109,8 +109,8 @@ if __name__ == '__main__':
 
     # Remove NAs and order states alphabetically (if ´ORDER_STATES´ is set)
     for f in feature_states:
-        if np.nan in feature_states[f]:
-            feature_states[f].remove(np.nan)
+        # if np.nan in feature_states[f]:
+        #     feature_states[f].remove(np.nan)
 
         if ORDER_STATES:
             feature_states[f] = sorted(feature_states[f])
