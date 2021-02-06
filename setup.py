@@ -2,7 +2,7 @@ from setuptools import setup, find_packages
 
 setup(
     name="sbayes",
-    version="0.1",
+    version="1.0",
     description="MCMC algorithms to identify contact areas in cultural data",
     author="Peter Ranacher, Nico Neureiter",
     author_email="peter.ranacher@geo.uzh.ch",
@@ -15,18 +15,19 @@ setup(
     package_dir={'sbayes': 'sbayes'},
     platforms='any',
     install_requires=[
-        "pandas",
-        "geopandas",
-        "pycairo",
-        "pygobject",
         "descartes",
-        "seaborn",
-        "pyproj",
-        "cartopy",
-        "numpy",
-        "fastcluster",
-        "scipy",
+        "geopandas",
         "matplotlib",
+        "numpy",
+        "pandas",
+        "pyproj",
+        "scipy",
+        "Shapely",
+        "seaborn",
+        "fastcluster",
+        "cartopy",
+        "typing_extensions",
+        "pycldf",
     ],
     entry_points={
         'console_scripts': [
