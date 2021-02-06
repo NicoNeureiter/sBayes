@@ -228,7 +228,7 @@ class MCMC:
 
         self.sampler = ZoneMCMCGenerative(network=self.data.network, features=self.data.features,
                                           inheritance=self.config['model']['INHERITANCE'],
-                                          prior=self.prior_structured,
+                                          prior_settings=self.prior_structured,
                                           n_zones=self.config['model']['N_AREAS'],
                                           n_chains=self.config['mcmc']['N_CHAINS'],
                                           min_size=self.config['model']['MIN_M'],
@@ -334,7 +334,7 @@ class MCMC:
                                 min_size=self.config['model']['MIN_M'],
                                 max_size=max_size_list,
                                 n_zones=self.config['model']['N_AREAS'],
-                                prior=self.prior_structured,
+                                prior_settings=self.prior_structured,
                                 inheritance=self.config['model']['INHERITANCE'],
                                 n_chains=self.config['mcmc']['WARM_UP']['N_WARM_UP_CHAINS'],
                                 operators=self.ops, families=self.data.families,

@@ -369,55 +369,78 @@ class GenerativeLikelihood(object):
 
 class GenerativePrior(object):
 
-    def __init__(self):
+    """The joint prior of all parameters in the sBayes model.
+
+    Attrs:
+        inheritance (bool): activate family distribution.
+        geo_prior_meta (dict): Meta-information about the prior.
+        prior_area_size_meta (dict): Meta-information about the area size prior.
+        prior_weights_meta (dict): Meta-information about the weights prior.
+        prior_p_global_meta (dict): Meta-information about the p_global prior.
+        prior_p_zones_meta (dict): Meta-information about the p_zones prior.
+        prior_p_families_meta (dict): Meta-information about the p_family prior.
+        network (dict): network containing the graph, location,...
+        size_prior (float): cached value of the size_prior
+        geo_prior (float): cached value of the geo_prior
+        prior_weights (float): cached value of the prior_weights
+        prior_p_global (float): cached value of the prior_p_global
+        prior_p_zones (float): cached value of the prior_p_zones
+        prior_p_families (float): cached value of the prior_p_families
+        prior_p_families_distr (list): cached list of dirichlet counts for the family prior
+
+    """
+
+    def __init__(self, inheritance, network, prior_settings):
+        self.inheritance = inheritance
+        self.network = network
+
+        self.geo_prior_meta = prior_settings['geo']
+        self.prior_area_size_meta = prior_settings['area_size']
+        self.prior_weights_meta = prior_settings['weights']
+        self.prior_p_global_meta = prior_settings['universal']
+        self.prior_p_zones_meta = prior_settings['contact']
+        if inheritance:
+            self.prior_p_families_meta = prior_settings['inheritance']
+        else:
+            self.prior_p_families_meta = None
+
         self.size_prior = None
         self.geo_prior = None
         self.prior_weights = None
         self.prior_p_global = None
         self.prior_p_zones = None
         self.prior_p_families = None
-        self.prior_p_zones_distr = None
         self.prior_p_families_distr = None
 
-    def __call__(self, sample, inheritance, geo_prior_meta, prior_area_size_meta, prior_weights_meta, prior_p_global_meta,
-                 prior_p_zones_meta, prior_p_families_meta, network):
+    def __call__(self, sample):
         """Compute the prior of the current sample.
         Args:
             sample (Sample): A Sample object consisting of zones and weights
-            inheritance (bool): Does the model consider inheritance?
-            geo_prior_meta (dict): The geo-prior used in the analysis
-            prior_area_size_meta (dict): The area-size prior used in the analysis
-            prior_weights_meta (dict): The prior for weights used in the analysis
-            prior_p_global_meta (dict): The prior for p_global
-            prior_p_zones_meta (dict): The prior for p_zones
-            prior_p_families_meta (dict): The prior for p_families
-            network (dict): network containing the graph, locations,...
 
         Returns:
             float: The (log)prior of the current sample
         """
 
         # zone-size prior
-        size_prior = self.get_size_prior(sample, prior_area_size_meta)
+        size_prior = self.get_size_prior(sample)
         # geo-prior
-        geo_prior = self.get_geo_prior(sample, geo_prior_meta, network)
+        geo_prior = self.get_geo_prior(sample)
         # weights
-        prior_weights = self.get_prior_weights(sample, prior_weights_meta)
+        prior_weights = self.get_prior_weights(sample)
         # p_global
-        prior_p_global = self.get_prior_p_global(sample, prior_p_global_meta)
+        prior_p_global = self.get_prior_p_global(sample)
         # p_zones
-        prior_p_zones = self.get_prior_p_zones(sample, prior_p_zones_meta)
+        prior_p_zones = self.get_prior_p_zones(sample)
         # p_families
-        if inheritance:
-
-            prior_p_families = self.get_prior_p_families(sample, prior_p_families_meta)
+        if self.inheritance:
+            prior_p_families = self.get_prior_p_families(sample)
 
         else:
             prior_p_families = None
 
         # Add up prior components (in log space)
         log_prior = size_prior + geo_prior + prior_weights + prior_p_global + prior_p_zones
-        if inheritance:
+        if self.inheritance:
             log_prior += prior_p_families
 
         # The step is completed. Everything is up-to-date.
@@ -426,7 +449,7 @@ class GenerativePrior(object):
         sample.what_changed['prior']['p_global'].clear()
         sample.what_changed['prior']['p_zones'].clear()
 
-        if inheritance:
+        if self.inheritance:
             sample.what_changed['prior']['p_families'].clear()
 
         return log_prior
@@ -435,18 +458,17 @@ class GenerativePrior(object):
         """Check whether the cached prior_weights is up-to-date or needs to be recomputed."""
         return self.prior_weights is None or sample.what_changed['prior']['weights']
 
-    def get_prior_weights(self, sample, prior_weights_meta):
+    def get_prior_weights(self, sample):
         """Compute the prior for weights (or load from cache).
 
         Args:
             sample (Sample): Current MCMC sample.
-            prior_weights_meta (dict): Meta-information about the prior.
 
         Returns:
             float: Logarithm of the prior probability density.
         """
         if self.weights_prior_outdated(sample):
-            if prior_weights_meta['type'] == 'uniform':
+            if self.prior_weights_meta['type'] == 'uniform':
                 prior_weights = 0.
             else:
                 raise ValueError('Currently only uniform prior_weights are supported.')
@@ -466,17 +488,16 @@ class GenerativePrior(object):
         else:
             return False
 
-    def get_prior_p_zones(self, sample, prior_p_zones_meta):
+    def get_prior_p_zones(self, sample):
         """Compute the prior for p_zones (or load from cache).
 
         Args:
             sample (Sample): Current MCMC sample.
-            prior_p_zones_meta (dict): Meta-information about the prior.
 
         Returns:
             float: Logarithm of the prior probability density.
         """
-        prior_type = prior_p_zones_meta['type']
+        prior_type = self.prior_p_zones_meta['type']
         what_changed = sample.what_changed['prior']
 
         if self.p_zones_prior_outdated(sample, prior_type):
@@ -518,17 +539,16 @@ class GenerativePrior(object):
         else:
             return False
 
-    def get_prior_p_families(self, sample, prior_p_families_meta):
+    def get_prior_p_families(self, sample):
         """Compute the prior for p_families (or load from cache).
 
         Args:
             sample (Sample): Current MCMC sample.
-            prior_p_families_meta (dict): Meta-information about the prior.
 
         Returns:
             float: Logarithm of the prior probability density.
         """
-        prior_type = prior_p_families_meta['type']
+        prior_type = self.prior_p_families_meta['type']
         what_changed = sample.what_changed['prior']
 
         if self.p_families_prior_outdated(sample, prior_type):
@@ -538,43 +558,43 @@ class GenerativePrior(object):
 
             elif prior_type == 'counts':
                 prior_p_families = prior_p_families_dirichlet(p_families=sample.p_families,
-                                                              dirichlet=prior_p_families_meta['dirichlet'],
-                                                              categories=prior_p_families_meta['states'],
+                                                              dirichlet=self.prior_p_families_meta['dirichlet'],
+                                                              categories=self.prior_p_families_meta['states'],
                                                               outdated_indices=what_changed['p_families'],
                                                               outdated_distributions=what_changed['p_global'],
                                                               cached_prior=self.prior_p_families,
                                                               broadcast=False)
 
             elif prior_type == 'universal':
-                s = prior_p_families_meta['strength']
+                s = self.prior_p_families_meta['strength']
                 c_universal = s * sample.p_global[0]
                 self.prior_p_families_distr = counts_to_dirichlet(counts=c_universal,
-                                                                  categories=prior_p_families_meta['states'],
+                                                                  categories=self.prior_p_families_meta['states'],
                                                                   outdated_features=what_changed['p_global'],
                                                                   dirichlet=self.prior_p_families_distr)
 
                 prior_p_families = prior_p_families_dirichlet(p_families=sample.p_families,
                                                               dirichlet=self.prior_p_families_distr,
-                                                              categories=prior_p_families_meta['states'],
+                                                              categories=self.prior_p_families_meta['states'],
                                                               outdated_indices=what_changed['p_families'],
                                                               outdated_distributions=what_changed['p_global'],
                                                               cached_prior=self.prior_p_families,
                                                               broadcast=True)
 
             elif prior_type == 'counts_and_universal':
-                s = prior_p_families_meta['strength']
-                c_pseudocounts = prior_p_families_meta['counts']
+                s = self.prior_p_families_meta['strength']
+                c_pseudocounts = self.prior_p_families_meta['counts']
                 c_universal = s * sample.p_global
 
                 self.prior_p_families_distr = \
                     inheritance_counts_to_dirichlet(counts=c_universal + c_pseudocounts,
-                                                    categories=prior_p_families_meta['states'],
+                                                    categories=self.prior_p_families_meta['states'],
                                                     outdated_features=what_changed['p_global'],
                                                     dirichlet=self.prior_p_families_distr)
 
                 prior_p_families = prior_p_families_dirichlet(p_families=sample.p_families,
                                                               dirichlet=self.prior_p_families_distr,
-                                                              categories=prior_p_families_meta['states'],
+                                                              categories=self.prior_p_families_meta['states'],
                                                               outdated_indices=what_changed['p_families'],
                                                               outdated_distributions=what_changed['p_global'],
                                                               cached_prior=self.prior_p_families,
@@ -591,25 +611,24 @@ class GenerativePrior(object):
         """Check whether the cached prior_p_global is up-to-date or needs to be recomputed."""
         return self.prior_p_global is None or sample.what_changed['prior']['p_global']
 
-    def get_prior_p_global(self, sample, prior_p_global_meta):
+    def get_prior_p_global(self, sample):
         """Compute the prior for p_global (or load from cache).
 
         Args:
             sample (Sample): Current MCMC sample.
-            prior_p_global_meta (dict): Meta-information about the prior.
 
         Returns:
             float: Logarithm of the prior probability density.
         """
         if self.prior_p_global_outdated(sample):
 
-            if prior_p_global_meta['type'] == 'uniform':
+            if self.prior_p_global_meta['type'] == 'uniform':
                 prior_p_global = 0.
 
-            elif prior_p_global_meta['type'] == 'counts':
+            elif self.prior_p_global_meta['type'] == 'counts':
                 prior_p_global = prior_p_global_dirichlet(p_global=sample.p_global,
-                                                          dirichlet=prior_p_global_meta['dirichlet'],
-                                                          categories=prior_p_global_meta['states'],
+                                                          dirichlet=self.prior_p_global_meta['dirichlet'],
+                                                          categories=self.prior_p_global_meta['states'],
                                                           outdated_features=sample.what_changed['prior']['p_global'],
                                                           cached_prior=self.prior_p_global)
 
@@ -624,26 +643,26 @@ class GenerativePrior(object):
         """Check whether the cached geo_prior is up-to-date or needs to be recomputed."""
         return self.geo_prior is None or sample.what_changed['prior']['zones']
 
-    def get_geo_prior(self, sample, geo_prior_meta, network):
+    def get_geo_prior(self, sample):
         """Compute the geo-prior of the current zones (or load from cache).
 
         Args:
             sample (Sample): Current MCMC sample.
-            geo_prior_meta (dict): Meta-information about the prior.
-            network (dict): network containing the graph, location,...
 
         Returns:
             float: Logarithm of the prior probability density.
         """
         if self.geo_prior_outdated(sample):
-            if geo_prior_meta['type'] == 'uniform':
+            if self.geo_prior_meta['type'] == 'uniform':
                 geo_prior = 0.
 
-            elif geo_prior_meta['type'] == 'gaussian':
-                geo_prior = geo_prior_gaussian(sample.zones, network, geo_prior_meta['gaussian'])
+            elif self.geo_prior_meta['type'] == 'gaussian':
+                geo_prior = geo_prior_gaussian(sample.zones, self.network,
+                                               self.geo_prior_meta['gaussian'])
 
-            elif geo_prior_meta['type'] == 'cost_based':
-                geo_prior = geo_prior_distance(sample.zones, network, geo_prior_meta['scale'])
+            elif self.geo_prior_meta['type'] == 'cost_based':
+                geo_prior = geo_prior_distance(sample.zones, self.network,
+                                               self.geo_prior_meta['scale'])
 
             else:
                 raise ValueError('geo_prior must be either \"uniform\", \"gaussian\" or \"cost_based\".')
@@ -656,22 +675,34 @@ class GenerativePrior(object):
         """Check whether the cached size_prior is up-to-date or needs to be recomputed."""
         return self.size_prior is None or sample.what_changed['prior']['zones']
 
-    def get_size_prior(self, sample, prior_area_size_meta):
+    def get_size_prior(self, sample):
         """Compute the size-prior of the current zone (or load from cache).
 
         Args:
             sample (Sample): Current MCMC sample.
-            prior_area_size_meta (dict): Meta-information about the prior.
 
         Returns:
             float: Logarithm of the prior probability density.
         """
         if self.size_prior_outdated(sample):
             size_prior = evaluate_size_prior(zones=sample.zones,
-                                             size_prior_type=prior_area_size_meta['type'])
+                                             size_prior_type=self.prior_area_size_meta['type'])
             self.size_prior = size_prior
 
         return self.size_prior
+
+    def __copy__(self):
+        prior_settings = {
+            'geo': self.geo_prior_meta,
+            'area_size': self.prior_area_size_meta,
+            'weights': self.prior_weights_meta,
+            'universal': self.prior_p_global_meta,
+            'contact': self.prior_p_zones_meta,
+            'inheritance': self.prior_p_families_meta
+        }
+        return GenerativePrior(inheritance=self.inheritance,
+                               network=self.network,
+                               prior_settings=prior_settings)
 
 
 def evaluate_size_prior(zones, size_prior_type):

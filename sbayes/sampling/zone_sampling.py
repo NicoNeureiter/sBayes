@@ -108,7 +108,7 @@ class ZoneMCMCGenerative(MCMCGenerative):
 
     """float: Probability at which grow operator only considers neighbours to add to the zone."""
 
-    def __init__(self, network, features, min_size, max_size, var_proposal,
+    def __init__(self, network, features, inheritance, families, min_size, max_size, var_proposal,
                  p_grow_connected, initial_sample, initial_size, sample_from_prior=False, **kwargs):
 
         super(ZoneMCMCGenerative, self).__init__(**kwargs)
@@ -118,7 +118,7 @@ class ZoneMCMCGenerative(MCMCGenerative):
         self.n_features = features.shape[1]
         try:
             # If possible, applicable states per feature are deduced from the prior
-            self.applicable_states = self.prior_p_global['states']
+            self.applicable_states = self.prior_settings['universal']['states']
 
         except KeyError:
             # Applicable states per feature are deduced from the data
@@ -139,6 +139,10 @@ class ZoneMCMCGenerative(MCMCGenerative):
         self.max_size = max_size
         self.initial_sample = initial_sample
         self.initial_size = initial_size
+
+        # Is inheritance (information on language families) available?
+        self.inheritance = inheritance
+        self.families = families
 
         # Families
         if self.inheritance:
@@ -163,13 +167,13 @@ class ZoneMCMCGenerative(MCMCGenerative):
                               }
 
         self.compute_lh_per_chain = [
-            # GenerativeLikelihood(features, self.inheritance, self.families) for _ in range(self.n_chains)
             GenerativeLikelihood(data=features, families=self.families, inheritance=self.inheritance)
             for _ in range(self.n_chains)
         ]
 
         self.compute_prior_per_chain = [
-            GenerativePrior() for _ in range(self.n_chains)
+            GenerativePrior(inheritance=self.inheritance, network=self.network, prior_settings=self.prior_settings)
+            for _ in range(self.n_chains)
         ]
 
     def prior(self, sample, chain):
@@ -180,26 +184,12 @@ class ZoneMCMCGenerative(MCMCGenerative):
         Returns:
             float: The (log) prior of the sample"""
         # Compute the prior
-        log_prior = self.compute_prior_per_chain[chain](sample=sample, inheritance=self.inheritance,
-                                                        geo_prior_meta=self.geo_prior,
-                                                        prior_area_size_meta=self.prior_area_size,
-                                                        prior_weights_meta=self.prior_weights,
-                                                        prior_p_global_meta=self.prior_p_global,
-                                                        prior_p_zones_meta=self.prior_p_zones,
-                                                        prior_p_families_meta=self.prior_p_families,
-                                                        network=self.network)
+        log_prior = self.compute_prior_per_chain[chain](sample=sample)
 
         check_caching = False
         if check_caching:
             sample.everything_changed()
-            log_prior_stable = self.compute_prior_per_chain[chain](sample=sample, inheritance=self.inheritance,
-                                                                   geo_prior_meta=self.geo_prior,
-                                                                   prior_area_size_meta=self.prior_area_size,
-                                                                   prior_weights_meta=self.prior_weights,
-                                                                   prior_p_global_meta=self.prior_p_global,
-                                                                   prior_p_zones_meta=self.prior_p_zones,
-                                                                   prior_p_families_meta=self.prior_p_families,
-                                                                   network=self.network)
+            log_prior_stable = self.compute_prior_per_chain[chain](sample=sample)
             assert log_prior == log_prior_stable, f'{log_prior} != {log_prior_stable}'
 
         return log_prior
@@ -1086,17 +1076,6 @@ class ZoneMCMCWarmup(ZoneMCMCGenerative):
 
         # Back-probability (shrinking)
         q_back = 1 / (current_size + 1)
-
-        # self.q_areas_stats['q_grow'].append(q)
-        # self.q_areas_stats['q_back_grow'].append(q_back)
-        # 
-        # try:
-        #     print(sum(self.q_areas_stats['q_grow']) / len(self.q_areas_stats['q_grow']), "avg_q_grow")
-        #     print(sum(self.q_areas_stats['q_back_grow']) / len(self.q_areas_stats['q_back_grow']), "avg_q_back_grow")
-        #     print(sum(self.q_areas_stats['q_shrink']) / len(self.q_areas_stats['q_shrink']), "avg_q_shrink")
-        #     print(sum(self.q_areas_stats['q_back_shrink']) / len(self.q_areas_stats['q_back_shrink']), "avg_q_back_shrink")
-        # except ZeroDivisionError:
-        #     pass
 
         # The step changed the zone (which has an influence on how the lh and the prior look like)
         sample_new.what_changed['lh']['zones'].add(z_id)

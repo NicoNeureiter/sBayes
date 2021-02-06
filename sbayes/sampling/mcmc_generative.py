@@ -23,7 +23,7 @@ class MCMCGenerative(metaclass=_abc.ABCMeta):
 
     IS_WARMUP = False
 
-    def __init__(self, operators, inheritance, families, prior, n_zones, n_chains,
+    def __init__(self, operators, prior_settings, n_zones, n_chains,
                  mc3=False, swap_period=None, chain_swaps=None, show_screen_log=False, **kwargs):
 
         # Sampling attributes
@@ -36,20 +36,8 @@ class MCMCGenerative(metaclass=_abc.ABCMeta):
         # Operators
         self.fn_operators, self.p_operators = self.get_operators(operators)
 
-        # Is inheritance (information on language families) available?
-        self.inheritance = inheritance
-        self.families = families
-
         # Prior
-        self.geo_prior = prior['geo']
-        self.prior_area_size = prior['area_size']
-        self.prior_weights = prior['weights']
-        self.prior_p_global = prior['universal']
-        self.prior_p_zones = prior['contact']
-        try:
-            self.prior_p_families = prior['inheritance']
-        except KeyError:
-            pass
+        self.prior_settings = prior_settings
 
         # MC3
         self.mc3 = mc3
