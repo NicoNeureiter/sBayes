@@ -294,11 +294,8 @@ class GenerativeLikelihood(object):
 
         return log_lh
 
-    def global_lh_outdated(self, sample):
-        return (self.global_lh is None) or (sample.what_changed['lh']['p_global'])
-
     def get_global_lh(self, sample):
-        if self.global_lh_outdated(sample):
+        if (self.global_lh is None) or (sample.what_changed['lh']['p_global']):
 
             self.global_lh = compute_global_likelihood(features=self.data,
                                                        p_global=sample.p_global,
