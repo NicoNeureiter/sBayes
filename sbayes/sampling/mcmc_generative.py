@@ -93,7 +93,7 @@ class MCMCGenerative(metaclass=_abc.ABCMeta):
         pass
 
     @_abc.abstractmethod
-    def generate_initial_sample(self):
+    def generate_initial_sample(self, c=0):
         """Generate an initial sample from which the run should be started.
         Preferably in high density areas.
         Returns:
@@ -130,7 +130,7 @@ class MCMCGenerative(metaclass=_abc.ABCMeta):
         # Generate initial samples
         for c in self.chain_idx:
 
-            sample[c] = self.generate_initial_sample()
+            sample[c] = self.generate_initial_sample(c)
             # Compute the (log)-likelihood and the prior for each sample
             self._ll[c] = self.likelihood(sample[c], c)
             self._prior[c] = self.prior(sample[c], c)
@@ -269,12 +269,18 @@ class MCMCGenerative(metaclass=_abc.ABCMeta):
         prior_candidate = self.prior(candidate, c)
 
         # Evaluate the metropolis-hastings ratio
-        mh_ratio = self.metropolis_hastings_ratio(ll_new=ll_candidate, ll_prev=self._ll[c],
-                                                  prior_new=prior_candidate, prior_prev=self._prior[c],
-                                                  q=q, q_back=q_back)
+        if q_back == 0:
+            accept = False
+        elif q == 0:
+            accept = True
+        else:
+            mh_ratio = self.metropolis_hastings_ratio(ll_new=ll_candidate, ll_prev=self._ll[c],
+                                                      prior_new=prior_candidate, prior_prev=self._prior[c],
+                                                      q=q, q_back=q_back)
 
-        # Accept/reject according to MH-ratio and update
-        accept = _math.log(_random.random()) < mh_ratio
+            # Accept/reject according to MH-ratio and update
+            accept = _math.log(_random.random()) < mh_ratio
+
         if accept:
             sample = candidate
             self._ll[c] = ll_candidate

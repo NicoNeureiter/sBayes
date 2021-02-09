@@ -9,6 +9,7 @@ import numpy as np
 from sbayes.sampling.mcmc_generative import MCMCGenerative
 from sbayes.model import GenerativeLikelihood, GenerativePrior
 from sbayes.util import get_neighbours, normalize, dirichlet_pdf
+from sbayes.preprocessing import sample_categorical
 
 
 class IndexSet(set):
@@ -47,6 +48,7 @@ class IndexSet(set):
 class Sample(object):
     """
     Attributes:
+        chain (int): index of the MC3 chain.
         zones (np.array): Assignment of sites to zones.
             shape: (n_zones, n_sites)
         weights (np.array): Weights of zone, family and global likelihood for different features.
@@ -57,14 +59,21 @@ class Sample(object):
             shape: (n_zones, n_features, n_categories)
         p_families (np.array): Probabilities of categories in families
             shape: (n_families, n_features, n_categories)
+        source (np.array): Assignment of single observations (a feature in a language) to be
+                           the result of the global, zone or family distribution.
+            shape: (n_sites, n_features, 3)
     """
 
-    def __init__(self, zones, weights, p_global, p_zones, p_families):
+    def __init__(self, zones, weights, p_global, p_zones, p_families, source=None, chain=0):
         self.zones = zones
         self.weights = weights
         self.p_global = p_global
         self.p_zones = p_zones
         self.p_families = p_families
+
+        self.source = source
+
+        self.chain = chain
 
         # The sample contains information about which of its parameters was changed in the last MCMC step
         self.what_changed = {}
@@ -81,23 +90,18 @@ class Sample(object):
         weights_copied = deepcopy(self.weights)
         what_changed_copied = deepcopy(self.what_changed)
 
-        if self.p_global is not None:
-            p_global_copied = self.p_global.copy()
-        else:
-            p_global_copied = None
+        def maybe_copy(obj):
+            if obj is not None:
+                return obj.copy()
 
-        if self.p_zones is not None:
-            p_zones_copied = self.p_zones.copy()
-        else:
-            p_zones_copied = None
+        p_global_copied = maybe_copy(self.p_global)
+        p_zones_copied = maybe_copy(self.p_zones)
+        p_families_copied = maybe_copy(self.p_families)
+        source_copied = maybe_copy(self.source)
 
-        if self.p_families is not None:
-            p_families_copied = self.p_families.copy()
-        else:
-            p_families_copied = None
-
-        new_sample = Sample(zones=zone_copied, weights=weights_copied,
-                            p_global=p_global_copied, p_zones=p_zones_copied, p_families=p_families_copied)
+        new_sample = Sample(chain=self.chain, zones=zone_copied, weights=weights_copied,
+                            p_global=p_global_copied, p_zones=p_zones_copied, p_families=p_families_copied,
+                            source=source_copied)
 
         new_sample.what_changed = what_changed_copied
 
@@ -105,7 +109,6 @@ class Sample(object):
 
 
 class ZoneMCMCGenerative(MCMCGenerative):
-
     """float: Probability at which grow operator only considers neighbours to add to the zone."""
 
     def __init__(self, network, features, inheritance, families, min_size, max_size, var_proposal,
@@ -214,6 +217,51 @@ class ZoneMCMCGenerative(MCMCGenerative):
             assert log_lh == log_lh_stable, f'{log_lh} != {log_lh_stable}'
 
         return log_lh
+
+    def gibbs_sample_sources(self, sample):
+        """Resample the of observations to mixture components (their source).
+
+        Args:
+            sample (Sample): The current sample with zones and parameters.
+
+        Returns:
+            Sample: The modified sample
+        """
+        likelihood = self.compute_lh_per_chain[sample.chain]
+        lh_per_component = likelihood.update_component_likelihoods(sample=sample)
+            # shape: (n_sites, n_features, 3)
+        weights = likelihood.update_weights(sample=sample)
+            # shape: (n_sites, n_features, 3)
+        n_sites, n_features, k = weights.shape
+
+        source_posterior = normalize(lh_per_component * weights, axis=-1)
+
+        # sample the new source assignments
+        eye = np.eye(3).astype(bool)
+        sample.source = eye[sample_categorical(source_posterior)]
+
+        # This is a Gibbs operator, which should always be accepted
+        return sample, 0., 1.
+
+    def gibbs_sample_weights(self, sample):
+        observation_counts = np.sum(sample.source, axis=0)
+        # TODO What to do with observations in languages that are not affected by any area/family
+
+    def gibbs_sample_p_global(self, sample):
+        # features shape:       (n_sites, n_features, n_states)
+        # sample.source shape:  (n_sites, n_features, 3)
+
+        from_global = sample.source[..., 0]
+        # shape: (n_sites, n_features)
+
+        assert sample.source.dtype == bool
+        features_from_global = self.features[from_global]
+
+    def gibbs_sample_p_zones(self, sample):
+        pass
+
+    def gibbs_sample_p_families(self, sample):
+        pass
 
     def alter_weights(self, sample):
         """This function modifies one weight of one feature in the current sample
@@ -485,7 +533,6 @@ class ZoneMCMCGenerative(MCMCGenerative):
         sample.what_changed['lh']['zones'].add(z_id)
         sample_new.what_changed['prior']['zones'].add(z_id)
         sample.what_changed['prior']['zones'].add(z_id)
-        #return sample_new, 1., 1.
         return sample_new, q, q_back
 
     def grow_zone(self, sample):
@@ -549,7 +596,6 @@ class ZoneMCMCGenerative(MCMCGenerative):
         sample.what_changed['lh']['zones'].add(z_id)
         sample_new.what_changed['prior']['zones'].add(z_id)
         sample.what_changed['prior']['zones'].add(z_id)
-        #return sample_new, 1., 1.
         return sample_new, q, q_back
 
     def shrink_zone(self, sample):
@@ -596,14 +642,11 @@ class ZoneMCMCGenerative(MCMCGenerative):
             q_back_connected = 1 / np.count_nonzero(back_neighbours)
             q_back += self.p_grow_connected * q_back_connected
 
-        # q = q_back = 1.
-
         # The step changed the zone (which has an influence on how the lh and the prior look like)
         sample_new.what_changed['lh']['zones'].add(z_id)
         sample.what_changed['lh']['zones'].add(z_id)
         sample_new.what_changed['prior']['zones'].add(z_id)
         sample.what_changed['prior']['zones'].add(z_id)
-        #return sample_new, 1., 1.
         return sample_new, q, q_back
 
     def generate_initial_zones(self):
@@ -627,7 +670,6 @@ class ZoneMCMCGenerative(MCMCGenerative):
         # B: For those zones where a sample from a previous run exists we use this as the initial sample
         if self.initial_sample.zones is not None:
             for i in range(len(self.initial_sample.zones)):
-
                 initial_zones[i, :] = self.initial_sample.zones[i]
                 occupied += self.initial_sample.zones[i]
                 n_generated += 1
@@ -871,9 +913,10 @@ class ZoneMCMCGenerative(MCMCGenerative):
 
         return initial_p_families
 
-    def generate_initial_sample(self):
+    def generate_initial_sample(self, c=0):
         """Generate initial Sample object (zones, weights)
-
+        Kwargs:
+            c (int): index of the MC3 chain.
         Returns:
             Sample: The generated initial Sample
         """
@@ -897,7 +940,12 @@ class ZoneMCMCGenerative(MCMCGenerative):
             initial_p_families = None
 
         sample = Sample(zones=initial_zones, weights=initial_weights,
-                        p_global=initial_p_global, p_zones=initial_p_zones, p_families=initial_p_families)
+                        p_global=initial_p_global, p_zones=initial_p_zones, p_families=initial_p_families,
+                        chain=c)
+
+        # Generate the initial source using a Gibbs sampling step
+        sample, _, _ = self.gibbs_sample_sources(sample)
+        print(sample.source)
 
         return sample
 
@@ -941,9 +989,12 @@ class ZoneMCMCGenerative(MCMCGenerative):
 class ZoneMCMCWarmup(ZoneMCMCGenerative):
 
     IS_WARMUP = True
-    
+
     def __init__(self, **kwargs):
         super(ZoneMCMCWarmup, self).__init__(**kwargs)
+
+    def gibbs_sample_sources(self, sample, c=0):
+        return super(ZoneMCMCWarmup, self).gibbs_sample_sources(sample)
 
     def alter_weights(self, sample, c=0):
         return super(ZoneMCMCWarmup, self).alter_weights(sample)
@@ -1020,7 +1071,6 @@ class ZoneMCMCWarmup(ZoneMCMCGenerative):
         sample.what_changed['lh']['zones'].add(z_id)
         sample_new.what_changed['prior']['zones'].add(z_id)
         sample.what_changed['prior']['zones'].add(z_id)
-        # return sample_new, 1., 1.
 
         return sample_new, q, q_back
 
@@ -1083,7 +1133,6 @@ class ZoneMCMCWarmup(ZoneMCMCGenerative):
         sample_new.what_changed['prior']['zones'].add(z_id)
         sample.what_changed['prior']['zones'].add(z_id)
 
-        #return sample_new, 1., 1.
         return sample_new, q, q_back
 
     def shrink_zone(self, sample, c=0):
@@ -1141,7 +1190,6 @@ class ZoneMCMCWarmup(ZoneMCMCGenerative):
         sample.what_changed['lh']['zones'].add(z_id)
         sample_new.what_changed['prior']['zones'].add(z_id)
         sample.what_changed['prior']['zones'].add(z_id)
-        #return sample_new, 1., 1.
         return sample_new, q, q_back
 
     def alter_p_families(self, sample, c=0):

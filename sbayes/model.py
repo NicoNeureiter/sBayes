@@ -210,7 +210,7 @@ class GenerativeLikelihood(object):
         all_lh (np.array): cached likelihood values for each site and feature according to each component.
             shape: (n_sites, n_features, 3)
         weights (np.array): cached normalized weights of each component in the final likelihood for each feature.
-            shape: (n_features, 3)
+            shape: (n_sites, n_features, 3)
     """
 
     def __init__(self, data, inheritance, families=None):
@@ -277,12 +277,27 @@ class GenerativeLikelihood(object):
         # compute the weights of the mixture component in each feature and site
         weights = self.update_weights(sample)
 
-        # Compute the weighted likelihood per feature and language
-        feature_lh = np.sum(weights * all_lh, axis=2)
+        # Compute the likelihood per site and feature
+        if sample.source is not None:
+            # Component contributions are sampled -> lh is defined by source labels
+            z = sample.source
+            lh_source = np.sum(z * weights, axis=2)
+            assert np.all(lh_source == np.max(z * weights, axis=2))
+
+            # This is always evaluated
+            feature_lh = np.sum(z * all_lh, axis=2)
+
+        else:
+            lh_source = None
+            # Compute the weighted likelihood per feature and language
+            feature_lh = np.sum(weights * all_lh, axis=2)
 
         # Replace na values by 1
         feature_lh[na_features] = 1.
         log_lh = np.sum(np.log(feature_lh))
+
+        if sample.source is not None:
+            log_lh += np.sum(np.log(lh_source))
 
         # The step is completed. Everything is up-to-date.
         sample.what_changed['lh']['zones'].clear()
