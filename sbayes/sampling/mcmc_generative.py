@@ -7,6 +7,7 @@ import abc as _abc
 import random as _random
 import time as _time
 import numpy as _np
+from copy import copy
 
 from collections import defaultdict
 
@@ -23,21 +24,21 @@ class MCMCGenerative(metaclass=_abc.ABCMeta):
 
     IS_WARMUP = False
 
-    def __init__(self, operators, prior_settings, n_zones, n_chains,
-                 mc3=False, swap_period=None, chain_swaps=None, show_screen_log=False, **kwargs):
+    def __init__(self, model, data, operators, n_chains,
+                 mc3=False, swap_period=None, chain_swaps=None,
+                 sample_from_prior=False, show_screen_log=False, **kwargs):
+
+        # The model and data defining the posterior distribution
+        self.model = model
+        self.data = data
 
         # Sampling attributes
         self.n_chains = n_chains
         self.chain_idx = list(range(self.n_chains))
-
-        # Number of zones
-        self.n_zones = n_zones
+        self.sample_from_prior = sample_from_prior
 
         # Operators
         self.fn_operators, self.p_operators = self.get_operators(operators)
-
-        # Prior
-        self.prior_settings = prior_settings
 
         # MC3
         self.mc3 = mc3
@@ -69,28 +70,49 @@ class MCMCGenerative(metaclass=_abc.ABCMeta):
         self.show_screen_log = show_screen_log
         self.t_start = _time.time()
 
-    @_abc.abstractmethod
-    def prior(self, x, c):
-        """Compute the prior of the sample
-        Args:
-            x (Sample): Sample object
-            c (int): Current chain
-        Returns:
-            float: the prior of x
-        """
-        pass
+        self.posterior_per_chain = [copy(model) for _ in range(self.n_chains)]
 
-    @_abc.abstractmethod
-    def likelihood(self, x, c):
+    def prior(self, sample, chain):
+        """Compute the (log) prior of a sample.
+        Args:
+            sample (Sample): The current sample.
+            chain (int): The current chain.
+        Returns:
+            float: The (log) prior of the sample"""
+        # Compute the prior
+        log_prior = self.posterior_per_chain[chain].prior(sample=sample)
+
+        check_caching = False
+        if check_caching:
+            sample.everything_changed()
+            log_prior_stable = self.posterior_per_chain[chain].prior(sample=sample)
+            assert log_prior == log_prior_stable, f'{log_prior} != {log_prior_stable}'
+
+        return log_prior
+
+    def likelihood(self, sample, chain):
         """Compute the (log) likelihood of the given sample.
 
         Args:
-            x (Sample): The current sample.
-            c (int): The current chain.
+            sample (Sample): The current sample.
+            chain (int): The current chain.
         Returns:
             float: (log)likelihood of x
         """
-        pass
+        if self.sample_from_prior:
+            return 0.
+
+        # Compute the likelihood
+        log_lh = self.posterior_per_chain[chain].likelihood(sample=sample)
+
+        check_caching = False
+        if check_caching:
+            sample.everything_changed()
+            log_lh_stable = self.posterior_per_chain[chain].likelihood(sample=sample, caching=False)
+            assert log_lh == log_lh_stable, f'{log_lh} != {log_lh_stable}'
+
+        return log_lh
+
 
     @_abc.abstractmethod
     def generate_initial_sample(self, c=0):

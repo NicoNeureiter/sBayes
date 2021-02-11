@@ -7,8 +7,7 @@ from copy import deepcopy
 import numpy as np
 
 from sbayes.sampling.mcmc_generative import MCMCGenerative
-from sbayes.model import GenerativeLikelihood, GenerativePrior
-from sbayes.util import get_neighbours, normalize, dirichlet_pdf
+from sbayes.util import get_neighbours, normalize, dirichlet_pdf, get_max_size_list
 from sbayes.preprocessing import sample_categorical
 
 
@@ -108,44 +107,40 @@ class Sample(object):
         return new_sample
 
 
-class ZoneMCMCGenerative(MCMCGenerative):
+class ZoneMCMC(MCMCGenerative):
     """float: Probability at which grow operator only considers neighbours to add to the zone."""
 
-    def __init__(self, network, features, inheritance, families, min_size, max_size, var_proposal,
-                 p_grow_connected, initial_sample, initial_size, sample_from_prior=False, **kwargs):
+    def __init__(self, var_proposal, p_grow_connected,
+                 initial_sample, initial_size,
+                 **kwargs):
 
-        super(ZoneMCMCGenerative, self).__init__(**kwargs)
+        super(ZoneMCMC, self).__init__(**kwargs)
 
         # Data
-        self.features = features
-        self.n_features = features.shape[1]
-        try:
-            # If possible, applicable states per feature are deduced from the prior
-            self.applicable_states = self.prior_settings['universal']['states']
-
-        except KeyError:
-            # Applicable states per feature are deduced from the data
-            counts_per_states = np.count_nonzero(features, axis=0)
-            self.applicable_states = counts_per_states > 0
+        self.features = self.data.features
+        self.n_features = self.features.shape[1]
+        self.applicable_states = self.data.states
+        self.n_states_by_feature = np.sum(self.data.states, axis=-1)
 
         # Network
-        self.network = network
-        self.adj_mat = network['adj_mat']
-        self.locations = network['locations']
+        self.network = self.data.network
+        self.adj_mat = self.network['adj_mat']
+        self.locations = self.network['locations']
 
         # Sampling
-        self.n = self.adj_mat.shape[0]
+        self.n_sites = self.adj_mat.shape[0]
         self.p_grow_connected = p_grow_connected
 
         # Zone size /initial sample
-        self.min_size = min_size
-        self.max_size = max_size
+        self.n_zones = self.model.n_zones
+        self.min_size = self.model.min_size
+        self.max_size = self.model.max_size
         self.initial_sample = initial_sample
         self.initial_size = initial_size
 
         # Is inheritance (information on language families) available?
-        self.inheritance = inheritance
-        self.families = families
+        self.inheritance = self.model.inheritance
+        self.families = self.data.families
 
         # Families
         if self.inheritance:
@@ -160,8 +155,6 @@ class ZoneMCMCGenerative(MCMCGenerative):
         except KeyError:
             pass
 
-        self.sample_from_prior = sample_from_prior
-
         # todo remove after testing
         self.q_areas_stats = {'q_grow': [],
                               'q_back_grow': [],
@@ -169,56 +162,7 @@ class ZoneMCMCGenerative(MCMCGenerative):
                               'q_back_shrink': []
                               }
 
-        self.compute_lh_per_chain = [
-            GenerativeLikelihood(data=features, families=self.families, inheritance=self.inheritance)
-            for _ in range(self.n_chains)
-        ]
-
-        self.compute_prior_per_chain = [
-            GenerativePrior(inheritance=self.inheritance, network=self.network, prior_settings=self.prior_settings)
-            for _ in range(self.n_chains)
-        ]
-
-    def prior(self, sample, chain):
-        """Compute the (log) prior of a sample.
-        Args:
-            sample(Sample): A Sample object consisting of zones and parameters
-            chain(int): The current chain
-        Returns:
-            float: The (log) prior of the sample"""
-        # Compute the prior
-        log_prior = self.compute_prior_per_chain[chain](sample=sample)
-
-        check_caching = False
-        if check_caching:
-            sample.everything_changed()
-            log_prior_stable = self.compute_prior_per_chain[chain](sample=sample)
-            assert log_prior == log_prior_stable, f'{log_prior} != {log_prior_stable}'
-
-        return log_prior
-
-    def likelihood(self, sample, chain):
-        """Compute the (log) likelihood of a sample.
-        Args:
-            sample(Sample): A Sample object consisting of zones and parameters.
-            chain (int): The current chain
-        Returns:
-            float: The (log) likelihood of the sample"""
-        if self.sample_from_prior:
-            return 0.
-
-        # Compute the likelihood
-        log_lh = self.compute_lh_per_chain[chain](sample=sample)
-
-        check_caching = False
-        if check_caching:
-            sample.everything_changed()
-            log_lh_stable = self.compute_lh_per_chain[chain](sample=sample, caching=False)
-            assert log_lh == log_lh_stable, f'{log_lh} != {log_lh_stable}'
-
-        return log_lh
-
-    def gibbs_sample_sources(self, sample):
+    def gibbs_sample_sources(self, sample: Sample):
         """Resample the of observations to mixture components (their source).
 
         Args:
@@ -227,7 +171,7 @@ class ZoneMCMCGenerative(MCMCGenerative):
         Returns:
             Sample: The modified sample
         """
-        likelihood = self.compute_lh_per_chain[sample.chain]
+        likelihood = self.posterior_per_chain[sample.chain].likelihood
         lh_per_component = likelihood.update_component_likelihoods(sample=sample)
             # shape: (n_sites, n_features, 3)
         weights = likelihood.update_weights(sample=sample)
@@ -240,30 +184,102 @@ class ZoneMCMCGenerative(MCMCGenerative):
         eye = np.eye(3).astype(bool)
         sample.source = eye[sample_categorical(source_posterior)]
 
+        assert np.min(np.sum(sample.source * weights, axis=-1)) > 0
+        lh = likelihood.update_component_likelihoods(sample=sample)
+        assert np.min(np.sum(lh * weights, axis=-1)) > 0
+
         # This is a Gibbs operator, which should always be accepted
         return sample, 0., 1.
 
-    def gibbs_sample_weights(self, sample):
+    def gibbs_sample_weights(self, sample: Sample):
         observation_counts = np.sum(sample.source, axis=0)
         # TODO What to do with observations in languages that are not affected by any area/family
 
-    def gibbs_sample_p_global(self, sample):
+    def gibbs_sample_p_global(self, sample: Sample):
         # features shape:       (n_sites, n_features, n_states)
         # sample.source shape:  (n_sites, n_features, 3)
-
-        from_global = sample.source[..., 0]
-        # shape: (n_sites, n_features)
-
         assert sample.source.dtype == bool
-        features_from_global = self.features[from_global]
 
-    def gibbs_sample_p_zones(self, sample):
-        pass
+        # Resample p_global for all features with ´k´ states.
+        # Choose a random ´k´
+        k = np.random.choice(np.unique(self.n_states_by_feature))
 
-    def gibbs_sample_p_families(self, sample):
-        pass
+        # Select the relevant features
+        features_with_k_states = (self.n_states_by_feature == k)
+        features = self.features[:, features_with_k_states, :]
 
-    def alter_weights(self, sample):
+        # Only consider observations that are attributed to the global distribution
+        from_global = sample.source[:, features_with_k_states, 0, np.newaxis]
+        features = from_global * features
+
+        # Resample p_global according to these observations
+        # TODO Use prior counts for resampling (now this is just sampling from likelihood)
+        for i, j in enumerate(np.argwhere(features_with_k_states)):
+            sample.p_global[0, j, :] = np.random.dirichlet(1 + np.nansum(features[:, i], axis=0))
+        # TODO find a way to do this vectorized
+        # sample.p_global[0, features_with_k_states] = np.random.dirichlet(1 + np.nansum(features, axis=0))
+
+        return sample, 0., 1.
+
+    def gibbs_sample_p_zones(self, sample: Sample, zone=None):
+        # features shape:       (n_sites, n_features, n_states)
+        # sample.source shape:  (n_sites, n_features, 3)
+        assert sample.source.dtype == bool
+
+        if zone is None:
+            zone = np.random.randint(0, self.n_zones)
+
+        # Resample p_zones for all features with ´k´ states.
+        # Choose a random ´k´
+        k = np.random.choice(np.unique(self.n_states_by_feature))
+
+        # Select the relevant features
+        features_with_k_states = (self.n_states_by_feature == k)
+        features = self.features[:, features_with_k_states, :]
+
+        # Only consider observations that are attributed to the zone distribution
+        from_zone = (sample.source[:, features_with_k_states, 1] & sample.zones[zone, :, np.newaxis])
+        features = from_zone[...,np.newaxis] * features
+
+        # Resample p_zones according to these observations
+        # TODO Use prior counts for resampling (now this is just sampling from likelihood)
+        for i, j in enumerate(np.argwhere(features_with_k_states)):
+            sample.p_zones[zone, j, :] = np.random.dirichlet(1 + np.nansum(features[:, i, :], axis=0))
+        # TODO find a way to do this vectorized
+        # sample.p_zones[zone, features_with_k_states] = np.random.dirichlet(1 + np.nansum(features, axis=0))
+
+        return sample, 0., 1.
+
+    def gibbs_sample_p_families(self, sample: Sample, family=None):
+        # features shape:       (n_sites, n_features, n_states)
+        # sample.source shape:  (n_sites, n_features, 3)
+        assert sample.source.dtype == bool
+
+        if family is None:
+            family = np.random.randint(0, self.n_families)
+
+        # Resample p_families for all features with ´k´ states.
+        # Choose a random ´k´
+        k = np.random.choice(np.unique(self.n_states_by_feature))
+
+        # Select the relevant features
+        features_with_k_states = (self.n_states_by_feature == k)
+        features = self.features[:, features_with_k_states, :]
+
+        # Only consider observations that are attributed to the family distribution
+        from_family = (sample.source[:, features_with_k_states, 2] & self.data.families[family, :, np.newaxis])
+        features = from_family[...,np.newaxis] * features
+
+        # Resample p_families according to these observations
+        # TODO Use prior counts for resampling (now this is just sampling from likelihood)
+        for i, j in enumerate(np.argwhere(features_with_k_states)):
+            sample.p_families[family, j, :] = np.random.dirichlet(1 + np.nansum(features[:, i, :], axis=0))
+        # TODO find a way to do this vectorized
+        # sample.p_families[family, features_with_k_states] = np.random.dirichlet(1 + np.nansum(features, axis=0))
+
+        return sample, 0., 1.
+
+    def alter_weights(self, sample: Sample):
         """This function modifies one weight of one feature in the current sample
 
         Args:
@@ -528,6 +544,9 @@ class ZoneMCMCGenerative(MCMCGenerative):
             q_back_connected = 1 / np.count_nonzero(back_neighbours)
             q_back += self.p_grow_connected * q_back_connected
 
+        if self.model.sample_source:
+            sample_new, _, _ = self.gibbs_sample_sources(sample_new)
+
         # The step changed the zone (which has an influence on how the lh and the prior look like)
         sample_new.what_changed['lh']['zones'].add(z_id)
         sample.what_changed['lh']['zones'].add(z_id)
@@ -589,7 +608,8 @@ class ZoneMCMCGenerative(MCMCGenerative):
         # Back-probability (shrinking)
         q_back = 1 / (current_size + 1)
 
-        # q = q_back = 1.
+        if self.model.sample_source:
+            sample_new, _, _ = self.gibbs_sample_sources(sample_new)
 
         # The step changed the zone (which has an influence on how the lh and the prior look like)
         sample_new.what_changed['lh']['zones'].add(z_id)
@@ -642,6 +662,9 @@ class ZoneMCMCGenerative(MCMCGenerative):
             q_back_connected = 1 / np.count_nonzero(back_neighbours)
             q_back += self.p_grow_connected * q_back_connected
 
+        if self.model.sample_source:
+            sample_new, _, _ = self.gibbs_sample_sources(sample_new)
+
         # The step changed the zone (which has an influence on how the lh and the prior look like)
         sample_new.what_changed['lh']['zones'].add(z_id)
         sample.what_changed['lh']['zones'].add(z_id)
@@ -661,10 +684,10 @@ class ZoneMCMCGenerative(MCMCGenerative):
 
         # If there are no zones, return empty matrix
         if self.n_zones == 0:
-            return np.zeros((self.n_zones, self.n), bool)
+            return np.zeros((self.n_zones, self.n_sites), bool)
 
-        occupied = np.zeros(self.n, bool)
-        initial_zones = np.zeros((self.n_zones, self.n), bool)
+        occupied = np.zeros(self.n_sites, bool)
+        initial_zones = np.zeros((self.n_zones, self.n_sites), bool)
         n_generated = 0
 
         # B: For those zones where a sample from a previous run exists we use this as the initial sample
@@ -717,17 +740,15 @@ class ZoneMCMCGenerative(MCMCGenerative):
             np.array: all nodes in the network already assigned to a zone (boolean).
 
         """
-        n_sites = self.n
-
         if already_in_zone is None:
-            already_in_zone = np.zeros(n_sites, bool)
+            already_in_zone = np.zeros(self.n_sites, bool)
 
         # Initialize the zone
-        zone = np.zeros(n_sites, bool)
+        zone = np.zeros(self.n_sites, bool)
 
         # Find all sites that already belong to a zone (sites_occupied) and those that don't (sites_free)
         sites_occupied = np.nonzero(already_in_zone)[0]
-        sites_free = set(range(n_sites)) - set(sites_occupied)
+        sites_free = set(range(self.n_sites)) - set(sites_occupied)
 
         # Take a random free site and use it as seed for the new zone
         try:
@@ -944,8 +965,8 @@ class ZoneMCMCGenerative(MCMCGenerative):
                         chain=c)
 
         # Generate the initial source using a Gibbs sampling step
-        sample, _, _ = self.gibbs_sample_sources(sample)
-        print(sample.source)
+        if self.model.sample_source:
+            sample, _, _ = self.gibbs_sample_sources(sample)
 
         return sample
 
@@ -983,18 +1004,41 @@ class ZoneMCMCGenerative(MCMCGenerative):
         return fn_operators, p_operators
 
     def log_sample_statistics(self, sample, c, sample_id):
-        super(ZoneMCMCGenerative, self).log_sample_statistics(sample, c, sample_id)
+        super(ZoneMCMC, self).log_sample_statistics(sample, c, sample_id)
 
 
-class ZoneMCMCWarmup(ZoneMCMCGenerative):
+class ZoneMCMCWarmup(ZoneMCMC):
 
     IS_WARMUP = True
 
     def __init__(self, **kwargs):
         super(ZoneMCMCWarmup, self).__init__(**kwargs)
 
+        # In warmup chains can have a different max_size for areas
+        self.max_size = get_max_size_list(
+            start=(self.initial_size + self.max_size)/4,
+            end=self.max_size,
+            n_total=self.n_chains,
+            k_groups=4
+        )
+
+        # Some chains only have connected steps, whereas others also have random steps
+        self.p_grow_connected = _random.choices(
+            population=[1, self.p_grow_connected],
+            k=self.n_chains
+        )
+
     def gibbs_sample_sources(self, sample, c=0):
         return super(ZoneMCMCWarmup, self).gibbs_sample_sources(sample)
+
+    def gibbs_sample_p_global(self, sample, c=0):
+        return super(ZoneMCMCWarmup, self).gibbs_sample_p_global(sample)
+
+    def gibbs_sample_p_zones(self, sample, c=0):
+        return super(ZoneMCMCWarmup, self).gibbs_sample_p_zones(sample)
+
+    def gibbs_sample_p_families(self, sample, c=0):
+        return super(ZoneMCMCWarmup, self).gibbs_sample_p_families(sample)
 
     def alter_weights(self, sample, c=0):
         return super(ZoneMCMCWarmup, self).alter_weights(sample)

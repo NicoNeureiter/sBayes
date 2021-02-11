@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 import numpy as np
+from collections import namedtuple
 import unittest
 
 from sbayes.model import GenerativeLikelihood
@@ -72,9 +73,13 @@ class TestLikelihood(unittest.TestCase):
         sample_without_family = Sample(areas, weights_without_family,
                                        p_global=p_global, p_zones=p_areas, p_families=None)
 
-        likelihood = GenerativeLikelihood(data=features, inheritance=True, families=families)
+        # Dummy ´Data´ class to pass features and families to the likelihood
+        Data = namedtuple('Data', ['features', 'families'])
+        data = Data(features=features, families=families)
+
+        likelihood = GenerativeLikelihood(data=data, inheritance=True)
         lh_with_family = likelihood(sample_with_family, caching=False)
-        likelihood = GenerativeLikelihood(data=features, inheritance=False, families=families)
+        likelihood = GenerativeLikelihood(data=data, inheritance=False)
         lh_without_family = likelihood(sample_without_family, caching=False)
         self.assertAlmostEqual(lh_with_family, lh_without_family)
 

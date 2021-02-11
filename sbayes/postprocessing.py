@@ -2,7 +2,7 @@ from itertools import permutations
 import numpy as np
 import math
 from scipy.special import logsumexp
-from sbayes.sampling.zone_sampling import ZoneMCMCGenerative, Sample
+from sbayes.sampling.zone_sampling import ZoneMCMC, Sample
 
 
 def compute_dic(lh, burn_in):
@@ -53,12 +53,11 @@ def compute_model_quality(mcmc_results, mode):
         return bic
 
 
-def compute_marginal_likelihood(model, samples, mode, n_temp=100):
-
+def compute_marginal_likelihood(mcmc, samples, mode, n_temp=100):
     """ This function estimates the marginal likelihood of a model either using the power posterior approach or the
     stepping stone sample
     Args:
-        model(ZoneMCMC): a model, for which the marginal likelihood is computed, provided as a ZoneMCMC object
+        mcmc(ZoneMCMC): a model, for which the marginal likelihood is computed, provided as a ZoneMCMC object
         samples(int): the number of samples generated per temperature
         mode (char):  either "stepping stones" or "power posterior"
         n_temp (int): the number of temperatures for which samples are generated
@@ -69,13 +68,13 @@ def compute_marginal_likelihood(model, samples, mode, n_temp=100):
 
     # Iterate over temperatures
     for t in np.nditer(np.linspace(0, 1, n_temp)):
-
-        sampler = ZoneMCMCGenerative(
-            network=model['network'], features=model['features'], n_steps=model['n_steps'],
-            min_size=model['min_size'], max_size=model['max_size'], p_transition_mode=['p_transition_mode'],
-            geo_weight=model['geo_weight']/model['features'].shape[1],
-            lh_lookup=model['lh_lookup'], n_zones=model['n_zones'],
-            ecdf_geo=model['ecdf_geo'], restart_interval=model['restart_interval'],
+        # TODO if this is used again: adapt to ZoneMCMC changes
+        sampler = ZoneMCMC(
+            network=mcmc['network'], features=mcmc['features'], n_steps=mcmc['n_steps'],
+            min_size=mcmc['min_size'], max_size=mcmc['max_size'], p_transition_mode=['p_transition_mode'],
+            geo_weight=mcmc['geo_weight'] / mcmc['features'].shape[1],
+            lh_lookup=mcmc['lh_lookup'], n_zones=mcmc['n_zones'],
+            ecdf_geo=mcmc['ecdf_geo'], restart_interval=mcmc['restart_interval'],
             simulated_annealing=False, plot_samples=False)
 
         sampler.generate_samples(samples)
@@ -88,7 +87,7 @@ def compute_marginal_likelihood(model, samples, mode, n_temp=100):
 
     # Perform Power Posterior Sampling
     elif mode == "power posterior":
-        return power_posterior (lh, temp)
+        return power_posterior(lh, temp)
 
     else:
         raise ValueError("mode must be `power posterior` or `stepping stones`")
