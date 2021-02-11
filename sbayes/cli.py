@@ -8,15 +8,16 @@ from sbayes.load_data import Data
 from sbayes.mcmc_setup import MCMC
 from sbayes.simulation import Simulation
 
-NUMBER_AREAS_GRID = range(1, 8)
 
-
-def run_experiment(experiment, data, run, initial_sample=None):
+def run_experiment(experiment, data, run):
     mcmc = MCMC(data=data, experiment=experiment)
     mcmc.log_setup()
 
-    # Sample
-    mcmc.sample(initial_sample=initial_sample)
+    # Warm-up
+    mcmc.warm_up()
+
+    # Sample from posterior
+    mcmc.sample()
 
     # Save samples to file
     mcmc.log_statistics()
@@ -26,16 +27,16 @@ def run_experiment(experiment, data, run, initial_sample=None):
     return mcmc.samples['last_sample']
 
 
-def main(args=None):
-    if args is None:
+def main(config=None, experiment_name=None):
+    if config is None:
         parser = argparse.ArgumentParser(
             description="An MCMC algorithm to identify contact zones")
         parser.add_argument("config", nargs="?", type=Path,
                             help="The JSON configuration file")
         args = parser.parse_args()
+        config = args.config
 
     # 0. Ask for config file via files-dialog, if not provided as argument.
-    config = args.config
     if config is None:
         tk.Tk().withdraw()
         config = filedialog.askopenfilename(
@@ -45,7 +46,8 @@ def main(args=None):
         )
 
     # Initialize the experiment
-    experiment = Experiment(config_file=config, log=True)
+    experiment = Experiment(experiment_name=experiment_name,
+                            config_file=config, log=True)
 
     if experiment.is_simulation():
         # The data is defined by a ´Simulation´ object
@@ -69,20 +71,20 @@ def main(args=None):
 
     # Rerun experiment to check for consistency
     for run in range(experiment.config['mcmc']['N_RUNS']):
-        if isinstance(experiment.config['mcmc']['N_AREAS'], str):
-            assert experiment.config['mcmc']['N_AREAS'].lower() == 'tbd'
-
+        n_areas = experiment.config['model']['N_AREAS']
+        if isinstance(n_areas, list):
             # Run the experiment multiple times to determine the number of areas.
-            for N in NUMBER_AREAS_GRID:
+            for N in n_areas:
                 # Update config information according to the current setup
-                experiment.config['mcmc']['N_AREAS'] = N
+                experiment.config['model']['N_AREAS'] = N
 
                 # Run the experiment with the specified number of areas
-                initial_sample = run_experiment(experiment, data, run,
-                                                initial_sample=initial_sample)
-
+                run_experiment(experiment, data, run)
         else:
             # Run the experiment once, with the specified settings
+            assert isinstance(n_areas, int)
             run_experiment(experiment, data, run)
 
-        initial_sample = None
+
+if __name__ == '__main__':
+    main()
