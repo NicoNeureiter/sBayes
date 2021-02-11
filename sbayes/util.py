@@ -225,7 +225,7 @@ def n_smallest_distances(a, n, return_idx: bool):
     ... [2, 0, 5, 6],
     ... [3, 5, 0, 7],
     ... [4, 6, 7, 0]], 3, return_idx=True)
-    (array([1, 2, 3]), array([0, 0, 0])
+    (array([1, 2, 3]), array([0, 0, 0]))
 
     Args:
         a (np.array): The distane matrix
@@ -1181,6 +1181,7 @@ def get_max_size_list(start, end, n_total, k_groups):
 
     return max_size_list[0:n_total]
 
+
 def log_binom(n, k):
     """Compute the logarithm of (n choose k), i.e. the binomial coefficient of n and k.
 
@@ -1197,6 +1198,7 @@ def log_binom(n, k):
     array([0.        , 0.69314718, 1.09861229])
     """
     return -betaln(1 + n - k, 1 + k) - np.log(n + 1)
+
 
 # Fix path for default config files (in the folder sbayes/sbayes/config)
 def fix_default_config(default_config_path):

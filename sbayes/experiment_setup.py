@@ -203,9 +203,14 @@ class Experiment:
 
         # Do not use inheritance steps if inheritance is disabled
         if not self.config['model']['INHERITANCE']:
-            if self.config['mcmc']['STEPS'].get('inheritance', 0) == 0:
+            if self.config['mcmc']['STEPS'].get('inheritance', 0) != 0:
                 logging.warning('STEPS for inheritance was set to 0, because ´inheritance´ is disabled.')
             self.config['mcmc']['STEPS']['inheritance'] = 0.0
+
+        if not self.config['model']['SAMPLE_SOURCE']:
+            if self.config['mcmc']['STEPS'].get('source', 0) != 0:
+                logging.warning('STEPS for source was set to 0, because ´SAMPLE_SOURCE´ is disabled.')
+            self.config['mcmc']['STEPS']['source'] = 0.0
 
         # Normalize weights
         weights_sum = sum(self.config['mcmc']['STEPS'].values())
