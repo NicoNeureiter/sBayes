@@ -1,8 +1,5 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-from __future__ import absolute_import, division, print_function, \
-    unicode_literals
-
 try:
     from typing import Literal
 except ImportError:
@@ -11,8 +8,6 @@ except ImportError:
 import csv
 
 import numpy as np
-import pandas as pd
-from cartopy import crs as ccrs, geodesic
 import pyproj
 
 from sbayes.model import normalize_weights
@@ -121,6 +116,14 @@ class compute_network:
             dict: a network
 
         """
+        if crs is not None:
+            try:
+                from cartopy import crs as ccrs, geodesic
+            except ImportError as e:
+                print("Using a coordinate reference system (crs) requires the ´cartopy´ library:")
+                print("pip install cartopy")
+                raise e
+
         if subset is None:
             # Define vertices and edges
             vertices = sites['id']

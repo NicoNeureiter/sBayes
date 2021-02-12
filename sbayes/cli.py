@@ -67,8 +67,6 @@ def main(config=None, experiment_name=None):
         # Log
         data.log_loading()
 
-    initial_sample = None
-
     # Rerun experiment to check for consistency
     for run in range(experiment.config['mcmc']['N_RUNS']):
         n_areas = experiment.config['model']['N_AREAS']
