@@ -23,6 +23,8 @@ class MCMCGenerative(metaclass=_abc.ABCMeta):
     """
 
     IS_WARMUP = False
+    Q_GIBBS = -_np.inf
+    Q_BACK_GIBBS = 0
 
     def __init__(self, model, data, operators, n_chains,
                  mc3=False, swap_period=None, chain_swaps=None,
@@ -245,12 +247,12 @@ class MCMCGenerative(metaclass=_abc.ABCMeta):
 
             ll_to = self.likelihood(sample[swap_to], swap_to)
             prior_to = self.prior(sample[swap_to], swap_to)
-            q_to = q_from = 1.
+            q_to = q_from = 0
 
             # Evaluate the metropolis-hastings ratio
             mh_ratio = self.metropolis_hastings_ratio(ll_new=ll_to, ll_prev=ll_from,
                                                       prior_new=prior_to, prior_prev=prior_from,
-                                                      q=q_to, q_back=q_from)
+                                                      log_q=q_to, log_q_back=q_from)
 
             # Swap chains according to MH-ratio and update
             if _math.log(_random.random()) < mh_ratio:
@@ -279,10 +281,11 @@ class MCMCGenerative(metaclass=_abc.ABCMeta):
 
         # Randomly choose one operator to propose new sample (grow/shrink/swap zones, alter weights/p_zones/p_families)
         propose_step = _np.random.choice(self.fn_operators, 1, p=self.p_operators)[0]
+
         if self.IS_WARMUP:
-            candidate, q, q_back = propose_step(sample, c)
+            candidate, log_q, log_q_back = propose_step(sample, c)
         else:
-            candidate, q, q_back = propose_step(sample)
+            candidate, log_q, log_q_back = propose_step(sample)
 
         # Compute the log-likelihood of the candidate
         ll_candidate = self.likelihood(candidate, c)
@@ -291,14 +294,14 @@ class MCMCGenerative(metaclass=_abc.ABCMeta):
         prior_candidate = self.prior(candidate, c)
 
         # Evaluate the metropolis-hastings ratio
-        if q_back == 0:
+        if log_q_back == -_np.inf:
             accept = False
-        elif q == 0:
+        elif log_q == -_np.inf:
             accept = True
         else:
             mh_ratio = self.metropolis_hastings_ratio(ll_new=ll_candidate, ll_prev=self._ll[c],
                                                       prior_new=prior_candidate, prior_prev=self._prior[c],
-                                                      q=q, q_back=q_back)
+                                                      log_q=log_q, log_q_back=log_q_back)
 
             # Accept/reject according to MH-ratio and update
             accept = _math.log(_random.random()) < mh_ratio
@@ -315,26 +318,21 @@ class MCMCGenerative(metaclass=_abc.ABCMeta):
         return sample
 
     @staticmethod
-    def metropolis_hastings_ratio(ll_new, ll_prev, prior_new, prior_prev, q, q_back, temperature=1.):
+    def metropolis_hastings_ratio(ll_new, ll_prev, prior_new, prior_prev, log_q, log_q_back, temperature=1.):
         """ Computes the metropolis-hastings ratio.
         Args:
             ll_new(float): the likelihood of the candidate
             ll_prev(float): the likelihood of the current sample
             prior_new(float): the prior of the candidate
             prior_prev(float): the prior of the current sample
-            q (float): the transition probability
-            q_back (float): the back-probability
+            log_q (float): the transition probability
+            log_q_back (float): the back-probability
             temperature(float): the temperature of the MCMC
         Returns:
             (float): the metropolis-hastings ratio
         """
         ll_ratio = ll_new - ll_prev
-        try:
-            with _np.errstate(divide='ignore'):
-                log_q_ratio = _math.log(q / q_back)
-
-        except ZeroDivisionError:
-            log_q_ratio = _math.inf
+        log_q_ratio = log_q - log_q_back
 
         prior_ratio = prior_new - prior_prev
         mh_ratio = (ll_ratio * temperature) - log_q_ratio + prior_ratio
