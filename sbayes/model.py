@@ -25,19 +25,18 @@ class Model(object):
     """
 
     def __init__(self, data, config):
-        # Store basic attributes
         self.data = data
         self.config = config
         self.parse_attributes(config)
 
         # Create likelihood and prior objects
-        self.likelihood = GenerativeLikelihood(data=data,
-                                               inheritance=self.inheritance)
+        self.likelihood = GenerativeLikelihood(data=data, inheritance=self.inheritance)
         self.prior = GenerativePrior(data=data,
                                      inheritance=self.inheritance,
                                      prior_config=config['PRIOR'])
 
     def parse_attributes(self, config):
+        """Read attributes from the config dictionary."""
         self.n_zones = config['N_AREAS']
         self.min_size = config['MIN_M']
         self.max_size = config['MAX_M']
@@ -45,6 +44,7 @@ class Model(object):
         self.sample_source = config['SAMPLE_SOURCE']
 
     def __call__(self, sample, caching=True):
+        """Evaluate the (non-normalized) posterior probability of the given sample."""
         log_likelihood = self.likelihood(sample, caching=caching)
         log_prior = self.prior(sample)
         return log_likelihood + log_prior
@@ -53,6 +53,7 @@ class Model(object):
         return Model(self.data, self.config)
 
     def get_setup_message(self):
+        """Compile a set-up message for logging."""
         setup_msg = '\n'.join([
             f'Model',
             f'##########################################',

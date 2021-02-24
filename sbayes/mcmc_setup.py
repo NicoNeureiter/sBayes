@@ -45,68 +45,45 @@ class MCMC:
 
     def log_setup(self):
         mcmc_config = self.config['mcmc']
-        model_config = self.config['model']
 
         logging.basicConfig(format='%(message)s', filename=self.path_log, level=logging.DEBUG)
+        logging.info(self.model.get_setup_message())
 
-        logging.info('\n')
-
-        logging.info("Model")
-        logging.info("##########################################")
-        logging.info("Number of inferred areas: %i", model_config['N_AREAS'])
-        logging.info("Areas have a minimum size of %s and a maximum size of %s.",
-                     model_config['MIN_M'], model_config['MAX_M'])
-        logging.info("Inheritance is considered for inference: %s",
-                     model_config['INHERITANCE'])
-
-        logging.info("Geo-prior: %s ", self.model.prior.config['geo']['type'])
-        logging.info("Prior on weights: %s ", self.model.prior.config['weights']['type'])
-        logging.info("Prior on universal pressure (alpha): %s ", self.model.prior.config['universal']['type'])
-        if self.config['model']['INHERITANCE']:
-            logging.info("Prior on inheritance (beta): %s ", self.model.prior.config['inheritance']['type'])
-
-        logging.info("Prior on contact (gamma): %s ", self.model.prior.config['contact']['type'])
-        logging.info('\n')
-
-        logging.info("MCMC SETUP")
-        logging.info("##########################################")
-
-        logging.info("MCMC with %s steps and %s samples",
-                     mcmc_config['N_STEPS'], mcmc_config['N_SAMPLES'])
-        logging.info("Warm-up: %s chains exploring the parameter space in %s steps",
-                     mcmc_config['WARM_UP']['N_WARM_UP_CHAINS'],  mcmc_config['WARM_UP']['N_WARM_UP_STEPS'])
-        logging.info("Pseudocounts for tuning the width of the proposal distribution for weights: %s ",
-                     mcmc_config['PROPOSAL_PRECISION']['weights'])
-        logging.info("Pseudocounts for tuning the width of the proposal distribution for "
-                     "universal pressure (alpha): %s ",
-                     mcmc_config['PROPOSAL_PRECISION']['universal'])
+        msg_inherit_precision = ''
         if mcmc_config['PROPOSAL_PRECISION']['inheritance'] is not None:
-            logging.info("Pseudocounts for tuning the width of the proposal distribution for inheritance (beta): %s ",
-                         mcmc_config['PROPOSAL_PRECISION']['inheritance'])
-        logging.info("Pseudocounts for tuning the width of the proposal distribution for areas (gamma): %s ",
-                     mcmc_config['PROPOSAL_PRECISION']['contact'])
-
-        logging.info("Ratio of areal steps (growing, shrinking, swapping areas): %s",
-                     mcmc_config['STEPS']['area'])
-        logging.info("Ratio of weight steps (changing weights): %s", mcmc_config['STEPS']['weights'])
-        logging.info("Ratio of universal steps (changing alpha) : %s", mcmc_config['STEPS']['universal'])
-        logging.info("Ratio of inheritance steps (changing beta): %s", mcmc_config['STEPS']['inheritance'])
-        logging.info("Ratio of contact steps (changing gamma): %s", mcmc_config['STEPS']['contact'])
+            msg_inherit_precision = 'Pseudocounts for tuning the width of the proposal distribution for inheritance (beta): %s\n' % \
+                 mcmc_config['PROPOSAL_PRECISION']['inheritance']
+        logging.info(f'''
+MCMC SETUP
+##########################################
+MCMC with {mcmc_config['N_STEPS']} steps and {mcmc_config['N_SAMPLES']} samples
+Warm-up: {mcmc_config['WARM_UP']['N_WARM_UP_CHAINS']} chains exploring the parameter space in {mcmc_config['WARM_UP']['N_WARM_UP_STEPS']} steps
+Pseudocounts for tuning the width of the proposal distribution for weights: {mcmc_config['PROPOSAL_PRECISION']['weights']}
+Pseudocounts for tuning the width of the proposal distribution for universal pressure (alpha): {mcmc_config['PROPOSAL_PRECISION']['universal']}
+{msg_inherit_precision}\
+Pseudocounts for tuning the width of the proposal distribution for areas (gamma): {mcmc_config['PROPOSAL_PRECISION']['contact']}
+Ratio of areal steps (growing, shrinking, swapping areas): {mcmc_config['STEPS']['area']}
+Ratio of weight steps (changing weights): {mcmc_config['STEPS']['weights']}
+Ratio of universal steps (changing alpha) : {mcmc_config['STEPS']['universal']}
+Ratio of inheritance steps (changing beta): {mcmc_config['STEPS']['inheritance']}
+Ratio of contact steps (changing gamma): {mcmc_config['STEPS']['contact']}
+        ''')
 
     def steps_per_operator(self):
-        # Assign steps per operator
-        ops = {'shrink_zone': self.config['mcmc']['STEPS']['area'] / 4,
-               'grow_zone': self.config['mcmc']['STEPS']['area'] / 4,
-               'swap_zone': self.config['mcmc']['STEPS']['area'] / 2,
-               'alter_weights': self.config['mcmc']['STEPS']['weights'],
-               'alter_p_global': self.config['mcmc']['STEPS']['universal'],
-               'alter_p_zones': self.config['mcmc']['STEPS']['contact'],
-               'alter_p_families': self.config['mcmc']['STEPS']['inheritance'],
-               'gibbs_sample_sources': self.config['mcmc']['STEPS']['source'],
-               # 'gibbs_sample_weights': self.config['mcmc']['STEPS']['weights'],
-               # 'gibbs_sample_p_global': self.config['mcmc']['STEPS']['universal'],
-               # 'gibbs_sample_p_zones': self.config['mcmc']['STEPS']['contact'],
-               # 'gibbs_sample_p_families': self.config['mcmc']['STEPS']['inheritance'],
+        """Assign step frequency per operator."""
+        steps_config = self.config['mcmc']['STEPS']
+        ops = {'shrink_zone': steps_config['area'] / 4,
+               'grow_zone': steps_config['area'] / 4,
+               'swap_zone': steps_config['area'] / 2,
+               # 'alter_weights': steps_config['weights'],
+               # 'alter_p_global': steps_config['universal'],
+               # 'alter_p_zones': steps_config['contact'],
+               # 'alter_p_families': steps_config['inheritance'],
+               'gibbs_sample_sources': steps_config['source'],
+               'gibbs_sample_weights': steps_config['weights'],
+               'gibbs_sample_p_global': steps_config['universal'],
+               'gibbs_sample_p_zones': steps_config['contact'],
+               'gibbs_sample_p_families': steps_config['inheritance'],
                }
         self.ops = ops
 
