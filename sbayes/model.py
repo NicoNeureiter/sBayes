@@ -52,6 +52,24 @@ class Model(object):
     def __copy__(self):
         return Model(self.data, self.config)
 
+    def get_setup_message(self):
+        setup_msg = '\n'.join([
+            f'Model',
+            f'##########################################',
+            f'Number of inferred areas: {self.n_zones}',
+            f'Areas have a minimum size of {self.min_size} and a maximum size of {self.max_size}',
+            f'Inheritance is considered for inference: {self.inheritance}',
+            f'Geo-prior: {self.prior.config["geo"]["type"]}'
+            f'Prior on weights: {self.prior.config["weights"]["type"]}',
+            f'Prior on universal pressure (alpha): {self.prior.config["universal"]["type"]}',
+            f'Prior on contact (gamma): {self.prior.config["contact"]["type"]}'
+        ])
+
+        if self.inheritance:
+            setup_msg += f'\nPrior on inheritance(beta): {self.prior.config["inheritance"]["type"]}\n'
+
+        return setup_msg
+
 
 class GenerativeLikelihood(object):
 
@@ -473,7 +491,7 @@ class GenerativePrior(object):
         elif config['geo']['type'] == 'cost_based':
             # todo:  change prior if cost matrix is provided
             # todo: move config['model']['scale_geo_prior'] to config['model']['PRIOR']['geo']['scale']
-            config_parsed['geo'] = {'type': 'cos_based',
+            config_parsed['geo'] = {'type': 'cost_based',
                                             'scale': config['geo']['scale']}
             raise NotImplementedError
         else:
