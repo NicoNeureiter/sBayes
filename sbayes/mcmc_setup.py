@@ -31,6 +31,9 @@ class MCMC:
         self.path_log = experiment.path_results / 'experiment.log'
         self.path_results = experiment.path_results
 
+        # Create the model to sample from
+        self.model = Model(data=self.data, config=self.config['model'])
+
         # Assign steps to operators
         self.ops = {}
         self.steps_per_operator()
@@ -39,9 +42,6 @@ class MCMC:
         self.sampler = None
         self.samples = None
         self.sample_from_warm_up = None
-
-        # Create the model to sample from
-        self.model = Model(data=self.data, config=self.config['model'])
 
     def log_setup(self):
         mcmc_config = self.config['mcmc']
@@ -72,19 +72,25 @@ Ratio of contact steps (changing gamma): {mcmc_config['STEPS']['contact']}
     def steps_per_operator(self):
         """Assign step frequency per operator."""
         steps_config = self.config['mcmc']['STEPS']
-        ops = {'shrink_zone': steps_config['area'] / 4,
-               'grow_zone': steps_config['area'] / 4,
-               'swap_zone': steps_config['area'] / 2,
-               # 'alter_weights': steps_config['weights'],
-               # 'alter_p_global': steps_config['universal'],
-               # 'alter_p_zones': steps_config['contact'],
-               # 'alter_p_families': steps_config['inheritance'],
+        ops = {'shrink_zone': steps_config['area'] * 0.4,
+               'grow_zone': steps_config['area'] * 0.4,
+               'swap_zone': steps_config['area'] * 0.2,
+               }
+        if self.model.sample_source:
+            ops.update({
                'gibbs_sample_sources': steps_config['source'],
                'gibbs_sample_weights': steps_config['weights'],
                'gibbs_sample_p_global': steps_config['universal'],
                'gibbs_sample_p_zones': steps_config['contact'],
                'gibbs_sample_p_families': steps_config['inheritance'],
-               }
+            })
+        else:
+            ops.update({
+               'alter_weights': steps_config['weights'],
+               'alter_p_global': steps_config['universal'],
+               'alter_p_zones': steps_config['contact'],
+               'alter_p_families': steps_config['inheritance'],
+            })
         self.ops = ops
 
     def sample(self, lh_per_area=True, initial_sample: typing.Optional[typing.Any] = None):
