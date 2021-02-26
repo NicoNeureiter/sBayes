@@ -530,14 +530,14 @@ def read_feature_occurrence_from_csv(file, feature_states_file):
     return counts.astype(int), feature_names, state_names
 
 
-def inheritance_counts_to_dirichlet(counts, categories, outdated_features=None, dirichlet=None):
+def inheritance_counts_to_dirichlet(counts, states, outdated_features=None, dirichlet=None):
     """This is a helper function transform the family counts to alpha values that
     are then used to define a dirichlet distribution
 
     Args:
         counts(np.array): the family counts
-            shape(n_families, n_features, n_categories)
-        categories(list): categories per feature in each of the families
+            shape: (n_families, n_features, n_states)
+        states(list): states per feature in each of the families
     Returns:
         list: the dirichlet distributions, neatly stored in a dict
     """
@@ -546,7 +546,7 @@ def inheritance_counts_to_dirichlet(counts, categories, outdated_features=None, 
         dirichlet = [None] * n_fam
 
     for fam in range(n_fam):
-        dirichlet[fam] = counts_to_dirichlet(counts[fam], categories,
+        dirichlet[fam] = counts_to_dirichlet(counts[fam], states,
                                              outdated_features=outdated_features,
                                              dirichlet=dirichlet[fam])
     return dirichlet
@@ -556,29 +556,31 @@ def scale_counts(counts, scale_to, prior_inheritance=False):
     """Scales the counts for parametrizing the prior on universal probabilities (or inheritance in a family)
 
         Args:
-            counts(np.array): the counts of categorical data.
-                        shape(n_features, n_states) or shape (n_families, n_features, n_states)
+            counts (np.array): the counts of categorical data.
+                shape: (n_features, n_states) or (n_families, n_features, n_states)
             scale_to (float): the counts are scaled to this value
             prior_inheritance (bool): are these inheritance counts?
         Returns:
             np.array: the rescaled counts
+                shape: same as counts.shape
     """
     counts_sum = np.sum(counts, axis=-1)
     counts_sum = np.where(counts_sum == 0, EPS, counts_sum)
-    scale_factor = scale_to/counts_sum
+    scale_factor = scale_to / counts_sum
 
     scale_factor = np.where(scale_factor < 1, scale_factor, 1)
     return counts * scale_factor[..., None]
 
 
-def counts_to_dirichlet(counts: t.Sequence[t.Sequence[int]], categories: t.Sequence[int], prior='uniform', outdated_features=None, dirichlet=None):
+def counts_to_dirichlet(counts: t.Sequence[t.Sequence[int]], states: t.Sequence[int], prior='uniform', outdated_features=None, dirichlet=None):
     """This is a helper function to transform counts of categorical data
     to parameters of a dirichlet distribution.
 
     Args:
-        counts(np.array): the counts of categorical data.
-                    shape(n_features, n_states)
-        categories(np.array): applicable states/categories per feature
+        counts (np.array): the counts of categorical data.
+            shape: (n_features, n_states)
+        states (np.array): applicable states/categories per feature
+            shape: (n_features)
         prior (str): Use one of the following uninformative priors:
             'uniform': A uniform prior probability over the probability simplex Dir(1,...,1)
             'jeffrey': The Jeffrey's prior Dir(0.5,...,0.5)
@@ -599,10 +601,11 @@ def counts_to_dirichlet(counts: t.Sequence[t.Sequence[int]], categories: t.Seque
         assert dirichlet is not None
 
     for feat in outdated_features:
-        cat = categories[feat]
+        cat = states[feat]
         # Add 1 to alpha values (1,1,...1 is a uniform prior)
         pseudocounts = counts[feat, cat] + prior_map[prior]
         dirichlet[feat] = pseudocounts
+
     return dirichlet
 
 
