@@ -491,7 +491,8 @@ class GenerativePrior(object):
         self.prior_p_families_distr = None
 
         self._prior_p_global = PriorPGlobal(config=prior_config['universal'], data=data)
-        self._prior_p_families = PriorPFamilies(config=prior_config['universal'], data=data)
+        if self.inheritance:
+            self._prior_p_families = PriorPFamilies(config=prior_config['universal'], data=data)
 
         self.parse_attributes(prior_config)
 
@@ -504,11 +505,9 @@ class GenerativePrior(object):
         if config['geo']['type'] == 'uniform':
             config_parsed['geo'] = {'type': 'uniform'}
         elif config['geo']['type'] == 'cost_based':
-            # todo:  change prior if cost matrix is provided
-            # todo: move config['model']['scale_geo_prior'] to config['model']['PRIOR']['geo']['scale']
+            # todo: change prior if cost matrix is provided
             config_parsed['geo'] = {'type': 'cost_based',
-                                            'scale': config['geo']['scale']}
-            raise NotImplementedError
+                                    'scale': config['geo']['scale']}
         else:
             raise ValueError('Geo prior not supported')
 
