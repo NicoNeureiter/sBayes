@@ -78,10 +78,12 @@ class Sample(object):
         self.everything_changed()
 
     def everything_changed(self):
-        self.what_changed = {'lh': {'zones': IndexSet(), 'weights': True,
-                                    'p_global': IndexSet(), 'p_zones': IndexSet(), 'p_families': IndexSet()},
-                             'prior': {'zones': IndexSet(), 'weights': True,
-                                       'p_global': IndexSet(), 'p_zones': IndexSet(), 'p_families': IndexSet()}}
+        self.what_changed = {
+            'lh': {'zones': IndexSet(), 'weights': True,
+                   'p_global': IndexSet(), 'p_zones': IndexSet(), 'p_families': IndexSet()},
+            'prior': {'zones': IndexSet(), 'weights': True,
+                      'p_global': IndexSet(), 'p_zones': IndexSet(), 'p_families': IndexSet()}
+        }
 
     def copy(self):
         zone_copied = deepcopy(self.zones)
@@ -161,7 +163,8 @@ class ZoneMCMC(MCMCGenerative):
                               'q_back_shrink': []
                               }
 
-    def gibbs_sample_sources(self, sample: Sample, as_gibbs=True):
+    def gibbs_sample_sources(self, sample: Sample, as_gibbs=True,
+                             sites_subset=None):
         """Resample the of observations to mixture components (their source).
 
         Args:
@@ -173,8 +176,8 @@ class ZoneMCMC(MCMCGenerative):
         likelihood = self.posterior_per_chain[sample.chain].likelihood
 
         # The likelihood of each component in each feature and languages
-        lh_per_component = likelihood.update_component_likelihoods(sample=sample,
-                                                                   caching=False)
+        lh_per_component = likelihood.update_component_likelihoods(sample=sample)
+
         # Weights (in each feature and language) are the priors on the source assignments
         weights = likelihood.update_weights(sample=sample)
 
@@ -195,9 +198,9 @@ class ZoneMCMC(MCMCGenerative):
             return sample, self.Q_GIBBS, self.Q_BACK_GIBBS
         else:
             # If part of another (non-Gibbs) operator, we need the correct hastings factor:
-            q_per_observation = np.sum(sample.source * source_posterior, axis=2)
-            q = np.sum(np.log(q_per_observation))
-            return sample, q, 0
+            log_q_per_observation = np.sum(sample.source * source_posterior, axis=2)
+            log_q = np.sum(np.log(log_q_per_observation))
+            return sample, log_q, 0
 
     def gibbs_sample_weights(self, sample: Sample):
         sample_new = sample.copy()
@@ -250,10 +253,10 @@ class ZoneMCMC(MCMCGenerative):
             w_new[..., 1] = a_contact * w_univ / a_univ
             w_new = normalize(w_new, axis=-1)
 
-        #     # Compute transition and back probability (for each feature)
-        #     a_contact_old = w[..., 1] / (w[..., 0] + w[..., 1])
-        #     log_q = distr.logpdf(a_contact)
-        #     log_q_back = distr.logpdf(a_contact_old)
+            # Compute transition and back probability (for each feature)
+            a_contact_old = w[..., 1] / (w[..., 0] + w[..., 1])
+            log_q = distr.logpdf(a_contact)
+            log_q_back = distr.logpdf(a_contact_old)
 
         else:
             # 'w_contact / w_universal' is fixed.
@@ -277,30 +280,36 @@ class ZoneMCMC(MCMCGenerative):
             w_new[..., 2] = a_inherit * w_univ / a_univ
             w_new = normalize(w_new, axis=-1)
 
-        #     # Compute transition and back probability (for each feature)
-        #     a_inherit_old = w[..., 2] / (w[..., 0] + w[..., 2])
-        #     log_q = distr.logpdf(a_inherit)
-        #     log_q_back = distr.logpdf(a_inherit_old)
-        #
-        # w_normalized = likelihood.update_weights(sample)
-        # w_new_normalized = likelihood.update_weights(sample_new)
-        #
-        # # Compute old and new weight likelihoods (for each feature)
-        # log_lh_old_per_site = np.log(np.sum(sample.source * w_normalized, axis=-1))
-        # log_lh_old = np.sum(log_lh_old_per_site, axis=0)
-        # log_lh_new_per_site = np.log(np.sum(sample_new.source * w_new_normalized, axis=-1))
-        # log_lh_new = np.sum(log_lh_new_per_site, axis=0)
-        #
-        # # Add the prior to get the weight posterior (for each feature)
-        # log_prior_old = 0.   # TODO add hyper prior on weights, when implemented
-        # log_prior_new = 0.  # TODO add hyper prior on weights, when implemented
-        # log_p_old = log_lh_old + log_prior_old
-        # log_p_new = log_lh_new + log_prior_new
-        #
-        # # Compute hastings ratio for each feature and accept/reject independently
-        # p_accept = np.exp(log_p_new - log_p_old + log_q_back - log_q)
-        # accept = np.random.random(p_accept.shape) < p_accept
-        # sample_new.weights = np.where(accept[:, np.newaxis], w_new, w)
+            # Compute transition and back probability (for each feature)
+            a_inherit_old = w[..., 2] / (w[..., 0] + w[..., 2])
+            log_q = distr.logpdf(a_inherit)
+            log_q_back = distr.logpdf(a_inherit_old)
+
+        w_normalized = likelihood.update_weights(sample)
+        w_new_normalized = likelihood.update_weights(sample_new)
+
+        # print(np.asarray(10*w_normalized.sum(axis=0), dtype=int))
+
+        # Compute old and new weight likelihoods (for each feature)
+        log_lh_old_per_site = np.log(np.sum(sample.source * w_normalized, axis=-1))
+        # log_lh_old_per_site = np.log(np.einsum('ijk,ijk->ij', sample.source, w_normalized))
+        log_lh_old = np.sum(log_lh_old_per_site, axis=0)
+        log_lh_new_per_site = np.log(np.sum(sample_new.source * w_new_normalized, axis=-1))
+        # log_lh_new_per_site = np.log(np.einsum('ijk,ijk->ij', sample_new.source, w_new_normalized))
+        log_lh_new = np.sum(log_lh_new_per_site, axis=0)
+
+        # Add the prior to get the weight posterior (for each feature)
+        log_prior_old = 0.   # TODO add hyper prior on weights, when implemented
+        log_prior_new = 0.  # TODO add hyper prior on weights, when implemented
+        log_p_old = log_lh_old + log_prior_old
+        log_p_new = log_lh_new + log_prior_new
+
+        # Compute hastings ratio for each feature and accept/reject independently
+        p_accept = np.exp(log_p_new - log_p_old + log_q_back - log_q)
+        accept = np.random.random(p_accept.shape) < p_accept
+        sample_new.weights = np.where(accept[:, np.newaxis], w_new, w)
+
+        # print(np.mean(accept))
 
         sample_new.weights = w_new
 
@@ -309,100 +318,77 @@ class ZoneMCMC(MCMCGenerative):
         return sample_new, self.Q_GIBBS, self.Q_BACK_GIBBS
 
 
-    def gibbs_sample_p_global(self, sample: Sample):
-        # features shape:       (n_sites, n_features, n_states)
-        # sample.source shape:  (n_sites, n_features, 3)
-        assert sample.source.dtype == bool
-        sample_new = sample.copy()
-
-        # Resample p_global for all features with ´k´ states.
-        # Choose a random ´k´
-        k = np.random.choice(np.unique(self.n_states_by_feature))
-
-        # Select the relevant features
-        features_with_k_states = (self.n_states_by_feature == k)
-        features = self.features[:, features_with_k_states, :]
+    def gibbs_sample_p_global(self, sample: Sample, fraction_of_features=0.4):
+        feature_subset = np.random.random(self.n_features) < fraction_of_features
+        features = self.features[:, feature_subset, :]
 
         # Only consider observations that are attributed to the global distribution
-        from_global = sample_new.source[:, features_with_k_states, 0, np.newaxis]
+        from_global = sample.source[:, feature_subset, 0, np.newaxis]
         features = from_global * features
 
+        # Get the prior (pseudo-)counts from the data
+        prior = self.posterior_per_chain[sample.chain].prior
+        prior_counts = prior._prior_p_global.counts
+
         # Resample p_global according to these observations
-        # TODO Use prior counts for resampling (now this is just sampling from likelihood)
-        for i, f_id in enumerate(np.argwhere(features_with_k_states)):
-            f_id = f_id[0]
-            sample_new.p_global[0, f_id, :] = np.random.dirichlet(1 + np.nansum(features[:, i], axis=0))
-            # TODO find a way to do this vectorized
-            # sample_new.p_global[0, features_with_k_states] = np.random.dirichlet(1 + np.nansum(features, axis=0))
+        for i_feat_subset, i_feat in enumerate(np.argwhere(feature_subset)):
+            i_feat = i_feat[0]
+            s_idxs = self.applicable_states[i_feat]
+            feature_counts = np.nansum(features[:, i_feat_subset, s_idxs], axis=0)
+            sample.p_global[0, i_feat, s_idxs] = np.random.dirichlet(prior_counts[i_feat, s_idxs] + feature_counts)
 
             # The step changed p_global (which has an influence on how the lh and the prior look like)
-            sample_new.what_changed['lh']['p_global'].add(f_id)
-            sample_new.what_changed['prior']['p_global'].add(f_id)
-
-        return sample_new, self.Q_GIBBS, self.Q_BACK_GIBBS
-
-    def gibbs_sample_p_zones(self, sample: Sample, z_id=None):
-        # features shape:       (n_sites, n_features, n_states)
-        # sample.source shape:  (n_sites, n_features, 3)
-        assert sample.source.dtype == bool
-        sample = sample.copy()
-
-        if z_id is None:
-            z_id = np.random.randint(0, self.n_zones)
-
-        # Resample p_zones for all features with ´k´ states.
-        # Choose a random ´k´
-        k = np.random.choice(np.unique(self.n_states_by_feature))
-
-        # Select the relevant features
-        features_with_k_states = (self.n_states_by_feature == k)
-        features = self.features[:, features_with_k_states, :]
-
-        # Only consider observations that are attributed to the zone distribution
-        from_zone = (sample.source[:, features_with_k_states, 1] & sample.zones[z_id, :, np.newaxis])
-        features = from_zone[...,np.newaxis] * features
-
-        # Resample p_zones according to these observations
-        # TODO Use prior counts for resampling (now this is just sampling from likelihood)
-        for i, f_id in enumerate(np.argwhere(features_with_k_states)):
-            f_id = f_id[0]
-            sample.p_zones[z_id, f_id, :] = np.random.dirichlet(1 + np.nansum(features[:, i, :], axis=0))
-            # TODO find a way to do this vectorized
-            # sample.p_zones[zone, features_with_k_states] = np.random.dirichlet(1 + np.nansum(features, axis=0))
-
-            # The step changed p_global (which has an influence on how the lh and the prior look like)
-            sample.what_changed['lh']['p_zones'].add((z_id, f_id))
-            sample.what_changed['prior']['p_zones'].add((z_id, f_id))
+            sample.what_changed['lh']['p_global'].add(i_feat)
+            sample.what_changed['prior']['p_global'].add(i_feat)
 
         return sample, self.Q_GIBBS, self.Q_BACK_GIBBS
 
-    def gibbs_sample_p_families(self, sample: Sample, family=None):
-        # features shape:       (n_sites, n_features, n_states)
-        # sample.source shape:  (n_sites, n_features, 3)
-        assert sample.source.dtype == bool
-        sample = sample.copy()
+    def gibbs_sample_p_zones(self, sample: Sample, i_zone=None):
+        if i_zone is None:
+            i_zone = np.random.randint(0, self.n_zones)
 
-        if family is None:
-            family = np.random.randint(0, self.n_families)
+        features = self.features
 
-        # Resample p_families for all features with ´k´ states.
-        # Choose a random ´k´
-        k = np.random.choice(np.unique(self.n_states_by_feature))
+        # Only consider observations that are attributed to the zone distribution
+        from_zone = (sample.source[:, :, 1] & sample.zones[i_zone, :, np.newaxis])
+        features = from_zone[...,np.newaxis] * features
 
-        # Select the relevant features
-        features_with_k_states = (self.n_states_by_feature == k)
-        features = self.features[:, features_with_k_states, :]
+        # Resample p_zones according to these observations
+        for i_feat in range(self.n_features):
+            s_idxs = self.applicable_states[i_feat]
+            feature_counts = np.nansum(features[:, i_feat, s_idxs], axis=0)
+            sample.p_zones[i_zone, i_feat, s_idxs] = np.random.dirichlet(alpha=1 + feature_counts)
+
+            # The step changed p_global (which has an influence on how the lh and the prior look like)
+            sample.what_changed['lh']['p_zones'].add((i_zone, i_feat))
+            sample.what_changed['prior']['p_zones'].add((i_zone, i_feat))
+
+        return sample, self.Q_GIBBS, self.Q_BACK_GIBBS
+
+    def gibbs_sample_p_families(self, sample: Sample, i_family=None, fraction_of_features=0.4):
+        if i_family is None:
+            i_family = np.random.randint(0, self.n_families)
+
+        feature_subset = np.random.random(self.n_features) < fraction_of_features
+        features = self.features[:, feature_subset, :]
 
         # Only consider observations that are attributed to the family distribution
-        from_family = (sample.source[:, features_with_k_states, 2] & self.data.families[family, :, np.newaxis])
+        from_family = (sample.source[:, feature_subset, 2] & self.data.families[i_family, :, np.newaxis])
         features = from_family[...,np.newaxis] * features
 
+        # Get the prior (pseudo-)counts from the data
+        prior = self.posterior_per_chain[sample.chain].prior
+        prior_counts = prior._prior_p_families.counts[i_family]
+
         # Resample p_families according to these observations
-        # TODO Use prior counts for resampling (now this is just sampling from likelihood)
-        for i, j in enumerate(np.argwhere(features_with_k_states)):
-            sample.p_families[family, j, :] = np.random.dirichlet(1 + np.nansum(features[:, i, :], axis=0))
-        # TODO find a way to do this vectorized
-        # sample.p_families[family, features_with_k_states] = np.random.dirichlet(1 + np.nansum(features, axis=0))
+        for i_feat_subset, i_feat in enumerate(np.argwhere(feature_subset)):
+            i_feat = i_feat[0]
+            s_idxs = self.applicable_states[i_feat]
+            feature_counts = np.nansum(features[:, i_feat_subset, s_idxs], axis=0)
+            sample.p_families[i_family, i_feat, s_idxs] = np.random.dirichlet(prior_counts[i_feat, s_idxs] + feature_counts)
+
+            sample.what_changed['lh']['p_families'].add((i_family, i_feat))
+            sample.what_changed['prior']['p_families'].add((i_family, i_feat))
 
         return sample, self.Q_GIBBS, self.Q_BACK_GIBBS
 
