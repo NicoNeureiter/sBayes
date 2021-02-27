@@ -23,8 +23,12 @@ class MCMCGenerative(metaclass=_abc.ABCMeta):
     """
 
     IS_WARMUP = False
+
     Q_GIBBS = -_np.inf
     Q_BACK_GIBBS = 0
+
+    Q_REJECT = 0
+    Q_BACK_REJECT = -_np.inf
 
     def __init__(self, model, data, operators, n_chains,
                  mc3=False, swap_period=None, chain_swaps=None,

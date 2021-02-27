@@ -8,6 +8,7 @@ import numpy as np
 import scipy.stats as stats
 
 from sbayes.sampling.mcmc_generative import MCMCGenerative
+from sbayes.model import normalize_weights
 from sbayes.util import get_neighbours, normalize, dirichlet_pdf, get_max_size_list
 from sbayes.preprocessing import sample_categorical
 
@@ -176,7 +177,7 @@ class ZoneMCMC(MCMCGenerative):
         likelihood = self.posterior_per_chain[sample.chain].likelihood
 
         # The likelihood of each component in each feature and languages
-        lh_per_component = likelihood.update_component_likelihoods(sample=sample)
+        lh_per_component = likelihood.update_component_likelihoods(sample=sample, caching=False)
 
         # Weights (in each feature and language) are the priors on the source assignments
         weights = likelihood.update_weights(sample=sample)
@@ -598,18 +599,10 @@ class ZoneMCMC(MCMCGenerative):
 
         return sample_new, log_q, log_q_back
 
-    def swap_zone(self, sample, resample_source=True):
-        """ This functions swaps sites in one of the zones of the current sample
-        (i.e. in of the zones a site is removed and another one added)
-        Args:
-            sample(Sample): The current sample with zones and weights.
-
-        Returns:
-            Sample: The modified sample.
-         """
+    def gibbsish_sample_zones(self, sample, resample_source=True):
         sample_new = sample.copy()
-        zones_current = sample.zones
-        occupied = np.any(zones_current, axis=0)
+        likelihood = self.posterior_per_chain[sample.chain].likelihood
+        occupied = np.any(sample.zones, axis=0)
 
         if self.model.sample_source and resample_source:
             likelihood = self.posterior_per_chain[sample.chain].likelihood
@@ -620,8 +613,86 @@ class ZoneMCMC(MCMCGenerative):
             log_q_back_s = np.sum(np.log(q_per_observation))
 
         # Randomly choose one of the zones to modify
-        z_id = np.random.choice(range(zones_current.shape[0]))
-        zone_current = zones_current[z_id, :]
+        z_id = np.random.choice(range(sample.zones.shape[0]))
+        zone = sample.zones[z_id, :]
+        available = (~occupied) | zone
+        # available[available] &= np.random.random(np.count_nonzero(available)) < 0.3
+
+        n_available = np.count_nonzero(available)
+        if n_available == 0:
+            return sample, self.Q_REJECT, self.Q_BACK_REJECT
+
+        # Compute lh per language with and without zone
+        global_lh = likelihood.get_global_lh(sample)[available, :]
+        zone_lh = np.einsum('ijk,jk->ij', self.features[available], sample.p_zones[z_id])
+        if self.inheritance:
+            family_lh = likelihood.get_family_lh(sample)[available, :]
+            all_lh = np.array([global_lh, zone_lh, family_lh]).transpose((1, 2, 0))
+        else:
+            all_lh = np.array([global_lh, zone_lh]).transpose((1, 2, 0))
+        all_lh[likelihood.na_features[available]] = 1.
+
+        if self.inheritance:
+            has_components = np.ones((n_available , 3), dtype=bool)
+            has_components[:, -1] = likelihood.has_family[available]
+        else:
+            has_components = np.ones((n_available, 2), dtype=bool)
+
+        weights_with_z = normalize_weights(sample.weights[np.newaxis, :, :], has_components)
+        has_components[:, 1] = False
+        weights_without_z = normalize_weights(sample.weights[np.newaxis, :, :], has_components)
+
+        feature_lh_with_z = np.sum(all_lh * weights_with_z, axis=-1)
+        feature_lh_without_z = np.sum(all_lh * weights_without_z, axis=-1)
+
+        marginal_lh_with_z = np.exp(np.sum(np.log(feature_lh_with_z), axis=-1))
+        marginal_lh_without_z = np.exp(np.sum(np.log(feature_lh_without_z), axis=-1))
+
+        posterior_zone = marginal_lh_with_z / (marginal_lh_with_z + marginal_lh_without_z)
+        new_zone = (np.random.random(n_available) < posterior_zone)
+
+        sample_new.zones[z_id, available] = new_zone
+
+        q_per_site = posterior_zone * new_zone + (1 - posterior_zone) * (1 - new_zone)
+        log_q = np.sum(np.log(q_per_site))
+        q_back_per_site = posterior_zone * zone[available] + (1 - posterior_zone) * (1 - zone[available])
+        log_q_back = np.sum(np.log(q_back_per_site))
+
+        sample_new.what_changed['lh']['zones'].add(z_id)
+        sample.what_changed['lh']['zones'].add(z_id)
+        sample_new.what_changed['prior']['zones'].add(z_id)
+        sample.what_changed['prior']['zones'].add(z_id)
+
+        if self.model.sample_source and resample_source:
+            sample_new, log_q_s, _ = self.gibbs_sample_sources(sample_new, as_gibbs=False)
+            log_q += log_q_s
+            log_q_back += log_q_back_s
+
+        return sample_new, log_q, log_q_back
+
+    def swap_zone(self, sample, resample_source=True):
+        """ This functions swaps sites in one of the zones of the current sample
+        (i.e. in of the zones a site is removed and another one added)
+        Args:
+            sample(Sample): The current sample with zones and weights.
+
+        Returns:
+            Sample: The modified sample.
+         """
+        sample_new = sample.copy()
+        occupied = np.any(sample.zones, axis=0)
+
+        if self.model.sample_source and resample_source:
+            likelihood = self.posterior_per_chain[sample.chain].likelihood
+            lh_per_component = likelihood.update_component_likelihoods(sample=sample, caching=False)
+            weights = likelihood.update_weights(sample=sample)
+            source_posterior = normalize(lh_per_component * weights, axis=-1)
+            q_per_observation = np.sum(sample.source * source_posterior, axis=2)
+            log_q_back_s = np.sum(np.log(q_per_observation))
+
+        # Randomly choose one of the zones to modify
+        z_id = np.random.choice(range(sample.zones.shape[0]))
+        zone_current = sample.zones[z_id, :]
 
         neighbours = get_neighbours(zone_current, occupied, self.adj_mat)
         connected_step = (_random.random() < self.p_grow_connected)
@@ -1203,6 +1274,9 @@ class ZoneMCMCWarmup(ZoneMCMC):
 
     def alter_p_zones(self, sample, c=0):
         return super(ZoneMCMCWarmup, self).alter_p_zones(sample)
+
+    def gibbsish_sample_zones(self, sample, c=0):
+        return super(ZoneMCMCWarmup, self).gibbsish_sample_zones(sample)
 
     def swap_zone(self, sample, c=0):
         """ This functions swaps sites in one of the zones of the current sample

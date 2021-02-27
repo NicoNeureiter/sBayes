@@ -75,6 +75,7 @@ Ratio of contact steps (changing gamma): {mcmc_config['STEPS']['contact']}
         ops = {'shrink_zone': steps_config['area'] * 0.4,
                'grow_zone': steps_config['area'] * 0.4,
                'swap_zone': steps_config['area'] * 0.2,
+               # 'gibbsish_sample_zones': steps_config['area'] * 0.7
                }
         if self.model.sample_source:
             ops.update({
