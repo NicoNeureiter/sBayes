@@ -15,7 +15,8 @@
 			"weights": 0.4,
 			"universal": 0.05,
 			"contact": 0.4,
-			"inheritance": 0.1
+			"inheritance": 0.1,
+			"source": 0.0
 		},
 		"M_INITIAL": 5,
 		"WARM_UP": {
@@ -28,6 +29,7 @@
 		"MIN_M": 3,
 		"MAX_M": 50,
 		"INHERITANCE": "<REQUIRED>",
+		"SAMPLE_SOURCE": false,
 		"PRIOR": {
 			"geo": {"type": "uniform"},
 			"area_size": {"type":  "none"},

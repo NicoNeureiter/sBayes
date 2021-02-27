@@ -7,6 +7,7 @@ import abc as _abc
 import random as _random
 import time as _time
 import numpy as _np
+from copy import copy
 
 from collections import defaultdict
 
@@ -23,21 +24,27 @@ class MCMCGenerative(metaclass=_abc.ABCMeta):
 
     IS_WARMUP = False
 
-    def __init__(self, operators, prior_settings, n_zones, n_chains,
-                 mc3=False, swap_period=None, chain_swaps=None, show_screen_log=False, **kwargs):
+    Q_GIBBS = -_np.inf
+    Q_BACK_GIBBS = 0
+
+    Q_REJECT = 0
+    Q_BACK_REJECT = -_np.inf
+
+    def __init__(self, model, data, operators, n_chains,
+                 mc3=False, swap_period=None, chain_swaps=None,
+                 sample_from_prior=False, show_screen_log=False, **kwargs):
+
+        # The model and data defining the posterior distribution
+        self.model = model
+        self.data = data
 
         # Sampling attributes
         self.n_chains = n_chains
         self.chain_idx = list(range(self.n_chains))
-
-        # Number of zones
-        self.n_zones = n_zones
+        self.sample_from_prior = sample_from_prior
 
         # Operators
         self.fn_operators, self.p_operators = self.get_operators(operators)
-
-        # Prior
-        self.prior_settings = prior_settings
 
         # MC3
         self.mc3 = mc3
@@ -69,31 +76,52 @@ class MCMCGenerative(metaclass=_abc.ABCMeta):
         self.show_screen_log = show_screen_log
         self.t_start = _time.time()
 
-    @_abc.abstractmethod
-    def prior(self, x, c):
-        """Compute the prior of the sample
-        Args:
-            x (Sample): Sample object
-            c (int): Current chain
-        Returns:
-            float: the prior of x
-        """
-        pass
+        self.posterior_per_chain = [copy(model) for _ in range(self.n_chains)]
 
-    @_abc.abstractmethod
-    def likelihood(self, x, c):
+    def prior(self, sample, chain):
+        """Compute the (log) prior of a sample.
+        Args:
+            sample (Sample): The current sample.
+            chain (int): The current chain.
+        Returns:
+            float: The (log) prior of the sample"""
+        # Compute the prior
+        log_prior = self.posterior_per_chain[chain].prior(sample=sample)
+
+        check_caching = False
+        if check_caching:
+            sample.everything_changed()
+            log_prior_stable = self.posterior_per_chain[chain].prior(sample=sample)
+            assert log_prior == log_prior_stable, f'{log_prior} != {log_prior_stable}'
+
+        return log_prior
+
+    def likelihood(self, sample, chain):
         """Compute the (log) likelihood of the given sample.
 
         Args:
-            x (Sample): The current sample.
-            c (int): The current chain.
+            sample (Sample): The current sample.
+            chain (int): The current chain.
         Returns:
             float: (log)likelihood of x
         """
-        pass
+        if self.sample_from_prior:
+            return 0.
+
+        # Compute the likelihood
+        log_lh = self.posterior_per_chain[chain].likelihood(sample=sample)
+
+        check_caching = False
+        if check_caching:
+            sample.everything_changed()
+            log_lh_stable = self.posterior_per_chain[chain].likelihood(sample=sample, caching=False)
+            assert log_lh == log_lh_stable, f'{log_lh} != {log_lh_stable}'
+
+        return log_lh
+
 
     @_abc.abstractmethod
-    def generate_initial_sample(self):
+    def generate_initial_sample(self, c=0):
         """Generate an initial sample from which the run should be started.
         Preferably in high density areas.
         Returns:
@@ -130,7 +158,7 @@ class MCMCGenerative(metaclass=_abc.ABCMeta):
         # Generate initial samples
         for c in self.chain_idx:
 
-            sample[c] = self.generate_initial_sample()
+            sample[c] = self.generate_initial_sample(c)
             # Compute the (log)-likelihood and the prior for each sample
             self._ll[c] = self.likelihood(sample[c], c)
             self._prior[c] = self.prior(sample[c], c)
@@ -223,12 +251,12 @@ class MCMCGenerative(metaclass=_abc.ABCMeta):
 
             ll_to = self.likelihood(sample[swap_to], swap_to)
             prior_to = self.prior(sample[swap_to], swap_to)
-            q_to = q_from = 1.
+            q_to = q_from = 0
 
             # Evaluate the metropolis-hastings ratio
             mh_ratio = self.metropolis_hastings_ratio(ll_new=ll_to, ll_prev=ll_from,
                                                       prior_new=prior_to, prior_prev=prior_from,
-                                                      q=q_to, q_back=q_from)
+                                                      log_q=q_to, log_q_back=q_from)
 
             # Swap chains according to MH-ratio and update
             if _math.log(_random.random()) < mh_ratio:
@@ -257,10 +285,11 @@ class MCMCGenerative(metaclass=_abc.ABCMeta):
 
         # Randomly choose one operator to propose new sample (grow/shrink/swap zones, alter weights/p_zones/p_families)
         propose_step = _np.random.choice(self.fn_operators, 1, p=self.p_operators)[0]
+
         if self.IS_WARMUP:
-            candidate, q, q_back = propose_step(sample, c)
+            candidate, log_q, log_q_back = propose_step(sample, c)
         else:
-            candidate, q, q_back = propose_step(sample)
+            candidate, log_q, log_q_back = propose_step(sample)
 
         # Compute the log-likelihood of the candidate
         ll_candidate = self.likelihood(candidate, c)
@@ -269,12 +298,18 @@ class MCMCGenerative(metaclass=_abc.ABCMeta):
         prior_candidate = self.prior(candidate, c)
 
         # Evaluate the metropolis-hastings ratio
-        mh_ratio = self.metropolis_hastings_ratio(ll_new=ll_candidate, ll_prev=self._ll[c],
-                                                  prior_new=prior_candidate, prior_prev=self._prior[c],
-                                                  q=q, q_back=q_back)
+        if log_q_back == -_np.inf:
+            accept = False
+        elif log_q == -_np.inf:
+            accept = True
+        else:
+            mh_ratio = self.metropolis_hastings_ratio(ll_new=ll_candidate, ll_prev=self._ll[c],
+                                                      prior_new=prior_candidate, prior_prev=self._prior[c],
+                                                      log_q=log_q, log_q_back=log_q_back)
 
-        # Accept/reject according to MH-ratio and update
-        accept = _math.log(_random.random()) < mh_ratio
+            # Accept/reject according to MH-ratio and update
+            accept = _math.log(_random.random()) < mh_ratio
+
         if accept:
             sample = candidate
             self._ll[c] = ll_candidate
@@ -287,26 +322,21 @@ class MCMCGenerative(metaclass=_abc.ABCMeta):
         return sample
 
     @staticmethod
-    def metropolis_hastings_ratio(ll_new, ll_prev, prior_new, prior_prev, q, q_back, temperature=1.):
+    def metropolis_hastings_ratio(ll_new, ll_prev, prior_new, prior_prev, log_q, log_q_back, temperature=1.):
         """ Computes the metropolis-hastings ratio.
         Args:
             ll_new(float): the likelihood of the candidate
             ll_prev(float): the likelihood of the current sample
             prior_new(float): the prior of the candidate
             prior_prev(float): the prior of the current sample
-            q (float): the transition probability
-            q_back (float): the back-probability
+            log_q (float): the transition probability
+            log_q_back (float): the back-probability
             temperature(float): the temperature of the MCMC
         Returns:
             (float): the metropolis-hastings ratio
         """
         ll_ratio = ll_new - ll_prev
-        try:
-            with _np.errstate(divide='ignore'):
-                log_q_ratio = _math.log(q / q_back)
-
-        except ZeroDivisionError:
-            log_q_ratio = _math.inf
+        log_q_ratio = log_q - log_q_back
 
         prior_ratio = prior_new - prior_prev
         mh_ratio = (ll_ratio * temperature) - log_q_ratio + prior_ratio

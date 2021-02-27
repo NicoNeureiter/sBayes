@@ -1,14 +1,299 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 import itertools
+from enum import Enum
+
 import numpy as np
+
 import scipy.stats as stats
 from scipy.sparse.csgraph import minimum_spanning_tree
 
 from sbayes.util import (compute_delaunay, n_smallest_distances, log_binom,
                          counts_to_dirichlet, inheritance_counts_to_dirichlet,
-                         dirichlet_logpdf)
+                         dirichlet_logpdf, scale_counts)
 EPS = np.finfo(float).eps
+
+
+class Model(object):
+
+    """The sBayes model defining the posterior distribution of areas and parameters.
+
+    Attributes:
+        data (Data): data used in the likelihood and empirical priors.
+        config (dict): a dictionary containing configuration parameters of the model.
+        inheritance (bool): indicator whether or not inheritance is modeled
+        likelihood (GenerativeLikelihood): the likelihood of the model.
+        prior (GenerativePrior): the prior of the model.
+
+    """
+
+    def __init__(self, data, config):
+        self.data = data
+        self.config = config
+        self.parse_attributes(config)
+
+        # Create likelihood and prior objects
+        self.likelihood = GenerativeLikelihood(data=data, inheritance=self.inheritance)
+        self.prior = GenerativePrior(data=data,
+                                     inheritance=self.inheritance,
+                                     prior_config=config['PRIOR'])
+
+    def parse_attributes(self, config):
+        """Read attributes from the config dictionary."""
+        self.n_zones = config['N_AREAS']
+        self.min_size = config['MIN_M']
+        self.max_size = config['MAX_M']
+        self.inheritance = config['INHERITANCE']
+        self.sample_source = config['SAMPLE_SOURCE']
+
+    def __call__(self, sample, caching=True):
+        """Evaluate the (non-normalized) posterior probability of the given sample."""
+        log_likelihood = self.likelihood(sample, caching=caching)
+        log_prior = self.prior(sample)
+        return log_likelihood + log_prior
+
+    def __copy__(self):
+        return Model(self.data, self.config)
+
+    def get_setup_message(self):
+        """Compile a set-up message for logging."""
+        setup_msg = '\n'.join([
+            f'Model',
+            f'##########################################',
+            f'Number of inferred areas: {self.n_zones}',
+            f'Areas have a minimum size of {self.min_size} and a maximum size of {self.max_size}',
+            f'Inheritance is considered for inference: {self.inheritance}',
+            f'Geo-prior: {self.prior.config["geo"]["type"]}'
+            f'Prior on weights: {self.prior.config["weights"]["type"]}',
+            f'Prior on universal pressure (alpha): {self.prior.config["universal"]["type"]}',
+            f'Prior on contact (gamma): {self.prior.config["contact"]["type"]}'
+        ])
+
+        if self.inheritance:
+            setup_msg += f'\nPrior on inheritance(beta): {self.prior.config["inheritance"]["type"]}\n'
+
+        return setup_msg
+
+
+class GenerativeLikelihood(object):
+
+    """Likelihood of the sBayes model.
+
+    Attributes:
+        features (np.array): The feature values for all sites and features.
+            shape: (n_sites, n_features, n_categories)
+        inharitance (bool): flag indicating whether inheritance (i.e. family distributions) is modelled or not.
+        families (np.array): assignment of languages to families.
+            shape: (n_families, n_sites)
+        n_sites (int): number of sites (languages) in the sample.
+        n_features (int): number of features in the data-set.
+        n_categories (int): the maximum number of categories per feature.
+        has_global (np.array): indicator whether a languages is part of global (always true).
+            shape: (n_sites)
+        has_family (np.array): indicators whether a language is in any family.
+            shape: (n_sites)
+        has_zone (np.array): indicators whether a languages is in any zone.
+            shape: (n_sites)
+        assignment (np.array): indicators whether a languages is affected by each
+            mixture components (global, family, zone) in one array.
+            shape: (n_sites, 3)
+        global_lh (np.array): cached likelihood values for each site and feature according to global component.
+            shape: (n_sites, n_features)
+        family_lh (np.array): cached likelihood values for each site and feature according to family component.
+            shape: (n_sites, n_features)
+        zone_lh (np.array): cached likelihood values for each site and feature according to zone component.
+            shape: (n_sites, n_features)
+        all_lh (np.array): cached likelihood values for each site and feature according to each component.
+            shape: (n_sites, n_features, 3)
+        weights (np.array): cached normalized weights of each component in the final likelihood for each feature.
+            shape: (n_sites, n_features, 3)
+        na_features (np.array): bool array indicating missing observations
+            shape: (n_sites, n_features)
+    """
+
+    def __init__(self, data, inheritance):
+        self.features = data.features
+        self.families = np.asarray(data.families, dtype=bool)
+        self.inheritance = inheritance
+
+        # Store relevant dimensions for convenience
+        self.n_sites, self.n_features, self.n_categories = data.features.shape
+        self.na_features = (np.sum(self.features, axis=-1) == 0)
+
+        # Initialize attributes for caching
+
+        # Assignment of languages to all component (global, per zone and family)
+        self.has_global = np.ones(self.n_sites, dtype=bool)
+        self.has_family = np.any(self.families, axis=0)
+        self.has_zone = None
+        self.has_components = None
+
+        # The component likelihoods
+        self.global_lh = None
+        self.family_lh = None
+        self.zone_lh = None
+
+        # The combined and weighted and the non-normalized likelihood
+        self.all_lh = None
+
+        # Weights
+        self.weights = None
+
+    def reset_cache(self):
+        # The assignment (global, zone, family) combined and weighted and the non-normalized likelihood
+        self.has_components = None
+        self.all_lh = None
+        # Assignment and lh (global, per zone and family)
+        self.has_zone = None
+        self.global_lh = None
+        self.family_lh = None
+        self.zone_lh = None
+        # Weights
+        self.weights = None
+
+    def __call__(self, sample, caching=True):
+        """Compute the likelihood of all sites. The likelihood is defined as a mixture of the global distribution
+           and the likelihood distribution of the family and the zone.
+
+            Args:
+                sample(Sample): A Sample object consisting of zones and weights
+
+            Returns:
+                float: The joint likelihood of the current sample.
+            """
+
+        if not caching:
+            self.reset_cache()
+
+        # Compute the likelihood values per mixture component
+        all_lh = self.update_component_likelihoods(sample)
+        # Compute the weights of the mixture component in each feature and site
+        weights = self.update_weights(sample)
+
+        # Compute the likelihood per site and feature
+        if sample.source is not None:
+            # Component contributions are sampled -> lh is defined by source labels
+            feature_lh = np.sum(sample.source * weights * all_lh, axis=2)
+        else:
+            # Compute the weighted likelihood per feature and language
+            feature_lh = np.sum(weights * all_lh, axis=2)
+
+        # Sum up likelihood of all sites and features
+        log_lh = np.sum(np.log(feature_lh))
+
+        # The step is completed -> everything is up-to-date.
+        self.everything_updated(sample)
+        return log_lh
+
+    def everything_updated(self, sample):
+        sample.what_changed['lh']['zones'].clear()
+        sample.what_changed['lh']['p_global'].clear()
+        sample.what_changed['lh']['p_zones'].clear()
+        sample.what_changed['lh']['weights'] = False
+        if self.inheritance:
+            sample.what_changed['lh']['p_families'].clear()
+
+    def get_global_lh(self, sample):
+        if (self.global_lh is None) or (sample.what_changed['lh']['p_global']):
+
+            self.global_lh = compute_global_likelihood(features=self.features,
+                                                       p_global=sample.p_global,
+                                                       outdated_indices=sample.what_changed['lh']['p_global'],
+                                                       cached_lh=self.global_lh)
+
+        return self.global_lh
+
+    def get_family_lh(self, sample):
+        # Families are only evaluated if the model considers inheritance
+        if not self.inheritance:
+            return None
+
+        # Family lh is evaluated when initialized and when p_families is changed
+        if self.family_lh is None or sample.what_changed['lh']['p_families']:
+            # assert np.allclose(a=np.sum(sample.p_families, axis=-1), b=1., rtol=EPS)
+            self.family_lh = compute_family_likelihood(features=self.features, families=self.families,
+                                                       p_families=sample.p_families,
+                                                       outdated_indices=sample.what_changed['lh']['p_families'],
+                                                       cached_lh=self.family_lh)
+
+        return self.family_lh
+
+    def get_zone_lh(self, sample):
+        # Zone lh is evaluated when initialized, or when zones or p_zones change
+        if self.zone_lh is None or sample.what_changed['lh']['zones'] or sample.what_changed['lh']['p_zones']:
+            # assert np.allclose(a=np.sum(p_zones, axis=-1), b=1., rtol=EPS)
+            self.zone_lh = compute_zone_likelihood(features=self.features, zones=sample.zones,
+                                                   p_zones=sample.p_zones,
+                                                   outdated_indices=sample.what_changed['lh']['p_zones'],
+                                                   outdated_zones=sample.what_changed['lh']['zones'],
+                                                   cached_lh=self.zone_lh)
+        return self.zone_lh
+
+    def update_component_likelihoods(self, sample, caching=True):
+        # Update the likelihood valus for each of the mixture components
+        global_lh = self.get_global_lh(sample)
+        family_lh = self.get_family_lh(sample)
+        zone_lh = self.get_zone_lh(sample)
+
+        # Merge the component likelihoods into one array (if something has changed)
+        if ((not caching) or (self.all_lh is None)
+                or sample.what_changed['lh']['zones'] or sample.what_changed['lh']['p_global']
+                or sample.what_changed['lh']['p_zones'] or sample.what_changed['lh']['p_families']):
+
+            # Structure of likelihood depends on whether inheritance is considered or not
+            if self.inheritance:
+                self.all_lh = np.array([global_lh, zone_lh, family_lh]).transpose((1, 2, 0))
+            else:
+                self.all_lh = np.array([global_lh, zone_lh]).transpose((1, 2, 0))
+
+            self.all_lh[self.na_features] = 1.
+
+        return self.all_lh
+
+    def get_zone_assignment(self, sample):
+        """Update the zone assignment if necessary and return it."""
+        if self.has_zone is None or sample.what_changed['lh']['zones']:
+            self.has_zone = np.any(sample.zones, axis=0)
+        return self.has_zone
+
+    def update_weights(self, sample):
+        """Compute the normalized weights of each component at each site.
+
+        Args:
+            sample (Sample): the current MCMC sample.
+
+        Returns:
+            np.array: normalized weights of each component at each site.
+                shape: (n_sites, n_features, 3)
+        """
+
+        # The area assignment needs to be updated when the area changes
+        self.has_zone = self.get_zone_assignment(sample)
+
+        # Assignments are recombined when initialized or when zones change
+        if self.has_components is None or sample.what_changed['lh']['zones']:
+            # Structure of assignment depends on
+            # whether inheritance is considered or not
+            if self.inheritance:
+                self.has_components = np.array([self.has_global,
+                                                self.has_zone,
+                                                self.has_family]).T
+            else:
+                self.has_components = np.array([self.has_global,
+                                                self.has_zone]).T
+
+        # weights are evaluated when initialized, when weights change or when assignment to zones changes
+        if self.weights is None or sample.what_changed['lh']['weights'] or sample.what_changed['lh']['zones']:
+
+            abnormal_weights = sample.weights
+
+            # Extract weights for each site depending on whether the likelihood is available
+            # Order of columns in weights: global, contact, inheritance (if available)
+            # abnormal_weights_per_site = np.repeat(abnormal_weights[np.newaxis, :, :], self.n_sites, axis=0)
+            abnormal_weights_per_site = abnormal_weights[np.newaxis, :, :]
+            self.weights = normalize_weights(abnormal_weights_per_site, self.has_components)
+
+        return self.weights
 
 
 def compute_global_likelihood(features, p_global=None,
@@ -28,12 +313,6 @@ def compute_global_likelihood(features, p_global=None,
             shape: (n_sites, n_features)
     """
     n_sites, n_features, n_categories = features.shape
-
-    # # Estimate the global probability to find a feature/category
-    # p_glob = np.sum(features, axis=0) / n_sites
-    #
-    # # Division by zero could cause troubles
-    # p_glob = p_glob.clip(EPS, 1 - EPS)
 
     if cached_lh is None:
         lh_global = np.ones((n_sites, n_features))
@@ -83,43 +362,34 @@ def compute_zone_likelihood(features, zones, p_zones=None,
     else:
         lh_zone = cached_lh
 
+    # if outdated_indices.all:
+    #     outdated_indices = itertools.product(range(n_zones), range(n_features))
+    # else:
+    #     if outdated_zones:
+    #         outdated_zones_expanded = {(zone, feat) for zone in outdated_zones for feat in range(n_features)}
+    #         outdated_indices = set.union(outdated_indices, outdated_zones_expanded)
+    #
+    # # features_by_zone = {features[zones[z], :, :] for z in range(n_zones)}
+    # features_by_zone = {}
+    #
+    # for z, i_f in outdated_indices:
+    #     # Compute the feature likelihood vector (for all sites in zone)
+    #     if z not in features_by_zone:
+    #         features_by_zone[z] = features[zones[z], :, :]
+    #     f = features_by_zone[z][:, i_f, :]
+    #     p = p_zones[z, i_f, :]
+    #     lh_zone[zones[z], i_f] = f.dot(p)
+
     if outdated_indices.all:
-        outdated_indices = itertools.product(range(n_zones), range(n_features))
+        outdated_zones = range(n_zones)
     else:
-        if outdated_zones:
-            outdated_zones_expanded = {(zone, feat) for zone in outdated_zones for feat in range(n_features)}
-            outdated_indices = set.union(outdated_indices, outdated_zones_expanded)
+        outdated_zones = set.union(outdated_zones,
+                                   {i_zone for (i_zone, i_feat) in outdated_indices})
 
-    # features_by_zone = {features[zones[z], :, :] for z in range(n_zones)}
-    features_by_zone = {}
-
-    for z, i_f in outdated_indices:
-        # # Estimate the probability to find a feature/category in the zone, given the counts per category
-        # features_zone = features[zones[z], :, :]
-        #
-        # if sample_p_zones:
-        #     p_zone = p_zones[z]
-        # else:
-        #     # Maximum likelihood estimate
-        #     idx = zones[z].nonzero()[0]
-        #     zone_size = len(idx)
-        #     p_zone = np.sum(features_zone, axis=0) / zone_size
-        # # p_zone.shape = (n_features, n_categories)
-        #
-        # # Division by zero could cause troubles
-        # p_zone = p_zone.clip(EPS, 1 - EPS)
-        #
-        # f = features_zone[:, i_f, :]
-        # # f.shape = (zone_size, n_categories)
-
-        # Compute the feature likelihood vector (for all sites in zone)
-        # f = features[zones[z], i_f, :]
-        # f = features_by_zone[z][:, i_f, :]
-        if z not in features_by_zone:
-            features_by_zone[z] = features[zones[z], :, :]
-        f = features_by_zone[z][:, i_f, :]
-        p = p_zones[z, i_f, :]
-        lh_zone[zones[z], i_f] = f.dot(p)
+    for z in outdated_zones:
+        f_z = features[zones[z], :, :]
+        p_z = p_zones[z, :, :]
+        lh_zone[zones[z], :] = np.einsum('ijk,jk->ij', f_z, p_z)
 
     return lh_zone
 
@@ -165,232 +435,23 @@ def compute_family_likelihood(features, families, p_families=None,
     return lh_families
 
 
-def normalize_weights(weights, assignment):
+def normalize_weights(weights, has_components):
     """This function assigns each site a weight if it has a likelihood and zero otherwise
 
         Args:
             weights (np.array): the weights to normalize
                 shape: (n_sites, n_features, 3)
-            assignment (np.array): assignment of sites to global, zone and family.
-                shape(n_sites, 3)
+            has_components (np.array): boolean indicators, showing whether a language is
+                affected by the universal distribution (always true), an areal distribution
+                and a family distribution respectively.
+                shape: (n_sites, 3)
 
         Return:
             np.array: the weight_per site
                 shape: (n_sites, n_features, 3)
     """
-    weights_per_site = weights * assignment[:, np.newaxis, :]
+    weights_per_site = weights * has_components[:, np.newaxis, :]
     return weights_per_site / weights_per_site.sum(axis=2, keepdims=True)
-
-
-class GenerativeLikelihood(object):
-
-    """Likelihood of the sBayes model.
-
-    Attributes:
-        data (np.array): The feature values for all sites and features.
-            shape: (n_sites, n_features, n_categories)
-        inharitance (bool): flag indicating whether inheritance (i.e. family distributions) is modelled or not.
-        families (np.array): assignment of languages to families.
-            shape: (n_families, n_sites)
-        n_sites (int): number of sites (languages) in the sample.
-        n_features (int): number of features in the data-set.
-        n_categories (int): the maximum number of categories per feature.
-        global_assignment (np.array): indicator whether a languages is part of global (always true).
-        family_assignment (np.array): indicators whether a language is in any family.
-        zone_assignment (np.array): indicators whether a languages is in any zone..
-        assignment (np.array): indicators whether a languages is affected by each
-            mixture components (global, family, zone) in one array.
-            shape: (n_sites, 3)
-        global_lh (np.array): cached likelihood values for each site and feature according to global component.
-            shape: (n_sites, n_features)
-        family_lh (np.array): cached likelihood values for each site and feature according to family component.
-            shape: (n_sites, n_features)
-        zone_lh (np.array): cached likelihood values for each site and feature according to zone component.
-            shape: (n_sites, n_features)
-        all_lh (np.array): cached likelihood values for each site and feature according to each component.
-            shape: (n_sites, n_features, 3)
-        weights (np.array): cached normalized weights of each component in the final likelihood for each feature.
-            shape: (n_features, 3)
-    """
-
-    def __init__(self, data, inheritance, families=None):
-        self.data = data
-        self.families = np.asarray(families, dtype=bool)
-        self.inheritance = inheritance
-
-        # Store relevant dimensions for convenience
-        self.n_sites, self.n_features, self.n_categories = data.shape
-
-        # Initialize attributes for caching
-
-        # Assignment of languages to all component (global, per zone and family)
-        self.global_assignment = np.ones(self.n_sites, dtype=bool)
-        self.family_assignment = None
-        self.zone_assignment = None
-        self.assignment = None
-
-        # The component likelihoods
-        self.global_lh = None
-        self.family_lh = None
-        self.zone_lh = None
-        # The combined and weighted and the non-normalized likelihood
-        self.all_lh = None
-
-        # Weights
-        self.weights = None
-
-    def reset_cache(self):
-        # The assignment (global, zone, family) combined and weighted and the non-normalized likelihood
-        self.assignment = None
-        self.all_lh = None
-        # Assignment and lh (global, per zone and family)
-        self.family_assignment = None
-        self.zone_assignment = None
-        self.global_lh = None
-        self.family_lh = None
-        self.zone_lh = None
-        # Weights
-        self.weights = None
-
-    def __call__(self, sample, caching=True):
-        """Compute the likelihood of all sites. The likelihood is defined as a mixture of the global distribution
-           and the likelihood distribution of the family and the zone.
-
-            Args:
-                sample(Sample): A Sample object consisting of zones and weights
-
-            Returns:
-                float: The joint likelihood of the current sample.
-            """
-
-        if not caching:
-            self.reset_cache()
-
-        features = self.data
-        n_sites, n_features, n_categories = features.shape
-
-        # Find NA features in the data
-        na_features = (np.sum(features, axis=-1) == 0)
-
-        # compute the likelihood values per mixture component
-        all_lh = self.update_component_likelihoods(sample)
-        # compute the weights of the mixture component in each feature and site
-        weights = self.update_weights(sample)
-
-        # Compute the weighted likelihood per feature and language
-        feature_lh = np.sum(weights * all_lh, axis=2)
-
-        # Replace na values by 1
-        feature_lh[na_features] = 1.
-        log_lh = np.sum(np.log(feature_lh))
-
-        # The step is completed. Everything is up-to-date.
-        sample.what_changed['lh']['zones'].clear()
-        sample.what_changed['lh']['p_global'].clear()
-        sample.what_changed['lh']['p_zones'].clear()
-        sample.what_changed['lh']['weights'] = False
-        if self.inheritance:
-            sample.what_changed['lh']['p_families'].clear()
-
-        return log_lh
-
-    def get_global_lh(self, sample):
-        if (self.global_lh is None) or (sample.what_changed['lh']['p_global']):
-
-            self.global_lh = compute_global_likelihood(features=self.data,
-                                                       p_global=sample.p_global,
-                                                       outdated_indices=sample.what_changed['lh']['p_global'],
-                                                       cached_lh=self.global_lh)
-
-        return self.global_lh
-
-    def get_family_lh(self, sample):
-        # Families are only evaluated if the model considers inheritance
-        if not self.inheritance:
-            return None
-
-        # Family lh is evaluated when initialized and when p_families is changed
-        if self.family_lh is None or sample.what_changed['lh']['p_families']:
-            # assert np.allclose(a=np.sum(sample.p_families, axis=-1), b=1., rtol=EPS)
-            self.family_lh = compute_family_likelihood(features=self.data, families=self.families,
-                                                       p_families=sample.p_families,
-                                                       outdated_indices=sample.what_changed['lh']['p_families'],
-                                                       cached_lh=self.family_lh)
-
-        return self.family_lh
-
-    def get_zone_lh(self, sample):
-        # Zone lh is evaluated when initialized, or when zones or p_zones change
-        if self.zone_lh is None or sample.what_changed['lh']['zones'] or sample.what_changed['lh']['p_zones']:
-            # assert np.allclose(a=np.sum(p_zones, axis=-1), b=1., rtol=EPS)
-            self.zone_lh = compute_zone_likelihood(features=self.data, zones=sample.zones,
-                                                   p_zones=sample.p_zones,
-                                                   outdated_indices=sample.what_changed['lh']['p_zones'],
-                                                   outdated_zones=sample.what_changed['lh']['zones'],
-                                                   cached_lh=self.zone_lh)
-        return self.zone_lh
-
-    def update_component_likelihoods(self, sample):
-        # Update the likelihood valus for each of the mixture components
-        global_lh = self.get_global_lh(sample)
-        family_lh = self.get_family_lh(sample)
-        zone_lh = self.get_zone_lh(sample)
-
-        # Merge the component likelihoods into one array (if something has changed)
-        if self.all_lh is None or sample.what_changed['lh']['zones'] or sample.what_changed['lh']['p_global'] or \
-                sample.what_changed['lh']['p_zones'] or sample.what_changed['lh']['p_families']:
-
-            # Structure of likelihood depends on whether inheritance is considered or not
-            if self.inheritance:
-                self.all_lh = np.array([global_lh, zone_lh, family_lh]).transpose((1, 2, 0))
-            else:
-                self.all_lh = np.array([global_lh, zone_lh]).transpose((1, 2, 0))
-
-        return self.all_lh
-
-    def update_weights(self, sample):
-        """Compute the normalized weights of each component at each site.
-
-        Args:
-            sample (Sample): the current MCMC sample.
-
-        Returns:
-            np.array: normalized weights of each component at each site.
-                shape: (n_sites, n_features, 3)
-        """
-
-        # Family assignment is constant, and only evaluated when initialized
-        if self.family_assignment is None:
-            family_assignment = np.any(self.families, axis=0)
-            self.family_assignment = family_assignment
-
-        # Area assignment can change and needs to be updated when the area changes
-        if self.zone_assignment is None or sample.what_changed['lh']['zones']:
-            self.zone_assignment = np.any(sample.zones, axis=0)
-
-        # Assignments are recombined when initialized or when zones change
-        if self.assignment is None or sample.what_changed['lh']['zones']:
-            # Structure of assignment depends on
-            # whether inheritance is considered or not
-            if self.inheritance:
-                self.assignment = np.array([self.global_assignment,
-                                            self.zone_assignment,
-                                            self.family_assignment]).T
-            else:
-                self.assignment = np.array([self.global_assignment,
-                                            self.zone_assignment]).T
-
-        # weights are evaluated when initialized, when weights change or when assignment to zones changes
-        if self.weights is None or sample.what_changed['lh']['weights'] or sample.what_changed['lh']['zones']:
-
-            abnormal_weights = sample.weights
-
-            # Extract weights for each site depending on whether the likelihood is available
-            # Order of columns in weights: global, contact, inheritance (if available)
-            abnormal_weights_per_site = np.repeat(abnormal_weights[np.newaxis, :, :], self.n_sites, axis=0)
-            self.weights = normalize_weights(abnormal_weights_per_site, self.assignment)
-
-        return self.weights
 
 
 class GenerativePrior(object):
@@ -416,19 +477,10 @@ class GenerativePrior(object):
 
     """
 
-    def __init__(self, inheritance, network, prior_settings):
+    def __init__(self, data, inheritance, prior_config):
         self.inheritance = inheritance
-        self.network = network
-
-        self.geo_prior_meta = prior_settings['geo']
-        self.prior_area_size_meta = prior_settings['area_size']
-        self.prior_weights_meta = prior_settings['weights']
-        self.prior_p_global_meta = prior_settings['universal']
-        self.prior_p_zones_meta = prior_settings['contact']
-        if inheritance:
-            self.prior_p_families_meta = prior_settings['inheritance']
-        else:
-            self.prior_p_families_meta = None
+        self.data = data
+        self.network = data.network
 
         self.size_prior = None
         self.geo_prior = None
@@ -438,6 +490,128 @@ class GenerativePrior(object):
         self.prior_p_families = None
         self.prior_p_families_distr = None
 
+        self._prior_p_global = PriorPGlobal(config=prior_config['universal'], data=data)
+        if self.inheritance:
+            self._prior_p_families = PriorPFamilies(config=prior_config['universal'], data=data)
+
+        self.parse_attributes(prior_config)
+
+    def parse_attributes(self, config):
+        config_parsed = dict.fromkeys(config)
+
+        # TODO once everything is refactored this shouldn't do much -> use config right away
+
+        # geo prior
+        if config['geo']['type'] == 'uniform':
+            config_parsed['geo'] = {'type': 'uniform'}
+        elif config['geo']['type'] == 'cost_based':
+            # todo: change prior if cost matrix is provided
+            config_parsed['geo'] = {'type': 'cost_based',
+                                    'scale': config['geo']['scale']}
+        else:
+            raise ValueError('Geo prior not supported')
+
+        # area_size prior
+        VALID_SIZE_PRIOR_TYPES = ['none', 'uniform', 'quadratic']
+        size_prior_type = config['area_size']['type']
+        if size_prior_type in VALID_SIZE_PRIOR_TYPES:
+            config_parsed['area_size'] = {'type': size_prior_type}
+        else:
+            raise ValueError(f'Area-size prior ´{size_prior_type}´ not supported' +
+                             f'(valid types: {VALID_SIZE_PRIOR_TYPES}).')
+
+        # weights prior
+        if config['weights']['type'] == 'uniform':
+            config_parsed['weights'] = {'type': 'uniform'}
+        else:
+            raise ValueError('Currently only uniform prior_weights are supported.')
+
+        # universal preference
+        cfg_universal = config['universal']
+        if cfg_universal['type'] == 'uniform':
+            config_parsed['universal'] = {'type': 'uniform'}
+
+        elif cfg_universal['type'] == 'counts':
+            if cfg_universal['scale_counts'] is not None:
+                self.data.prior_universal['counts'] = scale_counts(counts=self.data.prior_universal['counts'],
+                                                                   scale_to=cfg_universal['scale_counts'])
+
+            dirichlet = counts_to_dirichlet(self.data.prior_universal['counts'],
+                                            self.data.states)
+            config_parsed['universal'] = {'type': 'counts',
+                                                  'dirichlet': dirichlet,
+                                                  'states': self.data.states}
+
+        else:
+            raise ValueError('Prior for universal must be uniform or counts.')
+
+        # inheritance
+        cfg_inheritance = config['inheritance']
+        if self.inheritance:
+            if cfg_inheritance['type'] == 'uniform':
+                config_parsed['inheritance'] = {'type': 'uniform'}
+
+            elif cfg_inheritance['type'] is None:
+                config_parsed['inheritance'] = {'type': None}
+
+            elif cfg_inheritance['type'] == 'universal':
+                config_parsed['inheritance'] = {'type': 'universal',
+                                                        'strength': cfg_inheritance['scale_counts'],
+                                                        'states': self.data.state_names['internal']}
+
+            elif cfg_inheritance['type'] == 'counts':
+                if cfg_inheritance['scale_counts'] is not None:
+                    self.data.prior_inheritance['counts'] = scale_counts(
+                        counts=self.data.prior_inheritance['counts'],
+                        scale_to=cfg_inheritance['scale_counts'],
+                        prior_inheritance=True
+                    )
+                dirichlet = inheritance_counts_to_dirichlet(self.data.prior_inheritance['counts'],
+                                                            self.data.prior_inheritance['states'])
+                config_parsed['inheritance'] = {'type': 'counts',
+                                                        'dirichlet': dirichlet,
+                                                        'states': self.data.prior_inheritance['states']}
+
+            elif cfg_inheritance['type'] == 'counts_and_universal':
+                if cfg_inheritance['scale_counts'] is not None:
+                    self.data.prior_inheritance['counts'] = scale_counts(
+                        counts=self.data.prior_inheritance['counts'],
+                        scale_to=cfg_inheritance['scale_counts'],
+                        prior_inheritance=True
+                    )
+                config_parsed['inheritance'] = {'type': 'counts_and_universal',
+                                                        'counts': self.data.prior_inheritance['counts'],
+                                                        'strength': cfg_inheritance['scale_counts'],
+                                                        'states': self.data.prior_inheritance['states']}
+            else:
+                raise ValueError('Prior for inheritance must be uniform, counts or  counts_and_universal')
+        else:
+            config_parsed['inheritance'] = None
+
+        # contact
+        cfg_contact = config['contact']
+        if cfg_contact['type'] == 'uniform':
+            config_parsed['contact'] = {'type': 'uniform'}
+
+        elif cfg_contact['type'] == 'universal':
+            config_parsed['contact'] = {'type': 'universal',
+                                                'strength': cfg_contact['scale_counts'],
+                                                'states': self.data.state_names['internal']}
+        else:
+            raise ValueError('Prior for contact must be uniform or universal.')
+
+        self.config = config_parsed
+        self.geo_prior_meta = config_parsed['geo']
+        self.prior_area_size_meta = config_parsed['area_size']
+        self.prior_weights_meta = config_parsed['weights']
+        self.prior_p_global_meta = config_parsed['universal']
+        self.prior_p_zones_meta = config_parsed['contact']
+
+        if self.inheritance:
+            self.prior_p_families_meta = config_parsed['inheritance']
+        else:
+            self.prior_p_families_meta = None
+
     def __call__(self, sample):
         """Compute the prior of the current sample.
         Args:
@@ -446,21 +620,14 @@ class GenerativePrior(object):
         Returns:
             float: The (log)prior of the current sample
         """
-
-        # zone-size prior
+        # Compute the prior components
         size_prior = self.get_size_prior(sample)
-        # geo-prior
         geo_prior = self.get_geo_prior(sample)
-        # weights
         prior_weights = self.get_prior_weights(sample)
-        # p_global
         prior_p_global = self.get_prior_p_global(sample)
-        # p_zones
         prior_p_zones = self.get_prior_p_zones(sample)
-        # p_families
         if self.inheritance:
             prior_p_families = self.get_prior_p_families(sample)
-
         else:
             prior_p_families = None
 
@@ -585,7 +752,7 @@ class GenerativePrior(object):
             elif prior_type == 'counts':
                 prior_p_families = prior_p_families_dirichlet(p_families=sample.p_families,
                                                               dirichlet=self.prior_p_families_meta['dirichlet'],
-                                                              categories=self.prior_p_families_meta['states'],
+                                                              states=self.prior_p_families_meta['states'],
                                                               outdated_indices=what_changed['p_families'],
                                                               outdated_distributions=what_changed['p_global'],
                                                               cached_prior=self.prior_p_families,
@@ -595,13 +762,13 @@ class GenerativePrior(object):
                 s = self.prior_p_families_meta['strength']
                 c_universal = s * sample.p_global[0]
                 self.prior_p_families_distr = counts_to_dirichlet(counts=c_universal,
-                                                                  categories=self.prior_p_families_meta['states'],
+                                                                  states=self.prior_p_families_meta['states'],
                                                                   outdated_features=what_changed['p_global'],
                                                                   dirichlet=self.prior_p_families_distr)
 
                 prior_p_families = prior_p_families_dirichlet(p_families=sample.p_families,
                                                               dirichlet=self.prior_p_families_distr,
-                                                              categories=self.prior_p_families_meta['states'],
+                                                              states=self.prior_p_families_meta['states'],
                                                               outdated_indices=what_changed['p_families'],
                                                               outdated_distributions=what_changed['p_global'],
                                                               cached_prior=self.prior_p_families,
@@ -614,13 +781,13 @@ class GenerativePrior(object):
 
                 self.prior_p_families_distr = \
                     inheritance_counts_to_dirichlet(counts=c_universal + c_pseudocounts,
-                                                    categories=self.prior_p_families_meta['states'],
+                                                    states=self.prior_p_families_meta['states'],
                                                     outdated_features=what_changed['p_global'],
                                                     dirichlet=self.prior_p_families_distr)
 
                 prior_p_families = prior_p_families_dirichlet(p_families=sample.p_families,
                                                               dirichlet=self.prior_p_families_distr,
-                                                              categories=self.prior_p_families_meta['states'],
+                                                              states=self.prior_p_families_meta['states'],
                                                               outdated_indices=what_changed['p_families'],
                                                               outdated_distributions=what_changed['p_global'],
                                                               cached_prior=self.prior_p_families,
@@ -654,7 +821,7 @@ class GenerativePrior(object):
             elif self.prior_p_global_meta['type'] == 'counts':
                 prior_p_global = prior_p_global_dirichlet(p_global=sample.p_global,
                                                           dirichlet=self.prior_p_global_meta['dirichlet'],
-                                                          categories=self.prior_p_global_meta['states'],
+                                                          states=self.prior_p_global_meta['states'],
                                                           outdated_features=sample.what_changed['prior']['p_global'],
                                                           cached_prior=self.prior_p_global)
 
@@ -726,9 +893,226 @@ class GenerativePrior(object):
             'contact': self.prior_p_zones_meta,
             'inheritance': self.prior_p_families_meta
         }
-        return GenerativePrior(inheritance=self.inheritance,
-                               network=self.network,
-                               prior_settings=prior_settings)
+        return GenerativePrior(data=self.data,
+                               inheritance=self.inheritance,
+                               prior_config=prior_settings)
+
+
+class DirichletPrior(object):
+
+    class TYPES(Enum):
+        ...
+
+    def __init__(self, config, data, initial_counts=1.):
+        self.config = config
+        self.data = data
+        self.states = self.data.states
+        self.initial_counts = initial_counts
+
+        self.prior_type = None
+        self.counts = None
+        self.dirichlet = None
+
+        self.cached = None
+
+        self.parse_attributes(config)
+
+    def parse_attributes(self, config):
+        raise NotImplementedError()
+
+    def is_outdated(self, sample):
+        return self.cached is None
+
+    def __call__(self, sample):
+        raise NotImplementedError()
+
+    def invalid_prior_message(self, s):
+        valid_types = ','.join([str(t.value) for t in self.TYPES])
+        return f'Invalid prior type {s} for universal prior (choose from [{valid_types}]).'
+
+
+class PriorPGlobal(DirichletPrior):
+
+    class TYPES(Enum):
+        UNIFORM = 'uniform'
+        COUNTS = 'counts'
+
+    def parse_attributes(self, config):
+        _, n_features, n_states = self.data.features.shape
+        if config['type'] == 'uniform':
+            self.prior_type = self.TYPES.UNIFORM
+            self.counts = np.full(shape=(n_features, n_states),
+                                  fill_value=self.initial_counts)
+
+        elif config['type'] == 'counts':
+            self.prior_type = self.TYPES.COUNTS
+            if config['scale_counts'] is not None:
+                self.data.prior_universal['counts'] = scale_counts(counts=self.data.prior_universal['counts'],
+                                                                   scale_to=config['scale_counts'])
+            self.counts = self.initial_counts + self.data.prior_universal['counts']
+            self.dirichlet = counts_to_dirichlet(self.counts,
+                                                 self.data.states)
+
+        else:
+            raise ValueError(self.invalid_prior_message(config['type']))
+
+    def is_outdated(self, sample):
+        """Check whether the cached prior_p_global is up-to-date or needs to be recomputed."""
+        return (self.cached is None) or sample.what_changed['prior']['p_global']
+
+    def __call__(self, sample):
+        """Compute the prior for p_global (or load from cache).
+
+        Args:
+            sample (Sample): Current MCMC sample.
+
+        Returns:
+            float: Logarithm of the prior probability density.
+        """
+        if not self.is_outdated(sample):
+            return np.sum(self.cached)
+
+        if self.prior_type is self.TYPES.UNIFORM:
+            prior_p_global = 0
+
+        elif self.prior_type is self.TYPES.COUNTS:
+            prior_p_global = prior_p_global_dirichlet(
+                p_global=sample.p_global,
+                dirichlet=self.dirichlet,
+                states=self.states,
+                outdated_features=sample.what_changed['prior']['p_global'],
+                cached_prior=self.cached
+            )
+        else:
+            raise ValueError(self.invalid_prior_message(self.prior_type))
+
+        self.cached = prior_p_global
+        return np.sum(self.cached)
+
+
+class PriorPFamilies(DirichletPrior):
+
+    class TYPES(Enum):
+        UNIFORM = 'uniform'
+        COUNTS = 'counts'
+        UNIVERSAL = 'universal'
+        COUNTS_AND_UNIVERSAL = 'counts_and_universal'
+
+    def parse_attributes(self, config):
+        if config['type'] == 'uniform':
+            n_families, _ = self.data.families.shape
+            _, n_features, n_states = self.data.features.shape
+
+            self.prior_type = self.TYPES.UNIFORM
+            self.counts = np.full(shape=(n_families, n_features, n_states),
+                                  fill_value=self.initial_counts)
+
+        elif config['type'] == 'universal':
+            self.prior_type = self.TYPES.UNIVERSAL
+            self.strength = config['scale_counts']
+            # self.states = self.data.state_names['internal']
+
+        elif config['type'] == 'counts':
+            self.prior_type = self.TYPES.COUNTS
+
+            if config['scale_counts'] is not None:
+                self.data.prior_inheritance['counts'] = scale_counts(
+                    counts=self.data.prior_inheritance['counts'],
+                    scale_to=config['scale_counts'],
+                    prior_inheritance=True
+                )
+            self.counts = self.initial_counts + self.data.prior_inheritance['counts']
+            self.dirichlet = inheritance_counts_to_dirichlet(
+                counts=self.counts,
+                states=self.states
+            )
+            # self.states = self.data.state_names['internal']
+
+        elif config['type'] == 'counts_and_universal':
+            self.prior_type = self.TYPES.COUNTS_AND_UNIVERSAL
+
+            if config['scale_counts'] is not None:
+                self.data.prior_inheritance['counts'] = scale_counts(
+                    counts=self.data.prior_inheritance['counts'],
+                    scale_to=config['scale_counts'],
+                    prior_inheritance=True
+                )
+            # self.counts = self.initial_counts + self.data.prior_inheritance['counts']
+            self.strength = config['scale_counts']
+            # self.states = self.data.prior_inheritance['states']
+        else:
+            raise ValueError(self.invalid_prior_message(config['type']))
+
+    def is_outdated(self, sample):
+        """Check whether the cached prior_p_families is up-to-date or needs to be recomputed."""
+        if self.cached is None:
+            return True
+        elif sample.what_changed['prior']['p_families']:
+            return True
+        elif (self.prior_type in [self.TYPES.UNIVERSAL, self.TYPES.COUNTS_AND_UNIVERSAL]) \
+                and (sample.what_changed['prior']['p_global']):
+            return True
+        else:
+            return False
+
+    def __call__(self, sample):
+        what_changed = sample.what_changed['prior']
+
+        if not self.is_outdated(sample):
+            return np.sum(self.cached)
+
+
+        if self.prior_type == self.TYPES.UNIFORM:
+            prior_p_families = 0.
+
+        elif self.prior_type == self.TYPES.COUNTS:
+            prior_p_families = prior_p_families_dirichlet(p_families=sample.p_families,
+                                                          dirichlet=self.dirichlet,
+                                                          states=self.states,
+                                                          outdated_indices=what_changed['p_families'],
+                                                          outdated_distributions=what_changed['p_global'],
+                                                          cached_prior=self.cached,
+                                                          broadcast=False)
+
+        elif self.prior_type == self.TYPES.UNIVERSAL:
+            c_universal = self.strength * sample.p_global[0]
+            self.prior_p_families_distr = counts_to_dirichlet(counts=c_universal,
+                                                              states=self.states,
+                                                              outdated_features=what_changed['p_global'],
+                                                              dirichlet=self.prior_p_families_distr)
+
+            prior_p_families = prior_p_families_dirichlet(p_families=sample.p_families,
+                                                          dirichlet=self.prior_p_families_distr,
+                                                          states=self.states,
+                                                          outdated_indices=what_changed['p_families'],
+                                                          outdated_distributions=what_changed['p_global'],
+                                                          cached_prior=self.cached,
+                                                          broadcast=True)
+
+        elif self.prior_type == self.TYPES.COUNTS_AND_UNIVERSAL:
+            c_pseudocounts = self.counts
+            c_universal = self.strength * sample.p_global[0]
+
+            self.prior_p_families_distr = \
+                inheritance_counts_to_dirichlet(counts=c_universal + c_pseudocounts,
+                                                states=self.states,
+                                                outdated_features=what_changed['p_global'],
+                                                dirichlet=self.prior_p_families_distr)
+
+            prior_p_families = prior_p_families_dirichlet(p_families=sample.p_families,
+                                                          dirichlet=self.prior_p_families_distr,
+                                                          states=self.states,
+                                                          outdated_indices=what_changed['p_families'],
+                                                          outdated_distributions=what_changed['p_global'],
+                                                          cached_prior=self.cached,
+                                                          broadcast=False)
+
+        else:
+            raise ValueError(self.invalid_prior_message(self.prior_type))
+
+        self.cached = prior_p_families
+
+        return np.sum(self.cached)
 
 
 def evaluate_size_prior(zones, size_prior_type):
@@ -846,12 +1230,12 @@ def geo_prior_distance(zones: np.array, network: dict, scale: float):
     return np.mean(log_prior)
 
 
-def prior_p_global_dirichlet(p_global, dirichlet, categories, outdated_features, cached_prior=None):
+def prior_p_global_dirichlet(p_global, dirichlet, states, outdated_features, cached_prior=None):
     """" This function evaluates the prior for p_families
     Args:
         p_global (np.array): p_global from the sample
         dirichlet (list): list of dirichlet distributions
-        categories (list): list of available categories per feature
+        states (list): list of available categories per feature
         outdated_features (IndexSet): The features which changed and need to be updated.
     Kwargs:
         cached_prior (list):
@@ -868,7 +1252,7 @@ def prior_p_global_dirichlet(p_global, dirichlet, categories, outdated_features,
         log_prior = cached_prior
 
     for f in outdated_features:
-        idx = categories[f]
+        idx = states[f]
         diri = dirichlet[f]
         p_glob = p_global[0, f, idx]
 
@@ -877,13 +1261,13 @@ def prior_p_global_dirichlet(p_global, dirichlet, categories, outdated_features,
     return log_prior
 
 
-def prior_p_families_dirichlet(p_families, dirichlet, categories, outdated_indices, outdated_distributions,
+def prior_p_families_dirichlet(p_families, dirichlet, states, outdated_indices, outdated_distributions,
                                cached_prior=None, broadcast=False):
     """" This function evaluates the prior for p_families
     Args:
         p_families(np.array): p_families from the sample
         dirichlet(list): list of dirichlet distributions
-        categories(list): list of available categories per feature
+        states(list): list of available categories per feature
         outdated_indices (IndexSet): The features which need to be updated in each family.
         outdated_distributions (IndexSet): The features where the dirichlet distributions changed.
     Kwargs:
@@ -918,7 +1302,7 @@ def prior_p_families_dirichlet(p_families, dirichlet, categories, outdated_indic
             # One prior per family
             diri = dirichlet[fam][feat]
 
-        idx = categories[feat]
+        idx = states[feat]
         p_fam = p_families[fam, feat, idx]
         log_prior[fam, feat] = dirichlet_logpdf(x=p_fam, alpha=diri)
         # log_prior[fam, feat] = diri.logpdf(p_fam)

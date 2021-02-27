@@ -22,7 +22,8 @@ class TestExperiment(unittest.TestCase):
             'I_CONTACT': 3,
             'E_CONTACT': 0.5,
             'STRENGTH': 0,
-            'AREA': 3
+            'AREA': 3,
+            'CORRELATION_THRESHOLD': 0.8
         },
         'mcmc': {
             'N_STEPS': 40,
@@ -78,7 +79,7 @@ class TestExperiment(unittest.TestCase):
             exp.config['model']['N_AREAS'] = 2
 
         # 2. Simulate contact areas
-        sim = Simulation(experiment=exp, correlation_threshold=0.8)
+        sim = Simulation(experiment=exp)
         sim.run_simulation()
 
         # 3. Define MCMC
