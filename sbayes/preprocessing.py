@@ -7,7 +7,8 @@ import numpy as np
 from sbayes.model import normalize_weights
 from sbayes.util import (compute_delaunay,
                          read_feature_occurrence_from_csv,
-                         read_features_from_csv)
+                         read_features_from_csv,
+                         read_costs_from_csv)
 
 EPS = np.finfo(float).eps
 
@@ -608,3 +609,32 @@ def read_inheritance_counts(family_names, feature_names, state_names, files, fil
                 raise ValueError(out)
 
     return counts_all.astype(int), log
+
+
+def read_geo_cost_matrix(site_names, file):
+    """ This is a helper function to import the geographical cost matrix.
+
+    Args:
+        site_names (dict): the names of the sites or languages (external and internal)
+        file: path to the file location
+
+    Returns:
+
+    """
+    costs, log = read_costs_from_csv(file)
+    assert set(costs.columns) == set(site_names['external'])
+
+    # Sort the data by site names
+    sorted_costs = costs.loc[site_names['external'], site_names['external']]
+
+    cost_matrix = np.asarray(sorted_costs).astype(float)
+
+    # Check if matrix is symmetric, if not make symmetric
+    if not np.allclose(cost_matrix, cost_matrix.T):
+        cost_matrix = (cost_matrix + cost_matrix.T)/2
+        log += f".The cost matrix is not symmetric. It was made symmetric by averaging the original" \
+               f" costs along the upper and lower triangle."
+    return cost_matrix, log
+
+
+

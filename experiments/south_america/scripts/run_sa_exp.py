@@ -21,7 +21,7 @@ if __name__ == '__main__':
     # Log
     dat.log_loading()
 
-    NUMBER_AREAS = range(1, 8)
+    NUMBER_AREAS = range(0, 8)
 
     # Rerun experiment to check for consistency
     for run in range(exp.config['mcmc']['N_RUNS']):

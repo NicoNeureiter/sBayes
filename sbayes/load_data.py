@@ -8,7 +8,8 @@ import logging
 from sbayes.util import read_features_from_csv
 from sbayes.preprocessing import (compute_network,
                                   read_inheritance_counts,
-                                  read_universal_counts)
+                                  read_universal_counts,
+                                  read_geo_cost_matrix)
 
 
 class Data:
@@ -35,10 +36,12 @@ class Data:
         self.log_load_features = None
         self.log_load_universal_counts = None
         self.log_load_inheritance_counts = None
+        self.log_load_geo_cost_matrix = None
 
         # Priors to be imported
         self.prior_universal = {}
         self.prior_inheritance = {}
+        self.geo_prior = {}
 
         # Not a simulation
         self.is_simulated = False
@@ -54,6 +57,7 @@ class Data:
         config_universal = self.config['model']['PRIOR']['universal']
 
         if config_universal['type'] != 'counts':
+            # universal prior does not use counts -> nothing to do
             return
 
         counts, self.log_load_universal_counts = \
@@ -73,13 +77,13 @@ class Data:
         df.to_csv('universal_counts.csv')
 
     def load_inheritance_counts(self):
-        if self.config['model']['INHERITANCE'] == False:
+        if not self.config['model']['INHERITANCE']:
             # Inheritance is not modeled -> nothing to do
             return
 
         config_inheritance = self.config['model']['PRIOR']['inheritance']
         if config_inheritance['type'] != 'counts':
-            # Inharitance prior does not use counts -> nothing to do
+            # Inheritance prior does not use counts -> nothing to do
             return
 
         counts, self.log_load_inheritance_counts = \
@@ -93,6 +97,24 @@ class Data:
         self.prior_inheritance = {'counts': counts,
                                   'states': self.state_names['internal']}
 
+    def load_geo_cost_matrix(self):
+
+        if self.config['model']['PRIOR']['geo']['type'] != 'cost_based':
+            # Geo prior is not cost-based -> nothing to do
+            return
+
+        if 'file' not in self.config['model']['PRIOR']['geo']:
+            # No cost-matrix given. Use distance matrix as costs
+            geo_cost_matrix = self.network['dist_mat']
+
+        else:
+            # Read cost matrix from data
+            geo_cost_matrix, self.log_load_geo_cost_matrix =\
+                read_geo_cost_matrix(site_names=self.site_names,
+                                     file=self.config['model']['PRIOR']['geo']['file'])
+
+        self.geo_prior = {'cost_matrix': geo_cost_matrix}
+
     def log_loading(self):
         log_path = self.path_results + 'experiment.log'
         logging.basicConfig(format='%(message)s', filename=log_path, level=logging.DEBUG)
@@ -102,3 +124,4 @@ class Data:
         logging.info(self.log_load_features)
         logging.info(self.log_load_universal_counts)
         logging.info(self.log_load_inheritance_counts)
+        logging.info(self.log_load_geo_cost_matrix)

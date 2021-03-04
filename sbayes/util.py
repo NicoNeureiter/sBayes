@@ -369,6 +369,20 @@ def read_features_from_csv(file, feature_states_file):
     return sites, site_names, features, feature_names, state_names, applicable_states, families, family_names, log
 
 
+def read_costs_from_csv(file):
+    """This is a helper function to read the cost matrix from a csv file
+        Args:
+            file (str): file location of the csv file
+
+        Returns:
+            CHANGE
+        """
+
+    data = pd.read_csv(file, dtype=str, index_col=0)
+    log = f"Geographical cost matrix read from {file}."
+    return data, log
+
+
 def write_languages_to_csv(features, sites, families, file):
     """This is a helper function to export features as a csv file
     Args:
@@ -1269,6 +1283,8 @@ def plot_similarity_matrix(similarities, names, show_similarity_overlay=False):
                         ha='center', va='center', color='w', fontsize=5)
 
     plt.show()
+
+
 
 
 if __name__ == "__main__":

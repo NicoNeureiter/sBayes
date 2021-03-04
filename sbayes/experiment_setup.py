@@ -127,6 +127,11 @@ class Experiment:
             prior = priors_cfg[key]
             if 'type' not in prior:
                 raise NameError(f"type for prior \'{key}\' is not defined in {self.config_file}.")
+            if prior['type'] == 'cost_based':
+                if 'scale' not in prior:
+                    raise NameError(f"scale for geo prior is not defined in {self.config_file}.")
+                if 'file' in prior:
+                    prior['file'] = self.fix_relative_path(prior['file'])
             if prior['type'] == 'counts':
                 if 'file_type' not in prior:
                     raise NameError(f"counts file for prior \'{key}\' is not defined in {self.config_file}.")
@@ -161,10 +166,7 @@ class Experiment:
 
         if 'NEIGHBOR_DIST' not in self.config['model']:
             self.config['model']['NEIGHBOR_DIST'] = "euclidean"
-        if 'LAMBDA_GEO_PRIOR' not in self.config['model']:
-            self.config['model']['LAMBDA_GEO_PRIOR'] = "auto_tune"
-        if 'SAMPLE_FROM_PRIOR' not in self.config['model']:
-            self.config['model']['SAMPLE_FROM_PRIOR'] = False
+
 
         # Minimum, maximum size of areas
         if 'MIN_M' not in self.config['model']:
