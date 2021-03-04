@@ -143,7 +143,7 @@ class Simulation:
             # The subset is used for analysis and the complement to define the prior
             counts = counts_from_complement(features=self.features,
                                             subset=self.sites['subset'])
-            print(counts, "counts")
+
             self.prior_universal = {'counts': counts,
                                     'states': self.states}
 
@@ -151,3 +151,7 @@ class Simulation:
             sub_idx = np.nonzero(self.sites['subset'])[0]
             self.areas = self.areas[np.newaxis, 0, sub_idx]
             self.features = subset_features(features=self.features, subset=self.sites['subset'])
+
+        geo_cost_matrix = self.network['dist_mat']
+        self.geo_prior = {'cost_matrix': geo_cost_matrix}
+        
