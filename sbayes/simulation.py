@@ -44,6 +44,7 @@ class Simulation:
         self.inheritance = None
         self.subset = None
         self.prior_universal = None
+        self.geo_prior = None
 
         self.feature_names = None
         self.state_names = None

@@ -231,7 +231,7 @@ class CLDFData(Data):
         self.prior_universal = Prior(counts=counts, states=numpy.array([[0, 1]]))
 
     def load_inheritance_counts(self):
-        if self.config['model']['INHERITANCE'] == False:
+        if not self.config['model']['INHERITANCE']:
             # Inheritance is not modeled -> nothing to do
             return
 
