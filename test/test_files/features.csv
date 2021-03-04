@@ -1,0 +1,5 @@
+id,name,family,x,y,F1,F2
+l1,language_1,fam_1,0.0,1.0,A,True
+l2,language_2,fam_1,0.1,1.1,B,True
+l3,language_3,fam_2,1.0,0.0,B,False
+l4,language_4,fam_2,1.1,0.1,B,False

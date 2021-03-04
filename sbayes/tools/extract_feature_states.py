@@ -41,9 +41,13 @@ def ask_more_files():
 
 def collect_feature_states(features_path):
     features = pd.read_csv(features_path, sep=',', dtype=str)
-    features = features.drop(['id', 'name', 'family', 'x', 'y'], axis=1)
+    METADATA_COLUMNS = ['id', 'name', 'family', 'x', 'y']
+    for column in METADATA_COLUMNS:
+        if column not in features.columns:
+            raise ValueError(f'Required column \'{column}\' missing in file {features_path}.')
+    features = features.drop(METADATA_COLUMNS, axis=1)
     features = features.applymap(normalize_str)
-    return {f: set(features[f].unique()) for f in features.columns}
+    return {f: set(features[f].dropna().unique()) for f in features.columns}
 
 
 def dict_to_df(d):
@@ -58,17 +62,17 @@ def dict_to_df(d):
     return pd.DataFrame(d_padded)
 
 
-if __name__ == '__main__':
+def main(args):
     # CLI
     parser = argparse.ArgumentParser(description="Tool to extract feature states from sBayes data files.")
     parser.add_argument("--input", nargs="*", type=Path, help="The input CSV files")
     parser.add_argument("--output", nargs="?", type=Path, help="The output CSV file")
 
-    args = parser.parse_args()
+    args = parser.parse_args(args)
     csv_paths = args.input
 
     # GUI
-    if len(csv_paths) == 0:
+    if (csv_paths is None) or (len(csv_paths) == 0):
         tk.Tk().withdraw()
 
         # Ask the user for input files
@@ -109,8 +113,8 @@ if __name__ == '__main__':
 
     # Remove NAs and order states alphabetically (if ´ORDER_STATES´ is set)
     for f in feature_states:
-        if np.nan in feature_states[f]:
-            feature_states[f].remove(np.nan)
+        # if np.nan in feature_states[f]:
+        #     feature_states[f].remove(np.nan)
 
         if ORDER_STATES:
             feature_states[f] = sorted(feature_states[f])
@@ -126,3 +130,8 @@ if __name__ == '__main__':
 
     # Store the feature_states in a csv file
     feature_states_df.to_csv(output_path, index=False, line_terminator='\n')
+
+
+if __name__ == '__main__':
+    import sys
+    main(sys.argv[1:])

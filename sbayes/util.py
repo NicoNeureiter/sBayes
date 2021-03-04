@@ -2,9 +2,12 @@
 # -*- coding: utf-8 -*-
 import pickle
 import datetime
+import time
 import csv
 import os
 from math import sqrt, floor, ceil
+
+import typing as t
 
 import numpy as np
 import pandas as pd
@@ -25,6 +28,32 @@ FAST_DIRICHLET = True
 if FAST_DIRICHLET:
     def dirichlet_pdf(x, alpha): return np.exp(stats.dirichlet._logpdf(x, alpha))
     dirichlet_logpdf = stats.dirichlet._logpdf
+
+    # ## Since the PDF is evaluated on the same samples again we could use
+    # ## an LRU cache for further speed-up (not properly tested yet):
+    #
+    # from lru import LRU
+    # from scipy.special import gammaln, xlogy
+    #
+    # cache = LRU(10000)
+    #
+    # def dirichlet_logpdf(x, alpha):
+    #     key = alpha.tobytes()
+    #
+    #     if hash in cache:
+    #         lnB = cache[key]
+    #
+    #     else:
+    #         lnB = np.sum(gammaln(alpha)) - gammaln(np.sum(alpha))
+    #         cache[key] = lnB
+    #
+    #     return -lnB  np.sum((xlogy(alpha - 1, x.T)).T, 0)
+    #
+    # # dirichlet_logpdf = stats.dirichlet._logpdf
+    #
+    # def dirichlet_pdf(x, alpha):
+    #     return np.exp(dirichlet_logpdf(x, alpha))
+
 else:
     dirichlet_pdf = stats.dirichlet.pdf
     dirichlet_logpdf = stats.dirichlet.logpdf
@@ -137,7 +166,7 @@ def compute_delaunay(locations):
             shape (n_edges, n_edges)
     """
 
-    n, _ = locations.shape
+    n = len(locations)
     delaunay = spatial.Delaunay(locations, qhull_options="QJ Pp")
 
     indptr, indices = delaunay.vertex_neighbor_vertices
@@ -181,8 +210,22 @@ def gabriel_graph_from_delaunay(delaunay, locations):
     return delaunay_connections[g]
 
 
-def n_smallest_distances(a, n, return_idx):
+def n_smallest_distances(a, n, return_idx: bool):
     """ This function finds the n smallest distances in a distance matrix
+
+    >>> n_smallest_distances([
+    ... [0, 2, 3, 4],
+    ... [2, 0, 5, 6],
+    ... [3, 5, 0, 7],
+    ... [4, 6, 7, 0]], 3, return_idx=False)
+    array([2, 3, 4])
+
+    >>> n_smallest_distances([
+    ... [0, 2, 3, 4],
+    ... [2, 0, 5, 6],
+    ... [3, 5, 0, 7],
+    ... [4, 6, 7, 0]], 3, return_idx=True)
+    (array([1, 2, 3]), array([0, 0, 0]))
 
     Args:
         a (np.array): The distane matrix
@@ -191,6 +234,8 @@ def n_smallest_distances(a, n, return_idx):
 
     Returns:
         (np.array): the n_smallest distances
+    or
+        (np.array, np.array): the indices between which the distances are smallest
     """
     a_tril = np.tril(a)
     a_nn = a_tril[np.nonzero(a_tril)]
@@ -499,14 +544,14 @@ def read_feature_occurrence_from_csv(file, feature_states_file):
     return counts.astype(int), feature_names, state_names
 
 
-def inheritance_counts_to_dirichlet(counts, categories, outdated_features=None, dirichlet=None):
+def inheritance_counts_to_dirichlet(counts, states, outdated_features=None, dirichlet=None):
     """This is a helper function transform the family counts to alpha values that
     are then used to define a dirichlet distribution
 
     Args:
         counts(np.array): the family counts
-            shape(n_families, n_features, n_categories)
-        categories(list): categories per feature in each of the families
+            shape: (n_families, n_features, n_states)
+        states(list): states per feature in each of the families
     Returns:
         list: the dirichlet distributions, neatly stored in a dict
     """
@@ -515,7 +560,7 @@ def inheritance_counts_to_dirichlet(counts, categories, outdated_features=None, 
         dirichlet = [None] * n_fam
 
     for fam in range(n_fam):
-        dirichlet[fam] = counts_to_dirichlet(counts[fam], categories,
+        dirichlet[fam] = counts_to_dirichlet(counts[fam], states,
                                              outdated_features=outdated_features,
                                              dirichlet=dirichlet[fam])
     return dirichlet
@@ -525,43 +570,31 @@ def scale_counts(counts, scale_to, prior_inheritance=False):
     """Scales the counts for parametrizing the prior on universal probabilities (or inheritance in a family)
 
         Args:
-            counts(np.array): the counts of categorical data.
-                        shape(n_features, n_states)
+            counts (np.array): the counts of categorical data.
+                shape: (n_features, n_states) or (n_families, n_features, n_states)
             scale_to (float): the counts are scaled to this value
             prior_inheritance (bool): are these inheritance counts?
         Returns:
             np.array: the rescaled counts
+                shape: same as counts.shape
     """
-    if prior_inheritance:
-        # Sum counts remove counts of zeros
-        counts_sum = np.sum(counts, axis=2)
-        counts_sum = np.where(counts_sum == 0, EPS, counts_sum)
-        scale_factor = scale_to/counts_sum
+    counts_sum = np.sum(counts, axis=-1)
+    counts_sum = np.where(counts_sum == 0, EPS, counts_sum)
+    scale_factor = scale_to / counts_sum
 
-        # Counts are only downscaled, not upscaled
-        scale_factor = np.where(scale_factor < 1, scale_factor, 1)
-        return counts * scale_factor[:, :, np.newaxis]
-
-    else:
-
-        counts_sum = np.sum(counts, axis=1)
-        counts_sum = np.where(counts_sum == 0, EPS, counts_sum)
-
-        scale_factor = scale_to / counts_sum
-
-        # Counts are only downscaled, not upscaled
-        scale_factor = np.where(scale_factor < 1, scale_factor, 1)
-        return counts * scale_factor[:, np.newaxis]
+    scale_factor = np.where(scale_factor < 1, scale_factor, 1)
+    return counts * scale_factor[..., None]
 
 
-def counts_to_dirichlet(counts, categories, prior='uniform', outdated_features=None, dirichlet=None):
+def counts_to_dirichlet(counts: t.Sequence[t.Sequence[int]], states: t.Sequence[int], prior='uniform', outdated_features=None, dirichlet=None):
     """This is a helper function to transform counts of categorical data
     to parameters of a dirichlet distribution.
 
     Args:
-        counts(np.array): the counts of categorical data.
-                    shape(n_features, n_states)
-        categories(np.array): applicable states/categories per feature
+        counts (np.array): the counts of categorical data.
+            shape: (n_features, n_states)
+        states (np.array): applicable states/categories per feature
+            shape: (n_features)
         prior (str): Use one of the following uninformative priors:
             'uniform': A uniform prior probability over the probability simplex Dir(1,...,1)
             'jeffrey': The Jeffrey's prior Dir(0.5,...,0.5)
@@ -571,7 +604,7 @@ def counts_to_dirichlet(counts, categories, prior='uniform', outdated_features=N
     Returns:
         list: a dirichlet distribution derived from pseudocounts
     """
-    n_features, n_categories = counts.shape
+    n_features = len(counts)
 
     prior_map = {'uniform': 1, 'jeffrey': 0.5, 'naught': 0}
 
@@ -582,10 +615,11 @@ def counts_to_dirichlet(counts, categories, prior='uniform', outdated_features=N
         assert dirichlet is not None
 
     for feat in outdated_features:
-        cat = categories[feat]
+        cat = states[feat]
         # Add 1 to alpha values (1,1,...1 is a uniform prior)
         pseudocounts = counts[feat, cat] + prior_map[prior]
         dirichlet[feat] = pseudocounts
+
     return dirichlet
 
 
@@ -1164,6 +1198,7 @@ def get_max_size_list(start, end, n_total, k_groups):
 
     return max_size_list[0:n_total]
 
+
 def log_binom(n, k):
     """Compute the logarithm of (n choose k), i.e. the binomial coefficient of n and k.
 
@@ -1180,6 +1215,7 @@ def log_binom(n, k):
     array([0.        , 0.69314718, 1.09861229])
     """
     return -betaln(1 + n - k, 1 + k) - np.log(n + 1)
+
 
 # Fix path for default config files (in the folder sbayes/sbayes/config)
 def fix_default_config(default_config_path):
@@ -1285,7 +1321,19 @@ def plot_similarity_matrix(similarities, names, show_similarity_overlay=False):
     plt.show()
 
 
+def timeit(func):
 
+    def timed_func(*args, **kwargs):
+
+        start = time.time()
+        result = func(*args, **kwargs)
+        end = time.time()
+
+        print('Runtime %s: %.4fs' % (func.__name__, (end - start)))
+
+        return result
+
+    return timed_func
 
 if __name__ == "__main__":
     import doctest

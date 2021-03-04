@@ -9,12 +9,13 @@ import logging
 import numpy as np
 import os
 import random
+import typing
 
 from sbayes.postprocessing import (contribution_per_area, log_operator_statistics,
                                    log_operator_statistics_header, match_areas, rank_areas)
-from sbayes.sampling.zone_sampling import Sample, ZoneMCMCGenerative, ZoneMCMCWarmup
-from sbayes.util import (normalize, counts_to_dirichlet,
-                         inheritance_counts_to_dirichlet, samples2file, scale_counts, get_max_size_list)
+from sbayes.sampling.zone_sampling import Sample, ZoneMCMC, ZoneMCMCWarmup
+from sbayes.util import normalize, samples2file, get_max_size_list
+from sbayes.model import Model
 
 
 class MCMC:
@@ -27,16 +28,15 @@ class MCMC:
         self.config = experiment.config
 
         # Paths
-        self.path_log = experiment.path_results + 'experiment.log'
+        self.path_log = experiment.path_results / 'experiment.log'
         self.path_results = experiment.path_results
+
+        # Create the model to sample from
+        self.model = Model(data=self.data, config=self.config['model'])
 
         # Assign steps to operators
         self.ops = {}
         self.steps_per_operator()
-
-        # Define prior distributions for all parameters
-        self.prior_structured = None
-        self.define_priors()
 
         # Samples
         self.sampler = None
@@ -50,10 +50,11 @@ class MCMC:
         if self.config['model']['PRIOR']['geo']['type'] == 'uniform':
             self.prior_structured['geo'] = {'type': 'uniform'}
         elif self.config['model']['PRIOR']['geo']['type'] == 'cost_based':
-            # todo: move config['model']['scale_geo_prior'] to config['model']['PRIOR']['geo']['scale']
+
             self.prior_structured['geo'] = {'type': 'cost_based',
                                             'cost_matrix': self.data.geo_prior['cost_matrix'],
                                             'scale': self.config['model']['PRIOR']['geo']['scale']}
+
         else:
             raise ValueError('Geo prior not supported')
 
@@ -158,84 +159,71 @@ class MCMC:
 
     def log_setup(self):
         mcmc_config = self.config['mcmc']
-        model_config = self.config['model']
 
         logging.basicConfig(format='%(message)s', filename=self.path_log, level=logging.DEBUG)
+        logging.info(self.model.get_setup_message())
 
-        logging.info('\n')
-
-        logging.info("Model")
-        logging.info("##########################################")
-        logging.info("Number of inferred areas: %i", model_config['N_AREAS'])
-        logging.info("Areas have a minimum size of %s and a maximum size of %s.",
-                     model_config['MIN_M'], model_config['MAX_M'])
-        logging.info("Inheritance is considered for inference: %s",
-                     model_config['INHERITANCE'])
-
-        logging.info("Geo-prior: %s ", self.prior_structured['geo']['type'])
-        logging.info("Prior on weights: %s ", self.prior_structured['weights']['type'])
-        logging.info("Prior on universal pressure (alpha): %s ", self.prior_structured['universal']['type'])
-        if self.config['model']['INHERITANCE']:
-            logging.info("Prior on inheritance (beta): %s ", self.prior_structured['inheritance']['type'])
-
-        logging.info("Prior on contact (gamma): %s ", self.prior_structured['contact']['type'])
-        logging.info('\n')
-
-        logging.info("MCMC SETUP")
-        logging.info("##########################################")
-
-        logging.info("MCMC with %s steps and %s samples",
-                     mcmc_config['N_STEPS'], mcmc_config['N_SAMPLES'])
-        logging.info("Warm-up: %s chains exploring the parameter space in %s steps",
-                     mcmc_config['WARM_UP']['N_WARM_UP_CHAINS'],  mcmc_config['WARM_UP']['N_WARM_UP_STEPS'])
-        logging.info("Pseudocounts for tuning the width of the proposal distribution for weights: %s ",
-                     mcmc_config['PROPOSAL_PRECISION']['weights'])
-        logging.info("Pseudocounts for tuning the width of the proposal distribution for "
-                     "universal pressure (alpha): %s ",
-                     mcmc_config['PROPOSAL_PRECISION']['universal'])
+        msg_inherit_precision = ''
         if mcmc_config['PROPOSAL_PRECISION']['inheritance'] is not None:
-            logging.info("Pseudocounts for tuning the width of the proposal distribution for inheritance (beta): %s ",
-                         mcmc_config['PROPOSAL_PRECISION']['inheritance'])
-        logging.info("Pseudocounts for tuning the width of the proposal distribution for areas (gamma): %s ",
-                     mcmc_config['PROPOSAL_PRECISION']['contact'])
-
-        logging.info("Ratio of areal steps (growing, shrinking, swapping areas): %s",
-                     mcmc_config['STEPS']['area'])
-        logging.info("Ratio of weight steps (changing weights): %s", mcmc_config['STEPS']['weights'])
-        logging.info("Ratio of universal steps (changing alpha) : %s", mcmc_config['STEPS']['universal'])
-        logging.info("Ratio of inheritance steps (changing beta): %s", mcmc_config['STEPS']['inheritance'])
-        logging.info("Ratio of contact steps (changing gamma): %s", mcmc_config['STEPS']['contact'])
+            msg_inherit_precision = 'Pseudocounts for tuning the width of the proposal distribution for inheritance (beta): %s\n' % \
+                 mcmc_config['PROPOSAL_PRECISION']['inheritance']
+        logging.info(f'''
+MCMC SETUP
+##########################################
+MCMC with {mcmc_config['N_STEPS']} steps and {mcmc_config['N_SAMPLES']} samples
+Warm-up: {mcmc_config['WARM_UP']['N_WARM_UP_CHAINS']} chains exploring the parameter space in {mcmc_config['WARM_UP']['N_WARM_UP_STEPS']} steps
+Pseudocounts for tuning the width of the proposal distribution for weights: {mcmc_config['PROPOSAL_PRECISION']['weights']}
+Pseudocounts for tuning the width of the proposal distribution for universal pressure (alpha): {mcmc_config['PROPOSAL_PRECISION']['universal']}
+{msg_inherit_precision}\
+Pseudocounts for tuning the width of the proposal distribution for areas (gamma): {mcmc_config['PROPOSAL_PRECISION']['contact']}
+Ratio of areal steps (growing, shrinking, swapping areas): {mcmc_config['STEPS']['area']}
+Ratio of weight steps (changing weights): {mcmc_config['STEPS']['weights']}
+Ratio of universal steps (changing alpha) : {mcmc_config['STEPS']['universal']}
+Ratio of inheritance steps (changing beta): {mcmc_config['STEPS']['inheritance']}
+Ratio of contact steps (changing gamma): {mcmc_config['STEPS']['contact']}
+        ''')
 
     def steps_per_operator(self):
-        # Assign steps per operator
-        ops = {'shrink_zone': self.config['mcmc']['STEPS']['area'] / 4,
-               'grow_zone': self.config['mcmc']['STEPS']['area'] / 4,
-               'swap_zone': self.config['mcmc']['STEPS']['area'] / 2,
-               'alter_weights': self.config['mcmc']['STEPS']['weights'],
-               'alter_p_global': self.config['mcmc']['STEPS']['universal'],
-               'alter_p_zones': self.config['mcmc']['STEPS']['contact'],
-               'alter_p_families': self.config['mcmc']['STEPS']['inheritance']}
+        """Assign step frequency per operator."""
+        steps_config = self.config['mcmc']['STEPS']
+        ops = {'shrink_zone': steps_config['area'] * 0.4,
+               'grow_zone': steps_config['area'] * 0.4,
+               'swap_zone': steps_config['area'] * 0.2,
+               # 'gibbsish_sample_zones': steps_config['area'] * 0.7
+               }
+        if self.model.sample_source:
+            ops.update({
+               'gibbs_sample_sources': steps_config['source'],
+               'gibbs_sample_weights': steps_config['weights'],
+               'gibbs_sample_p_global': steps_config['universal'],
+               'gibbs_sample_p_zones': steps_config['contact'],
+               'gibbs_sample_p_families': steps_config['inheritance'],
+            })
+        else:
+            ops.update({
+               'alter_weights': steps_config['weights'],
+               'alter_p_global': steps_config['universal'],
+               'alter_p_zones': steps_config['contact'],
+               'alter_p_families': steps_config['inheritance'],
+            })
         self.ops = ops
 
-    def sample(self, lh_per_area=True):
+    def sample(self, lh_per_area=True, initial_sample: typing.Optional[typing.Any] = None):
 
-        if self.sample_from_warm_up is None:
-            initial_sample = self.empty_sample()
-        else:
-            initial_sample = self.sample_from_warm_up
+        if initial_sample is None:
+            if self.sample_from_warm_up is None:
+                initial_sample = self.empty_sample()
+            else:
+                initial_sample = self.sample_from_warm_up
 
-        self.sampler = ZoneMCMCGenerative(network=self.data.network, features=self.data.features,
-                                          inheritance=self.config['model']['INHERITANCE'],
-                                          prior=self.prior_structured,
-                                          n_zones=self.config['model']['N_AREAS'],
-                                          n_chains=self.config['mcmc']['N_CHAINS'],
-                                          min_size=self.config['model']['MIN_M'],
-                                          max_size=self.config['model']['MAX_M'],
-                                          initial_sample=initial_sample,
-                                          operators=self.ops, families=self.data.families,
-                                          var_proposal=self.config['mcmc']['PROPOSAL_PRECISION'],
-                                          p_grow_connected=self.config['mcmc']['P_GROW_CONNECTED'],
-                                          initial_size=self.config['mcmc']['M_INITIAL'])
+        self.sampler = ZoneMCMC(data=self.data,
+                                model=self.model,
+                                n_chains=self.config['mcmc']['N_CHAINS'],
+                                initial_sample=initial_sample,
+                                operators=self.ops,
+                                var_proposal=self.config['mcmc']['PROPOSAL_PRECISION'],
+                                p_grow_connected=self.config['mcmc']['P_GROW_CONNECTED'],
+                                initial_size=self.config['mcmc']['M_INITIAL'])
 
         self.sampler.generate_samples(self.config['mcmc']['N_STEPS'],
                                       self.config['mcmc']['N_SAMPLES'])
@@ -317,27 +305,12 @@ class MCMC:
     def warm_up(self):
         initial_sample = self.empty_sample()
 
-        # In warmup chains can have a different max_size for areas
-        max_size_list = get_max_size_list((self.config['mcmc']['M_INITIAL'] + self.config['model']['MAX_M'])/4,
-                                          self.config['model']['MAX_M'],
-                                          self.config['mcmc']['WARM_UP']['N_WARM_UP_CHAINS'], 4)
-
-        # Some chains only have connected steps, whereas others also have random steps
-
-        p_grow_connected_list = \
-            random.choices([1, self.config['mcmc']['P_GROW_CONNECTED']],
-                           k=self.config['mcmc']['WARM_UP']['N_WARM_UP_CHAINS'])
-
-        warmup = ZoneMCMCWarmup(network=self.data.network, features=self.data.features,
-                                min_size=self.config['model']['MIN_M'],
-                                max_size=max_size_list,
-                                n_zones=self.config['model']['N_AREAS'],
-                                prior=self.prior_structured,
-                                inheritance=self.config['model']['INHERITANCE'],
+        warmup = ZoneMCMCWarmup(data=self.data,
+                                model=self.model,
                                 n_chains=self.config['mcmc']['WARM_UP']['N_WARM_UP_CHAINS'],
-                                operators=self.ops, families=self.data.families,
+                                operators=self.ops,
                                 var_proposal=self.config['mcmc']['PROPOSAL_PRECISION'],
-                                p_grow_connected=p_grow_connected_list,
+                                p_grow_connected=self.config['mcmc']['P_GROW_CONNECTED'],
                                 initial_sample=initial_sample,
                                 initial_size=self.config['mcmc']['M_INITIAL'])
 
@@ -372,21 +345,19 @@ class MCMC:
             raise ValueError("file_info must be 'n', 's', 'i' or 'p'")
 
         run = '_{run}'.format(run=run)
-        pth = self.path_results + fi + '/'
+        pth = self.path_results / fi
         ext = '.txt'
-        gt_pth = pth + 'ground_truth/'
+        gt_pth = pth / 'ground_truth'
 
-        paths = {'parameters': pth + 'stats_' + fi + run + ext,
-                 'areas': pth + 'areas_' + fi + run + ext,
-                 'gt': gt_pth + 'stats' + ext,
-                 'gt_areas': gt_pth + 'areas' + ext}
+        paths = {'parameters': pth / ('stats_' + fi + run + ext),
+                 'areas': pth / ('areas_' + fi + run + ext),
+                 'gt': gt_pth / ('stats' + ext),
+                 'gt_areas': gt_pth / ('areas' + ext)}
 
-        if not os.path.exists(pth):
-            os.makedirs(pth)
+        pth.mkdir(exist_ok=True)
 
         if self.data.is_simulated:
             self.eval_ground_truth()
-            if not os.path.exists(gt_pth):
-                os.makedirs(gt_pth)
+            gt_pth.mkdir(exist_ok=True)
 
         samples2file(self.samples, self.data, self.config, paths)

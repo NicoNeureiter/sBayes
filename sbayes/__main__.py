@@ -1,7 +1,5 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-from sbayes import cli
+from sbayes.cli import main
 
-
-if __name__ == '__main__':
-    cli.main()
+main()

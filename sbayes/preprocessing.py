@@ -1,8 +1,14 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+try:
+    from typing import Literal
+except ImportError:
+    from typing_extensions import Literal
+
 import csv
 
 import numpy as np
+import pyproj
 
 from sbayes.model import normalize_weights
 from sbayes.util import (compute_delaunay,
@@ -92,51 +98,53 @@ def read_sites(file, retrieve_family=False, retrieve_subset=False):
     log = str(len(name)) + " locations read from " + str(file)
     return sites, site_names, log
 
+class compute_network:
+    def __init__(
+            self,
+            sites,
+            subset=None,
+            crs=None):
+        """Convert a set of sites into a network.
 
-def compute_network(sites, subset=None):
-    """This function converts a set of sites (language locations plus attributes) into a network (graph).
-    If a subset is defined, only those sites in the subset go into the network.
+        This function converts a set of language locations, with their attributes,
+        into a network (graph). If a subset is defined, only those sites in the
+        subset go into the network.
 
-    Args:
-        sites(dict): a dict of sites with keys "locations", "id"
-        subset(list): boolean assignment of sites to subset
-    Returns:
-        dict: a network
+        Args:
+            sites(dict): a dict of sites with keys "locations", "id"
+            subset(list): boolean assignment of sites to subset
+        Returns:
+            dict: a network
+
         """
+        if crs is not None:
+            try:
+                from cartopy import crs as ccrs, geodesic
+            except ImportError as e:
+                print("Using a coordinate reference system (crs) requires the ´cartopy´ library:")
+                print("pip install cartopy")
+                raise e
 
-    if subset is None:
+        if subset is None:
+            # Define vertices and edges
+            vertices = sites['id']
 
-        # Define vertices and edges
-        vertices = sites['id']
+            locations = sites['locations']
 
-        # Delaunay triangulation
-        delaunay = compute_delaunay(sites['locations'])
-        v1, v2 = delaunay.toarray().nonzero()
-        edges = np.column_stack((v1, v2))
+            # Distance matrix
+            self.names = sites['names']
+        else:
+            sub_idx = np.nonzero(subset)[0]
+            vertices = list(range(len(sub_idx)))
 
-        # Adjacency Matrix
-        adj_mat = delaunay.tocsr()
+            # Delaunay triangulation
+            locations = sites['locations'][sub_idx, :]
 
-        # Distance matrix
-        diff = sites['locations'][:, None] - sites['locations']
-        dist_mat = np.linalg.norm(diff, axis=-1)
-
-        net = {'vertices': vertices,
-               'edges': edges,
-               'locations': sites['locations'],
-               'names': sites['names'],
-               'adj_mat': adj_mat,
-               'n': len(vertices),
-               'm': edges.shape[0],
-               'dist_mat': dist_mat,
-               }
-
-    else:
-        sub_idx = np.nonzero(subset)[0]
-        vertices = list(range(len(sub_idx)))
+            # Distance matrix
+            self.names = [sites['names'][i] for i in sub_idx]
 
         # Delaunay triangulation
-        locations = sites['locations'][sub_idx, :]
+
         delaunay = compute_delaunay(locations)
         v1, v2 = delaunay.toarray().nonzero()
         edges = np.column_stack((v1, v2))
@@ -144,22 +152,67 @@ def compute_network(sites, subset=None):
         # Adjacency Matrix
         adj_mat = delaunay.tocsr()
 
-        # Distance matrix
-        diff = locations[:, None] - locations
-        dist_mat = np.linalg.norm(diff, axis=-1)
+        if crs is None:
+            loc = np.asarray(sites['locations'])
+            diff = loc[:, None] - loc
+            dist_mat = np.linalg.norm(diff, axis=-1)
+        else:
+            transformer = pyproj.transformer.Transformer.from_crs(
+                crs_from=crs, crs_to=pyproj.crs.CRS("epsg:4326"))
+            w_locations = np.vstack(
+                transformer.transform(locations[:, 0], locations[:, 1])
+            ).T
+            geod = geodesic.Geodesic()
+            dist_mat = np.hstack([geod.inverse(location, w_locations)[:, :2] for location in w_locations])
 
-        names = [sites['names'][i] for i in sub_idx]
+        self.vertices = vertices
+        self.edges = edges
+        self.locations = locations
+        self.adj_mat = adj_mat
+        self.n = len(vertices)
+        self.m = edges.shape[0]
+        self.dist_mat = dist_mat
 
-        net = {'vertices': vertices,
-               'edges': edges,
-               'locations': locations,
-               'names': names,
-               'adj_mat': adj_mat,
-               'n': len(vertices),
-               'm': edges.shape[0],
-               'dist_mat': dist_mat,
-               }
-    return net
+    def __getitem__(self, key: Literal['vertices', 'edges', 'locations', 'names', 'adj_mat', 'n', 'm', 'dist_mat']):
+        if key == "vertices":
+            return self.vertices
+        elif key == "edges":
+            return self.edges
+        elif key == "locations":
+            return self.locations
+        elif key == "names":
+            return self.names
+        elif key == "adj_mat":
+            return self.adj_mat
+        elif key == "n":
+            return self.n
+        elif key == "m":
+            return self.m
+        elif key == "dist_mat":
+            return self.dist_mat
+        else:
+            raise AttributeError(f"Network object has no attribute {key}")
+
+    def __setitem__(self, key: Literal['vertices', 'edges', 'locations', 'names', 'adj_mat', 'n', 'm', 'dist_mat'], value):
+        if key == "vertices":
+            self.vertices = value
+        elif key == "edges":
+            self.edges = value
+        elif key == "locations":
+            self.locations = value
+        elif key == "names":
+            self.locations = value
+        elif key == "adj_mat":
+            self.adj̼_mat = value
+        elif key == "n":
+            self.n = value
+        elif key == "m":
+            self.m = value
+        elif key == "dist_mat":
+            self.dist_mat = value
+        else:
+            raise AttributeError(f"Network object has no attribute {key}")
+
 
 
 def subset_features(features, subset):
@@ -264,7 +317,7 @@ def simulate_features(areas,  p_universal, p_contact, weights, inheritance, p_in
     return features_states, applicable_states, feature_names, state_names
 
 
-def sample_categorical(p):
+def sample_categorical(p, binary_encoding=False):
     """Sample from a (multidimensional) categorical distribution. The
     probabilities for every category are given by `p`
 
@@ -276,13 +329,20 @@ def sample_categorical(p):
     Returns
         np.array: Samples of the categorical distribution.
             shape: output_dims
+                or
+            shape: (output_dims, n_categories)
     """
     *output_dims, n_categories = p.shape
 
     cdf = np.cumsum(p, axis=-1)
     z = np.expand_dims(np.random.random(output_dims), axis=-1)
 
-    return np.argmax(z < cdf, axis=-1)
+    samples = np.argmax(z < cdf, axis=-1)
+    if binary_encoding:
+        eye = np.eye(n_categories, dtype=bool)
+        return eye[samples]
+    else:
+        return samples
 
 
 def assign_area(area_id, sites_sim):

@@ -3,7 +3,17 @@
 
 """ Imports the real world data """
 
+import pyproj
+from dataclasses import dataclass
+import typing as t
+try:
+    from typing import Literal
+except ImportError:
+    from typing_extensions import Literal
+
 import logging
+
+import numpy
 
 from sbayes.util import read_features_from_csv
 from sbayes.preprocessing import (compute_network,
@@ -20,6 +30,12 @@ class Data:
 
         # Config file
         self.config = experiment.config
+
+        proj4_string = experiment.config['data'].get('CRS')
+        if proj4_string is None:
+            self.crs = None
+        else:
+            self.crs = pyproj.CRS(proj4_string)
 
         # Features to be imported
         self.sites = None
@@ -51,7 +67,7 @@ class Data:
          self.state_names, self.states, self.families, self.family_names,
          self.log_load_features) = read_features_from_csv(file=self.config['data']['FEATURES'],
                                                           feature_states_file=self.config['data']['FEATURE_STATES'])
-        self.network = compute_network(self.sites)
+        self.network = compute_network(self.sites, crs=self.crs)
 
     def load_universal_counts(self):
         config_universal = self.config['model']['PRIOR']['universal']
@@ -116,7 +132,7 @@ class Data:
         self.geo_prior = {'cost_matrix': geo_cost_matrix}
 
     def log_loading(self):
-        log_path = self.path_results + 'experiment.log'
+        log_path = self.path_results / 'experiment.log'
         logging.basicConfig(format='%(message)s', filename=log_path, level=logging.DEBUG)
         logging.info("\n")
         logging.info("DATA IMPORT")
@@ -125,3 +141,105 @@ class Data:
         logging.info(self.log_load_universal_counts)
         logging.info(self.log_load_inheritance_counts)
         logging.info(self.log_load_geo_cost_matrix)
+
+
+@dataclass
+class Prior:
+    counts: t.Any
+    states: t.Any
+
+    def __getitem__(self, item: Literal["counts", "states"]):
+        if item == "counts":
+            return self.counts
+        elif item == "states":
+            return self.states
+        else:
+            raise AttributeError(
+                f"{item:} is no valid attribute of a count prior"
+            )
+
+    def __setitem__(self, item: Literal["counts", "states"], value: t.Any):
+        if item == "counts":
+            self.counts = value
+        elif item == "states":
+            self.states = value
+        else:
+            raise AttributeError(
+                f"{item:} is no valid attribute of a count prior"
+            )
+
+@dataclass
+class Sites:
+    id: t.Any
+    locations: t.Tuple[float, float]
+    names: t.Any
+
+    def __getitem__(self, item: Literal["id"]):
+        if item == "id":
+            return self.id
+        elif item == "locations":
+            return self.locations
+        elif item == "names":
+            return self.names
+        else:
+            raise AttributeError(
+                f"{item:} is no valid attribute of Sites"
+            )
+
+    def __setitem__(self, item: Literal["id"], value: t.Any):
+        if item == "id":
+            self.id = value
+        elif item == "locations":
+            self.locations = value
+        elif item == "names":
+            self.names = value
+        else:
+            raise AttributeError(
+                f"{item:} is no valid attribute of Sites"
+            )
+
+
+class CLDFData(Data):
+    def __init__(self, experiment):
+        super().__init__(experiment)
+        self.ds = self.config['data']['cldf_dataset']
+
+    def load_features(self):
+        self.features = []
+        c_id = self.ds["ParameterTable", 'id'].name
+        for feature in self.ds["ParameterTable"]:
+            self.features.append(feature[c_id])
+        self.features = numpy.array([[1, 2]])
+
+        c_id = self.ds["LanguageTable", 'id'].name
+        c_name = self.ds["LanguageTable", 'name'].name
+        c_lon = self.ds["LanguageTable", 'longitude'].name
+        c_lat = self.ds["LanguageTable", 'latitude'].name
+        self.sites = Sites(*zip(*
+            [(site[c_id], (site[c_lon], site[c_lat]), site[c_name])
+             for site in self.ds["LanguageTable"]]))
+        self.network = compute_network(self.sites)
+
+    def load_universal_counts(self):
+        config_universal = self.config['model']['PRIOR']['universal']
+
+        if config_universal['type'] != 'counts':
+            return
+
+        counts, self.log_load_universal_counts = numpy.array([[0, 1]]), False
+
+        self.prior_universal = Prior(counts=counts, states=numpy.array([[0, 1]]))
+
+    def load_inheritance_counts(self):
+        if self.config['model']['INHERITANCE'] == False:
+            # Inheritance is not modeled -> nothing to do
+            return
+
+        config_inheritance = self.config['model']['PRIOR']['inheritance']
+        if config_inheritance['type'] != 'counts':
+            # Inharitance prior does not use counts -> nothing to do
+            return
+
+        counts, self.log_load_inheritance_counts = numpy.array([[[0, 1]]]), False
+
+        self.prior_inheritance = Prior(counts=counts, states=numpy.array([[0, 1]]))
