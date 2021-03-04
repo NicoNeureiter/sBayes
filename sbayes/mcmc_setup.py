@@ -14,7 +14,7 @@ import typing
 from sbayes.postprocessing import (contribution_per_area, log_operator_statistics,
                                    log_operator_statistics_header, match_areas, rank_areas)
 from sbayes.sampling.zone_sampling import Sample, ZoneMCMC, ZoneMCMCWarmup
-from sbayes.util import normalize, samples2file, get_max_size_list
+from sbayes.util import normalize, samples2file, scale_counts, inheritance_counts_to_dirichlet, counts_to_dirichlet
 from sbayes.model import Model
 
 

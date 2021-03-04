@@ -1232,7 +1232,7 @@ def geo_prior_distance(zones: np.array, cost_mat: np.array, scale: float):
 
             # When there are zero costs between languages the MST might be 0
             if mst.nnz > 0:
-                
+
                 distances = mst.tocsr()[mst.nonzero()]
             else:
                 distances = 0
