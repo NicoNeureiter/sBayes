@@ -653,6 +653,10 @@ class ZoneMCMC(MCMCGenerative):
 
         sample_new.zones[z_id, available] = new_zone
 
+        if np.sum(sample_new.zones[z_id]) == 0:
+            # Reject when an empty area is proposed
+            return sample, self.Q_REJECT, self.Q_BACK_REJECT
+
         q_per_site = posterior_zone * new_zone + (1 - posterior_zone) * (1 - new_zone)
         log_q = np.sum(np.log(q_per_site))
         q_back_per_site = posterior_zone * zone[available] + (1 - posterior_zone) * (1 - zone[available])
