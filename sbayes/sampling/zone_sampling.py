@@ -599,7 +599,7 @@ class ZoneMCMC(MCMCGenerative):
 
         return sample_new, log_q, log_q_back
 
-    def gibbsish_sample_zones(self, sample, resample_source=True):
+    def gibbsish_sample_zones(self, sample, c=0, resample_source=True):
         sample_new = sample.copy()
         likelihood = self.posterior_per_chain[sample.chain].likelihood
         occupied = np.any(sample.zones, axis=0)
@@ -655,7 +655,8 @@ class ZoneMCMC(MCMCGenerative):
 
         # Reject when an area outside the valid size range is proposed 
         new_area_size = np.sum(sample_new.zones[z_id])
-        if not (self.min_size <= new_area_size <= self.max_size):
+        max_size = self.max_size[c] if self.IS_WARMUP else self.max_size
+        if not (self.min_size <= new_area_size <= max_size):
             return sample, self.Q_REJECT, self.Q_BACK_REJECT
 
         q_per_site = posterior_zone * new_zone + (1 - posterior_zone) * (1 - new_zone)
@@ -1281,7 +1282,7 @@ class ZoneMCMCWarmup(ZoneMCMC):
         return super(ZoneMCMCWarmup, self).alter_p_zones(sample)
 
     def gibbsish_sample_zones(self, sample, c=0):
-        return super(ZoneMCMCWarmup, self).gibbsish_sample_zones(sample)
+        return super(ZoneMCMCWarmup, self).gibbsish_sample_zones(sample, c=c)
 
     def swap_zone(self, sample, c=0):
         """ This functions swaps sites in one of the zones of the current sample
