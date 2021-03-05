@@ -1251,8 +1251,7 @@ def geo_prior_distance(zones: np.array, cost_mat: np.array, scale: float):
 
     log_prior = np.ndarray([])
     for z in zones:
-
-        cost_mat = cost_mat[z][:, z]
+        cost_mat_z = cost_mat[z][:, z]
 
         # if len(locations) > 3:
         #
@@ -1266,8 +1265,8 @@ def geo_prior_distance(zones: np.array, cost_mat: np.array, scale: float):
         # elif len(locations) == 2:
         #     distances = n_smallest_distances(dist_mat, n=1, return_idx=False)
 
-        if cost_mat.shape[0] > 1:
-            graph = csgraph_from_dense(cost_mat)
+        if cost_mat_z.shape[0] > 1:
+            graph = csgraph_from_dense(cost_mat_z, null_value=np.inf)
             mst = minimum_spanning_tree(graph)
 
             # When there are zero costs between languages the MST might be 0
