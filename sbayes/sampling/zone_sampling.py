@@ -169,7 +169,7 @@ class ZoneMCMC(MCMCGenerative):
                               }
 
     def gibbs_sample_sources(self, sample: Sample, as_gibbs=True,
-                             site_subset=None):
+                             site_subset=slice(None)):
         """Resample the of observations to mixture components (their source).
 
         Args:
@@ -1282,20 +1282,25 @@ class ZoneMCMCWarmup(ZoneMCMC):
         )
 
     def gibbs_sample_sources(self, sample, c=0, as_gibbs=True, site_subset=slice(None)):
-        return super(ZoneMCMCWarmup, self).gibbs_sample_sources(sample, as_gibbs=True,
-                                                                site_subset=site_subset)
+        return super(ZoneMCMCWarmup, self).gibbs_sample_sources(
+            sample, as_gibbs=True, site_subset=site_subset
+        )
 
     def gibbs_sample_weights(self, sample, c=0):
         return super(ZoneMCMCWarmup, self).gibbs_sample_weights(sample)
 
-    def gibbs_sample_p_global(self, sample, c=0):
-        return super(ZoneMCMCWarmup, self).gibbs_sample_p_global(sample)
+    def gibbs_sample_p_global(self, sample, c=0, fraction_of_features=0.4):
+        return super(ZoneMCMCWarmup, self).gibbs_sample_p_global(
+            sample, fraction_of_features=fraction_of_features
+        )
 
-    def gibbs_sample_p_zones(self, sample, c=0):
-        return super(ZoneMCMCWarmup, self).gibbs_sample_p_zones(sample)
+    def gibbs_sample_p_zones(self, sample, i_zone=None, c=0):
+        return super(ZoneMCMCWarmup, self).gibbs_sample_p_zones(sample, i_zone=i_zone)
 
-    def gibbs_sample_p_families(self, sample, c=0):
-        return super(ZoneMCMCWarmup, self).gibbs_sample_p_families(sample)
+    def gibbs_sample_p_families(self, sample, i_family=None, fraction_of_features=0.4, c=0):
+        return super(ZoneMCMCWarmup, self).gibbs_sample_p_families(
+            sample, i_family=i_family, fraction_of_features=fraction_of_features
+        )
 
     def alter_weights(self, sample, c=0):
         return super(ZoneMCMCWarmup, self).alter_weights(sample)
@@ -1306,8 +1311,10 @@ class ZoneMCMCWarmup(ZoneMCMC):
     def alter_p_zones(self, sample, c=0):
         return super(ZoneMCMCWarmup, self).alter_p_zones(sample)
 
-    def gibbsish_sample_zones(self, sample, c=0, resample_source=True):
-        return super(ZoneMCMCWarmup, self).gibbsish_sample_zones(sample, resample_source=resample_source, c=0)
+    def gibbsish_sample_zones(self, sample, resample_source=True, site_subset=None, c=0):
+        return super(ZoneMCMCWarmup, self).gibbsish_sample_zones(
+            sample, resample_source=resample_source, c=c, site_subset=site_subset
+        )
 
     def swap_zone(self, sample, c=0, resample_source=True):
         """ This functions swaps sites in one of the zones of the current sample

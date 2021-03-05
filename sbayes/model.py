@@ -6,7 +6,7 @@ from enum import Enum
 import numpy as np
 
 import scipy.stats as stats
-from scipy.sparse.csgraph import minimum_spanning_tree
+from scipy.sparse.csgraph import minimum_spanning_tree, csgraph_from_dense
 
 from sbayes.util import (compute_delaunay, n_smallest_distances, log_binom,
                          counts_to_dirichlet, inheritance_counts_to_dirichlet,
@@ -517,7 +517,9 @@ class GenerativePrior(object):
             config_parsed['geo'] = {'type': 'uniform'}
         elif config['geo']['type'] == 'cost_based':
             # todo: change prior if cost matrix is provided
+
             config_parsed['geo'] = {'type': 'cost_based',
+                                    'cost_matrix':  self.data.geo_prior['cost_matrix'],
                                     'scale': config['geo']['scale']}
 
         else:
@@ -804,7 +806,8 @@ class GenerativePrior(object):
                                                self.geo_prior_meta['gaussian'])
 
             elif self.geo_prior_meta['type'] == 'cost_based':
-                geo_prior = geo_prior_distance(sample.zones, self.network,
+
+                geo_prior = geo_prior_distance(sample.zones, self.geo_prior_meta['cost_matrix'],
                                                self.geo_prior_meta['scale'])
 
             else:
@@ -1234,34 +1237,45 @@ def geo_prior_gaussian(zones: np.array, network: dict, cov: np.array):
     return np.mean(log_prior)
 
 
-def geo_prior_distance(zones: np.array, network: dict, scale: float):
+def geo_prior_distance(zones: np.array, cost_mat: np.array, scale: float):
 
     """ This function computes the geo prior for the sum of all distances of the mst of a zone
     Args:
         zones (np.array): The current zones (boolean array)
-        network (dict):  The full network containing all sites.
-        scale (float): The scale (estimated from the data)
+        cost_mat (np.array): The cost matrix between locations
+        scale (float): The scale parameter of an exponential distribution
 
     Returns:
         float: the geo-prior of the zones
     """
+
     log_prior = np.ndarray([])
     for z in zones:
 
-        dist_mat = network['dist_mat'][z][:, z]
-        locations = network['locations'][z]
+        cost_mat = cost_mat[z][:, z]
 
-        if len(locations) > 3:
+        # if len(locations) > 3:
+        #
+        #     delaunay = compute_delaunay(locations)
+        #     mst = minimum_spanning_tree(delaunay.multiply(dist_mat))
+        #     distances = mst.tocsr()[mst.nonzero()]
+        #
+        # elif len(locations) == 3:
+        #     distances = n_smallest_distances(dist_mat, n=2, return_idx=False)
+        #
+        # elif len(locations) == 2:
+        #     distances = n_smallest_distances(dist_mat, n=1, return_idx=False)
 
-            delaunay = compute_delaunay(locations)
-            mst = minimum_spanning_tree(delaunay.multiply(dist_mat))
-            distances = mst.tocsr()[mst.nonzero()]
+        if cost_mat.shape[0] > 1:
+            graph = csgraph_from_dense(cost_mat)
+            mst = minimum_spanning_tree(graph)
 
-        elif len(locations) == 3:
-            distances = n_smallest_distances(dist_mat, n=2, return_idx=False)
+            # When there are zero costs between languages the MST might be 0
+            if mst.nnz > 0:
 
-        elif len(locations) == 2:
-            distances = n_smallest_distances(dist_mat, n=1, return_idx=False)
+                distances = mst.tocsr()[mst.nonzero()]
+            else:
+                distances = 0
         else:
             raise ValueError("Too few locations to compute distance.")
 

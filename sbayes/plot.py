@@ -553,27 +553,45 @@ class Plot:
         area = np.asarray(area)
         n_samples = area.shape[0]
 
-        area_freq = np.sum(area, axis=0) / n_samples
-        in_graph = area_freq >= self.content_config['min_posterior_frequency']
+        # Plot a density map or consensus map?
+
+        if self.content_config['type'] == 'density_map':
+            in_graph = np.ones(area.shape[1], dtype=bool)
+
+        else:
+
+            area_freq = np.sum(area, axis=0) / n_samples
+            in_graph = area_freq >= self.content_config['min_posterior_frequency']
+
         locations = self.locations[in_graph]
         n_graph = len(locations)
 
         # getting indices of points in area
         area_indices = np.argwhere(in_graph)
 
-        if n_graph > 3:
-            # computing the delaunay
-            delaunay = compute_delaunay(locations)
-            graph_connections = gabriel_graph_from_delaunay(delaunay, locations)
+        # For density map: plot all edges
+        if self.content_config['type'] == 'density_map':
 
-        elif n_graph == 3:
-            graph_connections = np.array([[0, 1], [1, 2], [2, 0]], dtype=int)
+            a = np.arange(area.shape[1])
+            b = np.array(np.meshgrid(a, a))
+            c = b.T.reshape(-1, 2)
+            graph_connections = c[c[:, 0] < c[:, 1]]
 
-        elif n_graph == 2:
-            graph_connections = np.array([[0, 1]], dtype=int)
-
+        # For consensus map plot Gabriel graph
         else:
-            raise ValueError('No points in contact area!')
+            if n_graph > 3:
+                # computing the delaunay
+                delaunay = compute_delaunay(locations)
+                graph_connections = gabriel_graph_from_delaunay(delaunay, locations)
+
+            elif n_graph == 3:
+                graph_connections = np.array([[0, 1], [1, 2], [2, 0]], dtype=int)
+
+            elif n_graph == 2:
+                graph_connections = np.array([[0, 1]], dtype=int)
+
+            else:
+                raise ValueError('No points in contact area!')
 
         lines = []
         line_weights = []
@@ -639,8 +657,10 @@ class Plot:
             x, y = loc_in_area[loc]
             x += self.content_config['label_offset'][0]
             y += self.content_config['label_offset'][1]
+
             # Same with the font size for annotations. Should probably go to the config.
-            anno_opts = dict(xy=(x, y), fontsize=14, color=current_color)
+
+            anno_opts = dict(xy=(x, y), fontsize=10, color=current_color)
             self.ax.annotate(labels_in_area[loc] + 1, **anno_opts)
 
     # Bind together the functions above
@@ -649,12 +669,17 @@ class Plot:
         self.area_labels = []
 
         # If likelihood for single areas are displayed: add legend entries with likelihood information per area
-        if self.legend_config['areas']['add_area_stats']:
+        if self.legend_config['areas']['show_stats']:
+
             self.add_likelihood_legend()
             self.add_likelihood_info()
         else:
             for i, _ in enumerate(self.results['areas']):
                 self.area_labels.append(f'$Z_{i + 1}$')
+
+        if self.content_config['type'] == 'density_map':
+            self.ax.scatter(*self.locations.T,
+                            s=self.graphic_config['point_size'], c="black")
 
         # Color areas
         for i, area in enumerate(self.results['areas']):
@@ -663,47 +688,56 @@ class Plot:
             # This function computes a Gabriel graph for all points which are in the posterior with at least p_freq
             in_graph, lines, line_w = self.areas_to_graph(area)
 
-            self.ax.scatter(*self.locations[in_graph].T, s=self.graphic_config['point_size'], c=current_color)
+            if self.content_config['type'] == 'density_map':
+                for li in range(len(lines)):
+                    self.ax.plot(*lines[li].T, color=current_color, lw=line_w[li] * self.graphic_config['line_width'],
+                                 alpha=line_w[li])
 
-            for li in range(len(lines)):
-                self.ax.plot(*lines[li].T, color=current_color, lw=line_w[li] * self.graphic_config['line_width'],
-                             alpha=0.6)
+            else:
+                self.ax.scatter(*self.locations[in_graph].T, s=self.graphic_config['point_size'], c=current_color)
+
+                for li in range(len(lines)):
+                    self.ax.plot(*lines[li].T, color=current_color, lw=line_w[li] * self.graphic_config['line_width'],
+                                 alpha=0.6)
 
             # This adds small lines to the legend (one legend entry per area)
             line_legend = Line2D([0], [0], color=current_color, lw=6, linestyle='-')
             self.leg_areas.append(line_legend)
 
             # Labels the languages in the areas
-            # Should go into a separate function
+
             if self.content_config['label_languages']:
+                # Use neutral color for density map labels
+                if self.content_config['type'] == 'density_map':
+                    current_color = "black"
+
                 self.add_label(in_graph, current_color)
 
-            # Again, this is only relevant for simulated data and should go into a separate function
-            # Olga: doesn't seem to be a good decision to move this out to a separate function,
-            # because it's called inside of a loop and looks quite short
         if self.is_simulation:
             for i in self.results['true_zones']:
                 # Adds a bounding box for the ground truth areas
                 # showing if the algorithm has correctly identified them
                 self.add_area_boundary(i, color='#000000')
 
-        # add to legend
-        legend_areas = self.ax.legend(
-            self.leg_areas,
-            self.area_labels,
-            title_fontsize=18,
-            title='Contact areas',
-            frameon=True,
-            edgecolor='#ffffff',
-            framealpha=1,
-            fontsize=16,
-            ncol=1,
-            columnspacing=1,
-            loc='upper left',
-            bbox_to_anchor=self.legend_config['areas']['position']
-        )
-        legend_areas._legend_box.align = "left"
-        self.ax.add_artist(legend_areas)
+        if self.legend_config['areas']['add_to_legend']:
+            # add to legend
+            legend_areas = self.ax.legend(
+                self.leg_areas,
+                self.area_labels,
+                title_fontsize=18,
+                title='Contact areas',
+                frameon=True,
+                edgecolor='#ffffff',
+                framealpha=1,
+                fontsize=16,
+                ncol=1,
+                columnspacing=1,
+                loc='upper left',
+                bbox_to_anchor=self.legend_config['areas']['position']
+            )
+            legend_areas._legend_box.align = "left"
+
+            self.ax.add_artist(legend_areas)
 
     # TODO: This function should be rewritten in a nicer way; probably split into two functions,
     #  or find a better way of dividing things into simulated and real
@@ -762,40 +796,39 @@ class Plot:
 
                 handles.append(handle)
 
-        # Olga: can we pass the parameters in a different way?
-        # title_fontsize and fontsize are reversed, is that correct?
-        if self.is_simulation:
-            # Define the legend
-            legend_families = self.ax.legend(
-                handles=handles,
-                title_fontsize=16,
-                fontsize=18,
-                frameon=True,
-                edgecolor='#ffffff',
-                framealpha=1,
-                ncol=1,
-                columnspacing=1,
-                handletextpad=2.3,
-                loc='upper left',
-                bbox_to_anchor=self.legend_config['families']['position']
-            )
-            self.ax.add_artist(legend_families)
+        if self.legend_config['families']['add_to_legend']:
+            if self.is_simulation:
+                # Define the legend
+                legend_families = self.ax.legend(
+                    handles=handles,
+                    title_fontsize=16,
+                    fontsize=18,
+                    frameon=True,
+                    edgecolor='#ffffff',
+                    framealpha=1,
+                    ncol=1,
+                    columnspacing=1,
+                    handletextpad=2.3,
+                    loc='upper left',
+                    bbox_to_anchor=self.legend_config['families']['position']
+                )
+                self.ax.add_artist(legend_families)
 
-        else:
-            legend_families = self.ax.legend(
-                handles=handles,
-                title='Language family',
-                title_fontsize=18,
-                fontsize=16,
-                frameon=True,
-                edgecolor='#ffffff',
-                framealpha=1,
-                ncol=1,
-                columnspacing=1,
-                loc='upper left',
-                bbox_to_anchor=self.legend_config['families']['position']
-            )
-            self.ax.add_artist(legend_families)
+            else:
+                legend_families = self.ax.legend(
+                    handles=handles,
+                    title='Language family',
+                    title_fontsize=18,
+                    fontsize=16,
+                    frameon=True,
+                    edgecolor='#ffffff',
+                    framealpha=1,
+                    ncol=1,
+                    columnspacing=1,
+                    loc='upper left',
+                    bbox_to_anchor=self.legend_config['families']['position']
+                )
+                self.ax.add_artist(legend_families)
 
     def add_legend_lines(self):
 
@@ -843,9 +876,9 @@ class Plot:
         y_unit = (self.y_max - self.y_min) / 100
 
         if not self.is_simulation:
-
-            self.ax.axhline(self.y_min + y_unit * 71,
-                            0.02, 0.20, lw=1.5, color="black")
+            if self.legend_config['areas']['add_to_legend']:
+                self.ax.axhline(self.y_min + y_unit * 71,
+                                0.02, 0.20, lw=1.5, color="black")
 
             self.ax.add_patch(
                 patches.Rectangle(
@@ -883,17 +916,20 @@ class Plot:
             axins.tick_params(labelleft=False, labelbottom=False, length=0)
 
             # Map extend of the overview map
-            if self.legend_config['overview']['x_extend'] is not None:
+            if 'x_extend' in self.legend_config['overview']:
                 axins.set_xlim(self.legend_config['overview']['x_extend'])
 
             else:
-                x_overview = [self.x_min - self.x_min * 0.1, self.x_max + self.x_max * 0.1]
+                x_spacing = (self.x_max - self.x_min)
+                x_overview = [self.x_min - x_spacing, self.x_max + x_spacing]
                 axins.set_xlim(x_overview)
 
-            if self.legend_config['overview']['y_extend'] is not None:
-
-                y_overview = [self.y_min - self.y_min * 0.1, self.y_max + self.y_max * 0.1]
-                axins.set_xlim(y_overview)
+            if 'y_extend' in self.legend_config['overview']:
+                axins.set_ylim(self.legend_config['overview']['y_extend'])
+            else:
+                y_spacing = (self.y_max - self.y_min)
+                y_overview = [self.y_min - y_spacing, self.y_max + y_spacing]
+                axins.set_ylim(y_overview)
 
             # Again, this function needs map data to display in the overview map.
             self.add_background_map(axins)
@@ -903,9 +939,11 @@ class Plot:
                           alpha=1, linewidth=0)
 
             # adds a bounding box around the overview map
+
             bbox_width = self.x_max - self.x_min
             bbox_height = self.y_max - self.y_min
-            bbox = mpl.patches.Rectangle((self.x_min, self.x_max),
+
+            bbox = mpl.patches.Rectangle((self.x_min, self.y_min),
                                          bbox_width, bbox_height, ec='k', fill=False, linestyle='-')
             axins.add_patch(bbox)
 
@@ -1107,8 +1145,7 @@ class Plot:
     # This is the plot_posterior_map function from plotting_old
     ##############################################################
     # for Olga: all parameters should be passed from the new map config file
-    def posterior_map(self, file_name='mst_posterior', file_format="pdf",
-                      return_correspondence=False):
+    def posterior_map(self, file_name='mst_posterior', file_format="pdf"):
 
         """ This function creates a scatter plot of all sites in the posterior distribution.
 
@@ -1131,14 +1168,20 @@ class Plot:
         # Iterates over all areas in the posterior and plots each with a different color
         self.visualize_areas()
 
-        # Add a small legend displaying what the line width corresponds to.
-        self.add_legend_lines()
+        # Add main legend
+        if self.legend_config['posterior_frequency']['add_to_legend']:
+            self.add_legend_lines()
 
         # Places additional legend entries on the map
-        self.add_secondary_legend()
+
+        if self.legend_config['overview']['add_to_legend'] or\
+            self.legend_config['areas']['add_to_legend'] or\
+                self.legend_config['families']['add_to_legend']:
+
+            self.add_secondary_legend()
 
         # This adds an overview map to the map
-        if self.legend_config['overview']['add_overview'] == 'true':
+        if self.legend_config['overview']['add_to_legend']:
             self.add_overview_map()
 
         # Visualizes language families
@@ -1153,7 +1196,7 @@ class Plot:
         self.fig.savefig(f"{self.path_plots + '/' + file_name}.{file_format}",
                          bbox_inches='tight', dpi=400, format=file_format)
 
-        if return_correspondence and self.content_config['label_languages']:
+        if self.content_config['return_correspondence'] and self.content_config['label_languages']:
             self.return_correspondence_table(file_name=file_name)
         plt.clf()
         plt.close(self.fig)
@@ -1837,3 +1880,61 @@ class Plot:
         fig.savefig(self.path_plots + '/' + file_name + '.' + file_format,
                     dpi=400, format=file_format, bbox_inches='tight')
         plt.close(fig)
+
+    def plot_pies(self, file_name, file_format="pdf"):
+        print('Plotting pie charts ...')
+
+        areas = np.array(self.results['areas'])
+        end_bi = math.ceil(areas.shape[1] * self.content_config['burn_in'])
+
+        samples = areas[:, end_bi:, ]
+
+        n_plots = samples.shape[2]
+        n_samples = samples.shape[1]
+
+        samples_per_area = np.sum(samples, axis=1)
+
+        # Grid
+        n_col = 3
+        n_row = math.ceil(n_plots / n_col)
+
+        width = self.config['pie_plot']['output']['fig_width_subplot']
+        height = self.config['pie_plot']['output']['fig_height_subplot']
+
+        fig, axs = plt.subplots(n_row, n_col, figsize=(width * n_col, height * n_row))
+
+        for l in range(n_col*n_row):
+
+            ax_col = int(np.floor(l/n_row))
+            ax_row = l - n_row * ax_col
+
+            if l < n_plots:
+                per_lang = samples_per_area[:, l]
+                no_area = n_samples - per_lang.sum()
+
+                x = per_lang.tolist()
+                col = list(self.graphic_config['area_colors'])[:len(x)]
+
+                # Append samples that are not in an area
+                x.append(no_area)
+                col.append("lightgrey")
+
+                axs[ax_row, ax_col].pie(x, colors=col, radius=15)
+                label = str(self.sites['id'][l] + 1) + ' ' + str(self.sites['names'][l])
+                axs[ax_row, ax_col].text(-160, 0, label, size=15, va='center', ha="left")
+                axs[ax_row, ax_col].set_xlim([-160, 5])
+                axs[ax_row, ax_col].set_ylim([-10, 10])
+
+            axs[ax_row, ax_col].axis('off')
+
+        # Style remaining empty cells in the plot
+        n_empty = n_row * n_col - n_plots
+        for e in range(1, n_empty):
+            axs[-1, -e].axis('off')
+
+        plt.subplots_adjust(wspace=self.config['pie_plot']['output']['spacing_horizontal'],
+                            hspace=self.config['pie_plot']['output']['spacing_vertical'])
+
+        fig.savefig(self.path_plots + '/' + file_name + '.' + file_format,
+                    dpi=400, format=file_format, bbox_inches='tight')
+

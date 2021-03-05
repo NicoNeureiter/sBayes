@@ -24,7 +24,8 @@ if __name__ == '__main__':
         print('Plotting model', m)
 
         # How often does a point have to be in the posterior to be visualized in the map?
-        min_posterior_frequency = [0.9, 0.8, 0.7, 0.6, 0.5, 0.4, 0.3]
+        # min_posterior_frequency = [0.9, 0.8, 0.7, 0.6, 0.5, 0.4, 0.3]
+        min_posterior_frequency = [0.9]
         mpf_counter = 1
         print('Plotting results for ' + str(len(min_posterior_frequency)) + ' different mpf values')
 
@@ -37,26 +38,25 @@ if __name__ == '__main__':
             plot.config['map']['content']['min_posterior_frequency'] = mpf
 
             # Plot maps
-            try:
-                plot.posterior_map(file_name='posterior_map_' + m + '_' + str(mpf), return_correspondence=True)
-            except ValueError:
-                pass
+            plot.posterior_map(file_name='posterior_density_' + m + '_' + str(mpf))
 
             mpf_counter += 1
 
-        # Plot weights
-        plot.plot_weights_grid(file_name='weights_grid_' + m)
+        plot.plot_pies(file_name='pie_plot')
 
-        # Plot probability grids
-        parameter = ["gamma_a1", "gamma_a2", "gamma_a3", "gamma_a4", "gamma_a5"]
-        for p in parameter:
-            try:
-                plot.config['probabilities_plot']['parameter'] = p
-                plot.plot_probability_grid(file_name='prob_grid_' + m + '_' + p)
-            except ValueError:
-                pass
-
-        # Collect all models for DIC plot
+        # # Plot weights
+        # plot.plot_weights_grid(file_name='weights_grid_' + m)
+        #
+        # # Plot probability grids
+        # parameter = ["gamma_a1", "gamma_a2", "gamma_a3", "gamma_a4", "gamma_a5"]
+        # for p in parameter:
+        #     try:
+        #         plot.config['probabilities_plot']['parameter'] = p
+        #         plot.plot_probability_grid(file_name='prob_grid_' + m + '_' + p)
+        #     except ValueError:
+        #         pass
+        #
+        # # Collect all models for DIC plot
         results_per_model[m] = plot.results
 
     # Plot DIC over all models
