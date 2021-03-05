@@ -287,7 +287,7 @@ class MCMCGenerative(metaclass=_abc.ABCMeta):
         propose_step = _np.random.choice(self.fn_operators, 1, p=self.p_operators)[0]
 
         if self.IS_WARMUP:
-            candidate, log_q, log_q_back = propose_step(sample, c)
+            candidate, log_q, log_q_back = propose_step(sample, c=c)
         else:
             candidate, log_q, log_q_back = propose_step(sample)
 
