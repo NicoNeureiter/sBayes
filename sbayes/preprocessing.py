@@ -316,6 +316,7 @@ def simulate_features(areas,  p_universal, p_contact, weights, inheritance, p_in
     return features_states, applicable_states, feature_names, state_names
 
 
+EYES = {}
 def sample_categorical(p, binary_encoding=False):
     """Sample from a (multidimensional) categorical distribution. The
     probabilities for every category are given by `p`
@@ -324,21 +325,23 @@ def sample_categorical(p, binary_encoding=False):
         p (np.array): Array defining the probabilities of every category at
             every site of the output array. The last axis defines the categories
             and should sum up to 1.
-            shape: (*output_dims, n_categories)
+            shape: (*output_dims, n_states)
     Returns
         np.array: Samples of the categorical distribution.
             shape: output_dims
                 or
-            shape: (output_dims, n_categories)
+            shape: (output_dims, n_states)
     """
-    *output_dims, n_categories = p.shape
+    *output_dims, n_states = p.shape
 
     cdf = np.cumsum(p, axis=-1)
-    z = np.expand_dims(np.random.random(output_dims), axis=-1)
+    z = np.random.random(output_dims + [1])
 
     samples = np.argmax(z < cdf, axis=-1)
     if binary_encoding:
-        eye = np.eye(n_categories, dtype=bool)
+        if n_states not in EYES:
+            EYES[n_states] = np.eye(n_states, dtype=bool)
+        eye = EYES[n_states]
         return eye[samples]
     else:
         return samples
