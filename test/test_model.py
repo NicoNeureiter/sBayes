@@ -4,7 +4,7 @@ import numpy as np
 from collections import namedtuple
 import unittest
 
-from sbayes.model import GenerativeLikelihood
+from sbayes.model import Likelihood
 from sbayes.sampling.zone_sampling import Sample
 
 
@@ -77,9 +77,9 @@ class TestLikelihood(unittest.TestCase):
         Data = namedtuple('Data', ['features', 'families'])
         data = Data(features=features, families=families)
 
-        likelihood = GenerativeLikelihood(data=data, inheritance=True)
+        likelihood = Likelihood(data=data, inheritance=True)
         lh_with_family = likelihood(sample_with_family, caching=False)
-        likelihood = GenerativeLikelihood(data=data, inheritance=False)
+        likelihood = Likelihood(data=data, inheritance=False)
         lh_without_family = likelihood(sample_without_family, caching=False)
         self.assertAlmostEqual(lh_with_family, lh_without_family)
 

@@ -332,7 +332,7 @@ class ZoneMCMC(MCMCGenerative):
 
         # Get the prior (pseudo-)counts from the data
         prior = self.posterior_per_chain[sample.chain].prior
-        prior_counts = prior._prior_p_global.counts
+        prior_counts = prior.prior_p_global.counts
 
         # Resample p_global according to these observations
         for i_feat_subset, i_feat in enumerate(np.argwhere(feature_subset)):
@@ -382,7 +382,7 @@ class ZoneMCMC(MCMCGenerative):
 
         # Get the prior (pseudo-)counts from the data
         prior = self.posterior_per_chain[sample.chain].prior
-        prior_counts = prior._prior_p_families.counts[i_family]
+        prior_counts = prior.prior_p_families.counts[i_family]
 
         # Resample p_families according to these observations
         for i_feat_subset, i_feat in enumerate(np.argwhere(feature_subset)):
