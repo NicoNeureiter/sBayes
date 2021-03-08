@@ -93,12 +93,8 @@ class Plot:
         self.x_min = self.x_max = self.y_min = self.y_max = None
         self.bbox = None
 
-        self.leg_areas = []
         self.all_labels = []
         self.area_labels = []
-
-        self.leg_line_width = []
-        self.line_width_label = []
 
         # Additional parameters
         self.world = None
@@ -513,14 +509,14 @@ class Plot:
             annotation (string): If passed, area is annotated with this.
             color (string): Color of area.
         Returns:
-            leg_area: Legend.
+            legend_area: Legend.
         """
 
         # use form plotting param
         font_size = 18
         cp_locations = self.locations[is_in_area[0], :]
 
-        leg_area = None
+        legend_area = None
         if cp_locations.shape[0] > 0:  # at least one contact point in area
 
             alpha_shape = self.compute_alpha_shapes(sites=[is_in_area],
@@ -531,7 +527,7 @@ class Plot:
             # smooth_shape = alpha_shape
             patch = PolygonPatch(smooth_shape, ec=color, lw=1, ls='-', alpha=1, fill=False,
                                  zorder=1)
-            leg_area = self.ax.add_patch(patch)
+            legend_area = self.ax.add_patch(patch)
         else:
             print('computation of bbox not possible because no contact points')
 
@@ -541,7 +537,7 @@ class Plot:
             x, y = np.mean(x_coords), np.mean(y_coords)
             self.ax.text(x, y, annotation, fontsize=font_size, color=color)
 
-        return leg_area
+        return legend_area
 
     def areas_to_graph(self, area):
 
@@ -655,14 +651,13 @@ class Plot:
         self.all_labels.append(labels_in_area)
 
         for loc in range(len(loc_in_area)):
-            # add a label at a spatial offset of 20000 and 10000. Rather than hard-coding it,
-            # this might go into the config.
+            # Add a label at a spatial offset, as defined in the config.
             x, y = loc_in_area[loc]
             x += self.content_config['label_offset'][0]
             y += self.content_config['label_offset'][1]
 
-            # Same with the font size for annotations. Should probably go to the config.
-
+            # Print label on the map
+            # TODO fontsize should be settable in the config file.
             anno_opts = dict(xy=(x, y), fontsize=10, color=current_color)
             self.ax.annotate(labels_in_area[loc] + 1, **anno_opts)
 
@@ -670,12 +665,13 @@ class Plot:
     def visualize_areas(self):
         self.all_labels = []
         self.area_labels = []
+        legend_area_patches = []
 
         # If likelihood for single areas are displayed: add legend entries with likelihood information per area
         if self.legend_config['areas']['show_stats']:
 
             self.add_likelihood_legend()
-            self.add_likelihood_info()
+            self.add_likelihood_info(legend_area_patches)
         else:
             for i, _ in enumerate(self.results['areas']):
                 self.area_labels.append(f'$Z_{i + 1}$')
@@ -705,7 +701,7 @@ class Plot:
 
             # This adds small lines to the legend (one legend entry per area)
             line_legend = Line2D([0], [0], color=current_color, lw=6, linestyle='-')
-            self.leg_areas.append(line_legend)
+            legend_area_patches.append(line_legend)
 
             # Labels the languages in the areas
 
@@ -725,7 +721,7 @@ class Plot:
         if self.legend_config['areas']['add_to_legend']:
             # add to legend
             legend_areas = self.ax.legend(
-                self.leg_areas,
+                legend_area_patches,
                 self.area_labels,
                 title_fontsize=18,
                 title='Contact areas',
@@ -793,6 +789,7 @@ class Plot:
                         patch = PolygonPatch(smooth_shape, fc=family_fill, ec=family_border,
                                              lw=1, ls='-', alpha=1, fill=True, zorder=-i)
                         leg_family = self.ax.add_patch(patch)
+                        # TODO leg_family is unused. Was there a plan to use it?
 
                 # Add legend handle
                 handle = Patch(facecolor=family_color, edgecolor=family_color, label=family)
@@ -839,25 +836,24 @@ class Plot:
         line_width = list(self.legend_config['posterior_frequency']['default_values'])
         line_width.sort(reverse=True)
 
-        self.line_width_label = []
-        self.leg_line_width = []
-        self.leg_areas = []
+        line_width_label = []
+        legend_line_width = []
 
         # Iterates over all values in post_freq_lines and for each adds a legend entry
         for k in line_width:
             # Create line
             line = Line2D([0], [0], color="black", linestyle='-',
                           lw=self.graphic_config['line_width'] * k)
-            self.leg_line_width.append(line)
+            legend_line_width.append(line)
 
             # Add legend text
             prop_l = int(k * 100)
-            self.line_width_label.append(f'{prop_l}%')
+            line_width_label.append(f'{prop_l}%')
 
         # Adds everything to the legend
         legend_line_width = self.ax.legend(
-            self.leg_line_width,
-            self.line_width_label,
+            legend_line_width,
+            line_width_label,
             title_fontsize=18,
             title='Frequency of edge in posterior',
             frameon=True,
@@ -953,7 +949,6 @@ class Plot:
     # Helper function
     @staticmethod
     def scientific(x):
-
         b = int(np.log10(x))
         a = x / 10 ** b
         return '%.2f \cdot 10^{%i}' % (a, b)
@@ -994,9 +989,9 @@ class Plot:
             self.rivers.plot(ax=ax, color=None, edgecolor="skyblue", zorder=-10000)
 
     # Add likelihood info box
-    def add_likelihood_info(self):
+    def add_likelihood_info(self, legend_area_patches):
         extra = patches.Rectangle((0, 0), 1, 1, fc="w", fill=False, edgecolor='none', linewidth=0)
-        self.leg_areas.append(extra)
+        legend_area_patches.append(extra)
 
     # Load subset data
     # Helper function for add_subset
@@ -1087,7 +1082,6 @@ class Plot:
         for i in range(len(self.sites['id'])):
             for s in range(len(self.all_labels)):
                 if self.sites['id'][i] in self.all_labels[s]:
-
                     sites_id.append(self.sites['id'][i])
                     sites_names.append(self.sites['names'][i])
                     sites_color.append(self.graphic_config['area_colors'][s])
