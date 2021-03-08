@@ -1418,7 +1418,7 @@ class Plot:
 
         # Density and scatter plot
         if title:
-            plt.text(-0.7, 0.6, str(feature), fontdict={'fontweight': 'bold', 'fontsize': 12})
+            plt.text(-0.7, 0.6, str(feature), fontdict={'fontweight': 'bold', 'fontsize': 6})
         x = samples_projected.T[0]
         y = samples_projected.T[1]
         sns.kdeplot(x=x, y=y, shade=True, thresh=0, cut=30, n_levels=100,
@@ -1442,7 +1442,7 @@ class Plot:
         if labels is not None:
             for xy, label in zip(corners, labels):
                 xy *= 1.08  # Stretch, s.t. labels don't overlap with corners
-                plt.text(*xy, label, ha='center', va='center', fontdict={'fontsize': 12})
+                plt.text(*xy, label, ha='center', va='center', fontdict={'fontsize': 6})
 
         plt.xlim(xmin - 0.1, xmax + 0.1)
         plt.ylim(ymin - 0.1, ymax + 0.1)
@@ -1468,7 +1468,6 @@ class Plot:
         # color map
         cmap = sns.cubehelix_palette(light=1, start=.5, rot=-.75, as_cmap=True)
         if n_p == 2:
-            # plt.title(str(feature), loc='center', fontdict={'fontweight': 'bold', 'fontsize': 20})
             x = samples.T[1]
             sns.distplot(x, rug=True, hist=False, kde_kws={"shade": True, "lw": 0, "clip": (0, 1)}, color="g",
             # sns.displot(x=x, rug=True, kde_kws={"shade": True, "lw": 0, "clip": (0, 1)}, color="g",
@@ -1485,9 +1484,9 @@ class Plot:
                         x = -0.05
                     if x == 1:
                         x = 1.05
-                    plt.text(x, 0.1, label, ha='center', va='top', fontdict={'fontsize': 8})
+                    plt.text(x, 0.1, label, ha='center', va='top', fontdict={'fontsize': 6})
             if title:
-                plt.text(0.3, 4, str(feature), fontsize=8, fontweight='bold')
+                plt.text(0.3, 4, str(feature), fontsize=6, fontweight='bold')
 
             plt.plot([0, 1], [0, 0], c="k", lw=0.5)
 
@@ -1509,7 +1508,7 @@ class Plot:
 
             # Density and scatter plot
             if title:
-                plt.text(-0.8, 0.8, str(feature), fontsize=8, fontweight='bold')
+                plt.text(-0.8, 0.8, str(feature), fontsize=6, fontweight='bold')
 
             x = samples_projected.T[0]
             y = samples_projected.T[1]
@@ -1530,7 +1529,7 @@ class Plot:
             if labels is not None:
                 for xy, label in zip(corners, labels):
                     xy *= 1.1  # Stretch, s.t. labels don't overlap with corners
-                    plt.text(*xy, label, ha='center', va='center', fontdict={'fontsize': 8})
+                    plt.text(*xy, label, ha='center', va='center', fontdict={'fontsize': 6})
 
             plt.xlim(xmin - 0.1, xmax + 0.1)
             plt.ylim(ymin - 0.1, ymax + 0.1)
