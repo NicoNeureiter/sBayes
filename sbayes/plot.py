@@ -591,7 +591,7 @@ class Plot:
                 graph_connections = np.array([[0, 1]], dtype=int)
 
             else:
-                raise ValueError('No points in contact area!')
+                return in_graph, [], []
 
         lines = []
         line_weights = []
