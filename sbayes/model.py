@@ -56,21 +56,13 @@ class Model(object):
 
     def get_setup_message(self):
         """Compile a set-up message for logging."""
-        setup_msg = '\n'.join([
-            f'Model',
-            f'##########################################',
-            f'Number of inferred areas: {self.n_zones}',
-            f'Areas have a minimum size of {self.min_size} and a maximum size of {self.max_size}',
-            f'Inheritance is considered for inference: {self.inheritance}',
-            f'Geo-prior: {self.prior.geo_prior.prior_type.value}'
-            f'Prior on weights: {self.prior.prior_weights.prior_type.value}',
-            f'Prior on universal pressure (alpha): {self.prior.prior_p_global.prior_type.value}',
-            f'Prior on contact (gamma): {self.prior.prior_p_zones.prior_type.value}'
-        ])
-
-        if self.inheritance:
-            setup_msg += f'\nPrior on inheritance(beta): {self.prior.prior_p_families.prior_type.value}\n'
-
+        setup_msg = '\n'
+        setup_msg += 'Model\n'
+        setup_msg += '##########################################\n'
+        setup_msg += f'Number of inferred areas: {self.n_zones}\n'
+        setup_msg += f'Areas have a minimum size of {self.min_size} and a maximum size of {self.max_size}\n'
+        setup_msg += f'Inheritance is considered for inference: {self.inheritance}\n'
+        setup_msg += self.prior.get_setup_message()
         return setup_msg
 
 
@@ -487,7 +479,7 @@ class Prior(object):
         self.prior_p_global = PGlobalPrior(config=prior_config['universal'], data=data)
         self.prior_p_zones = PZonesPrior(config=prior_config['contact'], data=data)
         if self.inheritance:
-            self.prior_p_families = PFamiliesPrior(config=prior_config['universal'], data=data)
+            self.prior_p_families = PFamiliesPrior(config=prior_config['inheritance'], data=data)
 
     def __call__(self, sample):
         """Compute the prior of the current sample.
@@ -520,6 +512,17 @@ class Prior(object):
         sample.what_changed['prior']['p_zones'].clear()
         if self.inheritance:
             sample.what_changed['prior']['p_families'].clear()
+
+    def get_setup_message(self):
+        """Compile a set-up message for logging."""
+        setup_msg = self.geo_prior.get_setup_message()
+        setup_msg += self.size_prior.get_setup_message()
+        setup_msg += self.prior_weights.get_setup_message()
+        setup_msg += self.prior_p_global.get_setup_message()
+        setup_msg += self.prior_p_zones.get_setup_message()
+        if self.inheritance:
+            setup_msg += self.prior_p_families.get_setup_message()
+        return setup_msg
 
     def __copy__(self):
         return Prior(data=self.data,
@@ -618,6 +621,13 @@ class PGlobalPrior(DirichletPrior):
 
         self.cached = prior_p_global
         return np.sum(self.cached)
+
+    def get_setup_message(self):
+        """Compile a set-up message for logging."""
+        msg = f'Universal-prior type: {self.prior_type.value}\n'
+        if self.prior_type == self.TYPES.COUNTS:
+            msg += f'\tCounts file: {self.config["file"]}\n'
+        return msg
 
 
 class PFamiliesPrior(DirichletPrior):
@@ -744,6 +754,20 @@ class PFamiliesPrior(DirichletPrior):
 
         return np.sum(self.cached)
 
+    def get_setup_message(self):
+        """Compile a set-up message for logging."""
+        msg = f'Prior on inheritance (beta): {self.prior_type.value}\n'
+
+        if self.prior_type in [self.TYPES.COUNTS, self.TYPES.COUNTS_AND_UNIVERSAL]:
+            msg += f'\tCounts files:\n'
+            for fam, path in self.config['files'].items():
+                msg += f'\t\t{fam}: {path}\n'
+
+        if self.prior_type in [self.TYPES.UNIVERSAL, self.TYPES.COUNTS_AND_UNIVERSAL]:
+            msg += f'\tUniversal hyperprior strength: {self.strength}\n'
+
+        return msg
+
 
 class PZonesPrior(DirichletPrior):
 
@@ -817,6 +841,10 @@ class PZonesPrior(DirichletPrior):
         self.cached = prior_p_zones
         return np.sum(self.cached)
 
+    def get_setup_message(self):
+        """Compile a set-up message for logging."""
+        return f'Prior on contact (gamma): {self.prior_type.value}\n'
+
 
 class WeightsPrior(DirichletPrior):
 
@@ -856,6 +884,10 @@ class WeightsPrior(DirichletPrior):
 
         self.cached = prior_weights
         return np.sum(self.cached)
+
+    def get_setup_message(self):
+        """Compile a set-up message for logging."""
+        return f'Prior on weights: {self.prior_type.value}\n'
 
 
 class ZoneSizePrior(object):
@@ -939,6 +971,10 @@ class ZoneSizePrior(object):
 
         return self.cached
 
+    def get_setup_message(self):
+        """Compile a set-up message for logging."""
+        return f'Prior on area size: {self.prior_type.value}\n'
+
 
 class GeoPrior(object):
 
@@ -1010,6 +1046,13 @@ class GeoPrior(object):
         valid_types = ','.join([str(t.value) for t in self.TYPES])
         return f'Invalid prior type {s} for geo-prior (choose from [{valid_types}]).'
 
+    def get_setup_message(self):
+        """Compile a set-up message for logging."""
+        msg = f'Geo-prior: {self.prior_type.value}\n'
+        if self.prior_type == self.TYPES.COST_BASED:
+            msg += f'\tCost-matrix file: {self.config["file"]}\n'
+            msg += f'\tScale: {self.scale}\n'
+        return msg
 
 def geo_prior_gaussian(zones: np.array, network: dict, cov: np.array):
     """
