@@ -71,7 +71,7 @@ class Plot:
 
         # Needed for the weights and parameters plotting
         plt.style.use('seaborn-paper')
-        plt.tight_layout()
+        # plt.tight_layout()
 
         # Copy-pasted from Map
         self.base_directory = None
@@ -631,7 +631,10 @@ class Plot:
         # for Olga: constrained layout drops a warning. Could you check?
         self.fig, self.ax = plt.subplots(figsize=(self.output_config['fig_width'],
                                                   self.output_config['fig_height']),
-                                         constrained_layout=True)
+                                         # constrained_layout=True
+                                         )
+        self.fig.tight_layout()
+
         if self.content_config['subset']:
             self.plot_subset()
 
@@ -1156,6 +1159,9 @@ class Plot:
             """
         print('Plotting map...')
 
+        for f in plt.get_fignums():
+            plt.close(f)
+
         # Initialize the plot
         self.initialize_map()
 
@@ -1193,8 +1199,10 @@ class Plot:
             self.modify_legend()
 
         # Save the plot
-        self.fig.savefig(f"{self.path_plots + '/' + file_name}.{file_format}",
-                         bbox_inches='tight', dpi=400, format=file_format)
+        # self.fig.savefig(f"{self.path_plots}/{file_name}.{file_format}",
+        #                  bbox_inches='tight', dpi=400, format=file_format)
+        self.fig.savefig(f"{self.path_plots}/{file_name}.{file_format}",
+                         dpi=400, format=file_format)
 
         if self.content_config['return_correspondence'] and self.content_config['label_languages']:
             self.return_correspondence_table(file_name=file_name)
@@ -1413,7 +1421,7 @@ class Plot:
             plt.text(-0.7, 0.6, str(feature), fontdict={'fontweight': 'bold', 'fontsize': 12})
         x = samples_projected.T[0]
         y = samples_projected.T[1]
-        sns.kdeplot(x, y, shade=True, shade_lowest=True, cut=30, n_levels=100,
+        sns.kdeplot(x=x, y=y, shade=True, thresh=0, cut=30, n_levels=100,
                     clip=([xmin, xmax], [ymin, ymax]), cmap=cmap)
 
         if plot_samples:
@@ -1439,7 +1447,6 @@ class Plot:
         plt.xlim(xmin - 0.1, xmax + 0.1)
         plt.ylim(ymin - 0.1, ymax + 0.1)
         plt.axis('off')
-        plt.tight_layout(0)
         plt.plot()
 
     @staticmethod
@@ -1464,6 +1471,7 @@ class Plot:
             # plt.title(str(feature), loc='center', fontdict={'fontweight': 'bold', 'fontsize': 20})
             x = samples.T[1]
             sns.distplot(x, rug=True, hist=False, kde_kws={"shade": True, "lw": 0, "clip": (0, 1)}, color="g",
+            # sns.displot(x=x, rug=True, kde_kws={"shade": True, "lw": 0, "clip": (0, 1)}, color="g",
                          rug_kws={"color": "k", "alpha": 0.01, "height": 0.03})
 
             ax.axes.get_yaxis().set_visible(False)
@@ -1477,9 +1485,9 @@ class Plot:
                         x = -0.05
                     if x == 1:
                         x = 1.05
-                    plt.text(x, 0.1, label, ha='center', va='top', fontdict={'fontsize': 10})
+                    plt.text(x, 0.1, label, ha='center', va='top', fontdict={'fontsize': 8})
             if title:
-                plt.text(0.3, 4, str(feature), fontsize=12, fontweight='bold')
+                plt.text(0.3, 4, str(feature), fontsize=8, fontweight='bold')
 
             plt.plot([0, 1], [0, 0], c="k", lw=0.5)
 
@@ -1487,7 +1495,6 @@ class Plot:
             ax.axes.set_xlim([0, 1])
 
             plt.axis('off')
-            plt.tight_layout(0)
 
         elif n_p > 2:
             # Compute corners
@@ -1502,11 +1509,11 @@ class Plot:
 
             # Density and scatter plot
             if title:
-                plt.text(-0.8, 0.8, str(feature), fontsize=12, fontweight='bold')
+                plt.text(-0.8, 0.8, str(feature), fontsize=8, fontweight='bold')
 
             x = samples_projected.T[0]
             y = samples_projected.T[1]
-            sns.kdeplot(x, y, shade=True, shade_lowest=True, cut=30, n_levels=100,
+            sns.kdeplot(x=x, y=y, shade=True, thresh=0, cut=30, n_levels=100,
                         clip=([xmin, xmax], [ymin, ymax]), cmap=cmap)
 
             if plot_samples:
@@ -1523,13 +1530,11 @@ class Plot:
             if labels is not None:
                 for xy, label in zip(corners, labels):
                     xy *= 1.1  # Stretch, s.t. labels don't overlap with corners
-                    plt.text(*xy, label, ha='center', va='center', fontdict={'fontsize': 10})
+                    plt.text(*xy, label, ha='center', va='center', fontdict={'fontsize': 8})
 
             plt.xlim(xmin - 0.1, xmax + 0.1)
             plt.ylim(ymin - 0.1, ymax + 0.1)
             plt.axis('off')
-
-            plt.tight_layout(0)
 
         plt.plot()
 
@@ -1670,7 +1675,7 @@ class Plot:
                 color_burn_in = 'grey'
                 ax.axvline(x=pos_true_model, lw=1, color=color_burn_in, linestyle='--')
                 ypos_label = y_min + y_range * 0.15
-                plt.text(pos_true_model - 0.05, ypos_label, 'Simulated areas', rotation=90, size=10,
+                plt.text(pos_true_model - 0.05, ypos_label, 'Simulated areas', rotation=90, size=8,
                          color=color_burn_in)
         except KeyError:
             pass
