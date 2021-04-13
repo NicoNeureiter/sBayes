@@ -29,7 +29,7 @@
 		"MIN_M": 3,
 		"MAX_M": 50,
 		"INHERITANCE": "<REQUIRED>",
-		"SAMPLE_SOURCE": false,
+		"SAMPLE_SOURCE": true,
 		"PRIOR": {
 			"geo": {"type": "uniform"},
 			"area_size": {"type":  "none"},
