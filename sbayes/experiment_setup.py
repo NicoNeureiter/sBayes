@@ -28,10 +28,25 @@ DEFAULT_CONFIG_SIMULATION = json.loads(pkg_resources.read_text(config, 'default_
 
 
 class Experiment:
-    def __init__(self, experiment_name="default", config_file: typing.Optional[Path]=None, log=False):
+
+    """sBayes experiment class. Takes care of loading and verifying the config file,
+    handling paths, setting up logging...
+
+    Attributes:
+        experiment_name (str): The name of the experiment run (= name of results folder)
+        config_file (Path): The path to the config_file.
+        config (dict): The config parsed into a python dictionary.
+        base_directory (Path): The directory containing the config file.
+        path_results (Path): The path to the results folder.
+        logger (logging.Logger): The logger used throughout the run of the experiment.
+
+    """
+
+    def __init__(self, experiment_name: str = None,
+                 config_file: Path = None, log: bool = True):
 
         # Naming and shaming
-        if experiment_name == "default":
+        if experiment_name is None:
             self.experiment_name = set_experiment_name()
         else:
             self.experiment_name = experiment_name
@@ -40,6 +55,8 @@ class Experiment:
         self.config = {}
         self.base_directory = None
         self.path_results = None
+
+        self.logger = self.init_logger()
 
         if config_file is not None:
             self.load_config(config_file)
@@ -75,11 +92,12 @@ class Experiment:
         )
 
         # Compile relative paths, to be relative to config file
-
         self.path_results = self.fix_relative_path(self.path_results)
 
         if not os.path.exists(self.path_results):
             os.makedirs(self.path_results)
+
+        self.add_logger_file(self.path_results)
 
     @staticmethod
     def decompose_config_path(config_path):
@@ -92,10 +110,10 @@ class Experiment:
         the config file directory.
 
         Args:
-            path (str): The original path (absolute or relative).
+            path (Path or str): The original path (absolute or relative).
 
         Returns:
-            str: The fixed path.
+            Path: The fixed path.
          """
         path = Path(path)
         if path.is_absolute():
@@ -168,7 +186,6 @@ class Experiment:
         if 'NEIGHBOR_DIST' not in self.config['model']:
             self.config['model']['NEIGHBOR_DIST'] = "euclidean"
 
-
         # Minimum, maximum size of areas
         if 'MIN_M' not in self.config['model']:
             self.config['model']['MIN_M'] = 3
@@ -206,12 +223,12 @@ class Experiment:
         # Do not use inheritance steps if inheritance is disabled
         if not self.config['model']['INHERITANCE']:
             if self.config['mcmc']['STEPS'].get('inheritance', 0) != 0:
-                logging.warning('STEPS for inheritance was set to 0, because ´inheritance´ is disabled.')
+                self.logger.warning('STEPS for inheritance was set to 0, because ´inheritance´ is disabled.')
             self.config['mcmc']['STEPS']['inheritance'] = 0.0
 
         if not self.config['model']['SAMPLE_SOURCE']:
             if self.config['mcmc']['STEPS'].get('source', 0) != 0:
-                logging.warning('STEPS for source was set to 0, because ´SAMPLE_SOURCE´ is disabled.')
+                self.logger.warning('STEPS for source was set to 0, because ´SAMPLE_SOURCE´ is disabled.')
             self.config['mcmc']['STEPS']['source'] = 0.0
 
         # Normalize weights
@@ -261,12 +278,18 @@ class Experiment:
                     else:
                         self.config['data']['FEATURE_STATES'] = self.fix_relative_path(self.config['data']['FEATURE_STATES'])
 
+    def init_logger(self):
+        logger = logging.Logger('sbayesLogger', level=logging.DEBUG)
+        logger.addHandler(logging.StreamHandler())
+        return logger
+
+    def add_logger_file(self, path_results):
+        log_path = path_results / 'experiment.log'
+        self.logger.addHandler(logging.FileHandler(filename=log_path))
+
     def log_experiment(self):
-        log_path = self.path_results / 'experiment.log'
-        logging.basicConfig(format='%(message)s', filename=log_path, level=logging.DEBUG)
-        logging.getLogger().addHandler(logging.StreamHandler())
-        logging.info("Experiment: %s", self.experiment_name)
-        logging.info("File location for results: %s", self.path_results)
+        self.logger.info("Experiment: %s", self.experiment_name)
+        self.logger.info("File location for results: %s", self.path_results)
 
 
 def set_defaults(cfg: dict, default_cfg: dict):
