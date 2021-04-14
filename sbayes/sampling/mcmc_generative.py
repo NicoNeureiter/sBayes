@@ -32,7 +32,8 @@ class MCMCGenerative(metaclass=_abc.ABCMeta):
 
     def __init__(self, model, data, operators, n_chains,
                  mc3=False, swap_period=None, chain_swaps=None,
-                 sample_from_prior=False, show_screen_log=False, **kwargs):
+                 sample_from_prior=False, show_screen_log=False,
+                 logger=None, **kwargs):
 
         # The model and data defining the posterior distribution
         self.model = model
@@ -77,6 +78,12 @@ class MCMCGenerative(metaclass=_abc.ABCMeta):
         self.t_start = _time.time()
 
         self.posterior_per_chain = [copy(model) for _ in range(self.n_chains)]
+
+        if logger is None:
+            import logging
+            self.logger = logging.getLogger()
+        else:
+            self.logger = logger
 
     def prior(self, sample, chain):
         """Compute the (log) prior of a sample.
@@ -381,3 +388,41 @@ class MCMCGenerative(metaclass=_abc.ABCMeta):
 
         print(i_step_str + likelihood_str + time_str)
         # print('size0 =', 'sum(sample[self.chain_idx[0]].zones[0]))
+
+    def print_statistics(self, samples):
+        self.logger.info("\n")
+        self.logger.info("MCMC STATISTICS")
+        self.logger.info("##########################################")
+        self.logger.info(log_operator_statistics_header())
+        for operator in self.fn_operators:
+            self.logger.info(log_operator_statistics(operator.__name__, samples))
+
+
+COL_WIDTHS = [20, 8, 8, 8, 10]
+
+def log_operator_statistics_header():
+    name_header = str.ljust('OPERATOR', COL_WIDTHS[0])
+    acc_header = str.ljust('ACCEPTS', COL_WIDTHS[1])
+    rej_header = str.ljust('REJECTS', COL_WIDTHS[2])
+    total_header = str.ljust('TOTAL', COL_WIDTHS[3])
+    acc_rate_header = 'ACC. RATE'
+
+    return '\t'.join([name_header, acc_header, rej_header, total_header, acc_rate_header])
+
+
+def log_operator_statistics(operator_name, mcmc_stats):
+    acc = mcmc_stats['accept_operator'][operator_name]
+    rej = mcmc_stats['reject_operator'][operator_name]
+    total = acc + rej
+
+    if total == 0:
+        row_strings = [operator_name, '-', '-', '-', '-']
+        return '\t'.join([str.ljust(x, COL_WIDTHS[i]) for i, x in enumerate(row_strings)])
+
+    name_str = str.ljust(operator_name, COL_WIDTHS[0])
+    acc_str = str.ljust(str(acc), COL_WIDTHS[1])
+    rej_str = str.ljust(str(rej), COL_WIDTHS[2])
+    total_str = str.ljust(str(total), COL_WIDTHS[3])
+    acc_rate_str = '%.2f%%' % (100*acc/total)
+
+    return '\t'.join([name_str, acc_str, rej_str, total_str, acc_rate_str])
