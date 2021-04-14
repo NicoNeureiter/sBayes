@@ -78,6 +78,12 @@ class Sample(object):
         self.what_changed = {}
         self.everything_changed()
 
+    @classmethod
+    def empty_sample(cls):
+        initial_sample = cls(zones=None, weights=None, p_global=None, p_zones=None, p_families=None)
+        initial_sample.everything_changed()
+        return initial_sample
+
     def everything_changed(self):
         self.what_changed = {
             'lh': {'zones': IndexSet(), 'weights': True,
@@ -113,7 +119,7 @@ class ZoneMCMC(MCMCGenerative):
     """float: Probability at which grow operator only considers neighbours to add to the zone."""
 
     def __init__(self, var_proposal, p_grow_connected,
-                 initial_sample, initial_size,
+                 initial_size, initial_sample=None,
                  **kwargs):
 
         super(ZoneMCMC, self).__init__(**kwargs)
@@ -134,8 +140,11 @@ class ZoneMCMC(MCMCGenerative):
         # Zone size /initial sample
         self.min_size = self.model.min_size
         self.max_size = self.model.max_size
-        self.initial_sample = initial_sample
         self.initial_size = initial_size
+        if initial_sample is None:
+            self.initial_sample = Sample.empty_sample()
+        else:
+            self.initial_sample = initial_sample
 
         # Is inheritance (information on language families) available?
         self.inheritance = self.model.inheritance
