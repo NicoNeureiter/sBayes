@@ -1050,8 +1050,9 @@ class GeoPrior(object):
         """Compile a set-up message for logging."""
         msg = f'Geo-prior: {self.prior_type.value}\n'
         if self.prior_type == self.TYPES.COST_BASED:
-            msg += f'\tCost-matrix file: {self.config["file"]}\n'
             msg += f'\tScale: {self.scale}\n'
+            if 'file' in self.config:
+                msg += f'\tCost-matrix file: {self.config["file"]}\n'
         return msg
 
 def geo_prior_gaussian(zones: np.array, network: dict, cov: np.array):
