@@ -1634,6 +1634,10 @@ class Plot:
         x = list(models.keys())
         y = []
 
+        if len(x) < 0:
+            print('Need at least 2 models for DIC plot.')
+            return
+
         # Compute the DIC for each model
         for m in x:
             lh = models[m]['likelihood']
