@@ -402,9 +402,9 @@ def read_features_from_csv(file, feature_states_file):
     family_names_ordered = np.unique(family.dropna()).tolist()
     n_families = len(family_names_ordered)
 
-    families = np.zeros((n_families, n_sites), dtype=int)
+    families = np.zeros((n_families, n_sites), dtype=bool)
     for fam in range(n_families):
-        families[fam, np.where(family == family_names_ordered[fam])] = 1
+        families[fam, np.where(family == family_names_ordered[fam])] = True
 
     family_names = {'external': family_names_ordered,
                     'internal': list(range(n_families))}
