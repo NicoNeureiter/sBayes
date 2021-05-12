@@ -13,6 +13,7 @@ from sbayes.postprocessing import contribution_per_area, match_areas, rank_areas
 from sbayes.sampling.zone_sampling import Sample, ZoneMCMC, ZoneMCMCWarmup
 from sbayes.util import normalize, samples2file
 from sbayes.model import Model
+from sbayes.simulation import Simulation
 
 
 class MCMC:
@@ -30,10 +31,6 @@ class MCMC:
 
         # Create the model to sample from
         self.model = Model(data=self.data, config=self.config['model'])
-
-        # Assign steps to operators
-        self.ops = {}
-        self.steps_per_operator()
 
         # Samples
         self.sampler = None
@@ -67,33 +64,6 @@ Ratio of inheritance steps (changing beta): {mcmc_config['STEPS']['inheritance']
 Ratio of contact steps (changing gamma): {mcmc_config['STEPS']['contact']}
         ''')
 
-    def steps_per_operator(self):
-        """Assign step frequency per operator."""
-        steps_config = self.config['mcmc']['STEPS']
-
-        ops = {'shrink_zone': steps_config['area'] * 0.4,
-               'grow_zone': steps_config['area'] * 0.4,
-               'swap_zone': steps_config['area'] * 0.2,
-               'gibbsish_sample_zones': steps_config['area'] * 0.0
-               }
-
-        if self.model.sample_source:
-            ops.update({
-               'gibbs_sample_sources': steps_config['source'],
-               'gibbs_sample_weights': steps_config['weights'],
-               'gibbs_sample_p_global': steps_config['universal'],
-               'gibbs_sample_p_zones': steps_config['contact'],
-               'gibbs_sample_p_families': steps_config['inheritance'],
-            })
-        else:
-            ops.update({
-               'alter_weights': steps_config['weights'],
-               'alter_p_global': steps_config['universal'],
-               'alter_p_zones': steps_config['contact'],
-               'alter_p_families': steps_config['inheritance'],
-            })
-        self.ops = ops
-
     def sample(self, lh_per_area=True, initial_sample: typing.Optional[typing.Any] = None):
         mcmc_config = self.config['mcmc']
 
@@ -104,7 +74,7 @@ Ratio of contact steps (changing gamma): {mcmc_config['STEPS']['contact']}
                                 model=self.model,
                                 n_chains=mcmc_config['N_CHAINS'],
                                 initial_sample=initial_sample,
-                                operators=self.ops,
+                                operators=mcmc_config['STEPS'],
                                 var_proposal=mcmc_config['PROPOSAL_PRECISION'],
                                 p_grow_connected=mcmc_config['P_GROW_CONNECTED'],
                                 initial_size=mcmc_config['M_INITIAL'],
@@ -120,43 +90,46 @@ Ratio of contact steps (changing gamma): {mcmc_config['STEPS']['contact']}
         self.samples = self.sampler.statistics
 
     def eval_ground_truth(self, lh_per_area=True):
+        assert isinstance(self.data, Simulation)
+        simulation = self.data
+
         # Evaluate the likelihood of the true sample in simulated data
         # If the model includes inheritance use all weights, if not use only the first two weights (global, zone)
         if self.config['model']['INHERITANCE']:
-            weights = self.data.weights.copy()
+            weights = simulation.weights.copy()
         else:
-            weights = normalize(self.data.weights[:, :2])
+            weights = normalize(simulation.weights[:, :2])
 
-        ground_truth = Sample(zones=self.data.areas,
+        ground_truth = Sample(zones=simulation.areas,
                               weights=weights,
-                              p_global=self.data.p_universal[np.newaxis, ...],
-                              p_zones=self.data.p_contact,
-                              p_families=self.data.p_inheritance)
+                              p_global=simulation.p_universal[np.newaxis, ...],
+                              p_zones=simulation.p_contact,
+                              p_families=simulation.p_inheritance)
 
         ground_truth.everything_changed()
 
-        self.samples['true_zones'] = self.data.areas
+        self.samples['true_zones'] = simulation.areas
         self.samples['true_weights'] = weights
-        self.samples['true_p_global'] = self.data.p_universal[np.newaxis, ...]
-        self.samples['true_p_zones'] = self.data.p_contact
-        self.samples['true_p_families'] = self.data.p_inheritance
+        self.samples['true_p_global'] = simulation.p_universal[np.newaxis, ...]
+        self.samples['true_p_zones'] = simulation.p_contact
+        self.samples['true_p_families'] = simulation.p_inheritance
         self.samples['true_ll'] = self.sampler.likelihood(ground_truth, 0)
         self.samples['true_prior'] = self.sampler.prior(ground_truth, 0)
-        self.samples["true_families"] = self.data.families
+        self.samples["true_families"] = simulation.families
 
         if lh_per_area:
             ground_truth_log_lh_single_area = []
             ground_truth_prior_single_area = []
             ground_truth_posterior_single_area = []
 
-            for z in range(len(self.data.areas)):
-                area = self.data.areas[np.newaxis, z]
-                p_zone = self.data.p_contact[np.newaxis, z]
+            for z in range(len(simulation.areas)):
+                area = simulation.areas[np.newaxis, z]
+                p_zone = simulation.p_contact[np.newaxis, z]
 
                 # Define Model
                 ground_truth_single_zone = Sample(zones=area, weights=weights,
-                                                  p_global=self.data.p_universal[np.newaxis, ...],
-                                                  p_zones=p_zone, p_families=self.data.p_inheritance)
+                                                  p_global=simulation.p_universal[np.newaxis, ...],
+                                                  p_zones=p_zone, p_families=simulation.p_inheritance)
                 ground_truth_single_zone.everything_changed()
 
                 # Evaluate Likelihood and Prior
@@ -176,7 +149,7 @@ Ratio of contact steps (changing gamma): {mcmc_config['STEPS']['contact']}
         warmup = ZoneMCMCWarmup(data=self.data,
                                 model=self.model,
                                 n_chains=mcmc_config['WARM_UP']['N_WARM_UP_CHAINS'],
-                                operators=self.ops,
+                                operators=mcmc_config['STEPS'],
                                 var_proposal=mcmc_config['PROPOSAL_PRECISION'],
                                 p_grow_connected=mcmc_config['P_GROW_CONNECTED'],
                                 initial_size=mcmc_config['M_INITIAL'],

@@ -8,7 +8,7 @@ import numpy as np
 import scipy.stats as stats
 
 from sbayes.sampling.mcmc_generative import MCMCGenerative
-from sbayes.model import normalize_weights
+from sbayes.model import normalize_weights, PFamiliesPrior
 from sbayes.util import get_neighbours, normalize, dirichlet_pdf, get_max_size_list
 from sbayes.preprocessing import sample_categorical
 
@@ -330,7 +330,6 @@ class ZoneMCMC(MCMCGenerative):
         # The result should always be accepted in the MCMC
         return sample_new, self.Q_GIBBS, self.Q_BACK_GIBBS
 
-
     def gibbs_sample_p_global(self, sample: Sample, fraction_of_features=0.4):
         feature_subset = np.random.random(self.n_features) < fraction_of_features
         features = self.features[:, feature_subset, :]
@@ -342,6 +341,11 @@ class ZoneMCMC(MCMCGenerative):
         # Get the prior (pseudo-)counts from the data
         prior = self.posterior_per_chain[sample.chain].prior
         prior_counts = prior.prior_p_global.counts
+
+        if self.inheritance and prior.prior_p_families.prior_type is PFamiliesPrior.TYPES.UNIVERSAL:
+            raise NotImplementedError('The operator <gibbs_sample_p_global> is not adapted to a universal prior '
+                                      'on p_families yet. Please use the <alter_p_global> operator instead.')
+            # TODO If p_family has a universal prior, it should affect p_global in sampling.
 
         # Resample p_global according to these observations
         for i_feat_subset, i_feat in enumerate(np.argwhere(feature_subset)):
@@ -1259,11 +1263,38 @@ class ZoneMCMC(MCMCGenerative):
         fn_operators = []
         p_operators = []
 
-        for k, v in operators.items():
+        for k, v in self.parse_operator_weights(operators).items():
             fn_operators.append(getattr(self, k))
             p_operators.append(v)
 
         return fn_operators, p_operators
+
+    def parse_operator_weights(self, op_weights_raw):
+        """Assign step frequency per operator."""
+        op_weights = {
+            'shrink_zone': op_weights_raw['area'] * 0.4,
+            'grow_zone': op_weights_raw['area'] * 0.4,
+            'swap_zone': op_weights_raw['area'] * 0.2,
+            'gibbsish_sample_zones': op_weights_raw['area'] * 0.0
+        }
+
+        if self.model.sample_source:
+            op_weights.update({
+                'gibbs_sample_sources': op_weights_raw['source'],
+                'gibbs_sample_weights': op_weights_raw['weights'],
+                'gibbs_sample_p_global': op_weights_raw['universal'],
+                'gibbs_sample_p_zones': op_weights_raw['contact'],
+                'gibbs_sample_p_families': op_weights_raw['inheritance'],
+            })
+        else:
+            op_weights.update({
+                'alter_weights': op_weights_raw['weights'],
+                'alter_p_global': op_weights_raw['universal'],
+                'alter_p_zones': op_weights_raw['contact'],
+                'alter_p_families': op_weights_raw['inheritance'],
+            })
+
+        return op_weights
 
     def log_sample_statistics(self, sample, c, sample_id):
         super(ZoneMCMC, self).log_sample_statistics(sample, c, sample_id)
