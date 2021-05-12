@@ -415,9 +415,9 @@ def assign_family(fam_id, sites_sim):
     n_sites = len(sites_sim['id'])
 
     # Assign family membership
-    families = np.zeros((n_families, n_sites), bool)
+    families = np.zeros((n_families, n_sites), dtype=bool)
     for k, z_id in enumerate(sites_in_families.values()):
-        families[k, z_id] = 1
+        families[k, z_id] = True
 
     family_names = {'external': ['fam' + str(s + 1) for s in range(families.shape[0])],
                     'internal': [s for s in range(families.shape[0])]}
