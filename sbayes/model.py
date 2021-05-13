@@ -35,15 +35,15 @@ class Model(object):
         # Create likelihood and prior objects
         self.likelihood = Likelihood(data=data, inheritance=self.inheritance)
         self.prior = Prior(data=data, inheritance=self.inheritance,
-                           prior_config=config['PRIOR'])
+                           prior_config=config['prior'])
 
     def parse_attributes(self, config):
         """Read attributes from the config dictionary."""
-        self.n_zones = config['N_AREAS']
-        self.min_size = config['MIN_M']
-        self.max_size = config['MAX_M']
-        self.inheritance = config['INHERITANCE']
-        self.sample_source = config['SAMPLE_SOURCE']
+        self.n_zones = config['n_areas']
+        self.min_size = config['min_m']
+        self.max_size = config['max_m']
+        self.inheritance = config['inheritance']
+        self.sample_source = config['sample_source']
 
     def __call__(self, sample, caching=True):
         """Evaluate the (non-normalized) posterior probability of the given sample."""

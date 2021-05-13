@@ -75,8 +75,8 @@ class Experiment:
         # Load defaults
         set_defaults(self.config, DEFAULT_CONFIG)
         if 'simulation' in self.config:
-            self.config['data'].pop("FEATURES")
-            self.config['data'].pop("FEATURE_STATES")
+            self.config['data'].pop('features')
+            self.config['data'].pop('feature_states')
             set_defaults(self.config['simulation'], DEFAULT_CONFIG_SIMULATION)
 
         if custom_settings is not None:
@@ -131,10 +131,8 @@ class Experiment:
         if inheritance:
             required_priors.append('inheritance')
         else:
-
             if 'inheritance' in priors_cfg:
-
-                warnings.warn("Inheritance is not considered in the model. PRIOR for inheritance "
+                warnings.warn("Inheritance is not considered in the model. prior for inheritance "
                               + f"defined in {self.config_file} will not be used.")
                 priors_cfg['inheritance'] = None
 
@@ -174,29 +172,23 @@ class Experiment:
                 raise NameError(f'{k} is not defined {self.config_file}')
 
         # Are priors complete and consistent?
-        self.verify_priors(self.config['model']['PRIOR'],
-                           inheritance=self.config['model']['INHERITANCE'])
+        self.verify_priors(self.config['model']['prior'],
+                           inheritance=self.config['model']['inheritance'])
 
         # SIMULATION
         if self.is_simulation():
-            self.config['simulation']['SITES'] = self.fix_relative_path(self.config['simulation']['SITES'])
-            if type(self.config['simulation']['AREA']) is list:
-                self.config['simulation']['AREA'] = tuple(self.config['simulation']['AREA'])
+            self.config['simulation']['sites'] = self.fix_relative_path(self.config['simulation']['sites'])
+            if type(self.config['simulation']['area']) is list:
+                self.config['simulation']['area'] = tuple(self.config['simulation']['area'])
 
         if 'NEIGHBOR_DIST' not in self.config['model']:
-            self.config['model']['NEIGHBOR_DIST'] = "euclidean"
-
-        # Minimum, maximum size of areas
-        if 'MIN_M' not in self.config['model']:
-            self.config['model']['MIN_M'] = 3
-        if 'MAX_M' not in self.config['model']:
-            self.config['model']['MAX_M'] = 50
+            self.config['model']['NEIGHBOR_DIST'] = 'euclidean'
 
         # MCMC
         # Is there an mcmc part in the config file?
         if 'mcmc' not in self.config:
-            raise NameError("Information about the MCMC setup was not found in"
-                            + self.config_file + ". Include mcmc as a key.")
+            raise NameError('Information about the MCMC setup was not found in'
+                            + self.config_file + '. Include mcmc as a key.')
 
         # todo: activate for MC3
         # Number of parallel Markov chains
@@ -215,26 +207,26 @@ class Experiment:
             pass
 
         # Tracer does not like unevenly spaced samples
-        spacing = self.config['mcmc']['N_STEPS'] % self.config['mcmc']['N_SAMPLES']
+        spacing = self.config['mcmc']['n_steps'] % self.config['mcmc']['n_samples']
 
         if spacing != 0.:
-            raise ValueError("Non-consistent spacing between samples. Set N_STEPS to be a multiple of N_SAMPLES. ")
+            raise ValueError("Non-consistent spacing between samples. Set n_steps to be a multiple of n_samples. ")
 
         # Do not use inheritance steps if inheritance is disabled
-        if not self.config['model']['INHERITANCE']:
-            if self.config['mcmc']['STEPS'].get('inheritance', 0) != 0:
-                self.logger.warning('STEPS for inheritance was set to 0, because ´inheritance´ is disabled.')
-            self.config['mcmc']['STEPS']['inheritance'] = 0.0
+        if not self.config['model']['inheritance']:
+            if self.config['mcmc']['steps'].get('inheritance', 0) != 0:
+                self.logger.warning('steps for inheritance was set to 0, because ´inheritance´ is disabled.')
+            self.config['mcmc']['steps']['inheritance'] = 0.0
 
-        if not self.config['model']['SAMPLE_SOURCE']:
-            if self.config['mcmc']['STEPS'].get('source', 0) != 0:
-                self.logger.warning('STEPS for source was set to 0, because ´SAMPLE_SOURCE´ is disabled.')
-            self.config['mcmc']['STEPS']['source'] = 0.0
+        if not self.config['model']['sample_source']:
+            if self.config['mcmc']['steps'].get('source', 0) != 0:
+                self.logger.warning('steps for source was set to 0, because ´sample_source´ is disabled.')
+            self.config['mcmc']['steps']['source'] = 0.0
 
         # Normalize weights
-        weights_sum = sum(self.config['mcmc']['STEPS'].values())
-        for operator, weight in self.config['mcmc']['STEPS'].items():
-            self.config['mcmc']['STEPS'][operator] = weight / weights_sum
+        weights_sum = sum(self.config['mcmc']['steps'].values())
+        for operator, weight in self.config['mcmc']['steps'].items():
+            self.config['mcmc']['steps'][operator] = weight / weights_sum
 
         if 'results' in self.config:
             if 'RESULTS_PATH' not in self.config['results']:
@@ -269,14 +261,14 @@ class Experiment:
                         self.base_directory / self.config['data']
                     )
                 else:
-                    if not self.config['data']['FEATURES']:
-                        raise NameError("FEATURES is empty. Provide file paths to features file (e.g. features.csv)")
+                    if not self.config['data']['features']:
+                        raise NameError("features is empty. Provide file paths to features file (e.g. features.csv)")
                     else:
-                        self.config['data']['FEATURES'] = self.fix_relative_path(self.config['data']['FEATURES'])
-                    if not self.config['data']['FEATURE_STATES']:
-                        raise NameError("FEATURE_STATES is empty. Provide file paths to feature_states file (e.g. feature_states.csv)")
+                        self.config['data']['features'] = self.fix_relative_path(self.config['data']['features'])
+                    if not self.config['data']['feature_states']:
+                        raise NameError("feature_states is empty. Provide file paths to feature_states file (e.g. feature_states.csv)")
                     else:
-                        self.config['data']['FEATURE_STATES'] = self.fix_relative_path(self.config['data']['FEATURE_STATES'])
+                        self.config['data']['feature_states'] = self.fix_relative_path(self.config['data']['feature_states'])
 
     def init_logger(self):
         logger = logging.Logger('sbayesLogger', level=logging.DEBUG)

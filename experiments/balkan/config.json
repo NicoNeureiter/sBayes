@@ -1,34 +1,34 @@
 {
 	"mcmc": {
-		"N_STEPS": 6000000,
-		"N_SAMPLES": 5000,
-		"N_RUNS": 1,
-		"P_GROW_CONNECTED": 0.85,
-		"PROPOSAL_PRECISION": {
+		"n_steps": 6000000,
+		"n_samples": 5000,
+		"n_runs": 1,
+		"p_grow_connected": 0.85,
+		"proposal_precision": {
 			"weights": 20,
 			"universal": 30,
 			"contact": 10,
 			"inheritance": 10
 		},
-		"STEPS": {
+		"steps": {
 			"area": 0.1,
 			"weights": 0.25,
 			"universal": 0.1,
 			"contact": 0.3,
 			"inheritance": 0.25
 		},
-		"M_INITIAL": 3,
-		"WARM_UP": {
-			"N_WARM_UP_STEPS": 100000,
-			"N_WARM_UP_CHAINS": 10
+		"m_initial": 3,
+		"warm_up": {
+			"n_warm_up_steps": 100000,
+			"n_warm_up_chains": 10
 		}
 	},
 	"model": {
-		"N_AREAS": "TBD",
-		"MIN_M": 3,
-		"MAX_M": 30,
-		"INHERITANCE": true,
-		"PRIOR": {
+		"n_areas": "TBD",
+		"min_m": 3,
+		"max_m": 30,
+		"inheritance": true,
+		"prior": {
 			"geo": {"type": "uniform"},
 			"weights": {"type": "uniform"},
 			"universal": {

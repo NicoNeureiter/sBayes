@@ -1,16 +1,16 @@
 {
 	"mcmc": {
-		"N_STEPS": 2000000,
-		"N_SAMPLES": 1000,
-		"N_RUNS": 1,
-		"P_GROW_CONNECTED": 0.85,
-		"PROPOSAL_PRECISION": {
+		"n_steps": 70000,
+		"n_samples": 2000,
+		"n_runs": 1,
+		"p_grow_connected": 0.85,
+		"proposal_precision": {
 			"weights": 20,
 			"universal": 30,
 			"contact": 10,
 			"inheritance": 10
 		},
-		"STEPS": {
+		"steps": {
 			"area": 50,
 			"weights": 12,
 			"universal": 4,
@@ -18,20 +18,20 @@
 			"inheritance": 6,
 			"source": 12
 		},
-		"M_INITIAL": 10,
-		"N_AREAS": 4,
-		"WARM_UP": {
-			"N_WARM_UP_STEPS": 20000,
-			"N_WARM_UP_CHAINS": 10
+		"m_initial": 10,
+		"n_areas": [3, 4],
+		"warm_up": {
+			"n_warm_up_steps": 1500,
+			"n_warm_up_chains": 10
 		}
 	},
 	"model": {
-		"MIN_M": 3,
-		"N_AREAS": 5,
-		"MAX_M": 30,
-		"INHERITANCE": true,
-		"SAMPLE_SOURCE": true,
-		"PRIOR": {
+		"min_m": 3,
+		"n_areas": 5,
+		"max_m": 30,
+		"inheritance": true,
+		"sample_source": true,
+		"prior": {
 			"geo": {"type": "uniform"},
 			"weights": {"type": "uniform"},
 			"universal": {
@@ -56,7 +56,7 @@
 	},
 	"data": {
     "CRS": "+proj=eqdc +lat_0=-32 +lon_0=-60 +lat_1=-5 +lat_2=-42 +x_0=0 +y_0=0 +ellps=aust_SA +units=m +no_defs",
-		"FEATURES": "data/features/features.csv",
-		"FEATURE_STATES": "data/features/feature_states.csv"
+		"features": "data/features/features.csv",
+		"feature_states": "data/features/feature_states.csv"
 	}
 }

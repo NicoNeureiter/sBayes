@@ -1,52 +1,52 @@
 {
 	"simulation": {
-		"SITES": "data/sites.csv",
-		"N_FEATURES": 50,
-		"P_N_CATEGORIES": {
+		"sites": "data/sites.csv",
+		"n_features": 50,
+		"p_n_categories": {
 			"2": 0.2,
 			"3": 0.6,
 			"4": 0.2
 		},
-		"I_UNIVERSAL": 1.0,
-		"I_INHERITANCE": 4.0,
-		"I_CONTACT": 2.0,
-		"E_UNIVERSAL": 1.0,
-		"E_INHERITANCE": 0.25,
-		"E_CONTACT": 0.75,
-		"INHERITANCE": true,
-		"AREA": 10
+		"i_universal": 1.0,
+		"i_inheritance": 4.0,
+		"i_contact": 2.0,
+		"e_universal": 1.0,
+		"e_inheritance": 0.25,
+		"e_contact": 0.75,
+		"inheritance": true,
+		"area": 10
 	},
 	"mcmc": {
-		"N_STEPS": 3000000,
-		"N_SAMPLES": 5000,
-		"N_RUNS": 1,
-		"P_GROW_CONNECTED": 0.85,
-		"PROPOSAL_PRECISION": {
+		"n_steps": 3000000,
+		"n_samples": 5000,
+		"n_runs": 1,
+		"p_grow_connected": 0.85,
+		"proposal_precision": {
 			"weights": 20,
 			"universal": 30,
 			"contact": 10,
 			"inheritance": 10
 		},
-		"STEPS": {
+		"steps": {
 			"area": 0.1,
 			"weights": 0.4,
 			"universal": 0.1,
 			"contact": 0.3,
 			"inheritance": 0.1
 		},
-		"M_INITIAL": 15,
-		"WARM_UP": {
-			"N_WARM_UP_STEPS": 100000,
-			"N_WARM_UP_CHAINS": 20
+		"m_initial": 15,
+		"warm_up": {
+			"n_warm_up_steps": 100000,
+			"n_warm_up_chains": 20
 		}
 	},
 	"model": {
-		"N_AREAS": 1,
-		"MIN_M": 3,
-		"MAX_M": 200,
-		"INHERITANCE": "TBD",
-		"SAMPLE_SOURCE": false,
-		"PRIOR": {
+		"n_areas": 1,
+		"min_m": 3,
+		"max_m": 200,
+		"inheritance": "TBD",
+		"sample_source": false,
+		"prior": {
 			"geo": {
 				"type": "cost_based",
 				"scale": 100

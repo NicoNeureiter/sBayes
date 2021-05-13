@@ -3,14 +3,14 @@
 import warnings
 from sbayes.plot import Plot
 
-warnings.simplefilter(action='ignore', category=UserWarning)
+# warnings.simplefilter(action='ignore', category=UserWarning)
 warnings.simplefilter(action='ignore', category=FutureWarning)
-warnings.simplefilter(action='ignore', category=RuntimeWarning)
+# warnings.simplefilter(action='ignore', category=RuntimeWarning)
 
 if __name__ == '__main__':
     results_per_model = {}
     plot = Plot(simulated_data=False)
-    plot.load_config(config_file='../results/scaled_prior/config_plot.json')
+    plot.load_config(config_file='experiments/south_america/config_plot.json')
     plot.read_data()
 
     # Get model names
@@ -42,7 +42,7 @@ if __name__ == '__main__':
 
             mpf_counter += 1
 
-        plot.plot_pies(file_name='pie_plot')
+        # plot.plot_pies(file_name='pie_plot')
 
         # # Plot weights
         # plot.plot_weights_grid(file_name='weights_grid_' + m)
@@ -59,5 +59,5 @@ if __name__ == '__main__':
         # # Collect all models for DIC plot
         results_per_model[m] = plot.results
 
-    # Plot DIC over all models
-    plot.plot_dic(results_per_model, file_name='dic')
+    # # Plot DIC over all models
+    # plot.plot_dic(results_per_model, file_name='dic')

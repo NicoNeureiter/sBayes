@@ -677,7 +677,7 @@ def collect_gt_for_writing(samples, data, config):
         gt[w_contact_name] = samples['true_weights'][f][1]
 
         # inheritance
-        if config['model']['INHERITANCE']:
+        if config['model']['inheritance']:
             w_inheritance_name = 'w_inheritance_' + str(data.feature_names['external'][f])
             if w_inheritance_name not in gt_col_names:
                 gt_col_names += [w_inheritance_name]
@@ -704,7 +704,7 @@ def collect_gt_for_writing(samples, data, config):
                 gt[feature_name] = samples['true_p_zones'][a][f][st]
 
     # beta
-    if config['simulation']['INHERITANCE']:
+    if config['simulation']['inheritance']:
         for fam in range(len(data.family_names['external'])):
             for f in range(len(data.feature_names['external'])):
                 for st in range(len(data.state_names['external'][f])):
@@ -769,7 +769,7 @@ def collect_row_for_writing(s, samples, data, config, steps_per_sample):
         row[w_contact_name] = samples['sample_weights'][s][f][1]
 
         # inheritance
-        if config['model']['INHERITANCE']:
+        if config['model']['inheritance']:
             w_inheritance_name = 'w_inheritance_' + str(data.feature_names['external'][f])
             column_names += [w_inheritance_name]
             row[w_inheritance_name] = samples['sample_weights'][s][f][2]
@@ -784,7 +784,7 @@ def collect_row_for_writing(s, samples, data, config, steps_per_sample):
             row[feature_name] = samples['sample_p_global'][s][0][f][idx]
 
     # gamma
-    for a in range(config['model']['N_AREAS']):
+    for a in range(config['model']['n_areas']):
         for f in range(len(data.feature_names['external'])):
             for st in data.state_names['external'][f]:
                 feature_name = 'gamma_' + 'a' + str(a + 1) \
@@ -796,7 +796,7 @@ def collect_row_for_writing(s, samples, data, config, steps_per_sample):
                 row[feature_name] = samples['sample_p_zones'][s][a][f][idx]
 
     # beta
-    if config['model']['INHERITANCE']:
+    if config['model']['inheritance']:
         for fam in range(len(data.family_names['external'])):
             for f in range(len(data.feature_names['external'])):
                 for st in data.state_names['external'][f]:
@@ -826,7 +826,7 @@ def collect_row_for_writing(s, samples, data, config, steps_per_sample):
 
     # Single areas
     if 'sample_lh_single_zones' in samples.keys():
-        for a in range(config['model']['N_AREAS']):
+        for a in range(config['model']['n_areas']):
             lh_name = 'lh_a' + str(a + 1)
             prior_name = 'prior_a' + str(a + 1)
             posterior_name = 'post_a' + str(a + 1)
@@ -877,7 +877,7 @@ def samples2file(samples, data, config, paths):
             print("I/O error")
 
     # Results
-    steps_per_sample = float(config['mcmc']['N_STEPS'] / config['mcmc']['N_SAMPLES'])
+    steps_per_sample = float(config['mcmc']['n_steps'] / config['mcmc']['n_samples'])
     # Statistics
     try:
         writer = None

@@ -19,18 +19,18 @@ class TestExperiment(unittest.TestCase):
     CUSTOM_SETTINGS = {
         'simulation': {
             '_FEATURES': 5,
-            'I_CONTACT': 3,
-            'E_CONTACT': 0.5,
+            'i_contact': 3,
+            'e_contact': 0.5,
             'STRENGTH': 0,
-            'AREA': 3,
-            'CORRELATION_THRESHOLD': 0.8
+            'area': 3,
+            'correlation_threshold': 0.8
         },
         'mcmc': {
-            'N_STEPS': 40,
-            'N_SAMPLES': 20,
-            'WARM_UP': {
-                'N_WARM_UP_STEPS': 5,
-                'N_WARM_UP_CHAINS': 2
+            'n_steps': 40,
+            'n_samples': 20,
+            'warm_up': {
+                'n_warm_up_steps': 5,
+                'n_warm_up_chains': 2
             }
         },
     }
@@ -48,7 +48,7 @@ class TestExperiment(unittest.TestCase):
     def test_sim_exp2():
         """Test whether simulation experiment 2 is running without errors."""
         custom_settings = {
-            'model': {'INHERITANCE': True},
+            'model': {'inheritance': True},
             **TestExperiment.CUSTOM_SETTINGS
         }
         TestExperiment.run_experiment(path=Path('experiments/simulation/sim_exp2/'),
@@ -60,7 +60,7 @@ class TestExperiment(unittest.TestCase):
     def test_sim_exp3():
         """Test whether simulation experiment 3 is running without errors."""
         custom_settings = {
-            'model': {'N_AREAS': 2},
+            'model': {'n_areas': 2},
             **TestExperiment.CUSTOM_SETTINGS
         }
         TestExperiment.run_experiment(path=Path('experiments/simulation/sim_exp3/'),
@@ -75,8 +75,8 @@ class TestExperiment(unittest.TestCase):
         exp.load_config(config_file=path / 'config.json',
                         custom_settings=custom_settings)
 
-        if exp.config['model']['N_AREAS'] == "TBD":
-            exp.config['model']['N_AREAS'] = 2
+        if exp.config['model']['n_areas'] == "TBD":
+            exp.config['model']['n_areas'] = 2
 
         # 2. Simulate contact areas
         sim = Simulation(experiment=exp)

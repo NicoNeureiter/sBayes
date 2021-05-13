@@ -13,7 +13,7 @@ if __name__ == '__main__':
             universal_prior = {'type': 'simulated_counts'}
         else:
             universal_prior = {'type': 'uniform'}
-        custom_settings = {'model': {'PRIOR': {'universal': universal_prior}}}
+        custom_settings = {'model': {'prior': {'universal': universal_prior}}}
 
         # 1. Initialize the experiment
         exp = Experiment()
@@ -31,7 +31,7 @@ if __name__ == '__main__':
         mc.log_setup()
 
         # Rerun experiment to check for consistency
-        for run in range(exp.config['mcmc']['N_RUNS']):
+        for run in range(exp.config['mcmc']['n_runs']):
 
             # 4. Warm-up and sample from posterior
             mc.warm_up()

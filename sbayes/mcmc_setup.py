@@ -45,23 +45,23 @@ class MCMC:
         self.logger.info(self.model.get_setup_message())
 
         msg_inherit_precision = ''
-        if mcmc_config['PROPOSAL_PRECISION']['inheritance'] is not None:
+        if mcmc_config['proposal_precision']['inheritance'] is not None:
             msg_inherit_precision = 'Pseudocounts for tuning the width of the proposal distribution for inheritance (beta): %s\n' % \
-                 mcmc_config['PROPOSAL_PRECISION']['inheritance']
+                 mcmc_config['proposal_precision']['inheritance']
         logging.info(f'''
 MCMC SETUP
 ##########################################
-MCMC with {mcmc_config['N_STEPS']} steps and {mcmc_config['N_SAMPLES']} samples
-Warm-up: {mcmc_config['WARM_UP']['N_WARM_UP_CHAINS']} chains exploring the parameter space in {mcmc_config['WARM_UP']['N_WARM_UP_STEPS']} steps
-Pseudocounts for tuning the width of the proposal distribution for weights: {mcmc_config['PROPOSAL_PRECISION']['weights']}
-Pseudocounts for tuning the width of the proposal distribution for universal pressure (alpha): {mcmc_config['PROPOSAL_PRECISION']['universal']}
+MCMC with {mcmc_config['n_steps']} steps and {mcmc_config['n_samples']} samples
+Warm-up: {mcmc_config['warm_up']['n_warm_up_chains']} chains exploring the parameter space in {mcmc_config['warm_up']['n_warm_up_steps']} steps
+Pseudocounts for tuning the width of the proposal distribution for weights: {mcmc_config['proposal_precision']['weights']}
+Pseudocounts for tuning the width of the proposal distribution for universal pressure (alpha): {mcmc_config['proposal_precision']['universal']}
 {msg_inherit_precision}\
-Pseudocounts for tuning the width of the proposal distribution for areas (gamma): {mcmc_config['PROPOSAL_PRECISION']['contact']}
-Ratio of areal steps (growing, shrinking, swapping areas): {mcmc_config['STEPS']['area']}
-Ratio of weight steps (changing weights): {mcmc_config['STEPS']['weights']}
-Ratio of universal steps (changing alpha) : {mcmc_config['STEPS']['universal']}
-Ratio of inheritance steps (changing beta): {mcmc_config['STEPS']['inheritance']}
-Ratio of contact steps (changing gamma): {mcmc_config['STEPS']['contact']}
+Pseudocounts for tuning the width of the proposal distribution for areas (gamma): {mcmc_config['proposal_precision']['contact']}
+Ratio of areal steps (growing, shrinking, swapping areas): {mcmc_config['steps']['area']}
+Ratio of weight steps (changing weights): {mcmc_config['steps']['weights']}
+Ratio of universal steps (changing alpha) : {mcmc_config['steps']['universal']}
+Ratio of inheritance steps (changing beta): {mcmc_config['steps']['inheritance']}
+Ratio of contact steps (changing gamma): {mcmc_config['steps']['contact']}
         ''')
 
     def sample(self, lh_per_area=True, initial_sample: typing.Optional[typing.Any] = None):
@@ -74,14 +74,14 @@ Ratio of contact steps (changing gamma): {mcmc_config['STEPS']['contact']}
                                 model=self.model,
                                 n_chains=mcmc_config['N_CHAINS'],
                                 initial_sample=initial_sample,
-                                operators=mcmc_config['STEPS'],
-                                var_proposal=mcmc_config['PROPOSAL_PRECISION'],
-                                p_grow_connected=mcmc_config['P_GROW_CONNECTED'],
-                                initial_size=mcmc_config['M_INITIAL'],
+                                operators=mcmc_config['steps'],
+                                var_proposal=mcmc_config['proposal_precision'],
+                                p_grow_connected=mcmc_config['p_grow_connected'],
+                                initial_size=mcmc_config['m_initial'],
                                 logger=self.logger)
 
-        self.sampler.generate_samples(mcmc_config['N_STEPS'],
-                                      mcmc_config['N_SAMPLES'])
+        self.sampler.generate_samples(mcmc_config['n_steps'],
+                                      mcmc_config['n_samples'])
 
         # Evaluate likelihood and prior for each zone alone (makes it possible to rank zones)
         if lh_per_area:
@@ -95,7 +95,7 @@ Ratio of contact steps (changing gamma): {mcmc_config['STEPS']['contact']}
 
         # Evaluate the likelihood of the true sample in simulated data
         # If the model includes inheritance use all weights, if not use only the first two weights (global, zone)
-        if self.config['model']['INHERITANCE']:
+        if self.config['model']['inheritance']:
             weights = simulation.weights.copy()
         else:
             weights = normalize(simulation.weights[:, :2])
@@ -148,17 +148,17 @@ Ratio of contact steps (changing gamma): {mcmc_config['STEPS']['contact']}
         mcmc_config = self.config['mcmc']
         warmup = ZoneMCMCWarmup(data=self.data,
                                 model=self.model,
-                                n_chains=mcmc_config['WARM_UP']['N_WARM_UP_CHAINS'],
-                                operators=mcmc_config['STEPS'],
-                                var_proposal=mcmc_config['PROPOSAL_PRECISION'],
-                                p_grow_connected=mcmc_config['P_GROW_CONNECTED'],
-                                initial_size=mcmc_config['M_INITIAL'],
+                                n_chains=mcmc_config['warm_up']['n_warm_up_chains'],
+                                operators=mcmc_config['steps'],
+                                var_proposal=mcmc_config['proposal_precision'],
+                                p_grow_connected=mcmc_config['p_grow_connected'],
+                                initial_size=mcmc_config['m_initial'],
                                 logger=self.logger)
 
         self.sample_from_warm_up = warmup.generate_samples(n_steps=0,
                                                            n_samples=0,
                                                            warm_up=True,
-                                                           warm_up_steps=mcmc_config['WARM_UP']['N_WARM_UP_STEPS'])
+                                                           warm_up_steps=mcmc_config['warm_up']['n_warm_up_steps'])
 
     def save_samples(self, run=1):
 
@@ -168,18 +168,18 @@ Ratio of contact steps (changing gamma): {mcmc_config['STEPS']['contact']}
         file_info = self.config['results']['FILE_INFO']
 
         if file_info == "n":
-            fi = 'n{n}'.format(n=self.config['model']['N_AREAS'])
+            fi = 'n{n}'.format(n=self.config['model']['n_areas'])
 
         elif file_info == "s":
             fi = 's{s}a{a}'.format(s=self.config['simulation']['STRENGTH'],
-                                   a=self.config['simulation']['AREA'])
+                                   a=self.config['simulation']['area'])
 
         elif file_info == "i":
-            fi = 'i{i}'.format(i=int(self.config['model']['INHERITANCE']))
+            fi = 'i{i}'.format(i=int(self.config['model']['inheritance']))
 
         elif file_info == "p":
 
-            p = 0 if self.config['model']['PRIOR']['universal'] == "uniform" else 1
+            p = 0 if self.config['model']['prior']['universal'] == "uniform" else 1
             fi = 'p{p}'.format(p=p)
 
         else:

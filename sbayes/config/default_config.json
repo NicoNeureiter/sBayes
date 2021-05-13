@@ -1,16 +1,16 @@
 {
 	"mcmc": {
-		"N_STEPS": 1000000,
-		"N_SAMPLES": 1000,
-		"N_RUNS": 1,
-		"P_GROW_CONNECTED": 0.85,
-		"PROPOSAL_PRECISION": {
+		"n_steps": 1000000,
+		"n_samples": 1000,
+		"n_runs": 1,
+		"p_grow_connected": 0.85,
+		"proposal_precision": {
 			"weights": 15,
 			"universal": 40,
 			"contact": 20,
 			"inheritance": 20
 		},
-		"STEPS": {
+		"steps": {
 			"area": 0.05,
 			"weights": 0.4,
 			"universal": 0.05,
@@ -18,19 +18,19 @@
 			"inheritance": 0.1,
 			"source": 0.0
 		},
-		"M_INITIAL": 5,
-		"WARM_UP": {
-			"N_WARM_UP_STEPS": 100000,
-			"N_WARM_UP_CHAINS": 15
+		"m_initial": 5,
+		"warm_up": {
+			"n_warm_up_steps": 100000,
+			"n_warm_up_chains": 15
 		}
 	},
 	"model": {
-		"N_AREAS": "<REQUIRED>",
-		"MIN_M": 3,
-		"MAX_M": 50,
-		"INHERITANCE": "<REQUIRED>",
-		"SAMPLE_SOURCE": true,
-		"PRIOR": {
+		"n_areas": "<REQUIRED>",
+		"min_m": 3,
+		"max_m": 50,
+		"inheritance": "<REQUIRED>",
+		"sample_source": true,
+		"prior": {
 			"geo": {"type": "uniform"},
 			"area_size": {"type":  "none"},
 			"weights": {"type": "uniform"},
@@ -40,7 +40,7 @@
 		}
 	},
 	"data": {
-		"FEATURES": "<REQUIRED>",
-		"FEATURE_STATES": "<REQUIRED>"
+		"features": "<REQUIRED>",
+		"feature_states": "<REQUIRED>"
 	}
 }

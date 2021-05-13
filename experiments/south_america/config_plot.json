@@ -1,34 +1,28 @@
 {
 	"results": {
 		"areas": [
-			"../results/scaled_prior/n1/areas_n1_0.txt",
-			"../results/scaled_prior/n2/areas_n2_0.txt",
-			"../results/scaled_prior/n3/areas_n3_0.txt",
-			"../results/scaled_prior/n4/areas_n4_0.txt",
-			"../results/scaled_prior/n5/areas_n5_0.txt"
+			"experiments/south_america/results/tests/n3/areas_n3_0.txt",
+			"experiments/south_america/results/tests/n4/areas_n4_0.txt"
 		],
 		"stats": [
-			"../results/scaled_prior/n1/stats_n1_0.txt",
-			"../results/scaled_prior/n2/stats_n2_0.txt",
-			"../results/scaled_prior/n3/stats_n3_0.txt",
-			"../results/scaled_prior/n4/stats_n4_0.txt",
-			"../results/scaled_prior/n5/stats_n5_0.txt"
+			"experiments/south_america/results/tests/n3/stats_n3_0.txt",
+			"experiments/south_america/results/tests/n4/stats_n4_0.txt"
 		],
 		"path_ground_truth_areas": null,
 		"path_ground_truth_stats": null
 	},
-	"output_folder": "../results/scaled_prior",
+	"output_folder": "experiments/south_america/results/tests",
 	"data": {
-		"features": "../data/features/features.csv",
-		"feature_states": "../data/features/feature_states.csv"
+		"features": "experiments/south_america/data/features/features.csv",
+		"feature_states": "experiments/south_america/data/features/feature_states.csv"
 	},
 	"map": {
 		"geo": {
 			"proj4": "+proj=eqdc +lat_0=-32 +lon_0=-60 +lat_1=-5 +lat_2=-42 +x_0=0 +y_0=0 +ellps=aust_SA +units=m +no_defs ",
 			"base_map": {
 				"add": true,
-				"geojson_river": "../data/map/rivers_lake.geojson",
-				"geojson_map": "../data/map/land.geojson"
+				"geojson_river": "experiments/south_america/data/map/rivers_lake.geojson",
+				"geojson_map": "experiments/south_america/data/map/land.geojson"
 			},
 			"x_extend": [
 				-3756000,
@@ -40,8 +34,11 @@
 			]
 		},
 		"content": {
+			"type": "density_map",
+			"return_correspondence": false,
 			"plot_families": true,
 			"label_languages": true,
+			"label_offset": [1, 1],
 			"subset": false,
 			"min_posterior_frequency": "TBD",
 			"burn_in": 0.2
@@ -80,7 +77,8 @@
 		},
 		"legend": {
 			"overview": {
-				"add_overview": "true",
+				"add_overview": true,
+				"add_to_legend": true,
 				"width": 3.8,
 				"height": 4,
 				"x_extend": [
@@ -98,12 +96,15 @@
 			},
 			"areas": {
 				"add_area_stats": true,
+				"add_to_legend": true,
+				"show_stats": false,
 				"position": [
 					0.02,
 					0.71
 				]
 			},
 			"posterior_frequency": {
+				"add_to_legend": false,
 				"default_values": [
 					1,
 					0.75,
@@ -115,6 +116,7 @@
 				]
 			},
 			"families": {
+				"add_to_legend": true,
 				"add": true,
 				"position": [
 					0.02,

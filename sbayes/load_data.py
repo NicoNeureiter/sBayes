@@ -65,12 +65,12 @@ class Data:
     def load_features(self):
         (self.sites, self.site_names, self.features, self.feature_names,
          self.state_names, self.states, self.families, self.family_names,
-         self.log_load_features) = read_features_from_csv(file=self.config['data']['FEATURES'],
-                                                          feature_states_file=self.config['data']['FEATURE_STATES'])
+         self.log_load_features) = read_features_from_csv(file=self.config['data']['features'],
+                                                          feature_states_file=self.config['data']['feature_states'])
         self.network = compute_network(self.sites, crs=self.crs)
 
     def load_universal_counts(self):
-        config_universal = self.config['model']['PRIOR']['universal']
+        config_universal = self.config['model']['prior']['universal']
 
         if config_universal['type'] != 'counts':
             # universal prior does not use counts -> nothing to do
@@ -81,7 +81,7 @@ class Data:
                                   state_names=self.state_names,
                                   file=config_universal['file'],
                                   file_type=config_universal['file_type'],
-                                  feature_states_file=self.config['data']['FEATURE_STATES'])
+                                  feature_states_file=self.config['data']['feature_states'])
 
         self.prior_universal = {'counts': counts,
                                 'states': self.states}
@@ -93,11 +93,11 @@ class Data:
         df.to_csv('universal_counts.csv')
 
     def load_inheritance_counts(self):
-        if not self.config['model']['INHERITANCE']:
+        if not self.config['model']['inheritance']:
             # Inheritance is not modeled -> nothing to do
             return
 
-        config_inheritance = self.config['model']['PRIOR']['inheritance']
+        config_inheritance = self.config['model']['prior']['inheritance']
         if config_inheritance['type'] != 'counts':
             # Inheritance prior does not use counts -> nothing to do
             return
@@ -108,18 +108,18 @@ class Data:
                                     state_names=self.state_names,
                                     files=config_inheritance['files'],
                                     file_type=config_inheritance['file_type'],
-                                    feature_states_file=self.config['data']['FEATURE_STATES'])
+                                    feature_states_file=self.config['data']['feature_states'])
 
         self.prior_inheritance = {'counts': counts,
                                   'states': self.state_names['internal']}
 
     def load_geo_cost_matrix(self):
 
-        if self.config['model']['PRIOR']['geo']['type'] != 'cost_based':
+        if self.config['model']['prior']['geo']['type'] != 'cost_based':
             # Geo prior is not cost-based -> nothing to do
             return
 
-        if 'file' not in self.config['model']['PRIOR']['geo']:
+        if 'file' not in self.config['model']['prior']['geo']:
             # No cost-matrix given. Use distance matrix as costs
             geo_cost_matrix = self.network['dist_mat']
 
@@ -127,7 +127,7 @@ class Data:
             # Read cost matrix from data
             geo_cost_matrix, self.log_load_geo_cost_matrix =\
                 read_geo_cost_matrix(site_names=self.site_names,
-                                     file=self.config['model']['PRIOR']['geo']['file'])
+                                     file=self.config['model']['prior']['geo']['file'])
 
         self.geo_prior = {'cost_matrix': geo_cost_matrix}
 
@@ -221,7 +221,7 @@ class CLDFData(Data):
         self.network = compute_network(self.sites)
 
     def load_universal_counts(self):
-        config_universal = self.config['model']['PRIOR']['universal']
+        config_universal = self.config['model']['prior']['universal']
 
         if config_universal['type'] != 'counts':
             return
@@ -231,11 +231,11 @@ class CLDFData(Data):
         self.prior_universal = Prior(counts=counts, states=numpy.array([[0, 1]]))
 
     def load_inheritance_counts(self):
-        if not self.config['model']['INHERITANCE']:
+        if not self.config['model']['inheritance']:
             # Inheritance is not modeled -> nothing to do
             return
 
-        config_inheritance = self.config['model']['PRIOR']['inheritance']
+        config_inheritance = self.config['model']['prior']['inheritance']
         if config_inheritance['type'] != 'counts':
             # Inharitance prior does not use counts -> nothing to do
             return
