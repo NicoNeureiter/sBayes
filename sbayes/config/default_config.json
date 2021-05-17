@@ -32,7 +32,7 @@
 		"sample_source": true,
 		"prior": {
 			"geo": {"type": "uniform"},
-			"area_size": {"type":  "none"},
+			"area_size": {"type":  "uniform_area"},
 			"weights": {"type": "uniform"},
 			"universal": {"type": "uniform"},
 			"inheritance": {"type": "uniform"},

@@ -893,8 +893,8 @@ class WeightsPrior(DirichletPrior):
 class ZoneSizePrior(object):
 
     class TYPES(Enum):
-        UNIFORM_AREA = 'none'
-        UNIFORM_SIZE = 'uniform'
+        UNIFORM_AREA = 'uniform_area'
+        UNIFORM_SIZE = 'uniform_size'
         QUADRATIC_SIZE = 'quadratic'
 
     def __init__(self, config, data, initial_counts=1.):
@@ -917,9 +917,9 @@ class ZoneSizePrior(object):
 
     def parse_attributes(self, config):
         size_prior_type = config['type']
-        if size_prior_type == 'none':
+        if size_prior_type == 'uniform_area':
             self.prior_type = self.TYPES.UNIFORM_AREA
-        elif size_prior_type == 'uniform':
+        elif size_prior_type == 'uniform_size':
             self.prior_type = self.TYPES.UNIFORM_SIZE
         elif size_prior_type == 'quadratic':
             self.prior_type = self.TYPES.QUADRATIC_SIZE
