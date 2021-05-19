@@ -37,6 +37,7 @@ setup(
     entry_points={
         'console_scripts': [
             'sbayes = sbayes.cli:main',
+            'sbayesPlot = sbayes.plot:main'
         ]
     }
 )

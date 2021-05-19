@@ -5,6 +5,8 @@ import os
 from copy import deepcopy
 from itertools import compress
 from statistics import median
+import argparse
+from pathlib import Path
 
 import pandas as pd
 import geopandas as gpd
@@ -29,6 +31,7 @@ from sbayes.util import add_edge, compute_delaunay
 from sbayes.util import fix_default_config
 from sbayes.util import gabriel_graph_from_delaunay
 from sbayes.util import parse_area_columns, read_features_from_csv
+from sbayes.cli import iterate_or_run
 
 
 class Plot:
@@ -1940,3 +1943,79 @@ class Plot:
         fig.savefig(self.path_plots + '/' + file_name + '.' + file_format,
                     dpi=400, format=file_format, bbox_inches='tight')
 
+
+def main(config=None, experiment_name=None):
+    # TODO adapt paths according to experiment_name (if provided)
+    # TODO add argument defining which plots to generate (all [default], map, weights, ...)
+
+    if config is None:
+        parser = argparse.ArgumentParser(
+            description="Plot the results of a sBayes run.")
+        parser.add_argument("config", type=Path,
+                            help="The JSON configuration file")
+        args = parser.parse_args()
+        config = args.config
+
+    results_per_model = {}
+    plot = Plot(simulated_data=False)
+    plot.load_config(config_file=config)
+    plot.read_data()
+
+    # Get model names
+    names = plot.get_model_names()
+
+    for m in names:
+        # Read results for model ´m´
+        plot.read_results(model=m)
+        print('Plotting model', m)
+
+        # Plot the reconstructed areas on a map
+        # TODO (NN) For now we always plot the map, since the other plotting functions
+        #  depend on the preprocessing done in plot_map. I suggest we resolve this when
+        #  separating area summarization from plotting.
+        # if 'map' in plot.config:
+        plot_map(plot, m)
+
+        # Plot the reconstructed mixture weights in simplex plots
+        if 'weights_plot' in plot.config:
+            plot.plot_weights_grid(file_name='weights_grid_' + m)
+
+        # Plot the reconstructed probability vectors in simplex plots
+        if 'probabilities_plot' in plot.config:
+            iterate_or_run(
+                x=plot.config['probabilities_plot']['parameter'],
+                config_setter=lambda x: plot.config['probabilities_plot'].__setitem__('parameter', x),
+                function=lambda x: plot.plot_probability_grid(file_name=f'prob_grid_{m}_{x}')
+            )
+
+        # Plot the reconstructed areas in pie-charts
+        # (one per language, showing how likely the language is to be in each area)
+        if 'pie_plot' in plot.config:
+            plot.plot_pies(file_name= 'plot_pies_' + m)
+
+        results_per_model[m] = plot.results
+
+    # Plot DIC over all models
+    if 'dic_plot' in plot.config:
+        plot.plot_dic(results_per_model, file_name='dic')
+
+
+def plot_map(plot, m):
+    map_type = plot.config['map']['content']['type']
+
+    if map_type == plot.config['map']['content']['type'] == 'density_map':
+        plot.posterior_map(file_name='posterior_map_' + m)
+
+    elif map_type == plot.config['map']['content']['type'] == 'density_map':
+        iterate_or_run(
+            x=plot.config['map']['content']['min_posterior_frequency'],
+            config_setter=lambda x: plot.config['map']['content'].__setitem__('min_posterior_frequency', x),
+            function=lambda x: plot.posterior_map(file_name=f'posterior_map_{m}_{x}'),
+            print_message='Current mpf: {value} ({i} out of {len(mpf_values)})'
+        )
+    else:
+        raise ValueError(f'Unknown map type: {map_type}  (in the config file "map" -> "content" -> "type")')
+
+
+if __name__ == '__main__':
+    main()
