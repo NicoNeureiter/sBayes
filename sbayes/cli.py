@@ -71,18 +71,11 @@ def main(config=None, experiment_name=None):
     # Rerun experiment to check for consistency
     for run in range(experiment.config['mcmc']['n_runs']):
         n_areas = experiment.config['model']['n_areas']
-        if isinstance(n_areas, list):
-            # Run the experiment multiple times to determine the number of areas.
-            for N in n_areas:
-                # Update config information according to the current setup
-                experiment.config['model']['n_areas'] = N
-
-                # Run the experiment with the specified number of areas
-                run_experiment(experiment, data, run)
-        else:
-            # Run the experiment once, with the specified settings
-            assert isinstance(n_areas, int)
-            run_experiment(experiment, data, run)
+        iterate_or_run(
+            x=n_areas,
+            config_setter=lambda x: experiment.config['model'].__setitem__('n_areas', x),
+            function=lambda x: run_experiment(experiment, data, run)
+        )
 
 
 def plot(config=None, experiment_name=None):
@@ -106,53 +99,75 @@ def plot(config=None, experiment_name=None):
     names = plot.get_model_names()
 
     for m in names:
-
-        # Read results for each model
+        # Read results for model ´m´
         plot.read_results(model=m)
-
-        print(plot.results['feature_names'])
-        exit()
-
         print('Plotting model', m)
 
-        # How often does a point have to be in the posterior to be visualized in the map?
-        min_posterior_frequency = [0.9, 0.8, 0.7, 0.6, 0.5, 0.4, 0.3]
-        mpf_counter = 1
-        print('Plotting results for ' + str(len(min_posterior_frequency)) + ' different mpf values')
+        # Plot the reconstructed areas on a map
+        # TODO (NN) For now we always plot the map, since the other plotting functions
+        #  depend on the preprocessing done in plot_map. I suggest we resolve this when
+        #  separating area summarization from plotting.
+        # if 'map' in plot.config:
+        plot_map(plot, m)
 
-        for mpf in min_posterior_frequency:
+        # Plot the reconstructed mixture weights in simplex plots
+        if 'weights_plot' in plot.config:
+            plot.plot_weights_grid(file_name='weights_grid_' + m)
 
-            print('Current mpf: ' + str(mpf) + ' (' + str(mpf_counter) + ' out of ' +
-                  str(len(min_posterior_frequency)) + ')')
+        # Plot the reconstructed probability vectors in simplex plots
+        if 'probabilities_plot' in plot.config:
+            iterate_or_run(
+                x=plot.config['probabilities_plot']['parameter'],
+                config_setter=lambda x: plot.config['probabilities_plot'].__setitem__('parameter', x),
+                function=lambda x: plot.plot_probability_grid(file_name=f'prob_grid_{m}_{x}')
+            )
 
-            # Assign new mpf values
-            plot.config['map']['content']['min_posterior_frequency'] = mpf
+        # Plot the reconstructed areas in pie-charts
+        # (one per language, showing how likely the language is to be in each area)
+        if 'pie_plot' in plot.config:
+            plot.plot_pies(file_name= 'plot_pies_' + m)
 
-            # Plot maps
-            try:
-                plot.posterior_map(file_name='posterior_map_' + m + '_' + str(mpf), return_correspondence=True)
-            except ValueError:
-                pass
-
-            mpf_counter += 1
-
-        # Plot weights
-        plot.plot_weights_grid(file_name='weights_grid_' + m)
-
-        # Plot probability grids
-        parameter = ["gamma_a1", "gamma_a2", "gamma_a3", "gamma_a4", "gamma_a5"]
-        for p in parameter:
-            try:
-                plot.config['probabilities_plot']['parameter'] = p
-                plot.plot_probability_grid(file_name='prob_grid_' + m + '_' + p)
-            except ValueError:
-                pass
-
-        # Collect all models for DIC plot
         results_per_model[m] = plot.results
 
     # Plot DIC over all models
-    plot.plot_dic(results_per_model, file_name='dic')
+    if 'dic_plot' in plot.config:
+        plot.plot_dic(results_per_model, file_name='dic')
+
+
+def plot_map(plot, m):
+    map_type = plot.config['map']['content']['type']
+
+    if map_type == plot.config['map']['content']['type'] == 'density_map':
+        plot.posterior_map(file_name='posterior_map_' + m)
+
+    elif map_type == plot.config['map']['content']['type'] == 'density_map':
+        iterate_or_run(
+            x=plot.config['map']['content']['min_posterior_frequency'],
+            config_setter=lambda x: plot.config['map']['content'].__setitem__('min_posterior_frequency', x),
+            function=lambda x: plot.posterior_map(file_name=f'posterior_map_{m}_{x}'),
+            print_message='Current mpf: {value} ({i} out of {len(mpf_values)})'
+        )
+    else:
+        raise ValueError(f'Unknown map type: {map_type}  (in the config file "map" -> "content" -> "type")')
+
+
+def iterate_over_parameter(values, config_setter, function, print_message=None):
+    """Iterate over each value in ´values´, apply ´config_setter´ (to update the config
+    dictionary) and run ´function´."""
+    for i, value in enumerate(values):
+        if print_message is not None:
+            print(print_message.format(value=value, i=i))
+        config_setter(value)
+        yield function(value)
+
+
+def iterate_or_run(x, config_setter, function, print_message=None):
+    """If ´x´ is list, iterate over all values in ´x´ and run ´function´ for each value.
+    Otherwise directly apply ´function´ to ´x´."""
+    if type(x) in [tuple, list, set]:
+        yield from iterate_over_parameter(x, config_setter, function, print_message)
+    else:
+        return function(x)
 
 
 if __name__ == '__main__':

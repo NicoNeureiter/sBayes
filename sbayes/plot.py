@@ -138,6 +138,15 @@ class Plot:
         if not os.path.exists(self.path_plots):
             os.makedirs(self.path_plots)
 
+        # Store some config parameters in attributes for convenience
+        self.content_config = self.config['map']['content']
+        self.graphic_config = self.config['map']['graphic']
+        self.legend_config = self.config['map']['legend']
+        self.output_config = self.config['map']['output']
+        self.geo_config = self.config['map']['geo']
+        if self.is_simulation:
+            self.ground_truth_config = self.config['map']['ground_truth']
+
     def read_config(self):
         with open(self.config_file, 'r') as f:
             self.config = json.load(f)
@@ -555,7 +564,6 @@ class Plot:
             in_graph = np.ones(area.shape[1], dtype=bool)
 
         else:
-
             area_freq = np.sum(area, axis=0) / n_samples
             in_graph = area_freq >= self.content_config['min_posterior_frequency']
 
@@ -609,21 +617,8 @@ class Plot:
     # Main initial functions for plot_posterior_map
     ##############################################################
 
-    # Get relevant map parameters from the json file
-    def get_config_parameters(self):
-        self.content_config = self.config['map']['content']
-        self.graphic_config = self.config['map']['graphic']
-        self.legend_config = self.config['map']['legend']
-        self.output_config = self.config['map']['output']
-        self.geo_config = self.config['map']['geo']
-
-        if self.is_simulation:
-            self.ground_truth_config = self.config['map']['ground_truth']
-
     # Initialize the map
     def initialize_map(self):
-        self.get_config_parameters()
-
         # for Olga: constrained layout drops a warning. Could you check?
         self.fig, self.ax = plt.subplots(figsize=(self.output_config['fig_width'],
                                                   self.output_config['fig_height']),
@@ -1580,6 +1575,7 @@ class Plot:
            file_format (str): output file format
        """
         print('Plotting probabilities...')
+        parameter_name = self.config['probabilities_plot']['parameter']
         burn_in = int(len(self.results['posterior']) * self.config['probabilities_plot']['burn_in'])
 
         n_plots = self.config['probabilities_plot']['k']
@@ -1591,7 +1587,11 @@ class Plot:
         # weights, true_weights, _ = self.get_parameters(parameter="weights", b_in=burn_in)
         # ordering = self.sort_by_weights(weights)
 
-        p, true_p, states = self.get_parameters(parameter=self.config['probabilities_plot']['parameter'], b_in=burn_in)
+        p, true_p, states = self.get_parameters(parameter=parameter_name, b_in=burn_in)
+        if len(p) == 0:
+            print(f'No results found for parameter {parameter_name}.')
+            return
+
         fig, axs = plt.subplots(n_row, n_col, figsize=(width * n_col, height * n_row), )
 
         features = self.results['feature_names']
