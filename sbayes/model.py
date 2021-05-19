@@ -949,9 +949,10 @@ class ZoneSizePrior(object):
                 # P(size)   =   uniform
                 # P(zone | size)   =   1 / |{zones of size k}|   =   1 / (n choose k)
                 logp = -np.sum(log_binom(n_sites, sizes))
+
             elif self.prior_type == self.TYPES.QUADRATIC_SIZE:
-                # Here we assume that only a quadratically growing subset of zones is plausibly
-                # permitted the likelihood and/or geo-prior.
+                # Here we assume that only a quadratically growing subset of zones is
+                # plausibly permitted by the likelihood and/or geo-prior.
                 # P(zone | size) = 1 / |{"plausible" zones of size k}| = 1 / k**2
                 log_plausible_zones = np.log(sizes ** 2)
 
