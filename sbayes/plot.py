@@ -1944,17 +1944,26 @@ class Plot:
                     dpi=400, format=file_format, bbox_inches='tight')
 
 
-def main(config=None, experiment_name=None):
+def main(config=None, only_plot=None):
     # TODO adapt paths according to experiment_name (if provided)
     # TODO add argument defining which plots to generate (all [default], map, weights, ...)
+    ALL_PLOT_TYPES = ['map', 'weights_plot', 'probabilities_plot', 'pie_plot']
+
+    # If no plot type is specified, plot everything in the config file
+    plot_types = ALL_PLOT_TYPES
 
     if config is None:
-        parser = argparse.ArgumentParser(
-            description="Plot the results of a sBayes run.")
-        parser.add_argument("config", type=Path,
-                            help="The JSON configuration file")
+        parser = argparse.ArgumentParser(description="Plot the results of a sBayes run.")
+        parser.add_argument("config", type=Path, help="The JSON configuration file")
+        parser.add_argument("type", nargs='?', type=str,
+                            help="The type of plot to generate")
         args = parser.parse_args()
+
         config = args.config
+        if args.type is not None:
+            if args.type not in ALL_PLOT_TYPES:
+                raise ValueError('Unknown plot type: ' + args.type)
+            plot_types = [args.type]
 
     results_per_model = {}
     plot = Plot(simulated_data=False)
@@ -1963,6 +1972,12 @@ def main(config=None, experiment_name=None):
 
     # Get model names
     names = plot.get_model_names()
+
+    def should_be_plotted(plot_type):
+        """A plot type should only be generated if it
+            1) is specified in the config file and
+            2) is in the reuqested list of plot types."""
+        return (plot_type in plot.config) and (plot_type in plot_types)
 
     for m in names:
         # Read results for model ´m´
@@ -1973,15 +1988,15 @@ def main(config=None, experiment_name=None):
         # TODO (NN) For now we always plot the map, since the other plotting functions
         #  depend on the preprocessing done in plot_map. I suggest we resolve this when
         #  separating area summarization from plotting.
-        # if 'map' in plot.config:
+        # if should_be_plotted('map'):
         plot_map(plot, m)
 
         # Plot the reconstructed mixture weights in simplex plots
-        if 'weights_plot' in plot.config:
+        if should_be_plotted('weights_plot'):
             plot.plot_weights_grid(file_name='weights_grid_' + m)
 
         # Plot the reconstructed probability vectors in simplex plots
-        if 'probabilities_plot' in plot.config:
+        if should_be_plotted('probabilities_plot'):
             iterate_or_run(
                 x=plot.config['probabilities_plot']['parameter'],
                 config_setter=lambda x: plot.config['probabilities_plot'].__setitem__('parameter', x),
@@ -1990,13 +2005,13 @@ def main(config=None, experiment_name=None):
 
         # Plot the reconstructed areas in pie-charts
         # (one per language, showing how likely the language is to be in each area)
-        if 'pie_plot' in plot.config:
+        if should_be_plotted('pie_plot'):
             plot.plot_pies(file_name= 'plot_pies_' + m)
 
         results_per_model[m] = plot.results
 
     # Plot DIC over all models
-    if 'dic_plot' in plot.config:
+    if should_be_plotted('dic_plot'):
         plot.plot_dic(results_per_model, file_name='dic')
 
 
