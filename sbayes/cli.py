@@ -63,6 +63,7 @@ def main(config=None, experiment_name=None):
         # Counts for priors
         data.load_universal_counts()
         data.load_inheritance_counts()
+        data.load_geo_cost_matrix()
 
         # Log
         data.log_loading()
@@ -84,16 +85,16 @@ def iterate_over_parameter(values, config_setter, function, print_message=None):
         if print_message is not None:
             print(print_message.format(value=value, i=i))
         config_setter(value)
-        yield function(value)
+        function(value)
 
 
 def iterate_or_run(x, config_setter, function, print_message=None):
     """If ´x´ is list, iterate over all values in ´x´ and run ´function´ for each value.
     Otherwise directly apply ´function´ to ´x´."""
     if type(x) in [tuple, list, set]:
-        yield from iterate_over_parameter(x, config_setter, function, print_message)
+        iterate_over_parameter(x, config_setter, function, print_message)
     else:
-        return function(x)
+        function(x)
 
 
 if __name__ == '__main__':
