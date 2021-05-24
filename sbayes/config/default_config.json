@@ -22,7 +22,8 @@
 		"warm_up": {
 			"n_warm_up_steps": 100000,
 			"n_warm_up_chains": 15
-		}
+		},
+		"sample_from_prior": false
 	},
 	"model": {
 		"n_areas": "<REQUIRED>",

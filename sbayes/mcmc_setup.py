@@ -78,7 +78,8 @@ Ratio of contact steps (changing gamma): {mcmc_config['steps']['contact']}
                                 var_proposal=mcmc_config['proposal_precision'],
                                 p_grow_connected=mcmc_config['p_grow_connected'],
                                 initial_size=mcmc_config['m_initial'],
-                                logger=self.logger)
+                                logger=self.logger,
+                                sample_from_prior=mcmc_config['sample_from_prior'])
 
         self.sampler.generate_samples(mcmc_config['n_steps'],
                                       mcmc_config['n_samples'])
@@ -153,7 +154,8 @@ Ratio of contact steps (changing gamma): {mcmc_config['steps']['contact']}
                                 var_proposal=mcmc_config['proposal_precision'],
                                 p_grow_connected=mcmc_config['p_grow_connected'],
                                 initial_size=mcmc_config['m_initial'],
-                                logger=self.logger)
+                                logger=self.logger,
+                                sample_from_prior=mcmc_config['sample_from_prior'])
 
         self.sample_from_warm_up = warmup.generate_samples(n_steps=0,
                                                            n_samples=0,
