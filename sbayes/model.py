@@ -1056,6 +1056,7 @@ class GeoPrior(object):
                 msg += f'\tCost-matrix file: {self.config["file"]}\n'
         return msg
 
+
 def geo_prior_gaussian(zones: np.array, network: dict, cov: np.array):
     """
     This function computes the two-dimensional Gaussian geo-prior for all edges in the zone

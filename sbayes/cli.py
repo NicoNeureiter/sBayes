@@ -33,8 +33,11 @@ def main(config=None, experiment_name=None):
             description="An MCMC algorithm to identify contact zones")
         parser.add_argument("config", nargs="?", type=Path,
                             help="The JSON configuration file")
+        parser.add_argument("name", nargs="?", type=str,
+                            help="The experiment name used for logging and as the name of the results directory.")
         args = parser.parse_args()
         config = args.config
+        experiment_name = args.name
 
     # 0. Ask for config file via files-dialog, if not provided as argument.
     if config is None:
