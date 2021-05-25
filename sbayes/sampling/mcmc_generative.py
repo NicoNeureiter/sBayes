@@ -33,7 +33,7 @@ class MCMCGenerative(metaclass=_abc.ABCMeta):
     def __init__(self, model, data, operators, n_chains,
                  mc3=False, swap_period=None, chain_swaps=None,
                  sample_from_prior=False, show_screen_log=False,
-                 logger=None, **kwargs):
+                 logger=None, results_loggers=None, **kwargs):
 
         # The model and data defining the posterior distribution
         self.model = model
@@ -85,6 +85,13 @@ class MCMCGenerative(metaclass=_abc.ABCMeta):
         else:
             self.logger = logger
 
+        self.results_loggers = results_loggers
+        if results_loggers is None:
+            if self.IS_WARMUP:
+                self.results_loggers = []
+            else:
+                raise ValueError('Please provide result_loggers for the mcmc run.')
+
     def prior(self, sample, chain):
         """Compute the (log) prior of a sample.
         Args:
@@ -100,6 +107,9 @@ class MCMCGenerative(metaclass=_abc.ABCMeta):
             sample.everything_changed()
             log_prior_stable = self.posterior_per_chain[chain].prior(sample=sample)
             assert log_prior == log_prior_stable, f'{log_prior} != {log_prior_stable}'
+
+        # Update prior value in sample (for logging)
+        sample.prior = log_prior
 
         return log_prior
 
@@ -123,6 +133,9 @@ class MCMCGenerative(metaclass=_abc.ABCMeta):
             sample.everything_changed()
             log_lh_stable = self.posterior_per_chain[chain].likelihood(sample=sample, caching=False)
             assert log_lh == log_lh_stable, f'{log_lh} != {log_lh_stable}'
+
+        # Update likelihood value in sample (for logging)
+        sample.likelihood = log_lh
 
         return log_lh
 
@@ -170,6 +183,10 @@ class MCMCGenerative(metaclass=_abc.ABCMeta):
             self._ll[c] = self.likelihood(sample[c], c)
             self._prior[c] = self.prior(sample[c], c)
 
+        # Write headers in all results loggers
+        for logger in self.results_loggers:
+            logger.write_header(sample[0])
+
         # # Probability of operators is different if there are zero zones
         # if self.n_zones == 0:
         #
@@ -210,12 +227,19 @@ class MCMCGenerative(metaclass=_abc.ABCMeta):
                 for c in self.chain_idx:
                     sample[c] = self.step(sample[c], c)
 
+                # Tell each sample their respective step number
+                for c in self.chain_idx:
+                    sample[c].i_step = i_step
+
                 # Log samples at fixed intervals
                 if i_step % steps_per_sample == 0:
-
                     # Log samples, but only from the first chain
+                    self.save_sample(sample[0])
                     self.log_sample_statistics(sample[self.chain_idx[0]], c=self.chain_idx[0],
                                                sample_id=int(i_step/steps_per_sample))
+                    # Increment the sample number
+                    for c in self.chain_idx:
+                        sample[c].i_sample += 1
 
                 # For mc3: Exchange chains at fixed intervals
                 if self.mc3:
@@ -238,6 +262,10 @@ class MCMCGenerative(metaclass=_abc.ABCMeta):
                 self.statistics['swap_ratio'] = (self.statistics['accepted_swaps'] / self.statistics['n_swaps'])
             else:
                 self.statistics['swap_ratio'] = 0
+
+        # Close all results loggers (i.e. close their files)
+        for logger in self.results_loggers:
+            logger.close()
 
     def swap_chains(self, sample):
 
@@ -390,39 +418,42 @@ class MCMCGenerative(metaclass=_abc.ABCMeta):
         # print('size0 =', 'sum(sample[self.chain_idx[0]].zones[0]))
 
     def print_statistics(self, samples):
+        column_widths = (20, 8, 8, 8, 10)
+
         self.logger.info("\n")
         self.logger.info("MCMC STATISTICS")
         self.logger.info("##########################################")
-        self.logger.info(log_operator_statistics_header())
+        self.logger.info(log_operator_statistics_header(column_widths=column_widths))
         for operator in self.fn_operators:
-            self.logger.info(log_operator_statistics(operator.__name__, samples))
+            self.logger.info(log_operator_statistics(operator.__name__, samples, column_widths=column_widths))
+
+    def save_sample(self, sample):
+        for logger in self.results_loggers:
+            logger.write_sample(sample)
 
 
-COL_WIDTHS = [20, 8, 8, 8, 10]
-
-def log_operator_statistics_header():
-    name_header = str.ljust('OPERATOR', COL_WIDTHS[0])
-    acc_header = str.ljust('ACCEPTS', COL_WIDTHS[1])
-    rej_header = str.ljust('REJECTS', COL_WIDTHS[2])
-    total_header = str.ljust('TOTAL', COL_WIDTHS[3])
+def log_operator_statistics_header(column_widths):
+    name_header = str.ljust('OPERATOR', column_widths[0])
+    acc_header = str.ljust('ACCEPTS', column_widths[1])
+    rej_header = str.ljust('REJECTS', column_widths[2])
+    total_header = str.ljust('TOTAL', column_widths[3])
     acc_rate_header = 'ACC. RATE'
-
     return '\t'.join([name_header, acc_header, rej_header, total_header, acc_rate_header])
 
 
-def log_operator_statistics(operator_name, mcmc_stats):
+def log_operator_statistics(operator_name, mcmc_stats, column_widths):
     acc = mcmc_stats['accept_operator'][operator_name]
     rej = mcmc_stats['reject_operator'][operator_name]
     total = acc + rej
 
     if total == 0:
         row_strings = [operator_name, '-', '-', '-', '-']
-        return '\t'.join([str.ljust(x, COL_WIDTHS[i]) for i, x in enumerate(row_strings)])
+        return '\t'.join([str.ljust(x, column_widths[i]) for i, x in enumerate(row_strings)])
 
-    name_str = str.ljust(operator_name, COL_WIDTHS[0])
-    acc_str = str.ljust(str(acc), COL_WIDTHS[1])
-    rej_str = str.ljust(str(rej), COL_WIDTHS[2])
-    total_str = str.ljust(str(total), COL_WIDTHS[3])
+    name_str = str.ljust(operator_name, column_widths[0])
+    acc_str = str.ljust(str(acc), column_widths[1])
+    rej_str = str.ljust(str(rej), column_widths[2])
+    total_str = str.ljust(str(total), column_widths[3])
     acc_rate_str = '%.2f%%' % (100*acc/total)
 
     return '\t'.join([name_str, acc_str, rej_str, total_str, acc_rate_str])

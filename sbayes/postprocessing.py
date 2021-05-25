@@ -1,9 +1,82 @@
 from itertools import permutations
 import numpy as np
 import math
-from scipy.special import logsumexp
-from sbayes.sampling.zone_sampling import ZoneMCMC, Sample
 
+import pandas as pd
+from scipy.special import logsumexp
+
+from sbayes.sampling.zone_sampling import ZoneMCMC, Sample
+from sbayes.util import normalize
+
+
+def annotate_results(res_params_path, res_areas_path, annotated_path=None, ground_truth_path=None):
+    # TODO compile a default `annotated_path` if not provided as argument
+    params = pd.read_csv(res_params_path, sep='\t')
+    areas = pd.read_csv(res_areas_path, sep='\t', header=None)
+
+    print(params)
+    print(areas)
+
+
+def evaluate_ground_truth(simulation, model, lh_per_area=True):
+    # Evaluate the likelihood of the true sample in simulated data
+    # If the model includes inheritance use all weights, if not use only the first two weights (global, zone)
+    if model.inheritance:
+        weights = simulation.weights.copy()
+    else:
+        weights = normalize(simulation.weights[:, :2])
+
+    ground_truth = Sample(
+        zones=simulation.areas,
+        weights=weights,
+        p_global=simulation.p_universal[np.newaxis, ...],
+        p_zones=simulation.p_contact,
+        p_families=simulation.p_inheritance
+    )
+
+    stats = {
+        'true_zones': simulation.areas,
+        'true_weights': weights,
+        'true_p_global': simulation.p_universal[np.newaxis, ...],
+        'true_p_zones': simulation.p_contact,
+        'true_p_families': simulation.p_inheritance,
+        'true_ll': model.likelihood(ground_truth, caching=False),
+        'true_prior': model.prior(ground_truth),
+        "true_families": simulation.families,
+    }
+
+    if lh_per_area:
+        ground_truth_log_lh_single_area = []
+        ground_truth_prior_single_area = []
+        ground_truth_posterior_single_area = []
+
+        for z in range(len(simulation.areas)):
+            area = simulation.areas[np.newaxis, z]
+            p_zone = simulation.p_contact[np.newaxis, z]
+
+            # Define Model
+            ground_truth_single_zone = Sample(
+                zones=area,
+                weights=weights,
+                p_global=simulation.p_universal[np.newaxis, ...],
+                p_zones=p_zone,
+                p_families=simulation.p_inheritance
+            )
+            ground_truth_single_zone.everything_changed()
+
+            # Evaluate Likelihood and Prior
+            lh = model.likelihood(ground_truth_single_zone, caching=False)
+            prior = model.prior(ground_truth_single_zone)
+
+            ground_truth_log_lh_single_area.append(lh)
+            ground_truth_prior_single_area.append(prior)
+            ground_truth_posterior_single_area.append(lh + prior)
+
+            stats['true_lh_single_zones'] = ground_truth_log_lh_single_area
+            stats['true_prior_single_zones'] = ground_truth_prior_single_area
+            stats['true_posterior_single_zones'] = ground_truth_posterior_single_area
+
+        return stats
 
 def compute_dic(lh, burn_in):
     """This function computes the deviance information criterion
@@ -222,11 +295,9 @@ def match_areas(samples):
     for s in area_samples:
 
         def clustering_agreement(p):
-
             """In how many sites does the permutation 'p'
             match the previous sample?
             """
-
             return np.sum(s_sum * s[:, p])
 
         best_match = max(perm, key=clustering_agreement)

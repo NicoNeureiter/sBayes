@@ -21,7 +21,7 @@ if __name__ == '__main__':
             'simulation': {
                 'i_contact': I_CONTACT[S[0]],
                 'e_contact': E_CONTACT[S[0]],
-                'STRENGTH': S[0],
+                'strength': S[0],
                 'area': S[1]}}
 
         # 1. Initialize the experiment

@@ -9,15 +9,17 @@ import logging
 import numpy as np
 import typing
 
-from sbayes.postprocessing import contribution_per_area, match_areas, rank_areas
+from sbayes.postprocessing import (contribution_per_area, match_areas, rank_areas,
+                                   annotate_results, evaluate_ground_truth)
 from sbayes.sampling.zone_sampling import Sample, ZoneMCMC, ZoneMCMCWarmup
+from sbayes.sampling.loggers import AreasLogger, ParametersLogger
 from sbayes.util import normalize, samples2file
 from sbayes.model import Model
 from sbayes.simulation import Simulation
 
 
 class MCMC:
-    def __init__(self, data, experiment):
+    def __init__(self, data, experiment, i_run=0):
 
         # Retrieve the data
         self.data = data
@@ -37,7 +39,14 @@ class MCMC:
         self.samples = None
         self.sample_from_warm_up = None
 
+        # Experiment logger and results loggers
         self.logger = experiment.logger
+        parameters_path, areas_path = experiment.set_up_result_paths(i_run=i_run)
+        self.parameters_logger = ParametersLogger(path=parameters_path, data=data)
+        self.areas_logger = AreasLogger(path=areas_path, data=data)
+
+        # Remember the id of the current run
+        self.i_run = i_run
 
     def log_setup(self):
         mcmc_config = self.config['mcmc']
@@ -70,16 +79,22 @@ Ratio of contact steps (changing gamma): {mcmc_config['steps']['contact']}
         if initial_sample is None:
             initial_sample = self.sample_from_warm_up
 
-        self.sampler = ZoneMCMC(data=self.data,
-                                model=self.model,
-                                n_chains=mcmc_config['N_CHAINS'],
-                                initial_sample=initial_sample,
-                                operators=mcmc_config['steps'],
-                                var_proposal=mcmc_config['proposal_precision'],
-                                p_grow_connected=mcmc_config['p_grow_connected'],
-                                initial_size=mcmc_config['m_initial'],
-                                logger=self.logger,
-                                sample_from_prior=mcmc_config['sample_from_prior'])
+        self.sampler = ZoneMCMC(
+            data=self.data,
+            model=self.model,
+            n_chains=mcmc_config['N_CHAINS'],
+            initial_sample=initial_sample,
+            operators=mcmc_config['steps'],
+            var_proposal=mcmc_config['proposal_precision'],
+            p_grow_connected=mcmc_config['p_grow_connected'],
+            initial_size=mcmc_config['m_initial'],
+            logger=self.logger,
+            sample_from_prior=mcmc_config['sample_from_prior'],
+            results_loggers=[
+                self.parameters_logger,
+                self.areas_logger
+            ]
+        )
 
         self.sampler.generate_samples(mcmc_config['n_steps'],
                                       mcmc_config['n_samples'])
@@ -90,120 +105,52 @@ Ratio of contact steps (changing gamma): {mcmc_config['steps']['contact']}
 
         self.samples = self.sampler.statistics
 
+        # TODO I put postprocessing here for backwards compatibility, but it should really
+        # be separate from MCMC and done directly in cli.py (and custom run scripts)
+        annotate_results(res_params_path=self.parameters_logger.path,
+                         res_areas_path=self.areas_logger.path)
+
     def eval_ground_truth(self, lh_per_area=True):
         assert isinstance(self.data, Simulation)
-        simulation = self.data
-
-        # Evaluate the likelihood of the true sample in simulated data
-        # If the model includes inheritance use all weights, if not use only the first two weights (global, zone)
-        if self.config['model']['inheritance']:
-            weights = simulation.weights.copy()
-        else:
-            weights = normalize(simulation.weights[:, :2])
-
-        ground_truth = Sample(zones=simulation.areas,
-                              weights=weights,
-                              p_global=simulation.p_universal[np.newaxis, ...],
-                              p_zones=simulation.p_contact,
-                              p_families=simulation.p_inheritance)
-
-        ground_truth.everything_changed()
-
-        self.samples['true_zones'] = simulation.areas
-        self.samples['true_weights'] = weights
-        self.samples['true_p_global'] = simulation.p_universal[np.newaxis, ...]
-        self.samples['true_p_zones'] = simulation.p_contact
-        self.samples['true_p_families'] = simulation.p_inheritance
-        self.samples['true_ll'] = self.sampler.likelihood(ground_truth, 0)
-        self.samples['true_prior'] = self.sampler.prior(ground_truth, 0)
-        self.samples["true_families"] = simulation.families
-
-        if lh_per_area:
-            ground_truth_log_lh_single_area = []
-            ground_truth_prior_single_area = []
-            ground_truth_posterior_single_area = []
-
-            for z in range(len(simulation.areas)):
-                area = simulation.areas[np.newaxis, z]
-                p_zone = simulation.p_contact[np.newaxis, z]
-
-                # Define Model
-                ground_truth_single_zone = Sample(zones=area, weights=weights,
-                                                  p_global=simulation.p_universal[np.newaxis, ...],
-                                                  p_zones=p_zone, p_families=simulation.p_inheritance)
-                ground_truth_single_zone.everything_changed()
-
-                # Evaluate Likelihood and Prior
-                lh = self.sampler.likelihood(ground_truth_single_zone, 0)
-                prior = self.sampler.prior(ground_truth_single_zone, 0)
-
-                ground_truth_log_lh_single_area.append(lh)
-                ground_truth_prior_single_area.append(prior)
-                ground_truth_posterior_single_area.append(lh + prior)
-
-                self.samples['true_lh_single_zones'] = ground_truth_log_lh_single_area
-                self.samples['true_prior_single_zones'] = ground_truth_prior_single_area
-                self.samples['true_posterior_single_zones'] = ground_truth_posterior_single_area
+        return evaluate_ground_truth(simulation=self.data, model=self.model,
+                                     lh_per_area=lh_per_area)
 
     def warm_up(self):
         mcmc_config = self.config['mcmc']
-        warmup = ZoneMCMCWarmup(data=self.data,
-                                model=self.model,
-                                n_chains=mcmc_config['warm_up']['n_warm_up_chains'],
-                                operators=mcmc_config['steps'],
-                                var_proposal=mcmc_config['proposal_precision'],
-                                p_grow_connected=mcmc_config['p_grow_connected'],
-                                initial_size=mcmc_config['m_initial'],
-                                logger=self.logger,
-                                sample_from_prior=mcmc_config['sample_from_prior'])
+        warmup = ZoneMCMCWarmup(
+            data=self.data,
+            model=self.model,
+            n_chains=mcmc_config['warm_up']['n_warm_up_chains'],
+            operators=mcmc_config['steps'],
+            var_proposal=mcmc_config['proposal_precision'],
+            p_grow_connected=mcmc_config['p_grow_connected'],
+            initial_size=mcmc_config['m_initial'],
+            logger=self.logger,
+            sample_from_prior=mcmc_config['sample_from_prior']
+        )
 
-        self.sample_from_warm_up = warmup.generate_samples(n_steps=0,
-                                                           n_samples=0,
-                                                           warm_up=True,
-                                                           warm_up_steps=mcmc_config['warm_up']['n_warm_up_steps'])
+        self.sample_from_warm_up = warmup.generate_samples(
+            n_steps=0,
+            n_samples=0,
+            warm_up=True,
+            warm_up_steps=mcmc_config['warm_up']['n_warm_up_steps']
+        )
 
-    def save_samples(self, run=1):
-
-        self.samples = match_areas(self.samples)
-        self.samples = rank_areas(self.samples)
-
-        file_info = self.config['results']['FILE_INFO']
-
-        if file_info == "n":
-            fi = 'n{n}'.format(n=self.config['model']['n_areas'])
-
-        elif file_info == "s":
-            fi = 's{s}a{a}'.format(s=self.config['simulation']['STRENGTH'],
-                                   a=self.config['simulation']['area'])
-
-        elif file_info == "i":
-            fi = 'i{i}'.format(i=int(self.config['model']['inheritance']))
-
-        elif file_info == "p":
-
-            p = 0 if self.config['model']['prior']['universal'] == "uniform" else 1
-            fi = 'p{p}'.format(p=p)
-
-        else:
-            raise ValueError("file_info must be 'n', 's', 'i' or 'p'")
-
-        run = '_{run}'.format(run=run)
-        pth = self.path_results / fi
-        ext = '.txt'
-        gt_pth = pth / 'ground_truth'
-
-        paths = {'parameters': pth / ('stats_' + fi + run + ext),
-                 'areas': pth / ('areas_' + fi + run + ext),
-                 'gt': gt_pth / ('stats' + ext),
-                 'gt_areas': gt_pth / ('areas' + ext)}
-
-        pth.mkdir(exist_ok=True)
-
-        if self.data.is_simulated:
-            self.eval_ground_truth()
-            gt_pth.mkdir(exist_ok=True)
-
-        samples2file(self.samples, self.data, self.config, paths)
+    # def save_samples(self, run=1):
+    #     self.samples = match_areas(self.samples)
+    #     self.samples = rank_areas(self.samples)
+    #
+    #     run = '_{run}'.format(run=run)
+    #     pth = self.path_results / fi
+    #     ext = '.txt'
+    #     gt_pth = pth / 'ground_truth'
+    #
+    #     paths = {'parameters': pth / ('stats_' + fi + run + ext),
+    #              'areas': pth / ('areas_' + fi + run + ext),
+    #              'gt': gt_pth / ('stats' + ext),
+    #              'gt_areas': gt_pth / ('areas' + ext)}
+    #
+    #     pth.mkdir(exist_ok=True)
 
     def log_statistics(self):
         self.sampler.print_statistics(self.samples)

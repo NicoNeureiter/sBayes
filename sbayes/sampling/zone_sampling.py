@@ -9,7 +9,13 @@ import scipy.stats as stats
 
 from sbayes.sampling.mcmc_generative import MCMCGenerative
 from sbayes.model import normalize_weights, PFamiliesPrior
-from sbayes.util import get_neighbours, normalize, dirichlet_pdf, get_max_size_list
+from sbayes.util import (
+    get_neighbours,
+    normalize,
+    dirichlet_pdf,
+    get_max_size_list,
+    collect_row_for_writing
+)
 from sbayes.preprocessing import sample_categorical
 
 
@@ -65,7 +71,8 @@ class Sample(object):
             shape: (n_sites, n_features, 3)
     """
 
-    def __init__(self, zones, weights, p_global, p_zones, p_families, source=None, chain=0):
+    def __init__(self, zones, weights, p_global, p_zones, p_families, source=None,
+                 chain=0, i_step=0, i_sample=0):
         self.zones = zones
         self.weights = weights
         self.p_global = p_global
@@ -74,9 +81,40 @@ class Sample(object):
         self.source = source
         self.chain = chain
 
+        # Some info for logging
+        self.i_step = i_step
+        self.i_sample = i_sample
+        self.likelihood = 0.0
+        self.prior = 0.0
+
         # The sample contains information about which of its parameters was changed in the last MCMC step
         self.what_changed = {}
         self.everything_changed()
+
+    @property
+    def n_areas(self):
+        return self.zones.shape[0]
+
+    @property
+    def n_sites(self):
+        return self.zones.shape[1]
+
+    @property
+    def n_features(self):
+        return self.weights.shape[0]
+
+    @property
+    def n_categories(self):
+        return self.p_global.shape[-1]
+
+    @property
+    def n_families(self):
+        return self.p_families.shape[0]
+
+    @property
+    def inheritance(self):
+        assert self.weights.shape[1] in (2,3)
+        return self.weights.shape[1] == 3
 
     @classmethod
     def empty_sample(cls):
@@ -108,7 +146,7 @@ class Sample(object):
 
         new_sample = Sample(chain=self.chain, zones=zone_copied, weights=weights_copied,
                             p_global=p_global_copied, p_zones=p_zones_copied, p_families=p_families_copied,
-                            source=source_copied)
+                            source=source_copied, i_step=self.i_step, i_sample=self.i_sample)
 
         new_sample.what_changed = what_changed_copied
 
@@ -797,10 +835,12 @@ class ZoneMCMC(MCMCGenerative):
         Returns:
             (Sample): The modified sample.
         """
-
         sample_new = sample.copy()
         zones_current = sample.zones
         occupied = np.any(zones_current, axis=0)
+
+        if self.sample_from_prior:
+            resample_source = False
 
         if self.model.sample_source and resample_source:
             likelihood = self.posterior_per_chain[sample.chain].likelihood

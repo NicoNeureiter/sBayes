@@ -21,7 +21,7 @@ class TestExperiment(unittest.TestCase):
             '_FEATURES': 5,
             'i_contact': 3,
             'e_contact': 0.5,
-            'STRENGTH': 0,
+            'strength': 0,
             'area': 3,
             'correlation_threshold': 0.8
         },

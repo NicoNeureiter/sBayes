@@ -21,7 +21,7 @@ def run_experiment(experiment, data, run):
 
     # Save samples to file
     mcmc.log_statistics()
-    mcmc.save_samples(run=run)
+    # mcmc.save_samples(run=run)
 
     # Use the last sample as the new initial sample
     return mcmc.samples['last_sample']
