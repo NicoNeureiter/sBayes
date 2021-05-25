@@ -87,7 +87,7 @@ class Experiment:
 
         # Set results path
         self.path_results = '{path}/{experiment}/'.format(
-            path=self.config['results']['RESULTS_PATH'],
+            path=self.config['results']['results_path'],
             experiment=self.experiment_name
         )
 
@@ -228,16 +228,16 @@ class Experiment:
         for operator, weight in self.config['mcmc']['steps'].items():
             self.config['mcmc']['steps'][operator] = weight / weights_sum
 
-        if 'results' in self.config:
-            if 'RESULTS_PATH' not in self.config['results']:
-                self.config['results']['RESULTS_PATH'] = "results"
-            if 'FILE_INFO' not in self.config['results']:
-                self.config['results']['FILE_INFO'] = "n"
-
-        else:
-            self.config['results'] = {}
-            self.config['results']['RESULTS_PATH'] = "results"
-            self.config['results']['FILE_INFO'] = "n"
+        # if 'results' in self.config:
+        #     if 'results_path' not in self.config['results']:
+        #         self.config['results']['results_path'] = "results"
+        #     if 'file_info' not in self.config['results']:
+        #         self.config['results']['file_info'] = "n"
+        #
+        # else:
+        #     self.config['results'] = {}
+        #     self.config['results']['results_path'] = "results"
+        #     self.config['results']['file_info'] = "n"
 
         # Data
         if 'data' not in self.config:
@@ -282,6 +282,49 @@ class Experiment:
     def log_experiment(self):
         self.logger.info("Experiment: %s", self.experiment_name)
         self.logger.info("File location for results: %s", self.path_results)
+
+    def set_up_result_paths(self, i_run=0):
+        """Assemble path and file names for results files, create the results directory
+        and return the file names for the results files.
+
+        Args:
+            i_run (int): The run index.
+
+        Returns:
+            Path: Path to the parameters file.
+            Path: Path to the areas file.
+
+        """
+        file_info = self.config['results']['file_info']
+
+        if file_info == 'n':
+            # File name should encode the number of areas
+            fi = 'n{n}'.format(n=self.config['model']['n_areas'])
+        elif file_info == 's':
+            # File name should encode the strength of simulated distribution and included area indices
+            fi = 's{s}a{a}'.format(s=self.config['simulation']['strength'],
+                                   a=self.config['simulation']['area'])
+        elif file_info == 'i':
+            # File name should encode whether inheritance is modelled
+            fi = 'i{i}'.format(i=int(self.config['model']['inheritance']))
+
+        elif file_info == 'p':
+            # File name should encode whether the universal prior is uniform or not.
+            p = 0 if self.config['model']['prior']['universal'] == 'uniform' else 1
+            fi = 'p{p}'.format(p=p)
+
+        else:
+            raise ValueError("file_info must be 'n', 's', 'i' or 'p'")
+
+        pth = self.path_results / fi
+        pth.mkdir(exist_ok=True)
+
+        ext = '.txt'
+        parameters_path = pth / f'stats_{fi}{i_run}{ext}'
+        areas_path = pth / f'areas_{fi}{i_run}{ext}'
+
+        return parameters_path, areas_path
+
 
 
 def set_defaults(cfg: dict, default_cfg: dict):
