@@ -230,7 +230,9 @@ def subset_features(features, subset):
     return features[sub, :, :]
 
 
-def simulate_features(areas,  p_universal, p_contact, weights, inheritance, p_inheritance=None, families=None):
+def simulate_features(areas,  p_universal, p_contact, weights, inheritance,
+                      p_inheritance=None, families=None,
+                      missing_family_as_universal=False):
     """Simulate features for of all sites from the likelihood.
 
     Args:
@@ -247,7 +249,9 @@ def simulate_features(areas,  p_universal, p_contact, weights, inheritance, p_in
         weights (np.array): The mixture coefficient controlling how much each feature is explained
             by universal pressure, contact, and inheritance.
             shape: (n_features, 3)
-        inheritance(bool): Is inheritance (family membership) considered when simulating features?
+        inheritance (bool): Is inheritance (family membership) considered when simulating features?
+        missing_family_as_universal (bool): Add family weights to the universal distribution instead
+            of re-normalizing when family is absent.
 
     Returns:
         np.array: The sampled categories for all sites and features and states
@@ -272,7 +276,8 @@ def simulate_features(areas,  p_universal, p_contact, weights, inheritance, p_in
 
     # Normalize the weights for each site depending on whether areas or families are relevant for that site
     # Order of columns in weights: universal, contact, (inheritance if available)
-    normed_weights = normalize_weights(weights, assignment)
+    normed_weights = normalize_weights(weights, assignment,
+                                       missing_family_as_universal=missing_family_as_universal)
     normed_weights = np.transpose(normed_weights, (1, 0, 2))
 
     features = np.zeros((n_sites, n_features), dtype=int)

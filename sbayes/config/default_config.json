@@ -38,7 +38,8 @@
 			"universal": {"type": "uniform"},
 			"inheritance": {"type": "uniform"},
 			"contact": {"type": "uniform"}
-		}
+		},
+		"missing_family_as_universal": false
 	},
 	"data": {
 		"features": "<REQUIRED>",

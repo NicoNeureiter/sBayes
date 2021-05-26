@@ -33,9 +33,16 @@ class Model(object):
         self.parse_attributes(config)
 
         # Create likelihood and prior objects
-        self.likelihood = Likelihood(data=data, inheritance=self.inheritance)
-        self.prior = Prior(data=data, inheritance=self.inheritance,
-                           prior_config=config['prior'])
+        self.likelihood = Likelihood(
+            data=data,
+            inheritance=self.inheritance,
+            missing_family_as_universal=self.config['missing_family_as_universal']
+        )
+        self.prior = Prior(
+            data=data,
+            inheritance=self.inheritance,
+            prior_config=config['prior']
+        )
 
     def parse_attributes(self, config):
         """Read attributes from the config dictionary."""
@@ -85,7 +92,7 @@ class Likelihood(object):
             shape: (n_sites)
         has_zone (np.array): indicators whether a languages is in any zone.
             shape: (n_sites)
-        assignment (np.array): indicators whether a languages is affected by each
+        has_components (np.array): indicators whether a languages is affected by each
             mixture components (global, family, zone) in one array.
             shape: (n_sites, 3)
         global_lh (np.array): cached likelihood values for each site and feature according to global component.
@@ -102,7 +109,7 @@ class Likelihood(object):
             shape: (n_sites, n_features)
     """
 
-    def __init__(self, data, inheritance):
+    def __init__(self, data, inheritance, missing_family_as_universal=False):
         self.features = data.features
         self.families = np.asarray(data.families, dtype=bool)
         self.inheritance = inheritance
@@ -129,6 +136,8 @@ class Likelihood(object):
 
         # Weights
         self.weights = None
+
+        self.missing_family_as_universal = missing_family_as_universal
 
     def reset_cache(self):
         # The assignment (global, zone, family) combined and weighted and the non-normalized likelihood
@@ -284,7 +293,11 @@ class Likelihood(object):
         if self.weights is None or sample.what_changed['lh']['weights'] or sample.what_changed['lh']['zones']:
             # Extract weights for each site depending on whether the likelihood is available
             # Order of columns in weights: global, contact, inheritance (if available)
-            self.weights = normalize_weights(sample.weights, self.has_components)
+            self.weights = normalize_weights(
+                weights=sample.weights,
+                has_components=self.has_components,
+                missing_family_as_universal=self.missing_family_as_universal
+            )
 
         return self.weights
 
@@ -428,49 +441,51 @@ def compute_family_likelihood(features, families, p_families=None,
     return lh_families
 
 
-def normalize_weights(weights, has_components, treat_no_family_as_universal=False):
+def normalize_weights(weights, has_components, missing_family_as_universal=False):
     """This function assigns each site a weight if it has a likelihood and zero otherwise
 
-        Args:
-            weights (np.array): the weights to normalize
-                shape: (n_features, 3)
-            has_components (np.array): boolean indicators, showing whether a language is
-                affected by the universal distribution (always true), an areal distribution
-                and a family distribution respectively.
-                shape: (n_sites, 3)
+    Args:
+        weights (np.array): the weights to normalize
+            shape: (n_features, 3)
+        has_components (np.array): boolean indicators, showing whether a language is
+            affected by the universal distribution (always true), an areal distribution
+            and a family distribution respectively.
+            shape: (n_sites, 3)
+        missing_family_as_universal (bool): Add family weights to the universal distribution instead
+            of re-normalizing when family is absent.
 
-        Return:
-            np.array: the weight_per site
-                shape: (n_sites, n_features, 3)
+    Return:
+        np.array: the weight_per site
+            shape: (n_sites, n_features, 3)
 
-        == Usage ===
-        >>> normalize_weights(weights=np.array([[0.2, 0.2, 0.6],
-        ...                                     [0.2, 0.6, 0.2]]),
-        ...                   has_components=np.array([[True, False, True],
-        ...                                            [True, True, False]]),
-        ...                   treat_no_family_as_universal=False)
-        array([[[0.25, 0.  , 0.75],
-                [0.5 , 0.  , 0.5 ]],
-        <BLANKLINE>
-               [[0.5 , 0.5 , 0.  ],
-                [0.25, 0.75, 0.  ]]])
-        >>> normalize_weights(weights=np.array([[0.2, 0.2, 0.6],
-        ...                                     [0.2, 0.6, 0.2]]),
-        ...                   has_components=np.array([[True, False, True],
-        ...                                            [True, True, False]]),
-        ...                   treat_no_family_as_universal=True)
-        array([[[0.25, 0.  , 0.75],
-                [0.5 , 0.  , 0.5 ]],
-        <BLANKLINE>
-               [[0.8 , 0.2 , 0.  ],
-                [0.4 , 0.6 , 0.  ]]])
+    == Usage ===
+    >>> normalize_weights(weights=np.array([[0.2, 0.2, 0.6],
+    ...                                     [0.2, 0.6, 0.2]]),
+    ...                   has_components=np.array([[True, False, True],
+    ...                                            [True, True, False]]),
+    ...                   missing_family_as_universal=False)
+    array([[[0.25, 0.  , 0.75],
+            [0.5 , 0.  , 0.5 ]],
+    <BLANKLINE>
+           [[0.5 , 0.5 , 0.  ],
+            [0.25, 0.75, 0.  ]]])
+    >>> normalize_weights(weights=np.array([[0.2, 0.2, 0.6],
+    ...                                     [0.2, 0.6, 0.2]]),
+    ...                   has_components=np.array([[True, False, True],
+    ...                                            [True, True, False]]),
+    ...                   missing_family_as_universal=True)
+    array([[[0.25, 0.  , 0.75],
+            [0.5 , 0.  , 0.5 ]],
+    <BLANKLINE>
+           [[0.8 , 0.2 , 0.  ],
+            [0.4 , 0.6 , 0.  ]]])
 
     """
     inheritance = ((weights.shape[-1]) == 3)
 
     weights_per_site = weights[np.newaxis, :, :] * has_components[:, np.newaxis, :]
 
-    if inheritance and treat_no_family_as_universal:
+    if inheritance and missing_family_as_universal:
         without_family = ~has_components[:, 2]
         weights_per_site[without_family, :, 0] += weights[:, 2]
         assert np.all(weights_per_site[without_family, :, 2] == 0.)

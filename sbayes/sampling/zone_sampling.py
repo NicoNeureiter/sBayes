@@ -664,9 +664,12 @@ class ZoneMCMC(MCMCGenerative):
         else:
             has_components = np.ones((n_available, 2), dtype=bool)
 
-        weights_with_z = normalize_weights(sample.weights, has_components)
+        universe_for_orphans = self.model.likelihood.missing_family_as_universal
+        weights_with_z = normalize_weights(sample.weights, has_components,
+                                           missing_family_as_universal=universe_for_orphans)
         has_components[:, 1] = False
-        weights_without_z = normalize_weights(sample.weights, has_components)
+        weights_without_z = normalize_weights(sample.weights, has_components,
+                                              missing_family_as_universal=universe_for_orphans)
 
         feature_lh_with_z = np.sum(all_lh * weights_with_z, axis=-1)
         feature_lh_without_z = np.sum(all_lh * weights_without_z, axis=-1)
