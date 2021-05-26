@@ -272,7 +272,6 @@ def simulate_features(areas,  p_universal, p_contact, weights, inheritance, p_in
 
     # Normalize the weights for each site depending on whether areas or families are relevant for that site
     # Order of columns in weights: universal, contact, (inheritance if available)
-    weights = np.repeat(weights[np.newaxis, :, :], n_sites, axis=0)
     normed_weights = normalize_weights(weights, assignment)
     normed_weights = np.transpose(normed_weights, (1, 0, 2))
 

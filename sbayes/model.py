@@ -73,7 +73,7 @@ class Likelihood(object):
     Attributes:
         features (np.array): The feature values for all sites and features.
             shape: (n_sites, n_features, n_categories)
-        inharitance (bool): flag indicating whether inheritance (i.e. family distributions) is modelled or not.
+        inheritance (bool): flag indicating whether inheritance (i.e. family distributions) is modelled or not.
         families (np.array): assignment of languages to families.
             shape: (n_families, n_sites)
         n_sites (int): number of sites (languages) in the sample.
@@ -282,14 +282,9 @@ class Likelihood(object):
 
         # weights are evaluated when initialized, when weights change or when assignment to zones changes
         if self.weights is None or sample.what_changed['lh']['weights'] or sample.what_changed['lh']['zones']:
-
-            abnormal_weights = sample.weights
-
             # Extract weights for each site depending on whether the likelihood is available
             # Order of columns in weights: global, contact, inheritance (if available)
-            # abnormal_weights_per_site = np.repeat(abnormal_weights[np.newaxis, :, :], self.n_sites, axis=0)
-            abnormal_weights_per_site = abnormal_weights[np.newaxis, :, :]
-            self.weights = normalize_weights(abnormal_weights_per_site, self.has_components)
+            self.weights = normalize_weights(sample.weights, self.has_components)
 
         return self.weights
 
@@ -433,12 +428,12 @@ def compute_family_likelihood(features, families, p_families=None,
     return lh_families
 
 
-def normalize_weights(weights, has_components):
+def normalize_weights(weights, has_components, treat_no_family_as_universal=False):
     """This function assigns each site a weight if it has a likelihood and zero otherwise
 
         Args:
             weights (np.array): the weights to normalize
-                shape: (n_sites, n_features, 3)
+                shape: (n_features, 3)
             has_components (np.array): boolean indicators, showing whether a language is
                 affected by the universal distribution (always true), an areal distribution
                 and a family distribution respectively.
@@ -447,8 +442,39 @@ def normalize_weights(weights, has_components):
         Return:
             np.array: the weight_per site
                 shape: (n_sites, n_features, 3)
+
+        == Usage ===
+        >>> normalize_weights(weights=np.array([[0.2, 0.2, 0.6],
+        ...                                     [0.2, 0.6, 0.2]]),
+        ...                   has_components=np.array([[True, False, True],
+        ...                                            [True, True, False]]),
+        ...                   treat_no_family_as_universal=False)
+        array([[[0.25, 0.  , 0.75],
+                [0.5 , 0.  , 0.5 ]],
+        <BLANKLINE>
+               [[0.5 , 0.5 , 0.  ],
+                [0.25, 0.75, 0.  ]]])
+        >>> normalize_weights(weights=np.array([[0.2, 0.2, 0.6],
+        ...                                     [0.2, 0.6, 0.2]]),
+        ...                   has_components=np.array([[True, False, True],
+        ...                                            [True, True, False]]),
+        ...                   treat_no_family_as_universal=True)
+        array([[[0.25, 0.  , 0.75],
+                [0.5 , 0.  , 0.5 ]],
+        <BLANKLINE>
+               [[0.8 , 0.2 , 0.  ],
+                [0.4 , 0.6 , 0.  ]]])
+
     """
-    weights_per_site = weights * has_components[:, np.newaxis, :]
+    inheritance = ((weights.shape[-1]) == 3)
+
+    weights_per_site = weights[np.newaxis, :, :] * has_components[:, np.newaxis, :]
+
+    if inheritance and treat_no_family_as_universal:
+        without_family = ~has_components[:, 2]
+        weights_per_site[without_family, :, 0] += weights[:, 2]
+        assert np.all(weights_per_site[without_family, :, 2] == 0.)
+
     return weights_per_site / weights_per_site.sum(axis=2, keepdims=True)
 
 
@@ -1219,3 +1245,8 @@ def prior_p_families_dirichlet(p_families, dirichlet, states, outdated_indices, 
         # log_prior[fam, feat] = diri.logpdf(p_fam)
 
     return log_prior
+
+
+if __name__ == '__main__':
+    import doctest
+    doctest.testmod()
