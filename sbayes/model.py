@@ -67,8 +67,11 @@ class Model(object):
         setup_msg += 'Model\n'
         setup_msg += '##########################################\n'
         setup_msg += f'Number of inferred areas: {self.n_zones}\n'
-        setup_msg += f'Areas have a minimum size of {self.min_size} and a maximum size of {self.max_size}\n'
+        setup_msg += f'Areas have a minimum size of {self.min_size} and a maximum ' \
+                     f'size of {self.max_size}\n'
         setup_msg += f'Inheritance is considered for inference: {self.inheritance}\n'
+        setup_msg += f'Family weights are added to universal weights for languages ' \
+                     f'without family : {self.likelihood.missing_family_as_universal}\n'
         setup_msg += self.prior.get_setup_message()
         return setup_msg
 
