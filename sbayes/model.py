@@ -486,13 +486,23 @@ def normalize_weights(weights, has_components, missing_family_as_universal=False
     """
     inheritance = ((weights.shape[-1]) == 3)
 
+    # Broadcast weights to each site and mask with the has_components arrays (so that
+    # area-/family-weights in languages without area/family are set to 0.
+    # Broadcasting:
+    #   `weights` doesnt know about sites -> add axis to broadcast to the sites-dimension of `has_component`
+    #   `has_components` doesnt know about features -> add axis to broadcast to the features-dimension of `weights`
     weights_per_site = weights[np.newaxis, :, :] * has_components[:, np.newaxis, :]
 
     if inheritance and missing_family_as_universal:
+        # If `missing_family_as_universal` is set, we assume that the missing family
+        # distribution for isolates (or languages who are the only sample from their
+        # family) is best replaced by the universal distribution -> shift the weight
+        # accordingly from w[l, :, 2] (family weight) to w[l, :, 0] (universal weight).
         without_family = ~has_components[:, 2]
         weights_per_site[without_family, :, 0] += weights[:, 2]
         assert np.all(weights_per_site[without_family, :, 2] == 0.)
 
+    # Re-normalize the weights, where weights were masked (and not added to universal)
     return weights_per_site / weights_per_site.sum(axis=2, keepdims=True)
 
 
