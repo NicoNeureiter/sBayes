@@ -8,6 +8,11 @@ from statistics import median
 import argparse
 from pathlib import Path
 
+try:
+    import importlib.resources as pkg_resources     # PYTHON >= 3.7
+except ImportError:
+    import importlib_resources as pkg_resources     # PYTHON < 3.7
+
 import pandas as pd
 import geopandas as gpd
 import matplotlib as mpl
@@ -32,7 +37,11 @@ from sbayes.util import fix_default_config
 from sbayes.util import gabriel_graph_from_delaunay
 from sbayes.util import parse_area_columns, read_features_from_csv
 from sbayes.cli import iterate_or_run
+from sbayes.experiment_setup import REQUIRED, set_defaults
+from sbayes import config
 
+
+DEFAULT_CONFIG = json.loads(pkg_resources.read_text(config, 'default_config_plot.json'))
 
 class Plot:
     def __init__(self, simulated_data=False):
@@ -92,6 +101,7 @@ class Plot:
 
         # Figure parameters
         self.ax = None
+        self.ax_legend = None
         self.fig = None
         self.x_min = self.x_max = self.y_min = self.y_max = None
         self.bbox = None
@@ -109,18 +119,37 @@ class Plot:
     # Configure the parameters
     ####################################
     def load_config(self, config_file):
-
         # Get parameters from config_custom (for particular experiment)
-        self.config_file = config_file
+        self.base_directory, self.config_file = self.decompose_config_path(config_file)
 
-        # Read config file
-        self.read_config()
+        # Read the user specified config file
+        with open(self.config_file, 'r') as f:
+            self.config = json.load(f)
+
+        # Load defaults
+        set_defaults(self.config, DEFAULT_CONFIG)
 
         # Convert lists to tuples
         self.convert_config(self.config)
 
         # Verify config
         self.verify_config()
+
+        # NN TODO: This is fixing relative paths from experiment_setup.py. Needs some
+        #          adaptation here and in config files.
+        # # Set results path
+        # self.path_results = '{path}/{experiment}/'.format(
+        #     path=self.config['results']['RESULTS_PATH'],
+        #     experiment=self.experiment_name
+        # )
+        #
+        # # Compile relative paths, to be relative to config file
+        # self.path_results = self.fix_relative_path(self.path_results)
+        #
+        # if not os.path.exists(self.path_results):
+        #     os.makedirs(self.path_results)
+        #
+        # self.add_logger_file(self.path_results)
 
         # Assign global variables for more convenient workflow
         self.path_output = self.config['output_folder']
@@ -150,10 +179,6 @@ class Plot:
         if self.is_simulation:
             self.ground_truth_config = self.config['map']['ground_truth']
 
-    def read_config(self):
-        with open(self.config_file, 'r') as f:
-            self.config = json.load(f)
-
     @staticmethod
     def convert_config(d):
         for k, v in d.items():
@@ -165,6 +190,28 @@ class Plot:
 
     def verify_config(self):
         pass
+
+    @staticmethod
+    def decompose_config_path(config_path):
+        abs_config_path = Path(config_path).absolute()
+        base_directory = abs_config_path.parent
+        return base_directory, abs_config_path
+
+    def fix_relative_path(self, path):
+        """Make sure that the provided path is either absolute or relative to
+        the config file directory.
+
+        Args:
+            path (Path or str): The original path (absolute or relative).
+
+        Returns:
+            Path: The fixed path.
+         """
+        path = Path(path)
+        if path.is_absolute():
+            return path
+        else:
+            return self.base_directory / path
 
     ####################################
     # Read the data and the results
@@ -622,11 +669,23 @@ class Plot:
 
     # Initialize the map
     def initialize_map(self):
-        # for Olga: constrained layout drops a warning. Could you check?
-        self.fig, self.ax = plt.subplots(figsize=(self.output_config['fig_width'],
-                                                  self.output_config['fig_height']),
-                                         # constrained_layout=True
-                                         )
+        if self.legend_config['in_separate_axis']:
+            legend_width = self.legend_config['legend_width']
+            self.fig, (self.ax_legend, self.ax) = plt.subplots(
+                nrows=1, ncols=2,
+                figsize=(self.output_config['fig_width'],
+                         self.output_config['fig_height']),
+                gridspec_kw={'width_ratios': [legend_width, 1-legend_width]},
+            )
+            self.ax_legend.axis('off')
+
+        else:
+            self.fig, self.ax = plt.subplots(
+                figsize=(self.output_config['fig_width'],
+                         self.output_config['fig_height'])
+            )
+            self.ax_legend = self.ax
+
         self.fig.tight_layout()
 
         if self.content_config['subset']:
@@ -718,7 +777,7 @@ class Plot:
 
         if self.legend_config['areas']['add_to_legend']:
             # add to legend
-            legend_areas = self.ax.legend(
+            legend_areas = self.ax_legend.legend(
                 legend_area_patches,
                 self.area_labels,
                 title_fontsize=18,
@@ -734,7 +793,7 @@ class Plot:
             )
             legend_areas._legend_box.align = "left"
 
-            self.ax.add_artist(legend_areas)
+            self.ax_legend.add_artist(legend_areas)
 
     # TODO: This function should be rewritten in a nicer way; probably split into two functions,
     #  or find a better way of dividing things into simulated and real
@@ -797,7 +856,7 @@ class Plot:
         if self.legend_config['families']['add_to_legend']:
             if self.is_simulation:
                 # Define the legend
-                legend_families = self.ax.legend(
+                legend_families = self.ax_legend.legend(
                     handles=handles,
                     title_fontsize=16,
                     fontsize=18,
@@ -810,10 +869,10 @@ class Plot:
                     loc='upper left',
                     bbox_to_anchor=self.legend_config['families']['position']
                 )
-                self.ax.add_artist(legend_families)
+                self.ax_legend.add_artist(legend_families)
 
             else:
-                legend_families = self.ax.legend(
+                legend_families = self.ax_legend.legend(
                     handles=handles,
                     title='Language family',
                     title_fontsize=18,
@@ -826,7 +885,7 @@ class Plot:
                     loc='upper left',
                     bbox_to_anchor=self.legend_config['families']['position']
                 )
-                self.ax.add_artist(legend_families)
+                self.ax_legend.add_artist(legend_families)
 
     def add_legend_lines(self):
 
@@ -849,7 +908,7 @@ class Plot:
             line_width_label.append(f'{prop_l}%')
 
         # Adds everything to the legend
-        legend_line_width = self.ax.legend(
+        legend_line_width = self.ax_legend.legend(
             legend_line_width,
             line_width_label,
             title_fontsize=18,
@@ -865,7 +924,7 @@ class Plot:
         )
 
         legend_line_width._legend_box.align = "left"
-        self.ax.add_artist(legend_line_width)
+        self.ax_legend.add_artist(legend_line_width)
 
     def add_secondary_legend(self):
 
@@ -873,18 +932,19 @@ class Plot:
         y_unit = (self.y_max - self.y_min) / 100
 
         if not self.is_simulation:
-            if self.legend_config['areas']['add_to_legend']:
-                self.ax.axhline(self.y_min + y_unit * 71,
-                                0.02, 0.20, lw=1.5, color="black")
+            # if self.legend_config['areas']['add_to_legend']:
+            #     self.ax_legend.axhline(self.legend_config['areas']['position'][1],
+            #                            0.02, 0.20, lw=1.5, color="black")
 
-            self.ax.add_patch(
+            self.ax_legend.add_patch(
                 patches.Rectangle(
                     (self.x_min, self.y_min),
                     x_unit * 25, y_unit * 100,
                     color="white"
                 ))
+            # pass
         else:
-            self.ax.add_patch(
+            self.ax_legend.add_patch(
                 patches.Rectangle(
                     (self.x_min, self.y_min),
                     x_unit * 55,
@@ -893,23 +953,24 @@ class Plot:
                 ))
 
             # The legend looks a bit different, as it has to show both the inferred areas and the ground truth
-            self.ax.annotate("INFERRED", (
+            self.ax_legend.annotate("INFERRED", (
                 self.x_min + x_unit * 3,
                 self.y_min + y_unit * 23), fontsize=20)
 
-            self.ax.annotate("GROUND TRUTH", (
+            self.ax_legend.annotate("GROUND TRUTH", (
                 self.x_min + x_unit * 38.5,
                 self.y_min + y_unit * 23), fontsize=20)
 
-            self.ax.axvline(self.x_min + x_unit * 37, 0.05, 0.18, lw=2, color="black")
+            self.ax_legend.axvline(self.x_min + x_unit * 37, 0.05, 0.18, lw=2, color="black")
 
     def add_overview_map(self):
         if not self.is_simulation:
-            axins = inset_axes(self.ax, width=self.legend_config['overview']['width'],
+            axins = inset_axes(self.ax_legend,
+                               width=self.legend_config['overview']['width'],
                                height=self.legend_config['overview']['height'],
                                bbox_to_anchor=self.legend_config['overview']['position'],
                                loc='lower left',
-                               bbox_transform=self.ax.transAxes)
+                               bbox_transform=self.ax_legend.transAxes)
             axins.tick_params(labelleft=False, labelbottom=False, length=0)
 
             # Map extend of the overview map
@@ -1050,18 +1111,19 @@ class Plot:
                 handlebox.add_artist(patch)
                 return patch
 
-        legend_true_area = self.ax.legend([TrueArea()], ['simulated area\n(bounding polygon)'],
-                                          handler_map={TrueArea: TrueAreaHandler()},
-                                          bbox_to_anchor=self.ground_truth_config['true_area_polygon_position'],
-                                          title_fontsize=16,
-                                          loc='upper left',
-                                          frameon=True,
-                                          edgecolor='#ffffff',
-                                          handletextpad=4,
-                                          fontsize=18,
-                                          ncol=1,
-                                          columnspacing=1)
-
+        legend_true_area = self.ax_legend.legend(
+            [TrueArea()], ['simulated area\n(bounding polygon)'],
+            handler_map={TrueArea: TrueAreaHandler()},
+            bbox_to_anchor=self.ground_truth_config['true_area_polygon_position'],
+            title_fontsize=16,
+            loc='upper left',
+            frameon=True,
+            edgecolor='#ffffff',
+            handletextpad=4,
+            fontsize=18,
+            ncol=1,
+            columnspacing=1
+        )
         self.ax.add_artist(legend_true_area)
 
     def return_correspondence_table(self, file_name, file_format="pdf", ncol=2):
