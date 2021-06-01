@@ -23,9 +23,11 @@
 			"y_extend": null
 		},
 		"content": {
+			"type": "density_map",
+			"return_correspondence": false,
 			"plot_families": true,
 			"label_languages": true,
-			"label_offset": [1, 1], 
+			"label_offset": [1, 1],
 			"subset": false,
 			"min_posterior_frequency": 0.7,
 			"burn_in": 0.2
@@ -63,48 +65,33 @@
 			]
 		},
 		"legend": {
+			"in_separate_axis": true,
+			"legend_width": 0.15,
 			"overview": {
-				"add_overview": "true",
+				"add_to_legend": true,
 				"width": 3.8,
 				"height": 4,
 				"x_extend": null,
 				"y_extend": null,
-				"position": [
-					0.01,
-					0.01
-				]
-			},
-			"areas": {
-				"add_area_stats": true,
-				"position": [
-					0.02,
-					0.71
-				]
+				"position": [0.0, 0.0]
 			},
 			"posterior_frequency": {
-				"default_values": [
-					1,
-					0.75,
-					0.5
-				],
-				"position": [
-					0.3,
-					0.2
-				]
+				"add_to_legend": true,
+				"default_values": [1, 0.75, 0.5],
+				"position": [0.0, 0.57]
+			},
+			"areas": {
+				"add_to_legend": true,
+				"show_stats": false,
+				"position": [0.0, 0.75]
 			},
 			"families": {
-				"add": true,
-				"position": [
-					0.02,
-					0.98
-				]
+				"add_to_legend": true,
+				"position": [0.0, 1.0]
 			}
 		},
 		"ground_truth": {
-			"true_family_legend_position": [
-				0.37,
-				0.15
-			],
+			"true_family_legend_position": [0.37, 0.15],
 			"true_family_colors": [
 				"#add8e6",
 				"#f1e2cc",
@@ -120,13 +107,9 @@
 		}
 	},
 	"weights_plot": {
-		"labels": [
-			"U",
-			"C",
-			"I"
-		],
+		"labels": ["U", "C", "I"],
 		"burn_in": 0.2,
-		"k": 10,
+		"k_best": 10,
 		"title": true,
 		"n_columns": 6,
 		"output": {
