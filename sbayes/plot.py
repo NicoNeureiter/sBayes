@@ -1368,8 +1368,7 @@ class Plot:
             states = []
 
             for key in sample_dict:
-
-                if str(feature + '_') in key and parameter in key:
+                if key.startswith(parameter + '_' + feature + '_'):
                     state = str(key).rsplit('_', 1)[1]
                     p_dict[state] = sample_dict[key][b_in:]
                     states.append(state)
