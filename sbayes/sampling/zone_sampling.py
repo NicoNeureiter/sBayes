@@ -112,7 +112,7 @@ class Sample(object):
 class ZoneMCMC(MCMCGenerative):
     """float: Probability at which grow operator only considers neighbours to add to the zone."""
 
-    def __init__(self, var_proposal, p_grow_connected,
+    def __init__(self, p_grow_connected,
                  initial_sample, initial_size,
                  **kwargs):
 
@@ -149,11 +149,12 @@ class ZoneMCMC(MCMCGenerative):
             self.n_families = self.families.shape[0]
 
         # Variance of the proposal distribution
-        self.var_proposal_weight = var_proposal['weights']
-        self.var_proposal_p_global = var_proposal['universal']
-        self.var_proposal_p_zones = var_proposal['contact']
+        # Todo: complete transition to Gibbs
+        self.var_proposal_weight = 10
+        self.var_proposal_p_global = 20
+        self.var_proposal_p_zones = 10
         try:
-            self.var_proposal_p_families = var_proposal['inheritance']
+            self.var_proposal_p_families = 20
         except KeyError:
             pass
 

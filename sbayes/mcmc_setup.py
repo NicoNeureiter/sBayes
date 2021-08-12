@@ -163,29 +163,22 @@ class MCMC:
         logging.basicConfig(format='%(message)s', filename=self.path_log, level=logging.DEBUG)
         logging.info(self.model.get_setup_message())
 
-        msg_inherit_precision = ''
-        if mcmc_config['PROPOSAL_PRECISION']['inheritance'] is not None:
-            msg_inherit_precision = 'Pseudocounts for tuning the width of the proposal distribution for inheritance (beta): %s\n' % \
-                 mcmc_config['PROPOSAL_PRECISION']['inheritance']
         logging.info(f'''
 MCMC SETUP
 ##########################################
-MCMC with {mcmc_config['N_STEPS']} steps and {mcmc_config['N_SAMPLES']} samples
-Warm-up: {mcmc_config['WARM_UP']['N_WARM_UP_CHAINS']} chains exploring the parameter space in {mcmc_config['WARM_UP']['N_WARM_UP_STEPS']} steps
-Pseudocounts for tuning the width of the proposal distribution for weights: {mcmc_config['PROPOSAL_PRECISION']['weights']}
-Pseudocounts for tuning the width of the proposal distribution for universal pressure (alpha): {mcmc_config['PROPOSAL_PRECISION']['universal']}
-{msg_inherit_precision}\
-Pseudocounts for tuning the width of the proposal distribution for areas (gamma): {mcmc_config['PROPOSAL_PRECISION']['contact']}
-Ratio of areal steps (growing, shrinking, swapping areas): {mcmc_config['STEPS']['area']}
-Ratio of weight steps (changing weights): {mcmc_config['STEPS']['weights']}
-Ratio of universal steps (changing alpha) : {mcmc_config['STEPS']['universal']}
-Ratio of inheritance steps (changing beta): {mcmc_config['STEPS']['inheritance']}
-Ratio of contact steps (changing gamma): {mcmc_config['STEPS']['contact']}
-        ''')
+MCMC with {mcmc_config['steps']} steps and {mcmc_config['samples']} samples
+Warm-up: {mcmc_config['warmup']['warmup_chains']} chains exploring the parameter space in 
+{mcmc_config['warmup']['warmup_steps']} steps
+Ratio of areal steps (growing, shrinking, swapping areas): {mcmc_config['operators']['area']}
+Ratio of weight steps (changing weights): {mcmc_config['operators']['weights']}
+Ratio of universal steps (changing alpha) : {mcmc_config['operators']['universal']}
+Ratio of inheritance steps (changing beta): {mcmc_config['operators']['inheritance']}
+Ratio of contact steps (changing gamma): {mcmc_config['operators']['contact']}
+''')
 
     def steps_per_operator(self):
         """Assign step frequency per operator."""
-        steps_config = self.config['mcmc']['STEPS']
+        steps_config = self.config['mcmc']['operators']
         ops = {'shrink_zone': steps_config['area'] * 0.4,
                'grow_zone': steps_config['area'] * 0.4,
                'swap_zone': steps_config['area'] * 0.2,
@@ -218,15 +211,13 @@ Ratio of contact steps (changing gamma): {mcmc_config['STEPS']['contact']}
 
         self.sampler = ZoneMCMC(data=self.data,
                                 model=self.model,
-                                n_chains=self.config['mcmc']['N_CHAINS'],
                                 initial_sample=initial_sample,
                                 operators=self.ops,
-                                var_proposal=self.config['mcmc']['PROPOSAL_PRECISION'],
-                                p_grow_connected=self.config['mcmc']['P_GROW_CONNECTED'],
-                                initial_size=self.config['mcmc']['M_INITIAL'])
+                                p_grow_connected=self.config['mcmc']['grow_to_adjacent'],
+                                initial_size=self.config['mcmc']['init_lang_per_area'])
 
-        self.sampler.generate_samples(self.config['mcmc']['N_STEPS'],
-                                      self.config['mcmc']['N_SAMPLES'])
+        self.sampler.generate_samples(self.config['mcmc']['steps'],
+                                      self.config['mcmc']['samples'])
 
         # Evaluate likelihood and prior for each zone alone (makes it possible to rank zones)
         if lh_per_area:
@@ -307,42 +298,43 @@ Ratio of contact steps (changing gamma): {mcmc_config['STEPS']['contact']}
 
         warmup = ZoneMCMCWarmup(data=self.data,
                                 model=self.model,
-                                n_chains=self.config['mcmc']['WARM_UP']['N_WARM_UP_CHAINS'],
+                                n_chains=self.config['mcmc']['warmup']['warmup_chains'],
                                 operators=self.ops,
-                                var_proposal=self.config['mcmc']['PROPOSAL_PRECISION'],
-                                p_grow_connected=self.config['mcmc']['P_GROW_CONNECTED'],
+                                p_grow_connected=self.config['mcmc']['grow_to_adjacent'],
                                 initial_sample=initial_sample,
-                                initial_size=self.config['mcmc']['M_INITIAL'])
+                                initial_size=self.config['mcmc']['init_lang_per_area'])
 
         self.sample_from_warm_up = warmup.generate_samples(n_steps=0,
                                                            n_samples=0,
                                                            warm_up=True,
-                                                           warm_up_steps=self.config['mcmc']['WARM_UP']['N_WARM_UP_STEPS'])
+                                                           warm_up_steps=self.config['mcmc']['warmup']['warmup_steps'])
 
     def save_samples(self, run=1):
 
         self.samples = match_areas(self.samples)
         self.samples = rank_areas(self.samples)
 
-        file_info = self.config['results']['FILE_INFO']
+        fi = 'K{K}'.format(K=self.config['model']['areas'])
 
-        if file_info == "n":
-            fi = 'n{n}'.format(n=self.config['model']['N_AREAS'])
-
-        elif file_info == "s":
-            fi = 's{s}a{a}'.format(s=self.config['simulation']['STRENGTH'],
-                                   a=self.config['simulation']['AREA'])
-
-        elif file_info == "i":
-            fi = 'i{i}'.format(i=int(self.config['model']['INHERITANCE']))
-
-        elif file_info == "p":
-
-            p = 0 if self.config['model']['PRIOR']['universal'] == "uniform" else 1
-            fi = 'p{p}'.format(p=p)
-
-        else:
-            raise ValueError("file_info must be 'n', 's', 'i' or 'p'")
+        # Todo: could be relevant for simulation
+        # file_info = "K"
+        #
+        # if file_info == "K":
+        #     fi = 'K{K}'.format(K=self.config['model']['areas'])
+        # elif file_info == "s":
+        #     fi = 's{s}a{a}'.format(s=self.config['simulation']['STRENGTH'],
+        #                            a=self.config['simulation']['AREA'])
+        #
+        # elif file_info == "i":
+        #     fi = 'i{i}'.format(i=int(self.config['model']['INHERITANCE']))
+        #
+        # elif file_info == "p":
+        #
+        #     p = 0 if self.config['model']['PRIOR']['universal'] == "uniform" else 1
+        #     fi = 'p{p}'.format(p=p)
+        #
+        # else:
+        #     raise ValueError("file_info must be 'n', 's', 'i' or 'p'")
 
         run = '_{run}'.format(run=run)
         pth = self.path_results / fi

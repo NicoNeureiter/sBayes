@@ -36,15 +36,15 @@ class Model(object):
         self.likelihood = GenerativeLikelihood(data=data, inheritance=self.inheritance)
         self.prior = GenerativePrior(data=data,
                                      inheritance=self.inheritance,
-                                     prior_config=config['PRIOR'])
+                                     prior_config=config['prior'])
 
     def parse_attributes(self, config):
         """Read attributes from the config dictionary."""
-        self.n_zones = config['N_AREAS']
-        self.min_size = config['MIN_M']
-        self.max_size = config['MAX_M']
-        self.inheritance = config['INHERITANCE']
-        self.sample_source = config['SAMPLE_SOURCE']
+        self.n_zones = config['areas']
+        self.min_size = config['languages_per_area']['min']
+        self.max_size = config['languages_per_area']['max']
+        self.inheritance = config['inheritance']
+        self.sample_source = config['sample_source']
 
     def __call__(self, sample, caching=True):
         """Evaluate the (non-normalized) posterior probability of the given sample."""
@@ -61,17 +61,18 @@ class Model(object):
             f'Model',
             f'##########################################',
             f'Number of inferred areas: {self.n_zones}',
-            f'Areas have a minimum size of {self.min_size} and a maximum size of {self.max_size}',
+            f'Areas have a minimum size of {self.min_size} and a maximum size of {self.max_size} languages',
             f'Inheritance is considered for inference: {self.inheritance}',
-            f'Geo-prior: {self.prior.config["geo"]["type"]}'
+            f'Geo-prior: {self.prior.config["geo"]["type"]}',
             f'Prior on weights: {self.prior.config["weights"]["type"]}',
-            f'Prior on universal pressure (alpha): {self.prior.config["universal"]["type"]}',
-            f'Prior on contact (gamma): {self.prior.config["contact"]["type"]}'
+            f'Prior on universal preference (alpha): {self.prior.config["universal"]["type"]}',
+            f'Prior on contact (gamma): {self.prior.config["contact"]["type"]}\n'
         ])
 
         if self.inheritance:
-            setup_msg += f'\nPrior on inheritance(beta): {self.prior.config["inheritance"]["type"]}\n'
-
+            setup_msg += 'Prior on inheritance(beta) in families\n'
+            for fam in self.prior.config["inheritance"]:
+                setup_msg += f'{fam}: {self.prior.config["inheritance"][fam]["type"]}\n'
         return setup_msg
 
 
@@ -491,102 +492,82 @@ class GenerativePrior(object):
         self.prior_p_families_distr = None
 
         self._prior_p_global = PriorPGlobal(config=prior_config['universal'], data=data)
+
         if self.inheritance:
-            self._prior_p_families = PriorPFamilies(config=prior_config['universal'], data=data)
+            self._prior_p_families = PriorPFamilies(config=prior_config['inheritance'], data=data)
 
         self.parse_attributes(prior_config)
 
     def parse_attributes(self, config):
+        # TODO once everything is refactored this shouldn't do much -> use config right away
         config_parsed = dict.fromkeys(config)
 
-        # TODO once everything is refactored this shouldn't do much -> use config right away
-
-        # geo prior
-        if config['geo']['type'] == 'uniform':
-            config_parsed['geo'] = {'type': 'uniform'}
-        elif config['geo']['type'] == 'cost_based':
-            # todo: change prior if cost matrix is provided
-
-            config_parsed['geo'] = {'type': 'cost_based',
-                                    'cost_matrix':  self.data.geo_prior['cost_matrix'],
-                                    'scale': config['geo']['scale']}
-        else:
-            raise ValueError('Geo prior not supported')
-
-        # area_size prior
-        VALID_SIZE_PRIOR_TYPES = ['none', 'uniform', 'quadratic']
-        size_prior_type = config['area_size']['type']
-        if size_prior_type in VALID_SIZE_PRIOR_TYPES:
-            config_parsed['area_size'] = {'type': size_prior_type}
-        else:
-            raise ValueError(f'Area-size prior ´{size_prior_type}´ not supported' +
-                             f'(valid types: {VALID_SIZE_PRIOR_TYPES}).')
-
-        # weights prior
-        if config['weights']['type'] == 'uniform':
-            config_parsed['weights'] = {'type': 'uniform'}
-        else:
-            raise ValueError('Currently only uniform prior_weights are supported.')
-
-        # universal preference
+        # Universal
         cfg_universal = config['universal']
+
         if cfg_universal['type'] == 'uniform':
             config_parsed['universal'] = {'type': 'uniform'}
 
-        elif cfg_universal['type'] == 'counts':
-            if cfg_universal['scale_counts'] is not None:
-                self.data.prior_universal['counts'] = scale_counts(counts=self.data.prior_universal['counts'],
-                                                                   scale_to=cfg_universal['scale_counts'])
-
-            dirichlet = counts_to_dirichlet(self.data.prior_universal['counts'],
-                                            self.data.states)
-            config_parsed['universal'] = {'type': 'counts',
-                                                  'dirichlet': dirichlet,
-                                                  'states': self.data.states}
+        # todo: dirichlet prior
+        # elif cfg_universal['type'] == 'counts':
+        #     if cfg_universal['scale_counts'] is not None:
+        #         self.data.prior_universal['counts'] = scale_counts(counts=self.data.prior_universal['counts'],
+        #                                                            scale_to=cfg_universal['scale_counts'])
+        #
+        #     dirichlet = counts_to_dirichlet(self.data.prior_universal['counts'],
+        #                                     self.data.states)
+        #     config_parsed['universal'] = {'type': 'counts',
+        #                                           'dirichlet': dirichlet,
+        #                                           'states': self.data.states}
 
         else:
-            raise ValueError('Prior for universal must be uniform or counts.')
+            raise ValueError('Prior for universal must be of type "uniform" or "dirichlet".')
 
-        # inheritance
+        # Inheritance
         cfg_inheritance = config['inheritance']
+        config_parsed['inheritance'] = dict.fromkeys(config['inheritance'])
+
         if self.inheritance:
-            if cfg_inheritance['type'] == 'uniform':
-                config_parsed['inheritance'] = {'type': 'uniform'}
+            for fam in cfg_inheritance:
 
-            elif cfg_inheritance['type'] is None:
-                config_parsed['inheritance'] = {'type': None}
+                if cfg_inheritance[fam]['type'] == 'uniform':
+                    config_parsed['inheritance'][fam] = {'type': 'uniform'}
 
-            elif cfg_inheritance['type'] == 'universal':
-                config_parsed['inheritance'] = {'type': 'universal',
-                                                        'strength': cfg_inheritance['scale_counts'],
-                                                        'states': self.data.state_names['internal']}
+            # elif cfg_inheritance['type'] is None:
+            #     config_parsed['inheritance'] = {'type': None}
+            #
+            # elif cfg_inheritance['type'] == 'universal':
+            #     config_parsed['inheritance'] = {'type': 'universal',
+            #                                             'strength': cfg_inheritance['scale_counts'],
+            #                                             'states': self.data.state_names['internal']}
+            #
+            # elif cfg_inheritance['type'] == 'counts':
+            #     if cfg_inheritance['scale_counts'] is not None:
+            #         self.data.prior_inheritance['counts'] = scale_counts(
+            #             counts=self.data.prior_inheritance['counts'],
+            #             scale_to=cfg_inheritance['scale_counts'],
+            #             prior_inheritance=True
+            #         )
+            #     dirichlet = inheritance_counts_to_dirichlet(self.data.prior_inheritance['counts'],
+            #                                                 self.data.prior_inheritance['states'])
+            #     config_parsed['inheritance'] = {'type': 'counts',
+            #                                             'dirichlet': dirichlet,
+            #                                             'states': self.data.prior_inheritance['states']}
+            #
+            # elif cfg_inheritance['type'] == 'counts_and_universal':
+            #     if cfg_inheritance['scale_counts'] is not None:
+            #         self.data.prior_inheritance['counts'] = scale_counts(
+            #             counts=self.data.prior_inheritance['counts'],
+            #             scale_to=cfg_inheritance['scale_counts'],
+            #             prior_inheritance=True
+            #         )
+            #     config_parsed['inheritance'] = {'type': 'counts_and_universal',
+            #                                             'counts': self.data.prior_inheritance['counts'],
+            #                                             'strength': cfg_inheritance['scale_counts'],
+            #                                             'states': self.data.prior_inheritance['states']}
+            # else:
+            #     raise ValueError('Prior for inheritance must be uniform, counts or  counts_and_universal')
 
-            elif cfg_inheritance['type'] == 'counts':
-                if cfg_inheritance['scale_counts'] is not None:
-                    self.data.prior_inheritance['counts'] = scale_counts(
-                        counts=self.data.prior_inheritance['counts'],
-                        scale_to=cfg_inheritance['scale_counts'],
-                        prior_inheritance=True
-                    )
-                dirichlet = inheritance_counts_to_dirichlet(self.data.prior_inheritance['counts'],
-                                                            self.data.prior_inheritance['states'])
-                config_parsed['inheritance'] = {'type': 'counts',
-                                                        'dirichlet': dirichlet,
-                                                        'states': self.data.prior_inheritance['states']}
-
-            elif cfg_inheritance['type'] == 'counts_and_universal':
-                if cfg_inheritance['scale_counts'] is not None:
-                    self.data.prior_inheritance['counts'] = scale_counts(
-                        counts=self.data.prior_inheritance['counts'],
-                        scale_to=cfg_inheritance['scale_counts'],
-                        prior_inheritance=True
-                    )
-                config_parsed['inheritance'] = {'type': 'counts_and_universal',
-                                                        'counts': self.data.prior_inheritance['counts'],
-                                                        'strength': cfg_inheritance['scale_counts'],
-                                                        'states': self.data.prior_inheritance['states']}
-            else:
-                raise ValueError('Prior for inheritance must be uniform, counts or  counts_and_universal')
         else:
             config_parsed['inheritance'] = None
 
@@ -595,12 +576,39 @@ class GenerativePrior(object):
         if cfg_contact['type'] == 'uniform':
             config_parsed['contact'] = {'type': 'uniform'}
 
-        elif cfg_contact['type'] == 'universal':
-            config_parsed['contact'] = {'type': 'universal',
-                                                'strength': cfg_contact['scale_counts'],
-                                                'states': self.data.state_names['internal']}
+        # elif cfg_contact['type'] == 'universal':
+        #     config_parsed['contact'] = {'type': 'universal',
+        #                                 'strength': cfg_contact['scale_counts'],
+        #                                 'states': self.data.state_names['internal']}
         else:
-            raise ValueError('Prior for contact must be uniform or universal.')
+            raise ValueError('Prior for contact must be of type "uniform".')
+
+        # Geo
+        if config['geo']['type'] == 'uniform':
+            config_parsed['geo'] = {'type': 'uniform'}
+
+        # elif config['geo']['type'] == 'cost_based':
+        #
+        #     # todo: change prior if cost matrix is provided
+        #     config_parsed['geo'] = {'type': 'cost_based',
+        #                             'cost_matrix':  self.data.geo_prior['cost_matrix'],
+        #                             'scale': config['geo']['scale']}
+        else:
+            raise ValueError('Geo-prior must be oft type "uniform", "gaussian", or  "cost_based".')
+
+        # Weights
+        if config['weights']['type'] == 'uniform':
+            config_parsed['weights'] = {'type': 'uniform'}
+        else:
+            raise ValueError('Prior for weights must be of type "uniform".')
+
+        # Area
+        valid_size_prior_types = ['uniform_area', 'uniform_size']
+
+        if config['area_size']['type'] in valid_size_prior_types:
+            config_parsed['area_size'] = {'type': config['area_size']['type']}
+        else:
+            raise ValueError('Area-size prior must be of type "uniform_area" or "uniform_size".')
 
         self.config = config_parsed
         self.geo_prior_meta = config_parsed['geo']
@@ -743,7 +751,10 @@ class GenerativePrior(object):
         Returns:
             float: Logarithm of the prior probability density.
         """
-        prior_type = self.prior_p_families_meta['type']
+        # Todo: implement prior
+        prior_type = self.prior_p_families_meta['Arawak']['type']
+
+        # prior_type = self.prior_p_families_meta['type']
         what_changed = sample.what_changed['prior']
 
         if self.p_families_prior_outdated(sample, prior_type):
@@ -751,49 +762,50 @@ class GenerativePrior(object):
             if prior_type == 'uniform':
                 prior_p_families = 0.
 
-            elif prior_type == 'counts':
-                prior_p_families = prior_p_families_dirichlet(p_families=sample.p_families,
-                                                              dirichlet=self.prior_p_families_meta['dirichlet'],
-                                                              states=self.prior_p_families_meta['states'],
-                                                              outdated_indices=what_changed['p_families'],
-                                                              outdated_distributions=what_changed['p_global'],
-                                                              cached_prior=self.prior_p_families,
-                                                              broadcast=False)
-
-            elif prior_type == 'universal':
-                s = self.prior_p_families_meta['strength']
-                c_universal = s * sample.p_global[0]
-                self.prior_p_families_distr = counts_to_dirichlet(counts=c_universal,
-                                                                  states=self.prior_p_families_meta['states'],
-                                                                  outdated_features=what_changed['p_global'],
-                                                                  dirichlet=self.prior_p_families_distr)
-
-                prior_p_families = prior_p_families_dirichlet(p_families=sample.p_families,
-                                                              dirichlet=self.prior_p_families_distr,
-                                                              states=self.prior_p_families_meta['states'],
-                                                              outdated_indices=what_changed['p_families'],
-                                                              outdated_distributions=what_changed['p_global'],
-                                                              cached_prior=self.prior_p_families,
-                                                              broadcast=True)
-
-            elif prior_type == 'counts_and_universal':
-                s = self.prior_p_families_meta['strength']
-                c_pseudocounts = self.prior_p_families_meta['counts']
-                c_universal = s * sample.p_global
-
-                self.prior_p_families_distr = \
-                    inheritance_counts_to_dirichlet(counts=c_universal + c_pseudocounts,
-                                                    states=self.prior_p_families_meta['states'],
-                                                    outdated_features=what_changed['p_global'],
-                                                    dirichlet=self.prior_p_families_distr)
-
-                prior_p_families = prior_p_families_dirichlet(p_families=sample.p_families,
-                                                              dirichlet=self.prior_p_families_distr,
-                                                              states=self.prior_p_families_meta['states'],
-                                                              outdated_indices=what_changed['p_families'],
-                                                              outdated_distributions=what_changed['p_global'],
-                                                              cached_prior=self.prior_p_families,
-                                                              broadcast=False)
+            # Todo implement prior
+            # elif prior_type == 'counts':
+            #     prior_p_families = prior_p_families_dirichlet(p_families=sample.p_families,
+            #                                                   dirichlet=self.prior_p_families_meta['dirichlet'],
+            #                                                   states=self.prior_p_families_meta['states'],
+            #                                                   outdated_indices=what_changed['p_families'],
+            #                                                   outdated_distributions=what_changed['p_global'],
+            #                                                   cached_prior=self.prior_p_families,
+            #                                                   broadcast=False)
+            #
+            # elif prior_type == 'universal':
+            #     s = self.prior_p_families_meta['strength']
+            #     c_universal = s * sample.p_global[0]
+            #     self.prior_p_families_distr = counts_to_dirichlet(counts=c_universal,
+            #                                                       states=self.prior_p_families_meta['states'],
+            #                                                       outdated_features=what_changed['p_global'],
+            #                                                       dirichlet=self.prior_p_families_distr)
+            #
+            #     prior_p_families = prior_p_families_dirichlet(p_families=sample.p_families,
+            #                                                   dirichlet=self.prior_p_families_distr,
+            #                                                   states=self.prior_p_families_meta['states'],
+            #                                                   outdated_indices=what_changed['p_families'],
+            #                                                   outdated_distributions=what_changed['p_global'],
+            #                                                   cached_prior=self.prior_p_families,
+            #                                                   broadcast=True)
+            #
+            # elif prior_type == 'counts_and_universal':
+            #     s = self.prior_p_families_meta['strength']
+            #     c_pseudocounts = self.prior_p_families_meta['counts']
+            #     c_universal = s * sample.p_global
+            #
+            #     self.prior_p_families_distr = \
+            #         inheritance_counts_to_dirichlet(counts=c_universal + c_pseudocounts,
+            #                                         states=self.prior_p_families_meta['states'],
+            #                                         outdated_features=what_changed['p_global'],
+            #                                         dirichlet=self.prior_p_families_distr)
+            #
+            #     prior_p_families = prior_p_families_dirichlet(p_families=sample.p_families,
+            #                                                   dirichlet=self.prior_p_families_distr,
+            #                                                   states=self.prior_p_families_meta['states'],
+            #                                                   outdated_indices=what_changed['p_families'],
+            #                                                   outdated_distributions=what_changed['p_global'],
+            #                                                   cached_prior=self.prior_p_families,
+            #                                                   broadcast=False)
 
             else:
                 raise ValueError('prior_p_families must be "uniform" or "counts"')
@@ -938,7 +950,7 @@ class PriorPGlobal(DirichletPrior):
 
     class TYPES(Enum):
         UNIFORM = 'uniform'
-        COUNTS = 'counts'
+        DIRICHLET = 'dirichlet'
 
     def parse_attributes(self, config):
         _, n_features, n_states = self.data.features.shape
@@ -947,14 +959,15 @@ class PriorPGlobal(DirichletPrior):
             self.counts = np.full(shape=(n_features, n_states),
                                   fill_value=self.initial_counts)
 
-        elif config['type'] == 'counts':
-            self.prior_type = self.TYPES.COUNTS
-            if config['scale_counts'] is not None:
-                self.data.prior_universal['counts'] = scale_counts(counts=self.data.prior_universal['counts'],
-                                                                   scale_to=config['scale_counts'])
-            self.counts = self.initial_counts + self.data.prior_universal['counts']
-            self.dirichlet = counts_to_dirichlet(self.counts,
-                                                 self.data.states)
+        elif config['type'] == 'dirichlet':
+            self.prior_type = self.TYPES.DIRICHLET
+            # todo: finish prior
+            # if config['scale_counts'] is not None:
+            #     self.data.prior_universal['counts'] = scale_counts(counts=self.data.prior_universal['counts'],
+            #                                                        scale_to=config['scale_counts'])
+            # self.counts = self.initial_counts + self.data.prior_universal['counts']
+            # self.dirichlet = counts_to_dirichlet(self.counts,
+            #                                      self.data.states)
 
         else:
             raise ValueError(self.invalid_prior_message(config['type']))
@@ -1002,49 +1015,50 @@ class PriorPFamilies(DirichletPrior):
         COUNTS_AND_UNIVERSAL = 'counts_and_universal'
 
     def parse_attributes(self, config):
-        if config['type'] == 'uniform':
-            n_families, _ = self.data.families.shape
-            _, n_features, n_states = self.data.features.shape
+        for fam in config:
+            if config[fam]['type'] == 'uniform':
+                n_families, _ = self.data.families.shape
+                _, n_features, n_states = self.data.features.shape
 
-            self.prior_type = self.TYPES.UNIFORM
-            self.counts = np.full(shape=(n_families, n_features, n_states),
-                                  fill_value=self.initial_counts)
+                self.prior_type = self.TYPES.UNIFORM
+                self.counts = np.full(shape=(n_families, n_features, n_states),
+                                      fill_value=self.initial_counts)
 
-        elif config['type'] == 'universal':
-            self.prior_type = self.TYPES.UNIVERSAL
-            self.strength = config['scale_counts']
-            # self.states = self.data.state_names['internal']
+            elif config['type'] == 'universal':
+                self.prior_type = self.TYPES.UNIVERSAL
+                self.strength = config['scale_counts']
+                # self.states = self.data.state_names['internal']
 
-        elif config['type'] == 'counts':
-            self.prior_type = self.TYPES.COUNTS
+            elif config['type'] == 'counts':
+                self.prior_type = self.TYPES.COUNTS
 
-            if config['scale_counts'] is not None:
-                self.data.prior_inheritance['counts'] = scale_counts(
-                    counts=self.data.prior_inheritance['counts'],
-                    scale_to=config['scale_counts'],
-                    prior_inheritance=True
+                if config['scale_counts'] is not None:
+                    self.data.prior_inheritance['counts'] = scale_counts(
+                        counts=self.data.prior_inheritance['counts'],
+                        scale_to=config['scale_counts'],
+                        prior_inheritance=True
+                    )
+                self.counts = self.initial_counts + self.data.prior_inheritance['counts']
+                self.dirichlet = inheritance_counts_to_dirichlet(
+                    counts=self.counts,
+                    states=self.states
                 )
-            self.counts = self.initial_counts + self.data.prior_inheritance['counts']
-            self.dirichlet = inheritance_counts_to_dirichlet(
-                counts=self.counts,
-                states=self.states
-            )
-            # self.states = self.data.state_names['internal']
+                # self.states = self.data.state_names['internal']
 
-        elif config['type'] == 'counts_and_universal':
-            self.prior_type = self.TYPES.COUNTS_AND_UNIVERSAL
+            elif config['type'] == 'counts_and_universal':
+                self.prior_type = self.TYPES.COUNTS_AND_UNIVERSAL
 
-            if config['scale_counts'] is not None:
-                self.data.prior_inheritance['counts'] = scale_counts(
-                    counts=self.data.prior_inheritance['counts'],
-                    scale_to=config['scale_counts'],
-                    prior_inheritance=True
-                )
-            # self.counts = self.initial_counts + self.data.prior_inheritance['counts']
-            self.strength = config['scale_counts']
-            # self.states = self.data.prior_inheritance['states']
-        else:
-            raise ValueError(self.invalid_prior_message(config['type']))
+                if config['scale_counts'] is not None:
+                    self.data.prior_inheritance['counts'] = scale_counts(
+                        counts=self.data.prior_inheritance['counts'],
+                        scale_to=config['scale_counts'],
+                        prior_inheritance=True
+                    )
+                # self.counts = self.initial_counts + self.data.prior_inheritance['counts']
+                self.strength = config['scale_counts']
+                # self.states = self.data.prior_inheritance['states']
+            else:
+                raise ValueError(self.invalid_prior_message(config['type']))
 
     def is_outdated(self, sample):
         """Check whether the cached prior_p_families is up-to-date or needs to be recomputed."""
@@ -1134,10 +1148,11 @@ def evaluate_size_prior(zones, size_prior_type):
     n_zones, n_sites = zones.shape
     sizes = np.sum(zones, axis=-1)
 
-    if size_prior_type == 'uniform':
+    if size_prior_type == 'uniform_size':
         # P(size)   =   uniform
         # P(zone | size)   =   1 / |{zones of size k}|   =   1 / (n choose k)
         logp = -np.sum(log_binom(n_sites, sizes))
+    # Todo: quadratic in manual
     elif size_prior_type == 'quadratic':
         # Here we assume that only a quadratically growing subset of zones is plausibly
         # permitted the likelihood and/or geo-prior.
@@ -1149,7 +1164,7 @@ def evaluate_size_prior(zones, size_prior_type):
         # log_plausible_zones = np.minimum(np.log(sizes**2), log_possible_zones)
 
         logp = -np.sum(log_plausible_zones)
-    elif size_prior_type == 'none':
+    elif size_prior_type == 'uniform_area':
         # No size prior
         # P(zone | size) = P(zone) = const.
         logp = 0.
