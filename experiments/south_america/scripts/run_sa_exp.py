@@ -21,13 +21,17 @@ if __name__ == '__main__':
     # Log
     dat.log_loading()
 
-    NUMBER_AREAS = range(0, 8)
+    if isinstance(exp.config['model']['areas'], list):
+        NUMBER_AREAS = exp.config['model']['areas']
+    else:
+        NUMBER_AREAS = [exp.config['model']['areas']]
 
     # Rerun experiment to check for consistency
-    for run in range(exp.config['mcmc']['N_RUNS']):
+    for run in range(exp.config['mcmc']['runs']):
         for N in NUMBER_AREAS:
+
             # Update config information according to the current setup
-            exp.config['model']['N_AREAS'] = N
+            exp.config['model']['areas'] = N
 
             # MCMC
             mc = MCMC(data=dat, experiment=exp)
