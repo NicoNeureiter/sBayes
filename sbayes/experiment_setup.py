@@ -6,6 +6,7 @@ import json
 import logging
 import os
 import warnings
+import pycldf
 
 try:
     import importlib.resources as pkg_resources     # PYTHON >= 3.7
