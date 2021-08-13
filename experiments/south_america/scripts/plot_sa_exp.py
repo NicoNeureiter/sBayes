@@ -3,14 +3,16 @@
 import warnings
 from sbayes.plot import Plot
 
-warnings.simplefilter(action='ignore', category=UserWarning)
+# warnings.simplefilter(action='ignore', category=UserWarning)
 warnings.simplefilter(action='ignore', category=FutureWarning)
-warnings.simplefilter(action='ignore', category=RuntimeWarning)
+# warnings.simplefilter(action='ignore', category=RuntimeWarning)
 
 if __name__ == '__main__':
     results_per_model = {}
+
     plot = Plot()
-    plot.load_config(config_file='../results/scaled_prior/config_plot.json')
+    plot.load_config(config_file='../results/scaled_prior/config_plot_new.json')
+
     plot.read_data()
 
     # Get model names
@@ -29,5 +31,5 @@ if __name__ == '__main__':
         # # Collect all models for DIC plot
         results_per_model[m] = plot.results
 
-    # Plot DIC over all models
-    plot.plot_dic(results_per_model, file_name='dic')
+    # # Plot DIC over all models
+    # plot.plot_dic(results_per_model, file_name='dic')

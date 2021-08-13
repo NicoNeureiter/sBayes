@@ -11,7 +11,7 @@ if __name__ == '__main__':
         # 1. Initialize the experiment
         exp = Experiment()
         exp.load_config(config_file='experiments/simulation/sim_exp2/config.json',
-                        custom_settings={'model': {'INHERITANCE': IN}})
+                        custom_settings={'model': {'inheritance': IN}})
         exp.log_experiment()
 
         # 2. Simulate contact areas
@@ -24,7 +24,7 @@ if __name__ == '__main__':
         mc.log_setup()
 
         # Rerun experiment to check for consistency
-        for run in range(exp.config['mcmc']['N_RUNS']):
+        for run in range(exp.config['mcmc']['n_runs']):
 
             # 4. Sample from posterior
             mc.warm_up()

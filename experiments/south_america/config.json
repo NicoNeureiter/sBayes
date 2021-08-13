@@ -1,0 +1,76 @@
+{
+	"data": {
+		"features": "data/features/features.csv",
+		"feature_states": "data/features/feature_states.csv",
+		"projection": "+proj=eqdc +lat_0=-32 +lon_0=-60 +lat_1=-5 +lat_2=-42 +x_0=0 +y_0=0 +ellps=aust_SA +units=m +no_defs "
+	},
+	"model": {
+		"areas": 5,
+		"languages_per_area": {
+			"min": 3,
+			"max": 50
+		},
+		"inheritance": true,
+		"sample_source": true,
+		"prior": {
+			"geo": {
+				"type": "uniform"
+			},
+			"area_size": {
+				"type": "uniform_size"
+			},
+			"weights": {
+				"type": "uniform"
+			},
+			"universal": {
+				"type": "uniform"
+			},
+			"inheritance": {
+				"Arawak": {
+					"type": "uniform"
+				},
+				"Panoan": {
+					"type": "uniform"
+				},
+				"Quechuan": {
+					"type": "uniform"
+				},
+				"Tacanan": {
+					"type": "uniform"
+				},
+				"Tucanoan": {
+					"type": "uniform"
+				},
+				"Tupian": {
+					"type": "uniform"
+				}
+			},
+			"contact": {
+				"type": "uniform"
+			}
+		}
+	},
+	"mcmc": {
+		"steps": 10000,
+		"samples": 100,
+		"runs": 1,
+		"grow_to_adjacent": 0.85,
+		"operators": {
+			"area": 5,
+			"weights": 40,
+			"universal": 5,
+			"contact": 30,
+			"inheritance": 10,
+			"source": 10
+		},
+		"init_lang_per_area": 5,
+		"warmup": {
+			"warmup_steps": 1000,
+			"warmup_chains": 3
+		}
+	},
+	"results": {
+		"path": "results",
+		"log_file": true
+	}
+}

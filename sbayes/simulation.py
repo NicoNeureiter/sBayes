@@ -27,7 +27,7 @@ class Simulation:
         self.path_log = experiment.path_results / 'experiment.log'
         self.config = experiment.config['simulation']
 
-        self.sites_file = experiment.config['simulation']['SITES']
+        self.sites_file = experiment.config['simulation']['sites']
         self.log_read_sites = None
 
         # Simulated parameters
@@ -55,7 +55,7 @@ class Simulation:
         self.is_simulated = True
 
         # Correlation between features
-        self.corr_th = experiment.config['simulation']['CORRELATION_THRESHOLD']
+        self.corr_th = experiment.config['simulation']['correlation_threshold']
         self.n_correlated = n_correlated
 
     def log_simulation(self):
@@ -64,20 +64,20 @@ class Simulation:
         logging.info("SIMULATION")
         logging.info("##########################################")
         logging.info(self.log_read_sites)
-        logging.info("Inheritance is simulated: %s", self.config['INHERITANCE'])
-        logging.info("Simulated features: %s", self.config['N_FEATURES'])
-        logging.info("Simulated intensity for universal pressure: %s", self.config['I_UNIVERSAL'])
-        logging.info("Simulated intensity for contact: %s", self.config['I_CONTACT'])
-        logging.info("Simulated intensity for inheritance: %s", self.config['I_INHERITANCE'])
-        logging.info("Simulated level of entropy for universal pressure: %s", self.config['E_UNIVERSAL'])
-        logging.info("Simulated level of entropy for contact: %s", self.config['E_CONTACT'])
-        logging.info("Simulated level of entropy for inheritance: %s", self.config['E_INHERITANCE'])
-        logging.info("Simulated area: %s", self.config['AREA'])
+        logging.info("Inheritance is simulated: %s", self.config['inheritance'])
+        logging.info("Simulated features: %s", self.config['n_features'])
+        logging.info("Simulated intensity for universal pressure: %s", self.config['i_universal'])
+        logging.info("Simulated intensity for contact: %s", self.config['i_contact'])
+        logging.info("Simulated intensity for inheritance: %s", self.config['i_inheritance'])
+        logging.info("Simulated level of entropy for universal pressure: %s", self.config['e_universal'])
+        logging.info("Simulated level of entropy for contact: %s", self.config['e_contact'])
+        logging.info("Simulated level of entropy for inheritance: %s", self.config['e_inheritance'])
+        logging.info("Simulated area: %s", self.config['area'])
 
     def run_simulation(self):
 
-        self.inheritance = self.config['INHERITANCE']
-        self.subset = self.config['SUBSET']
+        self.inheritance = self.config['inheritance']
+        self.subset = self.config['subset']
 
         # Get sites
         self.sites, self.site_names, self.log_read_sites = read_sites(file=self.sites_file,
@@ -85,7 +85,7 @@ class Simulation:
                                                                       retrieve_subset=self.subset)
 
         self.network = compute_network(self.sites)
-        self.areas = assign_area(area_id=self.config['AREA'], sites_sim=self.sites)
+        self.areas = assign_area(area_id=self.config['area'], sites_sim=self.sites)
 
         # Simulate families
         if self.inheritance:
@@ -94,11 +94,11 @@ class Simulation:
             self.families = None
 
         # Simulate weights, i.e. the influence of universal pressure, contact and inheritance on each feature
-        self.weights = simulate_weights(i_universal=self.config['I_UNIVERSAL'],
-                                        i_contact=self.config['I_CONTACT'],
-                                        i_inheritance=self.config['I_INHERITANCE'],
+        self.weights = simulate_weights(i_universal=self.config['i_universal'],
+                                        i_contact=self.config['i_contact'],
+                                        i_inheritance=self.config['i_inheritance'],
                                         inheritance=self.inheritance,
-                                        n_features=self.config['N_FEATURES'])
+                                        n_features=self.config['n_features'])
         attempts = 0
         while True:
             attempts += 1
@@ -106,12 +106,12 @@ class Simulation:
             # Simulate probabilities for features to be universally preferred,
             # passed through contact (and inherited if available)
             self.p_universal, self.p_contact, self.p_inheritance \
-                = simulate_assignment_probabilities(e_universal=self.config['E_UNIVERSAL'],
-                                                    e_contact=self.config['E_CONTACT'],
-                                                    e_inheritance=self.config['E_INHERITANCE'],
+                = simulate_assignment_probabilities(e_universal=self.config['e_universal'],
+                                                    e_contact=self.config['e_contact'],
+                                                    e_inheritance=self.config['e_inheritance'],
                                                     inheritance=self.inheritance,
-                                                    n_features=self.config['N_FEATURES'],
-                                                    p_number_categories=self.config['P_N_CATEGORIES'],
+                                                    n_features=self.config['n_features'],
+                                                    p_number_categories=self.config['p_n_categories'],
                                                     areas=self.areas, families=self.families)
 
             correlated = assess_correlation_probabilities(self.p_universal, self.p_contact, self.p_inheritance,
@@ -154,4 +154,3 @@ class Simulation:
 
         geo_cost_matrix = self.network['dist_mat']
         self.geo_prior = {'cost_matrix': geo_cost_matrix}
-        

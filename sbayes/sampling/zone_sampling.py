@@ -8,7 +8,7 @@ import numpy as np
 import scipy.stats as stats
 
 from sbayes.sampling.mcmc_generative import MCMCGenerative
-from sbayes.model import normalize_weights
+from sbayes.model import normalize_weights, PFamiliesPrior
 from sbayes.util import get_neighbours, normalize, dirichlet_pdf, get_max_size_list
 from sbayes.preprocessing import sample_categorical
 
@@ -78,6 +78,12 @@ class Sample(object):
         self.what_changed = {}
         self.everything_changed()
 
+    @classmethod
+    def empty_sample(cls):
+        initial_sample = cls(zones=None, weights=None, p_global=None, p_zones=None, p_families=None)
+        initial_sample.everything_changed()
+        return initial_sample
+
     def everything_changed(self):
         self.what_changed = {
             'lh': {'zones': IndexSet(), 'weights': True,
@@ -120,7 +126,6 @@ class ZoneMCMC(MCMCGenerative):
 
         # Data
         self.features = self.data.features
-        self.n_features = self.features.shape[1]
         self.applicable_states = self.data.states
         self.n_states_by_feature = np.sum(self.data.states, axis=-1)
 
@@ -130,23 +135,31 @@ class ZoneMCMC(MCMCGenerative):
         self.locations = self.network['locations']
 
         # Sampling
-        self.n_sites = self.adj_mat.shape[0]
         self.p_grow_connected = p_grow_connected
 
         # Zone size /initial sample
-        self.n_zones = self.model.n_zones
         self.min_size = self.model.min_size
         self.max_size = self.model.max_size
-        self.initial_sample = initial_sample
         self.initial_size = initial_size
+        if initial_sample is None:
+            self.initial_sample = Sample.empty_sample()
+        else:
+            self.initial_sample = initial_sample
 
         # Is inheritance (information on language families) available?
         self.inheritance = self.model.inheritance
         self.families = self.data.families
 
-        # Families
+
+        self.n_sites = self.features.shape[0]
+        self.n_features = self.features.shape[1]
+        self.n_zones = self.model.n_zones
         if self.inheritance:
             self.n_families = self.families.shape[0]
+            self.n_sources = 3
+        else:
+            self.n_families = None
+            self.n_sources = 2
 
         # Variance of the proposal distribution
         # Todo: complete transition to Gibbs
@@ -166,11 +179,14 @@ class ZoneMCMC(MCMCGenerative):
                               }
 
     def gibbs_sample_sources(self, sample: Sample, as_gibbs=True,
-                             sites_subset=None):
+                             site_subset=slice(None)):
         """Resample the of observations to mixture components (their source).
 
         Args:
             sample (Sample): The current sample with zones and parameters.
+            as_gibbs (bool): Flag indicating whether this is a pure Gibbs operator (the
+                default) or whether it is used as part of a non-Gibbs operator.
+            site_subset (slice or np.array[bool]): A subset of sites to be updated.
 
         Returns:
             Sample: The modified sample
@@ -184,10 +200,10 @@ class ZoneMCMC(MCMCGenerative):
         weights = likelihood.update_weights(sample=sample)
 
         # The source posterior is defined by the (normalized) product of weights and lh
-        source_posterior = normalize(lh_per_component * weights, axis=-1)
+        source_posterior = normalize(lh_per_component[site_subset] * weights[site_subset], axis=-1)
 
         # Sample the new source assignments
-        sample.source = sample_categorical(p=source_posterior, binary_encoding=True)
+        sample.source[site_subset] = sample_categorical(p=source_posterior, binary_encoding=True)
 
         # # Some validity checks
         # lh = likelihood.update_component_likelihoods(sample=sample, caching=False)
@@ -200,8 +216,8 @@ class ZoneMCMC(MCMCGenerative):
             return sample, self.Q_GIBBS, self.Q_BACK_GIBBS
         else:
             # If part of another (non-Gibbs) operator, we need the correct hastings factor:
-            log_q_per_observation = np.sum(sample.source * source_posterior, axis=2)
-            log_q = np.sum(np.log(log_q_per_observation))
+            is_source = np.where(sample.source[site_subset].ravel())
+            log_q = np.sum(np.log(source_posterior.ravel()[is_source]))
             return sample, log_q, 0
 
     def gibbs_sample_weights(self, sample: Sample):
@@ -294,10 +310,8 @@ class ZoneMCMC(MCMCGenerative):
 
         # Compute old and new weight likelihoods (for each feature)
         log_lh_old_per_site = np.log(np.sum(sample.source * w_normalized, axis=-1))
-        # log_lh_old_per_site = np.log(np.einsum('ijk,ijk->ij', sample.source, w_normalized))
         log_lh_old = np.sum(log_lh_old_per_site, axis=0)
         log_lh_new_per_site = np.log(np.sum(sample_new.source * w_new_normalized, axis=-1))
-        # log_lh_new_per_site = np.log(np.einsum('ijk,ijk->ij', sample_new.source, w_new_normalized))
         log_lh_new = np.sum(log_lh_new_per_site, axis=0)
 
         # Add the prior to get the weight posterior (for each feature)
@@ -311,14 +325,11 @@ class ZoneMCMC(MCMCGenerative):
         accept = np.random.random(p_accept.shape) < p_accept
         sample_new.weights = np.where(accept[:, np.newaxis], w_new, w)
 
-        # print(np.mean(accept))
-
         sample_new.weights = w_new
 
         # We already accepted/rejected for each feature independently
         # The result should always be accepted in the MCMC
         return sample_new, self.Q_GIBBS, self.Q_BACK_GIBBS
-
 
     def gibbs_sample_p_global(self, sample: Sample, fraction_of_features=0.4):
         feature_subset = np.random.random(self.n_features) < fraction_of_features
@@ -330,7 +341,12 @@ class ZoneMCMC(MCMCGenerative):
 
         # Get the prior (pseudo-)counts from the data
         prior = self.posterior_per_chain[sample.chain].prior
-        prior_counts = prior._prior_p_global.counts
+        prior_counts = prior.prior_p_global.counts
+
+        if self.inheritance and prior.prior_p_families.prior_type is PFamiliesPrior.TYPES.UNIVERSAL:
+            raise NotImplementedError('The operator <gibbs_sample_p_global> is not adapted to a universal prior '
+                                      'on p_families yet. Please use the <alter_p_global> operator instead.')
+            # TODO If p_family has a universal prior, it should affect p_global in sampling.
 
         # Resample p_global according to these observations
         for i_feat_subset, i_feat in enumerate(np.argwhere(feature_subset)):
@@ -380,7 +396,7 @@ class ZoneMCMC(MCMCGenerative):
 
         # Get the prior (pseudo-)counts from the data
         prior = self.posterior_per_chain[sample.chain].prior
-        prior_counts = prior._prior_p_families.counts[i_family]
+        prior_counts = prior.prior_p_families.counts[i_family]
 
         # Resample p_families according to these observations
         for i_feat_subset, i_feat in enumerate(np.argwhere(feature_subset)):
@@ -600,28 +616,38 @@ class ZoneMCMC(MCMCGenerative):
 
         return sample_new, log_q, log_q_back
 
-    def gibbsish_sample_zones(self, sample, resample_source=True):
+    def gibbsish_sample_zones_local(self, sample, resample_source=True):
+        return self.gibbsish_sample_zones(sample,
+                                          resample_source=resample_source,
+                                          site_subset=get_neighbours)
+
+    def gibbsish_sample_zones(self, sample, c=0, resample_source=True, site_subset=None):
         sample_new = sample.copy()
         likelihood = self.posterior_per_chain[sample.chain].likelihood
         occupied = np.any(sample.zones, axis=0)
+
+        # Randomly choose one of the zones to modify
+        z_id = np.random.choice(range(sample.zones.shape[0]))
+        zone = sample.zones[z_id, :]
+        available = ~occupied | zone
+
+        # if site_subset is not None:
+        #     new_candidates &= (site_subset(zone, occupied, self.adj_mat) | zone)
+        n_available = np.count_nonzero(available)
+        if n_available > 100:
+            available[available] &= np.random.random(n_available) < (100/n_available)
+            n_available = np.count_nonzero(available)
+
+        if n_available == 0:
+            return sample, self.Q_REJECT, self.Q_BACK_REJECT
 
         if self.model.sample_source and resample_source:
             likelihood = self.posterior_per_chain[sample.chain].likelihood
             lh_per_component = likelihood.update_component_likelihoods(sample=sample, caching=False)
             weights = likelihood.update_weights(sample=sample)
-            source_posterior = normalize(lh_per_component * weights, axis=-1)
-            q_per_observation = np.sum(sample.source * source_posterior, axis=2)
-            log_q_back_s = np.sum(np.log(q_per_observation))
-
-        # Randomly choose one of the zones to modify
-        z_id = np.random.choice(range(sample.zones.shape[0]))
-        zone = sample.zones[z_id, :]
-        available = (~occupied) | zone
-        # available[available] &= np.random.random(np.count_nonzero(available)) < 0.3
-
-        n_available = np.count_nonzero(available)
-        if n_available == 0:
-            return sample, self.Q_REJECT, self.Q_BACK_REJECT
+            source_posterior = normalize(lh_per_component[available] * weights[available], axis=-1)
+            is_source = np.where(sample.source[available].ravel())
+            log_q_back_s = np.sum(np.log(source_posterior.ravel()[is_source]))
 
         # Compute lh per language with and without zone
         global_lh = likelihood.get_global_lh(sample)[available, :]
@@ -639,9 +665,12 @@ class ZoneMCMC(MCMCGenerative):
         else:
             has_components = np.ones((n_available, 2), dtype=bool)
 
-        weights_with_z = normalize_weights(sample.weights[np.newaxis, :, :], has_components)
+        universe_for_orphans = self.model.likelihood.missing_family_as_universal
+        weights_with_z = normalize_weights(sample.weights, has_components,
+                                           missing_family_as_universal=universe_for_orphans)
         has_components[:, 1] = False
-        weights_without_z = normalize_weights(sample.weights[np.newaxis, :, :], has_components)
+        weights_without_z = normalize_weights(sample.weights, has_components,
+                                              missing_family_as_universal=universe_for_orphans)
 
         feature_lh_with_z = np.sum(all_lh * weights_with_z, axis=-1)
         feature_lh_without_z = np.sum(all_lh * weights_without_z, axis=-1)
@@ -654,9 +683,17 @@ class ZoneMCMC(MCMCGenerative):
 
         sample_new.zones[z_id, available] = new_zone
 
+        # Reject when an area outside the valid size range is proposed
+        new_area_size = np.sum(sample_new.zones[z_id])
+        max_size = self.max_size[c] if self.IS_WARMUP else self.max_size
+        if not (self.min_size <= new_area_size <= max_size):
+            return sample, self.Q_REJECT, self.Q_BACK_REJECT
+
         q_per_site = posterior_zone * new_zone + (1 - posterior_zone) * (1 - new_zone)
         log_q = np.sum(np.log(q_per_site))
         q_back_per_site = posterior_zone * zone[available] + (1 - posterior_zone) * (1 - zone[available])
+        if np.any(q_back_per_site == 0):
+            return sample, self.Q_REJECT, self.Q_BACK_REJECT
         log_q_back = np.sum(np.log(q_back_per_site))
 
         sample_new.what_changed['lh']['zones'].add(z_id)
@@ -665,7 +702,8 @@ class ZoneMCMC(MCMCGenerative):
         sample.what_changed['prior']['zones'].add(z_id)
 
         if self.model.sample_source and resample_source:
-            sample_new, log_q_s, _ = self.gibbs_sample_sources(sample_new, as_gibbs=False)
+            sample_new, log_q_s, _ = self.gibbs_sample_sources(sample_new, as_gibbs=False,
+                                                               site_subset=available)
             log_q += log_q_s
             log_q_back += log_q_back_s
 
@@ -688,8 +726,10 @@ class ZoneMCMC(MCMCGenerative):
             lh_per_component = likelihood.update_component_likelihoods(sample=sample, caching=False)
             weights = likelihood.update_weights(sample=sample)
             source_posterior = normalize(lh_per_component * weights, axis=-1)
-            q_per_observation = np.sum(sample.source * source_posterior, axis=2)
-            log_q_back_s = np.sum(np.log(q_per_observation))
+            # q_per_observation = np.sum(sample.source * source_posterior, axis=2)
+            # log_q_back_s = np.sum(np.log(q_per_observation))
+            is_source = np.where(sample.source.ravel())
+            log_q_back_s = np.sum(np.log(source_posterior.ravel()[is_source]))
 
         # Randomly choose one of the zones to modify
         z_id = np.random.choice(range(sample.zones.shape[0]))
@@ -771,8 +811,10 @@ class ZoneMCMC(MCMCGenerative):
             lh_per_component = likelihood.update_component_likelihoods(sample=sample, caching=False)
             weights = likelihood.update_weights(sample=sample)
             source_posterior = normalize(lh_per_component * weights, axis=-1)
-            q_per_observation = np.sum(sample.source * source_posterior, axis=2)
-            log_q_back_s = np.sum(np.log(q_per_observation))
+            # q_per_observation = np.sum(sample.source * source_posterior, axis=2)
+            # log_q_back_s = np.sum(np.log(q_per_observation))
+            is_source = np.where(sample.source.ravel())
+            log_q_back_s = np.sum(np.log(source_posterior.ravel()[is_source]))
 
         # Randomly choose one of the zones to modify
         z_id = np.random.choice(range(zones_current.shape[0]))
@@ -846,8 +888,10 @@ class ZoneMCMC(MCMCGenerative):
             lh_per_component = likelihood.update_component_likelihoods(sample=sample, caching=False)
             weights = likelihood.update_weights(sample=sample)
             source_posterior = normalize(lh_per_component * weights, axis=-1)
-            q_per_observation = np.sum(sample.source * source_posterior, axis=2)
-            log_q_back_s = np.sum(np.log(q_per_observation))
+            # q_per_observation = np.sum(sample.source * source_posterior, axis=2)
+            # log_q_back_s = np.sum(np.log(q_per_observation))
+            is_source = np.where(sample.source.ravel())
+            log_q_back_s = np.sum(np.log(source_posterior.ravel()[is_source]))
 
         # Randomly choose one of the zones to modify
         z_id = np.random.choice(range(zones_current.shape[0]))
@@ -1190,6 +1234,8 @@ class ZoneMCMC(MCMCGenerative):
 
         # Generate the initial source using a Gibbs sampling step
         if self.model.sample_source:
+            sample.source = np.empty((self.n_sites, self.n_features, self.n_sources),
+                                     dtype=bool)
             sample, _, _ = self.gibbs_sample_sources(sample)
 
         return sample
@@ -1221,11 +1267,39 @@ class ZoneMCMC(MCMCGenerative):
         fn_operators = []
         p_operators = []
 
-        for k, v in operators.items():
+        for k, v in self.parse_operator_weights(operators).items():
             fn_operators.append(getattr(self, k))
             p_operators.append(v)
 
         return fn_operators, p_operators
+
+    def parse_operator_weights(self, op_weights_raw):
+        """Assign step frequency per operator."""
+
+        op_weights = {
+            'shrink_zone': op_weights_raw['area'] * 0.4,
+            'grow_zone': op_weights_raw['area'] * 0.4,
+            'swap_zone': op_weights_raw['area'] * 0.2,
+            'gibbsish_sample_zones': op_weights_raw['area'] * 0.0
+        }
+
+        if self.model.sample_source:
+            op_weights.update({
+                'gibbs_sample_sources': op_weights_raw['source'],
+                'gibbs_sample_weights': op_weights_raw['weights'],
+                'gibbs_sample_p_global': op_weights_raw['universal'],
+                'gibbs_sample_p_zones': op_weights_raw['contact'],
+                'gibbs_sample_p_families': op_weights_raw['inheritance'],
+            })
+        else:
+            op_weights.update({
+                'alter_weights': op_weights_raw['weights'],
+                'alter_p_global': op_weights_raw['universal'],
+                'alter_p_zones': op_weights_raw['contact'],
+                'alter_p_families': op_weights_raw['inheritance'],
+            })
+
+        return op_weights
 
     def log_sample_statistics(self, sample, c, sample_id):
         super(ZoneMCMC, self).log_sample_statistics(sample, c, sample_id)
@@ -1252,20 +1326,26 @@ class ZoneMCMCWarmup(ZoneMCMC):
             k=self.n_chains
         )
 
-    def gibbs_sample_sources(self, sample, c=0, as_gibbs=True):
-        return super(ZoneMCMCWarmup, self).gibbs_sample_sources(sample, as_gibbs=True)
+    def gibbs_sample_sources(self, sample, c=0, as_gibbs=True, site_subset=slice(None)):
+        return super(ZoneMCMCWarmup, self).gibbs_sample_sources(
+            sample, as_gibbs=True, site_subset=site_subset
+        )
 
     def gibbs_sample_weights(self, sample, c=0):
         return super(ZoneMCMCWarmup, self).gibbs_sample_weights(sample)
 
-    def gibbs_sample_p_global(self, sample, c=0):
-        return super(ZoneMCMCWarmup, self).gibbs_sample_p_global(sample)
+    def gibbs_sample_p_global(self, sample, c=0, fraction_of_features=0.4):
+        return super(ZoneMCMCWarmup, self).gibbs_sample_p_global(
+            sample, fraction_of_features=fraction_of_features
+        )
 
-    def gibbs_sample_p_zones(self, sample, c=0):
-        return super(ZoneMCMCWarmup, self).gibbs_sample_p_zones(sample)
+    def gibbs_sample_p_zones(self, sample, i_zone=None, c=0):
+        return super(ZoneMCMCWarmup, self).gibbs_sample_p_zones(sample, i_zone=i_zone)
 
-    def gibbs_sample_p_families(self, sample, c=0):
-        return super(ZoneMCMCWarmup, self).gibbs_sample_p_families(sample)
+    def gibbs_sample_p_families(self, sample, i_family=None, fraction_of_features=0.4, c=0):
+        return super(ZoneMCMCWarmup, self).gibbs_sample_p_families(
+            sample, i_family=i_family, fraction_of_features=fraction_of_features
+        )
 
     def alter_weights(self, sample, c=0):
         return super(ZoneMCMCWarmup, self).alter_weights(sample)
@@ -1276,10 +1356,12 @@ class ZoneMCMCWarmup(ZoneMCMC):
     def alter_p_zones(self, sample, c=0):
         return super(ZoneMCMCWarmup, self).alter_p_zones(sample)
 
-    def gibbsish_sample_zones(self, sample, c=0):
-        return super(ZoneMCMCWarmup, self).gibbsish_sample_zones(sample)
+    def gibbsish_sample_zones(self, sample, resample_source=True, site_subset=None, c=0):
+        return super(ZoneMCMCWarmup, self).gibbsish_sample_zones(
+            sample, resample_source=resample_source, c=c, site_subset=site_subset
+        )
 
-    def swap_zone(self, sample, c=0):
+    def swap_zone(self, sample, c=0, resample_source=True):
         """ This functions swaps sites in one of the zones of the current sample
         (i.e. in of the zones a site is removed and another one added)
         Args:
@@ -1291,6 +1373,16 @@ class ZoneMCMCWarmup(ZoneMCMC):
         sample_new = sample.copy()
         zones_current = sample.zones
         occupied = np.any(zones_current, axis=0)
+
+        if self.model.sample_source and resample_source:
+            likelihood = self.posterior_per_chain[sample.chain].likelihood
+            lh_per_component = likelihood.update_component_likelihoods(sample=sample, caching=False)
+            weights = likelihood.update_weights(sample=sample)
+            source_posterior = normalize(lh_per_component * weights, axis=-1)
+            # q_per_observation = np.sum(sample.source * source_posterior, axis=2)
+            # log_q_back_s = np.sum(np.log(q_per_observation))
+            is_source = np.where(sample.source.ravel())
+            log_q_back_s = np.sum(np.log(source_posterior.ravel()[is_source]))
 
         # Randomly choose one of the zones to modify
         z_id = np.random.choice(range(zones_current.shape[0]))
@@ -1352,14 +1444,14 @@ class ZoneMCMCWarmup(ZoneMCMC):
         log_q = np.log(q)
         log_q_back = np.log(q_back)
 
-        if self.model.sample_source:
-            sample_new, log_q_s, log_q_back_s = self.gibbs_sample_sources(sample_new, as_gibbs=False)
+        if self.model.sample_source and resample_source:
+            sample_new, log_q_s, _ = self.gibbs_sample_sources(sample_new, as_gibbs=False)
             log_q += log_q_s
             log_q_back += log_q_back_s
 
         return sample_new, log_q, log_q_back
 
-    def grow_zone(self, sample, c=0):
+    def grow_zone(self, sample, c=0, resample_source=True):
         """ This functions grows one of the zones in the current sample (i.e. it adds a new site to one of the zones)
         Args:
             sample(Sample): The current sample with zones and weights.
@@ -1370,6 +1462,16 @@ class ZoneMCMCWarmup(ZoneMCMC):
         sample_new = sample.copy()
         zones_current = sample.zones
         occupied = np.any(zones_current, axis=0)
+
+        if self.model.sample_source and resample_source:
+            likelihood = self.posterior_per_chain[sample.chain].likelihood
+            lh_per_component = likelihood.update_component_likelihoods(sample=sample, caching=False)
+            weights = likelihood.update_weights(sample=sample)
+            source_posterior = normalize(lh_per_component * weights, axis=-1)
+            # q_per_observation = np.sum(sample.source * source_posterior, axis=2)
+            # log_q_back_s = np.sum(np.log(q_per_observation))
+            is_source = np.where(sample.source.ravel())
+            log_q_back_s = np.sum(np.log(source_posterior.ravel()[is_source]))
 
         # Randomly choose one of the zones to modify
         z_id = np.random.choice(range(zones_current.shape[0]))
@@ -1422,14 +1524,14 @@ class ZoneMCMCWarmup(ZoneMCMC):
         log_q = np.log(q)
         log_q_back = np.log(q_back)
 
-        if self.model.sample_source:
-            sample_new, log_q_s, log_q_back_s = self.gibbs_sample_sources(sample_new, as_gibbs=False)
+        if self.model.sample_source and resample_source:
+            sample_new, log_q_s, _ = self.gibbs_sample_sources(sample_new, as_gibbs=False)
             log_q += log_q_s
             log_q_back += log_q_back_s
 
         return sample_new, log_q, log_q_back
 
-    def shrink_zone(self, sample, c=0):
+    def shrink_zone(self, sample, c=0, resample_source=True):
         """ This functions shrinks one of the zones in the current sample (i.e. it removes one site from one zone)
 
         Args:
@@ -1440,6 +1542,16 @@ class ZoneMCMCWarmup(ZoneMCMC):
         """
         sample_new = sample.copy()
         zones_current = sample.zones
+
+        if self.model.sample_source and resample_source:
+            likelihood = self.posterior_per_chain[sample.chain].likelihood
+            lh_per_component = likelihood.update_component_likelihoods(sample=sample, caching=False)
+            weights = likelihood.update_weights(sample=sample)
+            source_posterior = normalize(lh_per_component * weights, axis=-1)
+            # q_per_observation = np.sum(sample.source * source_posterior, axis=2)
+            # log_q_back_s = np.sum(np.log(q_per_observation))
+            is_source = np.where(sample.source.ravel())
+            log_q_back_s = np.sum(np.log(source_posterior.ravel()[is_source]))
 
         # Randomly choose one of the zones to modify
         z_id = np.random.choice(range(zones_current.shape[0]))
@@ -1490,8 +1602,8 @@ class ZoneMCMCWarmup(ZoneMCMC):
         log_q = np.log(q)
         log_q_back = np.log(q_back)
 
-        if self.model.sample_source:
-            sample_new, log_q_s, log_q_back_s = self.gibbs_sample_sources(sample_new, as_gibbs=False)
+        if self.model.sample_source and resample_source:
+            sample_new, log_q_s, _ = self.gibbs_sample_sources(sample_new, as_gibbs=False)
             log_q += log_q_s
             log_q_back += log_q_back_s
 

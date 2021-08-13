@@ -24,10 +24,20 @@ DEFAULT_CONFIG_SIMULATION = json.loads(pkg_resources.read_text(config, 'default_
 
 
 class Experiment:
+
     def __init__(self, experiment_name="default", config_file: typing.Optional[str] = None, log=False):
+        """sBayes experiment class. Takes care of loading and verifying the config file,
+        handling paths, setting up logging...
+        Attributes:
+            experiment_name (str): The name of the experiment run (= name of results folder)
+            config_file (Path): The path to the config_file.
+            config (dict): The config parsed into a python dictionary.
+            base_directory (Path): The directory containing the config file.
+            path_results (Path): The path to the results folder.
+            logger (logging.Logger): The logger used throughout the run of the experiment."""
 
         # Naming and shaming
-        if experiment_name == "default":
+        if experiment_name is None:
             self.experiment_name = set_experiment_name()
         else:
             self.experiment_name = experiment_name
@@ -36,6 +46,8 @@ class Experiment:
         self.config = {}
         self.base_directory = None
         self.path_results = None
+
+        self.logger = self.init_logger()
 
         if config_file is not None:
             self.load_config(config_file)
@@ -55,8 +67,10 @@ class Experiment:
         # Load defaults
         set_defaults(self.config, DEFAULT_CONFIG)
         if 'simulation' in self.config:
-            self.config['data'].pop("features")
-            self.config['data'].pop("feature_states")
+
+            self.config['data'].pop('features')
+            self.config['data'].pop('feature_states')
+
             set_defaults(self.config['simulation'], DEFAULT_CONFIG_SIMULATION)
 
         if custom_settings is not None:
@@ -78,6 +92,8 @@ class Experiment:
         if not os.path.exists(self.path_results):
             os.makedirs(self.path_results)
 
+        self.add_logger_file(self.path_results)
+
     @staticmethod
     def decompose_config_path(config_path):
         abs_config_path = Path(config_path).absolute()
@@ -89,10 +105,10 @@ class Experiment:
         the config file directory.
 
         Args:
-            path (str): The original path (absolute or relative).
+            path (Path or str): The original path (absolute or relative).
 
         Returns:
-            str: The fixed path.
+            Path: The fixed path.
          """
         path = Path(path)
         if path.is_absolute():
@@ -112,7 +128,8 @@ class Experiment:
             required_priors.append('inheritance')
         else:
             if 'inheritance' in priors_cfg:
-                warnings.warn("Inheritance is not considered in the model. A prior for inheritance "
+
+                warnings.warn("Inheritance is not considered in the model. Prior for inheritance "
                               + f"defined in {self.config_file} will not be used.")
                 priors_cfg['inheritance'] = None
 
@@ -192,30 +209,10 @@ class Experiment:
         self.config['data']['features'] = self.fix_relative_path(self.config['data']['features'])
         self.config['data']['feature_states'] = self.fix_relative_path(self.config['data']['feature_states'])
 
-        # TODO: take care of simulation
-        # elif type(self.config['data']) == str:
-        #     # TODO: type comparison is considered bad form in Python. What to
-        #     # use instead?
-        #
-        #     self.config['data'] = {
-        #         'simulated': False,
-        #         'cldf_dataset': pycldf.StructureDataset.from_metadata(
-        #             self.base_directory / self.config['data']
-        #         ),
-        #     }
-        # if 'simulated' not in self.config['data']:
-        #     self.config['data']['simulated'] = False
-        # Todo consider cldf
-        # if 'cldf_dataset' in self.config['data']:
-        #     self.config['data']['cldf_dataset'] = pycldf.StructureDataset.from_metadata(
-        #     self.base_directory / self.config['data'])
-
-        # Todo: take care of simulation
-        # # SIMULATION
-        # if self.is_simulation():
-        #     self.config['simulation']['SITES'] = self.fix_relative_path(self.config['simulation']['SITES'])
-        #     if type(self.config['simulation']['AREA']) is list:
-        #         self.config['simulation']['AREA'] = tuple(self.config['simulation']['AREA'])
+        if self.is_simulation():
+            self.config['simulation']['sites'] = self.fix_relative_path(self.config['simulation']['sites'])
+            if type(self.config['simulation']['area']) is list:
+                self.config['simulation']['area'] = tuple(self.config['simulation']['area'])
 
         # Model
         if 'model' not in self.config:
@@ -261,12 +258,37 @@ class Experiment:
             if 'path' not in self.config['results']:
                 self.config['results']['path'] = "results"
 
+            if 'simulated' not in self.config['data']:
+                self.config['data']['simulated'] = False
+
+            if not self.config['data']['simulated']:
+                if 'cldf_dataset' in self.config['data']:
+                    self.config['data']['cldf_dataset'] = pycldf.StructureDataset.from_metadata(
+                        self.base_directory / self.config['data']
+                    )
+                else:
+                    if not self.config['data']['features']:
+                        raise NameError("features is empty. Provide file paths to features file (e.g. features.csv)")
+                    else:
+                        self.config['data']['features'] = self.fix_relative_path(self.config['data']['features'])
+                    if not self.config['data']['feature_states']:
+                        raise NameError("feature_states is empty. Provide file paths to feature_states file (e.g. feature_states.csv)")
+                    else:
+                        self.config['data']['feature_states'] = self.fix_relative_path(self.config['data']['feature_states'])
+
+    def init_logger(self):
+        logger = logging.Logger('sbayesLogger', level=logging.DEBUG)
+        logger.addHandler(logging.StreamHandler())
+        return logger
+
+    def add_logger_file(self, path_results):
+        log_path = path_results / 'experiment.log'
+        self.logger.addHandler(logging.FileHandler(filename=log_path))
+
+
     def log_experiment(self):
-        log_path = self.path_results / 'experiment.log'
-        logging.basicConfig(format='%(message)s', filename=log_path, level=logging.DEBUG)
-        logging.getLogger().addHandler(logging.StreamHandler())
-        logging.info("Experiment: %s", self.experiment_name)
-        logging.info("File location for results: %s", self.path_results)
+        self.logger.info("Experiment: %s", self.experiment_name)
+        self.logger.info("File location for results: %s", self.path_results)
 
 
 def set_defaults(cfg: dict, default_cfg: dict):

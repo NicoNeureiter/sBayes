@@ -21,14 +21,14 @@ if __name__ == '__main__':
 
     for N in NUMBER_AREAS:
         # Update config information according to the current setup
-        exp.config['model']['N_AREAS'] = N
+        exp.config['model']['n_areas'] = N
 
         # 3. Define MCMC
         mc = MCMC(data=sim, experiment=exp)
         mc.log_setup()
 
         # Rerun experiment to check for consistency
-        for run in range(exp.config['mcmc']['N_RUNS']):
+        for run in range(exp.config['mcmc']['n_runs']):
 
             # 4. Warm-up and sample from posterior
             mc.warm_up()

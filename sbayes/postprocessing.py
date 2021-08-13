@@ -269,9 +269,9 @@ def match_areas(samples):
 
 
 def contribution_per_area(mcmc_sampler):
-    """Evaluate the contribution of each zone to the lh and the posterior in each sample
+    """Evaluate the contribution of each zone to the lh and the posterior in each sample.
     Args:
-        mcmc_sampler(MCMC_generative): MCMC sampler for generative model (including samples)
+        mcmc_sampler (MCMC_generative): MCMC sampler for generative model (including samples)
     Returns:
         MCMC_generative: MCMC sampler including statistics on the likelihood and prior per zone
     """
@@ -281,8 +281,8 @@ def contribution_per_area(mcmc_sampler):
     stats['sample_posterior_single_zones'] = []
 
     # Iterate over all samples
-    for s in range(len(stats['sample_zones'])):
-
+    n_samples = len(stats['sample_zones'])
+    for s in range(n_samples):
         weights = stats['sample_weights'][s]
         p_global = stats['sample_p_global'][s]
         p_families = stats['sample_p_families'][s]
@@ -311,7 +311,6 @@ def contribution_per_area(mcmc_sampler):
         stats['sample_posterior_single_zones'].append(log_posterior)
 
     mcmc_sampler.statistics = stats
-    return mcmc_sampler
 
 
 def rank_areas(samples):
@@ -412,32 +411,3 @@ def unnest_marginal_lh(samples_in):
     return samples_out
 
 
-COL_WIDTHS = [20, 8, 8, 8, 10]
-
-
-def log_operator_statistics_header():
-    name_header = str.ljust('OPERATOR', COL_WIDTHS[0])
-    acc_header = str.ljust('ACCEPTS', COL_WIDTHS[1])
-    rej_header = str.ljust('REJECTS', COL_WIDTHS[2])
-    total_header = str.ljust('TOTAL', COL_WIDTHS[3])
-    acc_rate_header = 'ACC. RATE'
-
-    return '\t'.join([name_header, acc_header, rej_header, total_header, acc_rate_header])
-
-
-def log_operator_statistics(operator_name, mcmc_stats):
-    acc = mcmc_stats['accept_operator'][operator_name]
-    rej = mcmc_stats['reject_operator'][operator_name]
-    total = acc + rej
-
-    if total == 0:
-        row_strings = [operator_name, '-', '-', '-', '-']
-        return '\t'.join([str.ljust(x, COL_WIDTHS[i]) for i, x in enumerate(row_strings)])
-
-    name_str = str.ljust(operator_name, COL_WIDTHS[0])
-    acc_str = str.ljust(str(acc), COL_WIDTHS[1])
-    rej_str = str.ljust(str(rej), COL_WIDTHS[2])
-    total_str = str.ljust(str(total), COL_WIDTHS[3])
-    acc_rate_str = '%.2f%%' % (100*acc/total)
-
-    return '\t'.join([name_str, acc_str, rej_str, total_str, acc_rate_str])

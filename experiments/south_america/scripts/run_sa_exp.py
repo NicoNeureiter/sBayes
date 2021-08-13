@@ -2,6 +2,7 @@ from sbayes.experiment_setup import Experiment
 from sbayes.load_data import Data
 from sbayes.mcmc_setup import MCMC
 
+
 if __name__ == '__main__':
 
     # Initialize the experiment
@@ -44,3 +45,4 @@ if __name__ == '__main__':
             # Save samples to file
             mc.log_statistics()
             mc.save_samples(run=run)
+

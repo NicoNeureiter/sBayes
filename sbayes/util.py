@@ -402,9 +402,9 @@ def read_features_from_csv(file, feature_states_file):
     family_names_ordered = np.unique(family.dropna()).tolist()
     n_families = len(family_names_ordered)
 
-    families = np.zeros((n_families, n_sites), dtype=int)
+    families = np.zeros((n_families, n_sites), dtype=bool)
     for fam in range(n_families):
-        families[fam, np.where(family == family_names_ordered[fam])] = 1
+        families[fam, np.where(family == family_names_ordered[fam])] = True
 
     family_names = {'external': family_names_ordered,
                     'internal': list(range(n_families))}
@@ -677,7 +677,7 @@ def collect_gt_for_writing(samples, data, config):
         gt[w_contact_name] = samples['true_weights'][f][1]
 
         # inheritance
-        if config['model']['INHERITANCE']:
+        if config['model']['inheritance']:
             w_inheritance_name = 'w_inheritance_' + str(data.feature_names['external'][f])
             if w_inheritance_name not in gt_col_names:
                 gt_col_names += [w_inheritance_name]
@@ -704,7 +704,7 @@ def collect_gt_for_writing(samples, data, config):
                 gt[feature_name] = samples['true_p_zones'][a][f][st]
 
     # beta
-    if config['simulation']['INHERITANCE']:
+    if config['simulation']['inheritance']:
         for fam in range(len(data.family_names['external'])):
             for f in range(len(data.feature_names['external'])):
                 for st in range(len(data.state_names['external'][f])):
@@ -878,6 +878,7 @@ def samples2file(samples, data, config, paths):
 
     # Results
     steps_per_sample = float(config['mcmc']['steps'] / config['mcmc']['samples'])
+
     # Statistics
     try:
         writer = None

@@ -230,7 +230,9 @@ def subset_features(features, subset):
     return features[sub, :, :]
 
 
-def simulate_features(areas,  p_universal, p_contact, weights, inheritance, p_inheritance=None, families=None):
+def simulate_features(areas,  p_universal, p_contact, weights, inheritance,
+                      p_inheritance=None, families=None,
+                      missing_family_as_universal=False):
     """Simulate features for of all sites from the likelihood.
 
     Args:
@@ -247,7 +249,9 @@ def simulate_features(areas,  p_universal, p_contact, weights, inheritance, p_in
         weights (np.array): The mixture coefficient controlling how much each feature is explained
             by universal pressure, contact, and inheritance.
             shape: (n_features, 3)
-        inheritance(bool): Is inheritance (family membership) considered when simulating features?
+        inheritance (bool): Is inheritance (family membership) considered when simulating features?
+        missing_family_as_universal (bool): Add family weights to the universal distribution instead
+            of re-normalizing when family is absent.
 
     Returns:
         np.array: The sampled categories for all sites and features and states
@@ -272,8 +276,8 @@ def simulate_features(areas,  p_universal, p_contact, weights, inheritance, p_in
 
     # Normalize the weights for each site depending on whether areas or families are relevant for that site
     # Order of columns in weights: universal, contact, (inheritance if available)
-    weights = np.repeat(weights[np.newaxis, :, :], n_sites, axis=0)
-    normed_weights = normalize_weights(weights, assignment)
+    normed_weights = normalize_weights(weights, assignment,
+                                       missing_family_as_universal=missing_family_as_universal)
     normed_weights = np.transpose(normed_weights, (1, 0, 2))
 
     features = np.zeros((n_sites, n_features), dtype=int)
@@ -317,6 +321,7 @@ def simulate_features(areas,  p_universal, p_contact, weights, inheritance, p_in
     return features_states, applicable_states, feature_names, state_names
 
 
+EYES = {}
 def sample_categorical(p, binary_encoding=False):
     """Sample from a (multidimensional) categorical distribution. The
     probabilities for every category are given by `p`
@@ -325,21 +330,23 @@ def sample_categorical(p, binary_encoding=False):
         p (np.array): Array defining the probabilities of every category at
             every site of the output array. The last axis defines the categories
             and should sum up to 1.
-            shape: (*output_dims, n_categories)
+            shape: (*output_dims, n_states)
     Returns
         np.array: Samples of the categorical distribution.
             shape: output_dims
                 or
-            shape: (output_dims, n_categories)
+            shape: (output_dims, n_states)
     """
-    *output_dims, n_categories = p.shape
+    *output_dims, n_states = p.shape
 
     cdf = np.cumsum(p, axis=-1)
-    z = np.expand_dims(np.random.random(output_dims), axis=-1)
+    z = np.random.random(output_dims + [1])
 
     samples = np.argmax(z < cdf, axis=-1)
     if binary_encoding:
-        eye = np.eye(n_categories, dtype=bool)
+        if n_states not in EYES:
+            EYES[n_states] = np.eye(n_states, dtype=bool)
+        eye = EYES[n_states]
         return eye[samples]
     else:
         return samples
@@ -412,9 +419,9 @@ def assign_family(fam_id, sites_sim):
     n_sites = len(sites_sim['id'])
 
     # Assign family membership
-    families = np.zeros((n_families, n_sites), bool)
+    families = np.zeros((n_families, n_sites), dtype=bool)
     for k, z_id in enumerate(sites_in_families.values()):
-        families[k, z_id] = 1
+        families[k, z_id] = True
 
     family_names = {'external': ['fam' + str(s + 1) for s in range(families.shape[0])],
                     'internal': [s for s in range(families.shape[0])]}

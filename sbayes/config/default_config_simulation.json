@@ -1,19 +1,19 @@
 {
-	"SITES": "<REQUIRED>",
-	"N_FEATURES": 35,
-	"P_N_CATEGORIES": {
+	"sites": "<REQUIRED>",
+	"n_features": 35,
+	"p_n_categories": {
 		"2": 0.4,
 		"3": 0.3,
 		"4": 0.3
 	},
-	"E_UNIVERSAL": 1.0,
-	"E_CONTACT": "<REQUIRED>",
-	"E_INHERITANCE": 2.0,
-	"I_UNIVERSAL": 1.0,
-	"I_CONTACT": "<REQUIRED>",
-	"I_INHERITANCE": 0.2,
-	"INHERITANCE": "<REQUIRED>",
-	"SUBSET": false,
-	"AREA": "<REQUIRED>",
-	"CORRELATION_THRESHOLD": 0.3
+	"e_universal": 1.0,
+	"e_contact": "<REQUIRED>",
+	"e_inheritance": 2.0,
+	"i_universal": 1.0,
+	"i_contact": "<REQUIRED>",
+	"i_inheritance": 0.2,
+	"inheritance": "<REQUIRED>",
+	"subset": false,
+	"area": "<REQUIRED>",
+	"correlation_threshold": 0.3
 }

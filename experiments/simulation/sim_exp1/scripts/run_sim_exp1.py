@@ -19,10 +19,10 @@ if __name__ == '__main__':
         # Update config information according to the current setup
         custom_settings = {
             'simulation': {
-                'I_CONTACT': I_CONTACT[S[0]],
-                'E_CONTACT': E_CONTACT[S[0]],
+                'i_contact': I_CONTACT[S[0]],
+                'e_contact': E_CONTACT[S[0]],
                 'STRENGTH': S[0],
-                'AREA': S[1]}}
+                'area': S[1]}}
 
         # 1. Initialize the experiment
         exp = Experiment()
@@ -40,7 +40,7 @@ if __name__ == '__main__':
         mc.log_setup()
 
         # Rerun experiment to check for consistency
-        for run in range(exp.config['mcmc']['N_RUNS']):
+        for run in range(exp.config['mcmc']['n_runs']):
 
             # 4. Warm-up sampler and sample from posterior
             mc.warm_up()
