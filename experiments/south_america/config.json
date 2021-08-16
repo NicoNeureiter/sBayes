@@ -1,61 +1,76 @@
 {
-	"mcmc": {
-		"n_steps": 5000000,
-		"n_samples": 5000,
-		"n_runs": 1,
-		"p_grow_connected": 0.85,
-		"proposal_precision": {
-			"weights": 20,
-			"universal": 30,
-			"contact": 10,
-			"inheritance": 10
-		},
-		"steps": {
-			"area": 0.7,
-			"weights": 0.25,
-			"universal": 0.1,
-			"contact": 0.3,
-			"inheritance": 0.25,
-			"source": 0.2
-		},
-		"m_initial": 10,
-		"n_areas": "tbd",
-		"warm_up": {
-			"n_warm_up_steps": 100000,
-			"n_warm_up_chains": 15
-		}
+	"data": {
+		"features": "data/features/features.csv",
+		"feature_states": "data/features/feature_states.csv",
+		"projection": "+proj=eqdc +lat_0=-32 +lon_0=-60 +lat_1=-5 +lat_2=-42 +x_0=0 +y_0=0 +ellps=aust_SA +units=m +no_defs "
 	},
 	"model": {
-		"min_m": 3,
-		"n_areas": 5,
-		"max_m": 30,
+		"areas": 5,
+		"languages_per_area": {
+			"min": 3,
+			"max": 50
+		},
 		"inheritance": true,
+		"sample_source": true,
 		"prior": {
-			"geo": {"type": "uniform"},
-			"weights": {"type": "uniform"},
+			"geo": {
+				"type": "uniform"
+			},
+			"area_size": {
+				"type": "uniform_size"
+			},
+			"weights": {
+				"type": "uniform"
+			},
 			"universal": {
-				"type": "counts",
-				"file_type": "counts_file",
-				"file": "data/prior_universal/universal_counts.csv"
+				"type": "uniform"
 			},
 			"inheritance": {
-				"type": "counts",
-				"file_type": "counts_file",
-				"files": {
-					"Arawak": "data/prior_inheritance/arawak_counts.csv",
-					"Panoan": "data/prior_inheritance/panoan_counts.csv",
-					"Quechuan": "data/prior_inheritance/quechuan_counts.csv",
-					"Tucanoan": "data/prior_inheritance/tucanoan_counts.csv",
-					"Tupian": "data/prior_inheritance/tupian_counts.csv"
+				"Arawak": {
+					"type": "uniform"
 				},
-				"scale_counts": 10
+				"Panoan": {
+					"type": "uniform"
+				},
+				"Quechuan": {
+					"type": "uniform"
+				},
+				"Tacanan": {
+					"type": "uniform"
+				},
+				"Tucanoan": {
+					"type": "uniform"
+				},
+				"Tupian": {
+					"type": "uniform"
+				}
 			},
-			"contact": {"type": "uniform"}
+			"contact": {
+				"type": "uniform"
+			}
 		}
 	},
-	"data": {
-		"CRS": "+proj=eqdc +lat_0=-32 +lon_0=-60 +lat_1=-5 +lat_2=-42 +x_0=0 +y_0=0 +ellps=aust_SA +units=m +no_defs",
-		"features": "data/features/features.csv",
-		"feature_states": "data/features/feature_states.csv"
+	"mcmc": {
+		"steps": 10000,
+		"samples": 100,
+		"runs": 1,
+		"grow_to_adjacent": 0.85,
+		"operators": {
+			"area": 5,
+			"weights": 40,
+			"universal": 5,
+			"contact": 30,
+			"inheritance": 10,
+			"source": 10
+		},
+		"init_lang_per_area": 5,
+		"warmup": {
+			"warmup_steps": 1000,
+			"warmup_chains": 3
+		}
+	},
+	"results": {
+		"path": "results",
+		"log_file": true
 	}
 }

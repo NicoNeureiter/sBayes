@@ -1,48 +1,55 @@
 {
-	"mcmc": {
-		"n_steps": 1000000,
-		"n_samples": 1000,
-		"n_runs": 1,
-		"p_grow_connected": 0.85,
-		"proposal_precision": {
-			"weights": 15,
-			"universal": 40,
-			"contact": 20,
-			"inheritance": 20
-		},
-		"steps": {
-			"area": 0.05,
-			"weights": 0.4,
-			"universal": 0.05,
-			"contact": 0.4,
-			"inheritance": 0.1,
-			"source": 0.0
-		},
-		"m_initial": 5,
-		"warm_up": {
-			"n_warm_up_steps": 100000,
-			"n_warm_up_chains": 15
-		},
-		"sample_from_prior": false
+	"data": {
+		"features": "<REQUIRED>",
+		"feature_states": "<REQUIRED>",
+		"projection": "epsg:4326"
 	},
 	"model": {
-		"n_areas": "<REQUIRED>",
-		"min_m": 3,
-		"max_m": 50,
+		"areas": "<REQUIRED>",
+		"languages_per_area": {
+			"min": 3,
+			"max": 50
+		},
 		"inheritance": "<REQUIRED>",
 		"sample_source": true,
 		"prior": {
-			"geo": {"type": "uniform"},
-			"area_size": {"type":  "uniform_area"},
-			"weights": {"type": "uniform"},
-			"universal": {"type": "uniform"},
-			"inheritance": {"type": "uniform"},
-			"contact": {"type": "uniform"}
-		},
-		"missing_family_as_universal": false
+			"geo": {
+				"type": "uniform"
+			},
+			"area_size": {
+				"type": "uniform_size"
+			},
+			"weights": {
+				"type": "uniform"
+			},
+			"universal": "<REQUIRED>",
+			"inheritance": "<REQUIRED>",
+			"contact": {
+				"type": "uniform"
+			}
+		}
 	},
-	"data": {
-		"features": "<REQUIRED>",
-		"feature_states": "<REQUIRED>"
+	"mcmc": {
+		"steps": 1000000,
+		"samples": 1000,
+		"runs": 1,
+		"grow_to_adjacent": 0.85,
+		"operators": {
+			"area": 5,
+			"weights": 40,
+			"universal": 5,
+			"contact": 30,
+			"inheritance": 10,
+			"source": 10
+		},
+		"init_lang_per_area": 5,
+		"warmup": {
+			"warmup_steps": 100000,
+			"warmup_chains": 15
+		}
+	},
+	"results": {
+		"path": "results",
+		"log_file": true
 	}
 }

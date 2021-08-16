@@ -31,11 +31,13 @@ class Data:
         # Config file
         self.config = experiment.config
 
-        proj4_string = experiment.config['data'].get('CRS')
+        proj4_string = experiment.config['data'].get('projection')
         if proj4_string is None:
             self.crs = None
         else:
-            self.crs = pyproj.CRS(proj4_string)
+            self.crs = None
+            # todo install pyproj
+            #self.crs = pyproj.CRS(proj4_string)
 
         # Features to be imported
         self.sites = None
@@ -72,25 +74,31 @@ class Data:
     def load_universal_counts(self):
         config_universal = self.config['model']['prior']['universal']
 
-        if config_universal['type'] != 'counts':
-            # universal prior does not use counts -> nothing to do
+        if config_universal['type'] == 'uniform':
             return
 
-        counts, self.log_load_universal_counts = \
-            read_universal_counts(feature_names=self.feature_names,
-                                  state_names=self.state_names,
-                                  file=config_universal['file'],
-                                  file_type=config_universal['file_type'],
-                                  feature_states_file=self.config['data']['feature_states'])
+        if config_universal['type'] == 'dirichlet':
+            if 'parameters' in config_universal:
+                print("read parameters")
+            if 'file' in config_universal:
+                print("read file")
+            # TODO: read JSON
+            # counts, self.log_load_universal_counts = \
+            #     read_universal_counts(feature_names=self.feature_names,
+            #                           state_names=self.state_names,
+            #                           file=config_universal['file'],
+            #                           file_type=config_universal['file_type'],
+            #                           feature_states_file=self.config['data']['FEATURE_STATES'])
+            #
+            # self.prior_universal = {'counts': counts,
+            #                     'states': self.states}
 
-        self.prior_universal = {'counts': counts,
-                                'states': self.states}
+        # import pandas as pd
+        # n_states = counts.shape[-1]
+        # df = pd.DataFrame(counts,
+        #                   index=self.feature_names['external'])
+        # df.to_csv('universal_counts.csv')
 
-        import pandas as pd
-        n_states = counts.shape[-1]
-        df = pd.DataFrame(counts,
-                          index=self.feature_names['external'])
-        df.to_csv('universal_counts.csv')
 
     def load_inheritance_counts(self):
         if not self.config['model']['inheritance']:
@@ -98,20 +106,27 @@ class Data:
             return
 
         config_inheritance = self.config['model']['prior']['inheritance']
-        if config_inheritance['type'] != 'counts':
-            # Inheritance prior does not use counts -> nothing to do
-            return
 
-        counts, self.log_load_inheritance_counts = \
-            read_inheritance_counts(family_names=self.family_names,
-                                    feature_names=self.feature_names,
-                                    state_names=self.state_names,
-                                    files=config_inheritance['files'],
-                                    file_type=config_inheritance['file_type'],
-                                    feature_states_file=self.config['data']['feature_states'])
+        for fam in config_inheritance:
+            if config_inheritance[fam]['type'] == 'uniform':
+                return
+            if config_inheritance[fam]['type'] == 'dirichlet':
+                if 'parameters' in config_inheritance[fam]:
+                    print("read parameters")
+                if 'file' in config_inheritance[fam]:
+                    print("read file")
 
-        self.prior_inheritance = {'counts': counts,
-                                  'states': self.state_names['internal']}
+                # counts, self.log_load_inheritance_counts = \
+                #     read_inheritance_counts(family_names=self.family_names,
+                #                             feature_names=self.feature_names,
+                #                             state_names=self.state_names,
+                #                             files=config_inheritance['files'],
+                #                             file_type=config_inheritance['file_type'],
+                #                             feature_states_file=self.config['data']['FEATURE_STATES'])
+                #
+                # self.prior_inheritance = {'counts': counts,
+                #                           'states': self.state_names['internal']}
+
 
     def load_geo_cost_matrix(self):
 

@@ -1,8 +1,6 @@
-import csv
 import json
 import math
 import os
-from copy import deepcopy
 from itertools import compress
 from statistics import median
 import argparse
@@ -10,6 +8,7 @@ from pathlib import Path
 
 try:
     import importlib.resources as pkg_resources     # PYTHON >= 3.7
+
 except ImportError:
     import importlib_resources as pkg_resources     # PYTHON < 3.7
 
@@ -31,7 +30,7 @@ from shapely import geometry
 from shapely.ops import cascaded_union, polygonize
 
 from sbayes.postprocessing import compute_dic
-from sbayes.preprocessing import compute_network, read_sites, assign_family
+from sbayes.preprocessing import read_sites, assign_family
 from sbayes.util import add_edge, compute_delaunay
 from sbayes.util import fix_default_config
 from sbayes.util import gabriel_graph_from_delaunay
@@ -43,38 +42,27 @@ from sbayes import config
 
 DEFAULT_CONFIG = json.loads(pkg_resources.read_text(config, 'default_config_plot.json'))
 
-class Plot:
-    def __init__(self, simulated_data=False):
 
-        # Flag for simulation
-        self.is_simulation = simulated_data
+class Plot:
+    def __init__(self):
 
         # Config variables
         self.config = {}
         self.config_file = None
 
         # Path variables
-        self.path_output = None
         self.path_features = None
         self.path_feature_states = None
-        self.path_sites = None
         self.path_plots = None
 
         self.path_areas = None
         self.path_stats = None
 
-        if self.is_simulation:
-            self.path_ground_truth_areas = None
-            self.path_ground_truth_stats = None
-
-        self.number_features = 0
-
-        # Input sites, site_names, network, ...
+        # Input sites, site_names, locations, ...
         self.sites = None
         self.site_names = None
-        self.network = None
         self.locations = None
-        self.dist_mat = None
+
         self.families = None
         self.family_names = None
 
@@ -85,39 +73,13 @@ class Plot:
         plt.style.use('seaborn-paper')
         # plt.tight_layout()
 
-        # Copy-pasted from Map
-        self.base_directory = None
-
         # Path to all default configs
         self.config_default = "config/plotting"
-
-        self.geo_config = {}
-        self.content_config = {}
-
-        self.legend_config = {}
-        self.graphic_config = {}
-        self.ground_truth_config = {}
-        self.output_config = {}
-
-        # Figure parameters
-        self.ax = None
-        self.ax_legend = None
-        self.fig = None
-        self.x_min = self.x_max = self.y_min = self.y_max = None
-        self.bbox = None
-
-        self.all_labels = []
-        self.area_labels = []
-
-        # Additional parameters
-        self.world = None
-        self.rivers = None
-
-    # From plot_setup:
 
     ####################################
     # Configure the parameters
     ####################################
+
     def load_config(self, config_file):
         # Get parameters from config_custom (for particular experiment)
         self.base_directory, self.config_file = self.decompose_config_path(config_file)
@@ -135,6 +97,12 @@ class Plot:
         # Verify config
         self.verify_config()
 
+        if not self.config['map']['geo']['map_projection']:
+            self.config['map']['geo']['map_projection'] = self.config['data']['projection']
+
+        if self.config['map']['content']['type'] == 'density_map':
+            self.config['map']['legend']['correspondence']['color_labels'] = False
+
         # NN TODO: This is fixing relative paths from experiment_setup.py. Needs some
         #          adaptation here and in config files.
         # # Set results path
@@ -151,33 +119,17 @@ class Plot:
         #
         # self.add_logger_file(self.path_results)
 
+
         # Assign global variables for more convenient workflow
-        self.path_output = self.config['output_folder']
-        if self.is_simulation:
-            self.path_sites = self.config['data']['sites']
-        else:
-            self.path_features = self.config['data']['features']
-            self.path_feature_states = self.config['data']['feature_states']
+        self.path_plots = self.config['results']['path_out']
+        self.path_features = self.config['data']['features']
+        self.path_feature_states = self.config['data']['feature_states']
 
-        self.path_plots = self.path_output + '/plots'
-        self.path_areas = list(self.config['results']['areas'])
-        self.path_stats = list(self.config['results']['stats'])
-
-        if self.is_simulation:
-            self.path_ground_truth_areas = self.config['results']['ground_truth_areas']
-            self.path_ground_truth_stats = self.config['results']['ground_truth_stats']
+        self.path_areas = list(self.config['results']['path_in']['areas'])
+        self.path_stats = list(self.config['results']['path_in']['stats'])
 
         if not os.path.exists(self.path_plots):
             os.makedirs(self.path_plots)
-
-        # Store some config parameters in attributes for convenience
-        self.content_config = self.config['map']['content']
-        self.graphic_config = self.config['map']['graphic']
-        self.legend_config = self.config['map']['legend']
-        self.output_config = self.config['map']['output']
-        self.geo_config = self.config['map']['geo']
-        if self.is_simulation:
-            self.ground_truth_config = self.config['map']['ground_truth']
 
     @staticmethod
     def convert_config(d):
@@ -231,20 +183,12 @@ class Plot:
     def read_data(self):
 
         print('Reading input data...')
-        if self.is_simulation:
-
-            self.sites, self.site_names, _ = read_sites(self.path_sites,
-                                                        retrieve_family=True, retrieve_subset=True)
-            self.families, self.family_names = assign_family(1, self.sites)
-        else:
-            self.sites, self.site_names, _, _, _, _, self.families, self.family_names, _ = \
-                read_features_from_csv(self.path_features, self.path_feature_states)
-        self.network = compute_network(self.sites)
-        self.locations, self.dist_mat = self.network['locations'], self.network['dist_mat']
+        self.sites, self.site_names, _, _, _, _, self.families, self.family_names, _ =\
+            read_features_from_csv(self.path_features, self.path_feature_states)
+        self.locations = self.sites['locations']
 
     # Read areas
     # Read the data from the files:
-    # ground_truth/areas.txt
     # <experiment_path>/areas_<scenario>.txt
     @staticmethod
     def read_areas(txt_path):
@@ -278,13 +222,6 @@ class Plot:
 
                     # Add each item in parsed_area_columns to the corresponding array in result
                     for j in range(len(parsed_sample)):
-                        # todo: fix
-                        # # For ground truth
-                        # if len(parsed_sample) == 1:
-                        #     result[j] = parsed_sample[j]
-
-                        # # For all samples
-                        # else:
                         result[j].append(parsed_sample[j])
 
         return result
@@ -292,90 +229,38 @@ class Plot:
     # Helper function for read_stats
     # Used for reading: weights, alpha, beta, gamma
     @staticmethod
-    def read_dictionary(dataframe, search_key, ground_truth=False):
+    def read_dictionary(dataframe, search_key):
         param_dict = {}
         for column_name in dataframe.columns:
             if column_name.startswith(search_key):
                 param_dict[column_name] = dataframe[column_name].to_numpy(dtype=float)
-                if ground_truth:
-                    assert param_dict[column_name].shape == (1,)
-                    param_dict[column_name] = param_dict[column_name][0]
 
         return param_dict
 
     # Helper function for read_stats
-    # Used for reading: true_posterior, true_likelihood, true_prior,
-    # true_weights, true_alpha, true_beta, true_gamma,
-    # recall, precision
-    @staticmethod
-    def read_simulation_stats(txt_path, dataframe):
-        if 'ground_truth' in txt_path:
-            true_posterior = dataframe['posterior'][0]
-            true_likelihood = dataframe['likelihood'][0]
-            true_prior = dataframe['prior'][0]
-
-            true_weights = Plot.read_dictionary(dataframe, 'w_', ground_truth=True)
-            true_alpha = Plot.read_dictionary(dataframe, 'alpha_', ground_truth=True)
-            true_beta = Plot.read_dictionary(dataframe, 'beta_', ground_truth=True)
-            true_gamma = Plot.read_dictionary(dataframe, 'gamma_', ground_truth=True)
-
-            recall, precision = None, None
-
-        else:
-            recall = dataframe['recall'].to_numpy(dtype=int)
-            precision = dataframe['precision'].to_numpy(dtype=int)
-
-            true_weights, true_alpha, true_beta, true_gamma = None, None, None, None
-            true_posterior, true_likelihood, true_prior = None, None, None
-
-        return recall, precision, \
-            true_posterior, true_likelihood, true_prior, \
-            true_weights, true_alpha, true_beta, true_gamma
-
-    # Helper function for read_stats
     # Bind all statistics together into the dictionary self.results
-    def bind_stats(self, txt_path, sample_id, posterior, likelihood, prior,
+    def bind_stats(self, sample_id, posterior, likelihood, prior,
                    weights, alpha, beta, gamma,
-                   posterior_single_areas, likelihood_single_areas, prior_single_areas,
-                   recall, precision,
-                   true_posterior, true_likelihood, true_prior,
-                   true_weights, true_alpha, true_beta, true_gamma, feature_names):
-
-        if 'ground_truth' in txt_path:
-            self.results['true_posterior'] = true_posterior
-            self.results['true_likelihood'] = true_likelihood
-            self.results['true_prior'] = true_prior
-            self.results['true_weights'] = true_weights
-            self.results['true_alpha'] = true_alpha
-            self.results['true_beta'] = true_beta
-            self.results['true_gamma'] = true_gamma
-
-        else:
-            self.results['sample_id'] = sample_id
-            self.results['posterior'] = posterior
-            self.results['likelihood'] = likelihood
-            self.results['prior'] = prior
-            self.results['weights'] = weights
-            self.results['alpha'] = alpha
-            self.results['beta'] = beta
-            self.results['gamma'] = gamma
-            self.results['posterior_single_areas'] = posterior_single_areas
-            self.results['likelihood_single_areas'] = likelihood_single_areas
-            self.results['prior_single_areas'] = prior_single_areas
-            self.results['recall'] = recall
-            self.results['precision'] = precision
-            self.results['feature_names'] = feature_names
+                   posterior_single_areas, likelihood_single_areas, prior_single_areas, feature_names):
+        self.results['sample_id'] = sample_id
+        self.results['posterior'] = posterior
+        self.results['likelihood'] = likelihood
+        self.results['prior'] = prior
+        self.results['weights'] = weights
+        self.results['alpha'] = alpha
+        self.results['beta'] = beta
+        self.results['gamma'] = gamma
+        self.results['posterior_single_areas'] = posterior_single_areas
+        self.results['likelihood_single_areas'] = likelihood_single_areas
+        self.results['prior_single_areas'] = prior_single_areas
+        self.results['feature_names'] = feature_names
 
     # Read stats
     # Read the results from the files:
-    # ground_truth/stats.txt
     # <experiment_path>/stats_<scenario>.txt
-    def read_stats(self, txt_path, simulation_flag):
+    def read_stats(self, txt_path):
 
-        sample_id, recall, precision = None, None, None
-        true_posterior, true_likelihood, true_prior, true_weights = None, None, None, None
-        true_alpha, true_beta, true_gamma = None, None, None
-
+        sample_id = None
         # Load the stats using pandas
         df_stats = pd.read_csv(txt_path, delimiter='\t')
 
@@ -395,11 +280,6 @@ class Plot:
         likelihood_single_areas = Plot.read_dictionary(df_stats, 'lh_')
         prior_single_areas = Plot.read_dictionary(df_stats, 'prior_')
 
-        # For simulation runs: read statistics based on ground-truth
-        if simulation_flag:
-            recall, precision, true_posterior, true_likelihood, true_prior, \
-                true_weights, true_alpha, true_beta, true_gamma = Plot.read_simulation_stats(txt_path, df_stats)
-
         # Names of distinct features
         feature_names = []
         for key in weights:
@@ -407,10 +287,8 @@ class Plot:
                 feature_names.append(str(key).rsplit('_', 1)[1])
 
         # Bind all statistics together into the dictionary self.results
-        self.bind_stats(txt_path, sample_id, posterior, likelihood, prior, weights, alpha, beta, gamma,
-                        posterior_single_areas, likelihood_single_areas, prior_single_areas, recall, precision,
-                        true_posterior, true_likelihood, true_prior, true_weights, true_alpha, true_beta, true_gamma,
-                        feature_names)
+        self.bind_stats(sample_id, posterior, likelihood, prior, weights, alpha, beta, gamma,
+                        posterior_single_areas, likelihood_single_areas, prior_single_areas, feature_names)
 
     # Read results
     # Call all the previous functions
@@ -429,23 +307,7 @@ class Plot:
             path_stats = [p for p in self.path_stats if 'stats_' + str(model) + '_' in p][0]
 
         self.results['areas'] = self.read_areas(path_areas)
-        self.read_stats(path_stats, self.is_simulation)
-
-        # Read ground truth files
-        if self.is_simulation:
-
-            if model is None:
-                path_ground_truth_areas = self.path_ground_truth_areas
-                path_ground_truth_stats = self.path_ground_truth_stats
-
-            else:
-                path_ground_truth_areas = [p for p in self.path_ground_truth_areas if
-                                           str(model) + '/ground_truth/areas' in p][0]
-                path_ground_truth_stats = [p for p in self.path_ground_truth_stats if
-                                           str(model) + '/ground_truth/stats' in p][0]
-
-            self.results['true_zones'] = self.read_areas(path_ground_truth_areas)
-            self.read_stats(path_ground_truth_stats, self.is_simulation)
+        self.read_stats(path_stats)
 
     def get_model_names(self):
         last_part = [p.rsplit('/', 1)[-1] for p in self.path_areas]
@@ -471,56 +333,61 @@ class Plot:
                 else:
                     self.config[key] = new_config[key]
 
-    def style_axes(self):
-        """ Function to style the axes of a plot
+    @staticmethod
+    def get_extent(cfg_geo, locations):
+        if not cfg_geo['extent']['x']:
+            x_min, x_max = np.min(locations[:, 0]), np.max(locations[:, 0])
+            x_offset = (x_max - x_min) * 0.3
+            x_min = x_min - x_offset
+            x_max = x_max + x_offset
+        else:
+            x_min, x_max = cfg_geo['extent']['x']
 
-        Returns:
-            (tuple): Extend of plot.
-        """
+        if not cfg_geo['extent']['y']:
+            y_min, y_max = np.min(locations[:, 1]), np.max(locations[:, 1])
+            y_offset = (y_max - y_min) * 0.1
+            y_min = y_min - y_offset
+            y_max = y_max + y_offset
 
-        try:
+        else:
+            y_min, y_max = cfg_geo['extent']['y']
 
-            self.x_min, self.x_max = self.geo_config['x_extend']
-            self.y_min, self.y_max = self.geo_config['y_extend']
+        extent = {'x_min': x_min,
+                  'x_max': x_max,
+                  'y_min': y_min,
+                  'y_max': y_max}
 
-        except KeyError:
-            x_min, x_max = np.min(self.locations[:, 0]), np.max(self.locations[:, 0])
-            y_min, y_max = np.min(self.locations[:, 1]), np.max(self.locations[:, 1])
+        return extent
 
-            x_offset = (x_max - x_min) * 0.01
-            y_offset = (y_max - y_min) * 0.01
+    @staticmethod
+    def compute_bbox(extent):
+        bbox = geometry.Polygon([(extent['x_min'], extent['y_min']),
+                                 (extent['x_max'], extent['y_min']),
+                                 (extent['x_max'], extent['y_max']),
+                                 (extent['x_min'], extent['y_max']),
+                                 (extent['x_min'], extent['y_min'])])
+        return bbox
 
-            self.x_min = x_min + x_offset
-            self.x_max = x_max + x_offset
-            self.y_min = y_min - y_offset
-            self.y_max = y_max + y_offset
+    @staticmethod
+    def style_axes(extent, ax):
 
         # setting axis limits
-        self.ax.set_xlim([self.x_min, self.x_max])
-        self.ax.set_ylim([self.y_min, self.y_max])
+        ax.set_xlim([extent['x_min'], extent['x_max']])
+        ax.set_ylim([extent['y_min'], extent['y_max']])
 
         # Removing axis labels
-        self.ax.set_xticks([])
-        self.ax.set_yticks([])
+        ax.set_xticks([])
+        ax.set_yticks([])
 
-        # Bounding Box
-        self.bbox = geometry.Polygon([(self.x_min, self.y_min),
-                                      (self.x_max, self.y_min),
-                                      (self.x_max, self.y_max),
-                                      (self.x_min, self.y_max),
-                                      (self.x_min, self.y_min)])
-
-    def compute_alpha_shapes(self, sites, alpha_shape):
+    @staticmethod
+    def compute_alpha_shapes(points, alpha_shape):
 
         """Compute the alpha shape (concave hull) of a set of sites
         Args:
-            sites (np.array): subset of sites around which to create the alpha shapes (e.g. family, area, ...)
+            points (np.array): subset of locations around which to create the alpha shapes (e.g. family, area, ...)
             alpha_shape (float): parameter controlling the convexity of the alpha shape
         Returns:
             (polygon): the alpha shape"""
-
-        all_sites = self.locations
-        points = all_sites[sites[0]]
 
         tri = Delaunay(points, qhull_options="QJ Pp")
 
@@ -561,47 +428,11 @@ class Plot:
 
         return polygon
 
-    def add_area_boundary(self, is_in_area, annotation=None, color='#000000'):
-        """ Function to add bounding boxes around areas
-        Args:
-            is_in_area (np.array): Boolean array indicating if a point is in area.
-            annotation (string): If passed, area is annotated with this.
-            color (string): Color of area.
-        Returns:
-            legend_area: Legend.
-        """
-
-        # use form plotting param
-        font_size = 18
-        cp_locations = self.locations[is_in_area[0], :]
-
-        legend_area = None
-        if cp_locations.shape[0] > 0:  # at least one contact point in area
-
-            alpha_shape = self.compute_alpha_shapes(sites=[is_in_area],
-                                                    alpha_shape=self.ground_truth_config['area_alpha_shape'])
-
-            # smooth_shape = alpha_shape.buffer(100, resolution=16, cap_style=1, join_style=1, mitre_limit=5.0)
-            smooth_shape = alpha_shape.buffer(60, resolution=16, cap_style=1, join_style=1, mitre_limit=10.0)
-            # smooth_shape = alpha_shape
-            patch = PolygonPatch(smooth_shape, ec=color, lw=1, ls='-', alpha=1, fill=False,
-                                 zorder=1)
-            legend_area = self.ax.add_patch(patch)
-        else:
-            print('computation of bbox not possible because no contact points')
-
-        # only adding a label (numeric) if annotation turned on and more than one area
-        if annotation is not None:
-            x_coords, y_coords = cp_locations.T
-            x, y = np.mean(x_coords), np.mean(y_coords)
-            self.ax.text(x, y, annotation, fontsize=font_size, color=color)
-
-        return legend_area
-
-    def areas_to_graph(self, area):
+    @staticmethod
+    def areas_to_graph(area, locations_map_crs, cfg_content):
 
         # exclude burn-in
-        end_bi = math.ceil(len(area) * self.content_config['burn_in'])
+        end_bi = math.ceil(len(area) * cfg_content['burn_in'])
         area = area[end_bi:]
 
         # compute frequency of each point in area
@@ -609,22 +440,21 @@ class Plot:
         n_samples = area.shape[0]
 
         # Plot a density map or consensus map?
-
-        if self.content_config['type'] == 'density_map':
+        if cfg_content['type'] == 'density_map':
             in_graph = np.ones(area.shape[1], dtype=bool)
 
         else:
             area_freq = np.sum(area, axis=0) / n_samples
-            in_graph = area_freq >= self.content_config['min_posterior_frequency']
+            in_graph = area_freq >= cfg_content['min_posterior_frequency']
 
-        locations = self.locations[in_graph]
+        locations = locations_map_crs[in_graph]
         n_graph = len(locations)
 
         # getting indices of points in area
         area_indices = np.argwhere(in_graph)
 
         # For density map: plot all edges
-        if self.content_config['type'] == 'density_map':
+        if cfg_content['type'] == 'density_map':
 
             a = np.arange(area.shape[1])
             b = np.array(np.meshgrid(a, a))
@@ -654,356 +484,247 @@ class Plot:
             # count how often p0 and p1 are together in the posterior of the area
             p = [area_indices[index[0]][0], area_indices[index[1]][0]]
             together_in_area = np.sum(np.all(area[:, p], axis=1)) / n_samples
-            lines.append(self.locations[[*p]])
+            lines.append(locations_map_crs[[*p]])
             line_weights.append(together_in_area)
 
         return in_graph, lines, line_weights
 
-    ##############################################################
-    # New functions needed for plot_posterior_map
-    ##############################################################
+    # Reproject from data CRS to map CRD
+    def reproject_to_map_crs(self, map_proj):
 
-    ##############################################################
-    # Main initial functions for plot_posterior_map
-    ##############################################################
+        data_proj = self.config['data']['projection']
+
+        if map_proj != data_proj:
+
+            print(f'Reprojecting locations from {data_proj} to {map_proj}.')
+            loc = gpd.GeoDataFrame(geometry=gpd.points_from_xy(*self.locations.T), crs=data_proj)
+            loc_re = loc.to_crs(map_proj)
+
+            x_re = loc_re.geometry.x
+            y_re = loc_re.geometry.y
+            locations_reprojected = np.array(list(zip(x_re,y_re)))
+            return locations_reprojected
+        else:
+            return self.locations
 
     # Initialize the map
-    def initialize_map(self):
-        if self.legend_config['in_separate_axis']:
-            legend_width = self.legend_config['legend_width']
-            self.fig, (self.ax_legend, self.ax) = plt.subplots(
-                nrows=1, ncols=2,
-                figsize=(self.output_config['fig_width'],
-                         self.output_config['fig_height']),
-                gridspec_kw={'width_ratios': [legend_width, 1-legend_width]},
-            )
-            self.ax_legend.axis('off')
+    @staticmethod
+    def initialize_map(locations, cfg_graphic, ax):
 
-        else:
-            self.fig, self.ax = plt.subplots(
-                figsize=(self.output_config['fig_width'],
-                         self.output_config['fig_height'])
-            )
-            self.ax_legend = self.ax
+        ax.scatter(*locations.T, s=cfg_graphic['languages']['size'],
+                   c=cfg_graphic['languages']['color'], alpha=1, linewidth=0)
 
-        self.fig.tight_layout()
 
-        if self.content_config['subset']:
-            self.plot_subset()
+    # Add labels to languages in an area
+    def add_label(self, is_in_area, current_color, locations_map_crs, extent, ax):
 
-        self.ax.scatter(*self.locations.T, s=self.graphic_config['point_size'],
-                        c="darkgrey", alpha=1, linewidth=0)
-
-    ##############################################################
-    # Visualization functions for plot_posterior_map
-    ##############################################################
-    def add_color(self, i):
-        color = self.graphic_config['area_colors'][i]
-        return color
-
-    def add_label(self, is_in_area, current_color):
         # Find all languages in areas
-        loc_in_area = self.locations[is_in_area, :]
+        loc_in_area = locations_map_crs[is_in_area, :]
         labels_in_area = list(compress(self.sites['id'], is_in_area))
-        self.all_labels.append(labels_in_area)
 
         for loc in range(len(loc_in_area)):
-            # Add a label at a spatial offset, as defined in the config.
+
+            range_x = extent['x_max'] - extent['x_min']
+            range_y = extent['y_max'] - extent['y_min']
             x, y = loc_in_area[loc]
-            x += self.content_config['label_offset'][0]
-            y += self.content_config['label_offset'][1]
-
-            # Print label on the map
-            # TODO fontsize should be settable in the config file.
+            x += range_x/200
+            y += range_y/200
             anno_opts = dict(xy=(x, y), fontsize=10, color=current_color)
-            self.ax.annotate(labels_in_area[loc] + 1, **anno_opts)
+            ax.annotate(labels_in_area[loc] + 1, **anno_opts)
 
-    # Bind together the functions above
-    def visualize_areas(self):
-        self.all_labels = []
-        self.area_labels = []
-        legend_area_patches = []
+        return labels_in_area
 
-        # If likelihood for single areas are displayed: add legend entries with likelihood information per area
-        if self.legend_config['areas']['show_stats']:
 
-            self.add_likelihood_legend()
-            self.add_likelihood_info(legend_area_patches)
+    def visualize_areas(self, locations_map_crs, extent,
+                        cfg_content, cfg_graphic, cfg_legend, ax):
+        all_labels = []
+        # If log-likelihood is displayed: add legend entries with likelihood information per area
+        if cfg_legend['areas']['add'] and cfg_legend['areas']['log-likelihood']:
+            area_labels, legend_areas = self.add_log_likelihood_legend()
+
         else:
+            area_labels = []
+            legend_areas = []
             for i, _ in enumerate(self.results['areas']):
-                self.area_labels.append(f'$Z_{i + 1}$')
+                area_labels.append(f'$Z_{i + 1}$')
 
-        if self.content_config['type'] == 'density_map':
-            self.ax.scatter(*self.locations.T,
-                            s=self.graphic_config['point_size'], c="black")
+        # if self.content_config['type'] == 'density_map':
+        #     self.ax.scatter(*self.locations.T,
+        #                     s=self.graphic_config['point_size'], c="black")
 
         # Color areas
+
         for i, area in enumerate(self.results['areas']):
-            current_color = self.add_color(i)
 
             # This function computes a Gabriel graph for all points which are in the posterior with at least p_freq
-            in_graph, lines, line_w = self.areas_to_graph(area)
+            in_graph, lines, line_w = self.areas_to_graph(area, locations_map_crs, cfg_content)
 
-            if self.content_config['type'] == 'density_map':
+            current_color = cfg_graphic['areas']['color'][i]
+
+            if cfg_content['type'] == 'density_map':
+
                 for li in range(len(lines)):
-                    self.ax.plot(*lines[li].T, color=current_color, lw=line_w[li] * self.graphic_config['line_width'],
-                                 alpha=line_w[li])
+                    ax.plot(*lines[li].T, color=current_color, lw=line_w[li] * cfg_graphic['areas']['width'],
+                            alpha=line_w[li]*cfg_graphic['areas']['alpha'])
 
             else:
-                self.ax.scatter(*self.locations[in_graph].T, s=self.graphic_config['point_size'], c=current_color)
-
+                ax.scatter(*locations_map_crs[in_graph].T, s=cfg_graphic['areas']['size'], c=current_color)
                 for li in range(len(lines)):
-                    self.ax.plot(*lines[li].T, color=current_color, lw=line_w[li] * self.graphic_config['line_width'],
-                                 alpha=0.6)
+                    ax.plot(*lines[li].T, color=current_color,
+                            lw=line_w[li] * cfg_graphic['areas']['width'], alpha=cfg_graphic['areas']['alpha'])
 
             # This adds small lines to the legend (one legend entry per area)
             line_legend = Line2D([0], [0], color=current_color, lw=6, linestyle='-')
-            legend_area_patches.append(line_legend)
+            legend_areas.append(line_legend)
 
-            # Labels the languages in the areas
+            # Label the languages in the areas
+            if cfg_graphic['languages']['label']:
 
-            if self.content_config['label_languages']:
                 # Use neutral color for density map labels
-                if self.content_config['type'] == 'density_map':
+                if cfg_content['type'] == 'density_map':
                     current_color = "black"
 
-                self.add_label(in_graph, current_color)
+                all_labels.append(self.add_label(in_graph, current_color, locations_map_crs, extent, ax))
 
-        if self.is_simulation:
-            for i in self.results['true_zones']:
-                # Adds a bounding box for the ground truth areas
-                # showing if the algorithm has correctly identified them
-                self.add_area_boundary(i, color='#000000')
-
-        if self.legend_config['areas']['add_to_legend']:
+        if cfg_legend['areas']['add']:
             # add to legend
-            legend_areas = self.ax_legend.legend(
-                legend_area_patches,
-                self.area_labels,
-                title_fontsize=18,
-                title='Contact areas',
-                frameon=True,
-                edgecolor='#ffffff',
-                framealpha=1,
-                fontsize=16,
-                ncol=1,
-                columnspacing=1,
-                loc='upper left',
-                bbox_to_anchor=self.legend_config['areas']['position']
-            )
+            legend_areas = ax.legend(legend_areas, area_labels, title_fontsize=18, title='Contact areas',
+                                     frameon=True, edgecolor='#ffffff', framealpha=1, fontsize=16, ncol=1,
+                                     columnspacing=1, loc='upper left',
+                                     bbox_to_anchor=cfg_legend['areas']['position'])
+
+
             legend_areas._legend_box.align = "left"
+            ax.add_artist(legend_areas)
 
-            self.ax_legend.add_artist(legend_areas)
+        return all_labels
 
-    # TODO: This function should be rewritten in a nicer way; probably split into two functions,
-    #  or find a better way of dividing things into simulated and real
-    def color_families(self):
-        # Initialize empty legend handle
-        handles = []
+
+    def color_families(self, locations_maps_crs, cfg_graphic, cfg_legend, ax):
         family_array = self.family_names['external']
         families = self.families
 
+        # Initialize empty legend handle
+        handles = []
+
         # Iterate over all family names
         for i, family in enumerate(family_array):
-            family_color = self.graphic_config['family_colors'][i]
+            family_color = cfg_graphic['families']['color'][i]
             family_fill, family_border = family_color, family_color
 
             # Find all languages belonging to a family
             is_in_family = families[i] == 1
-            family_locations = self.locations[is_in_family, :]
+            family_locations = locations_maps_crs[is_in_family, :]
 
-            # For simulated data
-            if self.is_simulation:
-                alpha_shape = self.compute_alpha_shapes(sites=[is_in_family],
-                                                        alpha_shape=self.graphic_config['family_alpha_shape'])
-                smooth_shape = alpha_shape.buffer(60, resolution=16, cap_style=1, join_style=1, mitre_limit=5.0)
-                patch = PolygonPatch(smooth_shape, fc=family_fill, ec=family_border, lw=1, ls='-', alpha=1, fill=True,
-                                     zorder=-i)
-                self.ax.add_patch(patch)
+            # Adds a color overlay for each language in a family
+            ax.scatter(*family_locations.T, s=cfg_graphic['families']['size'],
+                       c=family_color, alpha=1, linewidth=0, zorder=-i, label=family)
 
-                # Add legend handle
-                handle = Patch(facecolor=family_color, edgecolor=family_color, label="simulated family")
+            # For languages with more than three members combine several languages in an alpha shape (a polygon)
+            if np.count_nonzero(is_in_family) > 3:
+                alpha_shape = self.compute_alpha_shapes(points=family_locations,
+                                                        alpha_shape=cfg_graphic['families']['shape'])
 
-                handles.append(handle)
+                # making sure that the alpha shape is not empty
+                if not alpha_shape.is_empty:
+                    smooth_shape = alpha_shape.buffer(cfg_graphic['families']['buffer'], resolution=16,
+                                                      cap_style=1, join_style=1,
+                                                      mitre_limit=5.0)
+                    patch = PolygonPatch(smooth_shape, fc=family_fill, ec=family_border,
+                                         lw=1, ls='-', alpha=1, fill=True, zorder=-i)
+                    ax.add_patch(patch)
 
-            # For real data
-            else:
+            # Add legend handle
+            handle = Patch(facecolor=family_color, edgecolor=family_color, label=family)
+            handles.append(handle)
 
-                # Adds a color overlay for each language in a family
-                self.ax.scatter(*family_locations.T, s=self.graphic_config['point_size'] * 15,
-                                c=family_color, alpha=1, linewidth=0, zorder=-i, label=family)
+        if cfg_legend['families']['add']:
 
-                # For languages with more than three members combine several languages in an alpha shape (a polygon)
-                if np.count_nonzero(is_in_family) > 3:
-                    alpha_shape = self.compute_alpha_shapes(sites=[is_in_family],
-                                                            alpha_shape=self.graphic_config['family_alpha_shape'])
+            legend_families = ax.legend(handles=handles, title='Language family', title_fontsize=18,
+                                        fontsize=16, frameon=True, edgecolor='#ffffff', framealpha=1,
+                                        ncol=1, columnspacing=1, loc='upper left',
+                                        bbox_to_anchor=cfg_legend['families']['position'])
+            ax.add_artist(legend_families)
 
-                    # making sure that the alpha shape is not empty
-                    if not alpha_shape.is_empty:
-                        smooth_shape = alpha_shape.buffer(40000, resolution=16,
-                                                          cap_style=1, join_style=1,
-                                                          mitre_limit=5.0)
-                        patch = PolygonPatch(smooth_shape, fc=family_fill, ec=family_border,
-                                             lw=1, ls='-', alpha=1, fill=True, zorder=-i)
-                        leg_family = self.ax.add_patch(patch)
-                        # TODO leg_family is unused. Was there a plan to use it?
-
-                # Add legend handle
-                handle = Patch(facecolor=family_color, edgecolor=family_color, label=family)
-
-                handles.append(handle)
-
-        if self.legend_config['families']['add_to_legend']:
-            if self.is_simulation:
-                # Define the legend
-                legend_families = self.ax_legend.legend(
-                    handles=handles,
-                    title_fontsize=16,
-                    fontsize=18,
-                    frameon=True,
-                    edgecolor='#ffffff',
-                    framealpha=1,
-                    ncol=1,
-                    columnspacing=1,
-                    handletextpad=2.3,
-                    loc='upper left',
-                    bbox_to_anchor=self.legend_config['families']['position']
-                )
-                self.ax_legend.add_artist(legend_families)
-
-            else:
-                legend_families = self.ax_legend.legend(
-                    handles=handles,
-                    title='Language family',
-                    title_fontsize=18,
-                    fontsize=16,
-                    frameon=True,
-                    edgecolor='#ffffff',
-                    framealpha=1,
-                    ncol=1,
-                    columnspacing=1,
-                    loc='upper left',
-                    bbox_to_anchor=self.legend_config['families']['position']
-                )
-                self.ax_legend.add_artist(legend_families)
-
-    def add_legend_lines(self):
+    @staticmethod
+    def add_legend_lines(cfg_graphic, cfg_legend, ax):
 
         # This adds a legend displaying what line width corresponds to
-        line_width = list(self.legend_config['posterior_frequency']['default_values'])
+        line_width = list(cfg_legend['lines']['reference_frequency'])
         line_width.sort(reverse=True)
 
         line_width_label = []
-        legend_line_width = []
+        leg_line_width = []
 
         # Iterates over all values in post_freq_lines and for each adds a legend entry
         for k in line_width:
             # Create line
             line = Line2D([0], [0], color="black", linestyle='-',
-                          lw=self.graphic_config['line_width'] * k)
-            legend_line_width.append(line)
+                          lw=cfg_graphic['areas']['width'] * k)
+
+            leg_line_width.append(line)
 
             # Add legend text
             prop_l = int(k * 100)
             line_width_label.append(f'{prop_l}%')
 
         # Adds everything to the legend
-        legend_line_width = self.ax_legend.legend(
-            legend_line_width,
-            line_width_label,
-            title_fontsize=18,
-            title='Frequency of edge in posterior',
-            frameon=True,
-            edgecolor='#ffffff',
-            framealpha=1,
-            fontsize=16,
-            ncol=1,
-            columnspacing=1,
-            loc='upper left',
-            bbox_to_anchor=self.legend_config['posterior_frequency']['position']
-        )
+        legend_line_width = ax.legend(leg_line_width, line_width_label, title_fontsize=18,
+                                      title='Frequency of edge in posterior', frameon=True, edgecolor='#ffffff',
+                                      framealpha=1, fontsize=16, ncol=1, columnspacing=1, loc='upper left',
+                                      bbox_to_anchor=cfg_legend['lines']['position'])
 
         legend_line_width._legend_box.align = "left"
-        self.ax_legend.add_artist(legend_line_width)
+        ax.add_artist(legend_line_width)
 
-    def add_secondary_legend(self):
+    def add_overview_map(self, locations_map_crs, extent, cfg_geo, cfg_graphic, cfg_legend, ax):
+        axins = inset_axes(ax, width=cfg_legend['overview']['width'],
+                           height=cfg_legend['overview']['height'],
+                           bbox_to_anchor=cfg_legend['overview']['position'],
+                           loc='lower left',
+                           bbox_transform=ax.transAxes)
+        axins.tick_params(labelleft=False, labelbottom=False, length=0)
 
-        x_unit = (self.x_max - self.x_min) / 100
-        y_unit = (self.y_max - self.y_min) / 100
-
-        if not self.is_simulation:
-            # if self.legend_config['areas']['add_to_legend']:
-            #     self.ax_legend.axhline(self.legend_config['areas']['position'][1],
-            #                            0.02, 0.20, lw=1.5, color="black")
-
-            self.ax_legend.add_patch(
-                patches.Rectangle(
-                    (self.x_min, self.y_min),
-                    x_unit * 25, y_unit * 100,
-                    color="white"
-                ))
-            # pass
+        # Map extend of the overview map
+        if not cfg_legend['overview']['extent']['x']:
+            x_spacing = (extent['x_max'] - extent['x_min']) * 0.9
+            x_min = extent['x_min'] - x_spacing
+            x_max = extent['x_max'] + x_spacing
         else:
-            self.ax_legend.add_patch(
-                patches.Rectangle(
-                    (self.x_min, self.y_min),
-                    x_unit * 55,
-                    y_unit * 30,
-                    color="white"
-                ))
+            x_min = cfg_legend['overview']['extent']['x'][0]
+            x_max = cfg_legend['overview']['extent']['x'][1]
 
-            # The legend looks a bit different, as it has to show both the inferred areas and the ground truth
-            self.ax_legend.annotate("INFERRED", (
-                self.x_min + x_unit * 3,
-                self.y_min + y_unit * 23), fontsize=20)
+        if not cfg_legend['overview']['extent']['y']:
+            y_spacing = (extent['y_max'] - extent['y_min']) * 0.9
+            y_min = extent['y_min'] - y_spacing
+            y_max = extent['y_max'] + y_spacing
 
-            self.ax_legend.annotate("GROUND TRUTH", (
-                self.x_min + x_unit * 38.5,
-                self.y_min + y_unit * 23), fontsize=20)
+        else:
+            y_min = cfg_legend['overview']['extent']['y'][0]
+            y_max = cfg_legend['overview']['extent']['y'][1]
 
-            self.ax_legend.axvline(self.x_min + x_unit * 37, 0.05, 0.18, lw=2, color="black")
 
-    def add_overview_map(self):
-        if not self.is_simulation:
-            axins = inset_axes(self.ax_legend,
-                               width=self.legend_config['overview']['width'],
-                               height=self.legend_config['overview']['height'],
-                               bbox_to_anchor=self.legend_config['overview']['position'],
-                               loc='lower left',
-                               bbox_transform=self.ax_legend.transAxes)
-            axins.tick_params(labelleft=False, labelbottom=False, length=0)
+        axins.set_xlim([x_min, x_max])
+        axins.set_ylim([y_min, y_max])
 
-            # Map extend of the overview map
-            if 'x_extend' in self.legend_config['overview']:
-                axins.set_xlim(self.legend_config['overview']['x_extend'])
+        overview_extent = {'x_min': x_min, 'x_max': x_max,
+                           'y_min': y_min, 'y_max': y_max}
 
-            else:
-                x_spacing = (self.x_max - self.x_min)
-                x_overview = [self.x_min - x_spacing, self.x_max + x_spacing]
-                axins.set_xlim(x_overview)
+        # Again, this function needs map data to display in the overview map.
+        bbox = self.compute_bbox(overview_extent)
+        self.add_background_map(bbox, cfg_geo, cfg_graphic, axins)
 
-            if 'y_extend' in self.legend_config['overview']:
-                axins.set_ylim(self.legend_config['overview']['y_extend'])
-            else:
-                y_spacing = (self.y_max - self.y_min)
-                y_overview = [self.y_min - y_spacing, self.y_max + y_spacing]
-                axins.set_ylim(y_overview)
+        # add overview to the map
+        axins.scatter(*locations_map_crs.T, s=cfg_graphic['languages']['size'] / 2,
+                      c=cfg_graphic['languages']['color'], alpha=1, linewidth=0)
 
-            # Again, this function needs map data to display in the overview map.
-            self.add_background_map(axins)
+        # adds a bounding box around the overview map
+        bbox_width = extent['x_max'] - extent['x_min']
+        bbox_height = extent['y_max'] - extent['y_min']
 
-            # add overview to the map
-            axins.scatter(*self.locations.T, s=self.graphic_config['point_size'] / 2, c="darkgrey",
-                          alpha=1, linewidth=0)
-
-            # adds a bounding box around the overview map
-
-            bbox_width = self.x_max - self.x_min
-            bbox_height = self.y_max - self.y_min
-
-            bbox = mpl.patches.Rectangle((self.x_min, self.y_min),
-                                         bbox_width, bbox_height, ec='k', fill=False, linestyle='-')
-            axins.add_patch(bbox)
+        bbox = mpl.patches.Rectangle((extent['x_min'], extent['y_min']),
+                                     bbox_width, bbox_height, ec='k', fill=False, linestyle='-')
+        axins.add_patch(bbox)
 
     # Helper function
     @staticmethod
@@ -1012,145 +733,77 @@ class Plot:
         a = x / 10 ** b
         return '%.2f \cdot 10^{%i}' % (a, b)
 
-    def add_likelihood_legend(self):
+    def add_log_likelihood_legend(self):
 
         # Legend for area labels
-        self.area_labels = ["      log-likelihood per area"]
+        area_labels = ["      log-likelihood per area"]
 
         lh_per_area = np.array(list(self.results['likelihood_single_areas'].values()), dtype=float)
         to_rank = np.mean(lh_per_area, axis=1)
         p = to_rank[np.argsort(-to_rank)]
 
         for i, lh in enumerate(p):
-            self.area_labels.append(f'$Z_{i + 1}: \, \;\;\; {int(lh)}$')
+            area_labels.append(f'$Z_{i + 1}: \, \;\;\; {int(lh)}$')
 
-    ##############################################################
-    # Additional things for plot_posterior_map
-    # (likelihood info box, background map, subset related stuff)
-    ##############################################################
-    # Add background map
-    def add_background_map(self, ax):
-        if self.geo_config['proj4'] is None or self.geo_config['base_map']['geojson_map'] is None:
-            raise Exception('If you want to use a map, provide a geojson and a crs!')
 
-        # Adds the geojson map provided by user as background map
-        self.world = gpd.read_file(self.geo_config['base_map']['geojson_map'])
-        self.world = self.world.to_crs(self.geo_config['proj4'])
-        # self.world = gpd.clip(self.world, self.bbox)
-        self.world.plot(ax=ax, color='w', edgecolor='black', zorder=-100000)
-
-    # Add rivers
-    def add_rivers(self, ax):
-        # The user can also provide river data. Looks good on a map :)
-        if self.geo_config['base_map']['geojson_river'] is not None:
-            self.rivers = gpd.read_file(self.geo_config['base_map']['geojson_river'])
-            self.rivers = self.rivers.to_crs(self.geo_config['proj4'])
-            self.rivers.plot(ax=ax, color=None, edgecolor="skyblue", zorder=-10000)
-
-    # Add likelihood info box
-    def add_likelihood_info(self, legend_area_patches):
         extra = patches.Rectangle((0, 0), 1, 1, fc="w", fill=False, edgecolor='none', linewidth=0)
-        legend_area_patches.append(extra)
+        # Line2D([0], [0], color=None, lw=6, linestyle='-')
 
-    # Load subset data
-    # Helper function for add_subset
-    def plot_subset(self):
-        # Get sites in subset
-        is_in_subset = [x == 1 for x in self.sites['subset']]
-        sites_all = deepcopy(self.sites)
-        # Get the relevant information for all sites in the subset (ids, names, ..)
-        for key in self.sites.keys():
-            if type(self.sites[key]) == list:
-                self.sites[key] = list(np.array(self.sites[key])[is_in_subset])
+        return area_labels, [extra]
+
+    @staticmethod
+    def add_background_map(bbox, cfg_geo, cfg_graphic, ax):
+        # Adds the geojson polygon geometries provided by the user as a background map
+        world = gpd.read_file(cfg_geo['base_map']['geojson_polygon'])
+        world = world.to_crs(cfg_geo['map_projection'])
+        world = gpd.clip(world, bbox)
+
+        cfg_polygon = cfg_graphic['base_map']['polygon']
+        world.plot(ax=ax, facecolor=cfg_polygon['color'],
+                   edgecolor=cfg_polygon['outline_color'],
+                   lw=cfg_polygon['outline_width'],
+                   zorder=-100000)
+
+    @staticmethod
+    def add_rivers(bbox, cfg_geo, cfg_graphic, ax):
+        # The user can provide geojson line geometries, for example those for rivers. Looks good on a map :)
+        rivers = gpd.read_file(cfg_geo['base_map']['geojson_line'])
+        rivers = rivers.to_crs(cfg_geo['map_projection'])
+        rivers = gpd.clip(rivers, bbox)
+
+        cfg_line = cfg_graphic['base_map']['line']
+        rivers.plot(ax=ax, color=None, edgecolor=cfg_line['color'],
+                    lw=cfg_line['width'], zorder=-10000)
+
+    def visualize_base_map(self, extent, cfg_geo, cfg_graphic, ax):
+
+        if cfg_geo['base_map']['add']:
+            bbox = self.compute_bbox(extent)
+            if not cfg_geo['base_map']['geojson_polygon']:
+                print(f'Cannot add base map. Please provide a geojson_polygon')
             else:
-                self.sites[key] = self.sites[key][is_in_subset, :]
-        self.locations = self.sites['locations']
+                self.add_background_map(bbox, cfg_geo, cfg_graphic, ax)
+            if not cfg_geo['base_map']['geojson_line']:
+                pass
+            else:
+                self.add_rivers(bbox, cfg_geo, cfg_graphic, ax)
 
-        # plot all points not in the subset in light grey
-        not_in_subset = np.logical_not(is_in_subset)
-        other_locations = sites_all['locations'][not_in_subset]
-        self.ax.scatter(*other_locations.T, s=self.graphic_config['point_size'], c="gainsboro", alpha=1, linewidth=0)
-
-        # Add a visual bounding box to the map to show the location of the subset on the map
-        x_coords, y_coords = self.locations.T
-        offset = 100
-        x_min, x_max = min(x_coords) - offset, max(x_coords) + offset
-        y_min, y_max = min(y_coords) - offset, max(y_coords) + offset
-        bbox_width = x_max - x_min
-        bbox_height = y_max - y_min
-        bbox = mpl.patches.Rectangle((x_min, y_min), bbox_width, bbox_height, ec='grey', fill=False,
-                                     lw=1.5, linestyle='-.')
-        self.ax.add_patch(bbox)
-        # Adds a small label that reads "Subset"
-        self.ax.text(x_max, y_max + 200, 'Subset', fontsize=18, color='#000000')
-        self.sites = sites_all
-        
-    def visualize_base_map(self):
-        if self.is_simulation:
-            pass
-        else:
-            if self.geo_config['base_map']['add']:
-                self.add_background_map(ax=self.ax)
-                self.add_rivers(ax=self.ax)
-
-    def modify_legend(self):
-        class TrueArea(object):
-            pass
-
-        class TrueAreaHandler(object):
-            def legend_artist(self, legend, orig_handle, fontsize, handlebox):
-                x0, y0 = handlebox.xdescent + 10, handlebox.ydescent + 10
-
-                patch = patches.Polygon([[x0, y0],
-                                         [x0 + 40, y0 + 20],
-                                         [x0 + 60, y0 - 10],
-                                         [x0 + 50, y0 - 20],
-                                         [x0 + 30, y0 - 20]],
-                                        ec='black', lw=1, ls='-', alpha=1, fill=False,
-                                        joinstyle="round", capstyle="butt")
-                handlebox.add_artist(patch)
-                return patch
-
-        legend_true_area = self.ax_legend.legend(
-            [TrueArea()], ['simulated area\n(bounding polygon)'],
-            handler_map={TrueArea: TrueAreaHandler()},
-            bbox_to_anchor=self.ground_truth_config['true_area_polygon_position'],
-            title_fontsize=16,
-            loc='upper left',
-            frameon=True,
-            edgecolor='#ffffff',
-            handletextpad=4,
-            fontsize=18,
-            ncol=1,
-            columnspacing=1
-        )
-        self.ax.add_artist(legend_true_area)
-
-    def return_correspondence_table(self, file_name, file_format="pdf", ncol=2):
-        """ Which language belongs to which number? This table will tell you more
-        Args:
-            file_name (str): name of the plot
-            file_format (str): format of the output file
-            ncol(int): number of columns in the output table
-        """
-        fig, ax = plt.subplots()
+    def add_correspondence_table(self, all_labels, cfg_graphic, cfg_legend, ax_c):
+        """ Which language belongs to which number? This table will tell you more"""
 
         sites_id = []
         sites_names = []
         sites_color = []
 
         for i in range(len(self.sites['id'])):
-            for s in range(len(self.all_labels)):
-                if self.sites['id'][i] in self.all_labels[s]:
+            for s in range(len(all_labels)):
+                if self.sites['id'][i] in all_labels[s]:
+
                     sites_id.append(self.sites['id'][i])
                     sites_names.append(self.sites['names'][i])
-                    sites_color.append(self.graphic_config['area_colors'][s])
+                    sites_color.append(cfg_graphic['areas']['color'][s])
 
-        # hide axes
-        fig.patch.set_visible(False)
-        ax.axis('off')
-        ax.axis('tight')
-        n_col = ncol
+        n_col = cfg_legend['correspondence']['n_columns']
         n_row = math.ceil(len(sites_names) / n_col)
 
         table_fill = [[] for _ in range(n_row)]
@@ -1175,96 +828,111 @@ class Plot:
                     table_fill[i].append("")
                     color_fill[i].append("#000000")
 
-        widths = [0.05, 0.3] * int(((len(table_fill[0])) / 2))
+        widths = [0.06, 0.2] * int(((len(table_fill[0])) / 2))
+        y_min = -(cfg_legend['correspondence']['table_height'] + 0.01)
+        table = ax_c.table(cellText=table_fill, cellLoc="left", colWidths=widths,
+                           bbox=(0.01, y_min, 0.98, cfg_legend['correspondence']['table_height']))
 
-        table = ax.table(cellText=table_fill, loc='center', cellLoc="left", colWidths=widths)
-        table.set_fontsize(40)
+        table.auto_set_font_size(False)
+        table.set_fontsize(cfg_legend['correspondence']['font_size'])
+        table.scale(1, 2)
 
-        # iterate through cells of a table and set color to the one used in the map
-        # table_props = table.properties()
-        # table_cells = table_props['child_artists']
-        # # for c in range(len(table_cells)):
-        # #     try:
-        # #         table_cells[c].get_text().set_color(color_for_cells[c])
-        # #     except IndexError:
-        # #         pass
-        for i in range(n_row):
-            for j in range(2 * n_col):
-                table[(i, j)].get_text().set_color(color_fill[i][j])
+        if cfg_legend['correspondence']['color_labels']:
+
+            for i in range(n_row):
+                for j in range(2 * n_col):
+                    table[(i, j)].get_text().set_color(color_fill[i][j])
 
         for key, cell in table.get_celld().items():
             cell.set_linewidth(0)
-        fig.tight_layout()
-        fig.savefig(f"{self.path_plots + '/correspondence_' + file_name}.{file_format}",
-                    bbox_inches='tight', dpi=400, format=file_format)
+
 
     ##############################################################
     # This is the plot_posterior_map function from plotting_old
     ##############################################################
-    # for Olga: all parameters should be passed from the new map config file
-    def posterior_map(self, file_name='mst_posterior', file_format="pdf"):
+
+    def posterior_map(self, file_name='mst_posterior'):
 
         """ This function creates a scatter plot of all sites in the posterior distribution.
 
             Args:
                 file_name (str): a path of the output file.
-                file_format (str): file format of output figure
-                return_correspondence (bool): return the labels of all languages in an area in a separate table?
             """
         print('Plotting map...')
+        cfg_content = self.config['map']['content']
+        cfg_geo = self.config['map']['geo']
+        cfg_graphic = self.config['map']['graphic']
+        cfg_legend = self.config['map']['legend']
+        cfg_output = self.config['map']['output']
+
 
         for f in plt.get_fignums():
             plt.close(f)
 
         # Initialize the plot
-        self.initialize_map()
 
-        # Styling the axes
-        self.style_axes()
+        fig, ax = plt.subplots(figsize=(cfg_output['width'],
+                                        cfg_output['height']), constrained_layout=True)
+        #     ax_c = []
+        #
+        # else:
+        #     fig, (ax, ax_c) = plt.subplots(nrows=2, figsize=(cfg_output['width'],
+        #                                                      cfg_output['height']*2),
+        #                                    gridspec_kw={'height_ratios': [4, 1]},
+        #                                    constrained_layout=True)
+
+        locations_map_crs = self.reproject_to_map_crs(cfg_geo['map_projection'])
+
+        # Get extent
+        extent = self.get_extent(cfg_geo, locations_map_crs)
+
+        # Initialize the map
+        self.initialize_map(locations_map_crs, cfg_graphic, ax)
+
+        # Style the axes
+        self.style_axes(extent, ax)
 
         # Add a base map
-        self.visualize_base_map()
+        self.visualize_base_map(extent, cfg_geo, cfg_graphic, ax)
 
         # Iterates over all areas in the posterior and plots each with a different color
-        self.visualize_areas()
-
-        # Add main legend
-        if self.legend_config['posterior_frequency']['add_to_legend']:
-            self.add_legend_lines()
-
-        # Places additional legend entries on the map
-
-        if self.legend_config['overview']['add_to_legend'] or\
-            self.legend_config['areas']['add_to_legend'] or\
-                self.legend_config['families']['add_to_legend']:
-
-            self.add_secondary_legend()
-
-        # This adds an overview map to the map
-        if self.legend_config['overview']['add_to_legend']:
-            self.add_overview_map()
+        all_labels = self.visualize_areas(locations_map_crs, extent, cfg_content, cfg_graphic, cfg_legend, ax)
 
         # Visualizes language families
-        if self.content_config['plot_families']:
-            self.color_families()
+        if cfg_content['plot_families']:
+            self.color_families(locations_map_crs, cfg_graphic, cfg_legend, ax)
 
-        # Modify the legend for simulated data
-        if self.is_simulation:
-            self.modify_legend()
+        # Add main legend
+        if cfg_legend['lines']['add']:
+            self.add_legend_lines(cfg_graphic, cfg_legend, ax)
+
+        # # Places additional legend entries on the map
+        #
+        # if self.legend_config['overview']['add_to_legend'] or\
+        #     self.legend_config['areas']['add_to_legend'] or\
+        #         self.legend_config['families']['add_to_legend']:
+        #
+        #     self.add_secondary_legend()
+
+        # This adds an overview map to the map
+        if cfg_legend['overview']['add']:
+            self.add_overview_map(locations_map_crs, extent, cfg_geo, cfg_graphic, cfg_legend, ax)
+
+        if cfg_legend['correspondence']['add'] and cfg_graphic['languages']['label']:
+            if cfg_content['type']== "density_map":
+                all_labels = [self.sites['id']]
+
+            self.add_correspondence_table(all_labels, cfg_graphic, cfg_legend, ax)
 
         # Save the plot
-        # self.fig.savefig(f"{self.path_plots}/{file_name}.{file_format}",
-        #                  bbox_inches='tight', dpi=400, format=file_format)
-        self.fig.savefig(f"{self.path_plots}/{file_name}.{file_format}",
-                         dpi=400, format=file_format)
 
-        if self.content_config['return_correspondence'] and self.content_config['label_languages']:
-            self.return_correspondence_table(file_name=file_name)
-        plt.clf()
-        plt.close(self.fig)
+        file_format = cfg_output['format']
+
+        fig.savefig(f"{self.path_plots + '/' + file_name}.{file_format}",bbox_inches='tight',
+                    dpi=cfg_output['resolution'], format=file_format)
+        plt.close(fig)
 
     # From general_plot.py
-
     ####################################
     # Probability simplex, grid plot
     ####################################
@@ -1313,98 +981,63 @@ class Plot:
         plt.fill_between(top_x, ymax, top_y, color=color)
 
     # Transform weights into needed format
-    def transform_weights(self, feature, b_in, gt=False):
+    def transform_weights(self, feature, b_in):
 
-        if not gt:
-            universal_array = []
-            contact_array = []
-            inheritance_array = []
-            sample_dict = self.results['weights']
-            for key in sample_dict:
-                split_key = key.split("_")
-                if 'w' == split_key[0]:
-                    if 'universal' == split_key[1] and str(feature) == split_key[2]:
-                        universal_array = sample_dict[key][b_in:]
-                    elif 'contact' == split_key[1] and str(feature) == split_key[2]:
-                        contact_array = sample_dict[key][b_in:]
-                    elif 'inheritance' == split_key[1] and str(feature) == split_key[2]:
-                        inheritance_array = sample_dict[key][b_in:]
+        universal_array = []
+        contact_array = []
+        inheritance_array = []
+        sample_dict = self.results['weights']
+        for key in sample_dict:
+            split_key = key.split("_")
+            if 'w' == split_key[0]:
+                if 'universal' == split_key[1] and str(feature) == split_key[2]:
+                    universal_array = sample_dict[key][b_in:]
+                elif 'contact' == split_key[1] and str(feature) == split_key[2]:
+                    contact_array = sample_dict[key][b_in:]
+                elif 'inheritance' == split_key[1] and str(feature) == split_key[2]:
+                    inheritance_array = sample_dict[key][b_in:]
 
-            sample = np.column_stack([universal_array, contact_array, inheritance_array]).astype(np.float)
-            return sample
+        sample = np.column_stack([universal_array, contact_array, inheritance_array]).astype(np.float)
+        return sample
 
+    def transform_probability_vectors(self, feature, parameter, b_in):
+
+        if "alpha" in parameter:
+            sample_dict = self.results['alpha']
+        elif "beta" in parameter:
+            sample_dict = self.results['beta']
+        elif "gamma" in parameter:
+            sample_dict = self.results['gamma']
         else:
+            raise ValueError("parameter must be alpha, beta or gamma")
 
-            true_universal = []
-            true_contact = []
-            true_inheritance = []
+        p_dict = {}
+        states = []
 
-            true_dict = self.results['true_weights']
+        for key in sample_dict:
+            if key.startswith(parameter + '_' + feature + '_'):
+                state = str(key).rsplit('_', 1)[1]
+                p_dict[state] = sample_dict[key][b_in:]
+                states.append(state)
 
-            for key in true_dict:
-                split_key = key.split("_")
-                if 'w' == split_key[0]:
-                    if 'universal' == split_key[1] and str(feature) == split_key[2]:
-                        true_universal = true_dict[key]
-                    elif 'contact' == split_key[1] and str(feature) == split_key[2]:
-                        true_contact = true_dict[key]
-                    elif 'inheritance' == split_key[1] and str(feature) == split_key[2]:
-                        true_inheritance = true_dict[key]
-            ground_truth = np.array([true_universal, true_contact, true_inheritance]).astype(np.float)
-            return ground_truth
+        sample = np.column_stack([p_dict[s] for s in p_dict]).astype(np.float)
+        return sample, states
 
-    def transform_probability_vectors(self, feature, parameter, b_in, gt=False):
 
-        if not gt:
-            if "alpha" in parameter:
-                sample_dict = self.results['alpha']
-            elif "beta" in parameter:
-                sample_dict = self.results['beta']
-            elif "gamma" in parameter:
-                sample_dict = self.results['gamma']
-            else:
-                raise ValueError("parameter must be alpha, beta or gamma")
-            p_dict = {}
-            states = []
-
-            for key in sample_dict:
-                if key.startswith(parameter + '_' + feature + '_'):
-                    state = str(key).rsplit('_', 1)[1]
-                    p_dict[state] = sample_dict[key][b_in:]
-                    states.append(state)
-
-            if len(p_dict) == 0:
-                raise ValueError(f'No samples found for parameter {parameter}')
-
-            sample = np.column_stack([p_dict[s] for s in p_dict]).astype(np.float)
-            return sample, states
-        else:
-            if "alpha" in parameter:
-                true_dict = self.results['true_alpha']
-            elif "beta" in parameter:
-                true_dict = self.results['true_beta']
-            elif "gamma" in parameter:
-                true_dict = self.results['true_gamma']
-            else:
-                raise ValueError("parameter must alpha, beta or gamma")
-
-            true_prob = []
-
-            for key in true_dict:
-                if str(feature + '_') in key and parameter in key:
-                    true_prob.append(true_dict[key])
-
-            return np.array(true_prob, dtype=float)
-
-    # Sort weights by median contact
-    def get_parameters(self, b_in, parameter="weights"):
+    # Get preferences or weights from relevant features
+    def get_parameters(self, b_in, features, parameter="weights"):
 
         par = {}
-        true_par = {}
         states = {}
+        # if features is empty, get parameters for all features
+        if not features:
+            feature_names = self.results['feature_names']
+        else:
+            feature_names = list(self.results['feature_names'][i-1] for i in features)
 
         # get samples
-        for i in self.results['feature_names']:
+        for i in feature_names:
+
             if parameter == "weights":
                 p = self.transform_weights(feature=i, b_in=b_in)
                 par[i] = p
@@ -1415,20 +1048,7 @@ class Plot:
                 par[i] = p
                 states[i] = state
 
-        # get ground truth
-        if self.is_simulation:
-            for i in self.results['feature_names']:
-                if parameter == "weights":
-                    true_p = self.transform_weights(feature=i, b_in=b_in, gt=True)
-                    true_par[i] = true_p
-
-                elif "alpha" in parameter or "beta" in parameter or "gamma" in parameter:
-                    true_p = self.transform_probability_vectors(feature=i, parameter=parameter, b_in=b_in, gt=True)
-                    true_par[i] = true_p
-        else:
-            true_par = None
-
-        return par, true_par, states
+        return par, states
 
     def sort_by_weights(self, w):
         sort_by = {}
@@ -1439,14 +1059,14 @@ class Plot:
 
     # Probability simplex (for one feature)
     @staticmethod
-    def plot_weights(samples, feature, title, true_weights=None,
-                     labels=None, ax=None, mean_weights=False, plot_samples=False):
+    def plot_weight(samples, feature, title,
+                    labels=None, ax=None, mean_weights=False, plot_samples=False):
         """Plot a set of weight vectors in a 2D representation of the probability simplex.
 
         Args:
             samples (np.array): Sampled weight vectors to plot.
             feature (str): Name of the feature for which weights are being plotted
-            true_weights (np.array): the ground truth weights
+            title (str): Plot title
             labels (list[str]): Labels for each weight dimension.
             ax (plt.Axis): The pyplot axis.
             mean_weights (bool): Plot the mean of the weights?
@@ -1471,10 +1091,10 @@ class Plot:
 
         # Density and scatter plot
         if title:
-            plt.text(-0.7, 0.6, str(feature), fontdict={'fontweight': 'bold', 'fontsize': 6})
+            plt.text(-0.7, 0.6, str(feature), fontdict={'fontweight': 'bold', 'fontsize': 12})
         x = samples_projected.T[0]
         y = samples_projected.T[1]
-        sns.kdeplot(x=x, y=y, shade=True, thresh=0, cut=30, n_levels=100,
+        sns.kdeplot(data=x, data2=y, shade=True,  cut=30, n_levels=100,
                     clip=([xmin, xmax], [ymin, ymax]), cmap=cmap)
 
         if plot_samples:
@@ -1483,10 +1103,6 @@ class Plot:
         # Draw simplex and crop outside
         plt.fill(*corners.T, edgecolor='k', fill=False)
         Plot.fill_outside(corners, color='w', ax=ax)
-
-        if true_weights is not None:
-            true_weights_projected = true_weights.dot(corners)
-            plt.scatter(*true_weights_projected.T, color="#ed1696", lw=0, s=50, marker="*")
 
         if mean_weights:
             mean_projected = np.mean(samples, axis=0).dot(corners)
@@ -1503,13 +1119,12 @@ class Plot:
         plt.plot()
 
     @staticmethod
-    def plot_probability_vectors(samples, feature, true_p=None, labels=None, ax=None, title=False, plot_samples=False):
+    def plot_preference(samples, feature, labels=None, ax=None, title=False, plot_samples=False):
         """Plot a set of weight vectors in a 2D representation of the probability simplex.
 
         Args:
             samples (np.array): Sampled weight vectors to plot.
             feature (str): Name of the feature for which weights are being plotted
-            true_p (np.array): true probability vectors (only for simulated data)
             labels (list[str]): Labels for each weight dimension.
             title (bool): plot title
             ax (plt.Axis): The pyplot axis.
@@ -1527,9 +1142,6 @@ class Plot:
                          rug_kws={"color": "k", "alpha": 0.01, "height": 0.03})
 
             ax.axes.get_yaxis().set_visible(False)
-
-            if true_p is not None:
-                plt.scatter(true_p[1], 0, color="#ed1696", lw=0, s=100, marker="*")
 
             if labels is not None:
                 for x, label in enumerate(labels):
@@ -1575,10 +1187,6 @@ class Plot:
             plt.fill(*corners.T, edgecolor='k', fill=False)
             Plot.fill_outside(corners, color='w', ax=ax)
 
-            if true_p is not None:
-                true_projected = true_p.dot(corners)
-                plt.scatter(*true_projected.T, color="#ed1696", lw=0, s=100, marker="*")
-
             if labels is not None:
                 for xy, label in zip(corners, labels):
                     xy *= 1.1  # Stretch, s.t. labels don't overlap with corners
@@ -1590,112 +1198,160 @@ class Plot:
 
         plt.plot()
 
-    def plot_weights_grid(self, file_name, file_format="pdf"):
+    def plot_weights(self, file_name):
 
         print('Plotting weights...')
-        burn_in = int(len(self.results['posterior']) * self.config['weights_plot']['burn_in'])
+        cfg_weights = self.config['weight_plot']
+        burn_in = int(len(self.results['posterior']) * cfg_weights['content']['burn_in'])
 
-        weights, true_weights, _ = self.get_parameters(parameter="weights", b_in=burn_in)
+        weights, _ = self.get_parameters(parameter="weights", b_in=burn_in,
+                                         features=cfg_weights['content']['features'])
 
-        ordering = self.sort_by_weights(weights)
+        # Todo: reactivate?
+        # ordering = self.sort_by_weights(weights)
+        # features = ordering[:n_plots]
 
-        n_plots = self.config['weights_plot']['k_best']
-        n_col = self.config['weights_plot']['n_columns']
+        features = weights.keys()
+        n_plots = len(features)
+        n_col = cfg_weights['graphic']['n_columns']
         n_row = math.ceil(n_plots / n_col)
-        width = self.config['weights_plot']['output']['fig_width_subplot']
-        height = self.config['weights_plot']['output']['fig_height_subplot']
+
+        width = cfg_weights['output']['width_subplot']
+        height = cfg_weights['output']['height_subplot']
         fig, axs = plt.subplots(n_row, n_col, figsize=(width * n_col, height * n_row))
         position = 1
 
-        features = ordering[:n_plots]
-        labels = self.config['weights_plot']['labels']
+        labels = cfg_weights['graphic']['labels']
         n_empty = n_row * n_col - n_plots
 
         for e in range(1, n_empty + 1):
-            axs[-1, -e].axis('off')
+            if len(axs.shape) == 1:
+                axs[-e].axis('off')
+            else:
+                axs[-1, -e].axis('off')
 
         for f in features:
             plt.subplot(n_row, n_col, position)
 
-            if self.is_simulation:
-                self.plot_weights(weights[f], feature=f, title=self.config['weights_plot']['title'],
-                                  true_weights=true_weights[f], labels=labels)
-            else:
-                self.plot_weights(weights[f], feature=f, title=self.config['weights_plot']['title'],
-                                  labels=labels, mean_weights=True)
+            self.plot_weight(weights[f], feature=f, title=cfg_weights['graphic']['title'],
+                             labels=labels, mean_weights=True)
+
             print(position, "of", n_plots, "plots finished")
             position += 1
-        plt.subplots_adjust(wspace=self.config['weights_plot']['output']['spacing_horizontal'],
-                            hspace=self.config['weights_plot']['output']['spacing_vertical'])
 
-        fig.savefig(self.path_plots + '/' + file_name + '.' + file_format, dpi=400, format=file_format)
+        # todo: spacing in config?
+        width_spacing = 0.1
+        height_spacing = 0.1
+        plt.subplots_adjust(wspace=width_spacing,
+                            hspace=height_spacing)
+        file_format = cfg_weights['output']['format']
+        resolution = cfg_weights['output']['resolution']
+        fig.savefig(self.path_plots + '/' + file_name + '.' + file_format,
+                    dpi=resolution, format=file_format)
 
     # This is not changed yet
-    def plot_probability_grid(self, file_name, file_format="pdf"):
-        """Creates a ridge plot for parameters with two states
+    def plot_preferences(self, file_name):
+        """Creates preference plots for universal, areas and families
 
        Args:
            file_name (str): name of the output file
-           file_format (str): output file format
        """
-        print('Plotting probabilities...')
-        parameter_name = self.config['probabilities_plot']['parameter']
-        burn_in = int(len(self.results['posterior']) * self.config['probabilities_plot']['burn_in'])
+        print('Plotting preferences...')
+        cfg_preference = self.config['preference_plot']
+        burn_in = int(len(self.results['posterior']) * cfg_preference['content']['burn_in'])
 
-        n_plots = self.config['probabilities_plot']['k']
-        n_col = self.config['probabilities_plot']['n_columns']
-        n_row = math.ceil(n_plots / n_col)
-        width = self.config['probabilities_plot']['output']['fig_width_subplot']
-        height = self.config['probabilities_plot']['output']['fig_height_subplot']
+        width = cfg_preference['output']['width_subplot']
+        height = cfg_preference['output']['height_subplot']
 
-        # weights, true_weights, _ = self.get_parameters(parameter="weights", b_in=burn_in)
-        # ordering = self.sort_by_weights(weights)
+        # todo: spacing in config?
+        width_spacing = 0.2
+        height_spacing = 0.2
 
-        p, true_p, states = self.get_parameters(parameter=parameter_name, b_in=burn_in)
-        if len(p) == 0:
-            print(f'No results found for parameter {parameter_name}.')
-            return
+        file_format = cfg_preference['output']['format']
+        resolution = cfg_preference['output']['resolution']
 
-        fig, axs = plt.subplots(n_row, n_col, figsize=(width * n_col, height * n_row), )
+        gk = self.results['gamma'].keys()
+        ugk = list(set([k.split('_')[1] for k in gk]))
+        available_gamma_keys = ['gamma_' + u for u in ugk]
 
-        features = self.results['feature_names']
-        n_empty = n_row * n_col - n_plots
+        if not cfg_preference['content']['preference']:
+            available_preferences = available_gamma_keys
+        else:
+            available_preferences = []
+            for p in cfg_preference['content']['preference']:
+                if p == 'universal':
+                    available_preferences.append("alpha")
+                elif "area" in p:
+                    gamma = "gamma_a" + p.split('_')[1]
+                    if gamma not in available_gamma_keys:
+                        continue
+                    else:
+                        available_preferences.append(gamma)
+                else:
+                    beta = "beta_" + p
+                    available_preferences.append(beta)
 
-        for e in range(1, n_empty + 1):
-            axs[-1, -e].axis('off')
+        for p in available_preferences:
 
-        position = 1
+            preferences, states = \
+                self.get_parameters(parameter=p, b_in=burn_in,
+                                    features=cfg_preference['content']['features'])
+            features = preferences.keys()
 
-        for f in features[0:n_plots]:
-            plt.subplot(n_row, n_col, position)
+            n_plots = len(features)
+            n_col = cfg_preference['graphic']['n_columns']
+            n_row = math.ceil(n_plots / n_col)
 
-            if self.is_simulation:
-                self.plot_probability_vectors(p[f], feature=f, true_p=true_p[f], labels=states[f],
-                                              title=self.config['probabilities_plot']['title'])
-            else:
-                self.plot_probability_vectors(p[f], feature=f, labels=states[f],
-                                              title=self.config['probabilities_plot']['title'])
-            print(position, "of", n_plots, "plots finished")
-            position += 1
+            fig, axs = plt.subplots(n_row, n_col, figsize=(width * n_col, height * n_row), )
+            n_empty = n_row * n_col - n_plots
 
-        plt.subplots_adjust(wspace=self.config['probabilities_plot']['output']['spacing_horizontal'],
-                            hspace=self.config['probabilities_plot']['output']['spacing_vertical'])
-        fig.savefig(self.path_plots + '/' + file_name + '.' + file_format, dpi=400,
-                    format=file_format)
+            for e in range(1, n_empty + 1):
+                if len(axs.shape) == 1:
+                    axs[-e].axis('off')
+                else:
+                    axs[-1, -e].axis('off')
 
-    def plot_dic(self, models, file_name, file_format="pdf"):
+            position = 1
+
+            for f in features:
+                plt.subplot(n_row, n_col, position)
+                if cfg_preference['graphic']['labels']:
+                    labels = states[f]
+                else:
+                    labels = None
+
+                self.plot_preference(preferences[f], feature=f, labels=labels,
+                                     title=cfg_preference['graphic']['title'])
+
+                print(p, ": ", position, "of", n_plots, "plots finished")
+                position += 1
+
+            plt.subplots_adjust(wspace=width_spacing, hspace=height_spacing)
+            fig.savefig(self.path_plots + '/' + file_name + '_' + p + '.' + file_format,
+                        dpi=resolution, format=file_format)
+
+
+    def plot_dic(self, models, file_name):
         """This function plots the dics. What did you think?
         Args:
             file_name (str): name of the output file
-            file_format (str): output file format
             models(dict): A dict of different models for which the DIC is evaluated
         """
         print('Plotting DIC...')
-        width = self.config['dic_plot']['output']['fig_width']
-        height = self.config['dic_plot']['output']['fig_height']
+        cfg_dic = self.config['dic_plot']
+
+        width = cfg_dic['output']['width']
+        height = cfg_dic['output']['height']
+
+        file_format = cfg_dic['output']['format']
+        resolution = cfg_dic['output']['resolution']
 
         fig, ax = plt.subplots(figsize=(width, height))
-        x = list(models.keys())
+        available_models = list(models.keys())
+        if not cfg_dic['content']['model']:
+            x = available_models
+        else:
+            x = [available_models[i-1] for i in cfg_dic['content']['model']]
         y = []
 
         if len(x) < 0:
@@ -1705,42 +1361,44 @@ class Plot:
         # Compute the DIC for each model
         for m in x:
             lh = models[m]['likelihood']
-            dic = compute_dic(lh, self.config['dic_plot']['burn_in'])
+            dic = compute_dic(lh, self.config['dic_plot']['content']['burn_in'])
             y.append(dic)
 
+        if cfg_dic['graphic']['line_plot']:
+            lw = 1
+        else:
+            lw = 0
+
+        ax.plot(x, y, lw=lw, color='#000000',
+                label='DIC', marker='o')
+
         # Limits
-        ax.plot(x, y, lw=1, color='#000000', label='DIC')
         y_min, y_max = min(y), max(y)
         y_range = y_max - y_min
 
-        x_min = 0
-        x_max = len(x) - 1
+        x_min = -0.2
+        x_max = len(x) - 0.8
 
         ax.set_xlim([x_min, x_max])
         ax.set_ylim([y_min - y_range * 0.1, y_max + y_range * 0.1])
 
         # Labels and ticks
-        ax.set_xlabel('Number of areas', fontsize=10, fontweight='bold')
+        ax.set_xlabel('Model', fontsize=10, fontweight='bold')
         ax.set_ylabel('DIC', fontsize=10, fontweight='bold')
 
-        labels = list(range(1, len(x) + 1))
-        ax.set_xticklabels(labels, fontsize=8)
+        if not cfg_dic['graphic']['labels']:
+            labels = x
+        else:
+            labels = cfg_dic['graphic']['labels']
 
+        ax.set_xticklabels(labels, fontsize=8)
         y_ticks = np.linspace(y_min, y_max, 6)
         ax.set_yticks(y_ticks)
         yticklabels = [f'{y_tick:.0f}' for y_tick in y_ticks]
         ax.set_yticklabels(yticklabels, fontsize=10)
-        try:
-            if self.config['dic_plot']['true_n'] is not None:
-                pos_true_model = [idx for idx, val in enumerate(x) if val == self.config['dic_plot']['true_n']][0]
-                color_burn_in = 'grey'
-                ax.axvline(x=pos_true_model, lw=1, color=color_burn_in, linestyle='--')
-                ypos_label = y_min + y_range * 0.15
-                plt.text(pos_true_model - 0.05, ypos_label, 'Simulated areas', rotation=90, size=8,
-                         color=color_burn_in)
-        except KeyError:
-            pass
-        fig.savefig(self.path_plots + '/' + file_name + '.' + file_format, dpi=400, format=file_format)
+
+        fig.savefig(self.path_plots + '/' + file_name + '.' + file_format, dpi=resolution, format=file_format)
+
 
     def plot_trace(self, file_name="trace", show_every_k_sample=1, file_format="pdf"):
         """
@@ -1779,14 +1437,6 @@ class Plot:
         y_range = y_max - y_min
         x_min, x_max = 0, x[-1]
 
-        if self.config['plot_trace']['ground_truth']['add']:
-            ground_truth_parameter = 'true_' + parameter
-            y_gt = self.results[ground_truth_parameter]
-            ax.axhline(y=y_gt, xmin=x[0], xmax=x[-1], lw=1, color='#fdbf6f',
-                       linestyle='-',
-                       label='ground truth')
-            y_min, y_max = [min(y_min, y_gt), max(y_max, y_gt)]
-
         # Show burn-in in plot
         end_bi = math.ceil(x[-1] * self.config['plot_trace']['burn_in'])
         end_bi_label = math.ceil(x[-1] * (self.config['plot_trace']['burn_in'] - 0.03))
@@ -1804,7 +1454,7 @@ class Plot:
         ax.set_xticklabels([f'{x_tick:.0f}' for x_tick in x_ticks], fontsize=6)
 
         f = mtick.ScalarFormatter(useOffset=False, useMathText=True)
-        g = lambda x, pos: "${}$".format(f._formatSciNotation('%1.10e' % x))
+        g = lambda k, pos: "${}$".format(f._formatSciNotation('%1.10e' % k))
         plt.gca().xaxis.set_major_formatter(mtick.FuncFormatter(g))
         ax.set_xlabel('Iteration', fontsize=8, fontweight='bold')
 
@@ -1860,7 +1510,7 @@ class Plot:
         ax1.set_xticklabels([f'{x_tick:.0f}' for x_tick in x_ticks], fontsize=6)
 
         f = mtick.ScalarFormatter(useOffset=False, useMathText=True)
-        g = lambda x, pos: "${}$".format(f._formatSciNotation('%1.10e' % x))
+        g = lambda k, pos: "${}$".format(f._formatSciNotation('%1.10e' % k))
         plt.gca().xaxis.set_major_formatter(mtick.FuncFormatter(g))
         ax1.set_xlabel('Iteration', fontsize=8, fontweight='bold')
 
@@ -1946,6 +1596,7 @@ class Plot:
         fig.savefig(self.path_plots + '/' + file_name + '.' + file_format,
                     dpi=400, format=file_format, bbox_inches='tight')
         plt.close(fig)
+
 
     def plot_pies(self, file_name, file_format="pdf"):
         print('Plotting pie charts ...')
@@ -2095,3 +1746,4 @@ def plot_map(plot, m):
 
 if __name__ == '__main__':
     main()
+

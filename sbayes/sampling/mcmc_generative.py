@@ -30,7 +30,7 @@ class MCMCGenerative(metaclass=_abc.ABCMeta):
     Q_REJECT = 0
     Q_BACK_REJECT = -_np.inf
 
-    def __init__(self, model, data, operators, n_chains,
+    def __init__(self, model, data, operators, n_chains=1,
                  mc3=False, swap_period=None, chain_swaps=None,
                  sample_from_prior=False, show_screen_log=False,
                  logger=None, **kwargs):

@@ -6,22 +6,18 @@ import json
 import logging
 import os
 import warnings
-
 from pathlib import Path
 from typing import Optional
-
-try:
-    import importlib.resources as pkg_resources     # PYTHON >= 3.7
-except ImportError:
-    import importlib_resources as pkg_resources     # PYTHON < 3.7
-
-import typing
-from pathlib import Path
 
 import pycldf
 
 from sbayes.util import set_experiment_name
 from sbayes import config
+
+try:
+    import importlib.resources as pkg_resources     # PYTHON >= 3.7
+except ImportError:
+    import importlib_resources as pkg_resources     # PYTHON < 3.7
 
 REQUIRED = '<REQUIRED>'
 DEFAULT_CONFIG = json.loads(pkg_resources.read_text(config, 'default_config.json'))
@@ -43,7 +39,8 @@ class Experiment:
 
     """
 
-    def __init__(self, experiment_name: str = None,
+    def __init__(self,
+                 experiment_name: str = "default",
                  config_file: Optional[Path] = None,
                  custom_settings: Optional[dict] = None,
                  log: bool = True):
@@ -80,8 +77,10 @@ class Experiment:
         # Load defaults
         set_defaults(self.config, DEFAULT_CONFIG)
         if 'simulation' in self.config:
+
             self.config['data'].pop('features')
             self.config['data'].pop('feature_states')
+
             set_defaults(self.config['simulation'], DEFAULT_CONFIG_SIMULATION)
 
         if custom_settings is not None:
@@ -91,8 +90,9 @@ class Experiment:
         self.verify_config()
 
         # Set results path
+
         self.path_results = '{path}/{experiment}/'.format(
-            path=self.config['results']['RESULTS_PATH'],
+            path=self.config['results']['path'],
             experiment=self.experiment_name
         )
 
@@ -133,11 +133,13 @@ class Experiment:
 
         # Define which priors are required
         required_priors = ['geo', 'area_size', 'weights', 'universal', 'contact']
+
         if inheritance:
             required_priors.append('inheritance')
         else:
             if 'inheritance' in priors_cfg:
-                warnings.warn("Inheritance is not considered in the model. prior for inheritance "
+
+                warnings.warn("Inheritance is not considered in the model. Prior for inheritance "
                               + f"defined in {self.config_file} will not be used.")
                 priors_cfg['inheritance'] = None
 
@@ -147,116 +149,125 @@ class Experiment:
                 NameError(f"Prior \'{key}\' is not defined in {self.config_file}.")
 
             prior = priors_cfg[key]
-            if 'type' not in prior:
-                raise NameError(f"type for prior \'{key}\' is not defined in {self.config_file}.")
-            if prior['type'] == 'cost_based':
-                if 'scale' not in prior:
-                    raise NameError(f"scale for geo prior is not defined in {self.config_file}.")
-                if 'file' in prior:
-                    prior['file'] = self.fix_relative_path(prior['file'])
-            if prior['type'] == 'counts':
-                if 'file_type' not in prior:
-                    raise NameError(f"counts file for prior \'{key}\' is not defined in {self.config_file}.")
-                if 'scale_counts' not in prior:
-                    prior['scale_counts'] = None
 
-                if key == 'universal':
-                    if 'file' not in prior:
-                        raise NameError(f"counts file for prior \'{key}\' is not "
-                                        f"defined in {self.config_file}.")
-                    prior['file'] = self.fix_relative_path(prior['file'])
-                elif key == 'inheritance':
-                    if 'files' not in prior:
-                        raise NameError(f"counts files for prior \'{key}\' is not defined in {self.config_file}.")
-                    for fam in prior['files']:
-                        prior['files'][fam] = self.fix_relative_path(prior['files'][fam])
+            # Universal
+            if key == 'universal':
+                if 'type' not in prior:
+                    raise NameError(f"`type` for prior \'{key}\' is not defined in {self.config_file}.")
+                if prior['type'] == "dirichlet":
+                    if 'file' not in prior and 'parameters' not in prior:
+                        raise NameError(f"provide `file` or `parameters` for \'{key}\' in {self.config_file}.")
+                    if 'file' in prior:
+                        prior['file'] = self.fix_relative_path(prior['file'])
+
+            # Inheritance
+            if key == "inheritance":
+                for fam in prior:
+                    if 'type' not in prior[fam]:
+                        raise NameError(f"`type` for prior \'{key}\' for \'{fam}\' "
+                                        f"is not defined in {self.config_file}.")
+
+                    if prior[fam]['type'] == "dirichlet":
+                        if 'file' not in prior[fam] and 'parameters' not in prior[fam]:
+                            raise NameError(f"provide `file` or `parameters` for \'{key}\' "
+                                            f"for \'{fam}\'in {self.config_file}.")
+                        if 'file' in prior[fam]:
+                            prior[fam]['file'] = self.fix_relative_path(prior[fam]['file'])
+
+            # Contact
+            if key == "contact":
+                if 'type' not in prior:
+                    raise NameError(f"`type` for prior \'{key}\' is not defined in {self.config_file}.")
+
+            # Weights
+            if key == "weights":
+                if 'type' not in prior:
+                    raise NameError(f"`type` for prior \'{key}\' is not defined in {self.config_file}.")
+
+            # Geo
+            if key == "geo":
+                if 'type' not in prior:
+                    raise NameError(f"`type` for prior \'{key}\' is not defined in {self.config_file}.")
+
+                if prior['type'] == "gaussian":
+                    if 'covariance' not in prior:
+                        raise NameError(f"`covariance` for gaussian geo prior is not defined in {self.config_file}.")
+
+                if prior['type'] == "cost_based":
+                    if 'rate' not in prior:
+                        raise NameError(f"`rate` for cost based geo prior is not defined in {self.config_file}.")
+                    if 'linkage' not in prior:
+                        prior['linkage'] = "mst"
+                    if 'costs' not in prior:
+                        prior['costs'] = "from_data"
+                    if prior['costs'] != "from_data":
+                        prior['costs'] = self.fix_relative_path(prior['file'])
+
+            # Area Size
+            if key == "area_size":
+                if 'type' not in prior:
+                    raise NameError(f"`type` for prior \'{key}\' is not defined in {self.config_file}.")
 
     def verify_config(self):
         for k, v in iter_items_recursive(self.config):
             if v == REQUIRED:
-                raise NameError(f'{k} is not defined {self.config_file}')
+                raise NameError(f'´{k}´ is not defined in {self.config_file}')
+        # Data
+        if 'data' not in self.config:
+            raise NameError(f'´data´ are not defined in {self.config_file}')
 
-        # Are priors complete and consistent?
-        self.verify_priors(self.config['model']['prior'],
-                           inheritance=self.config['model']['inheritance'])
+        self.config['data']['features'] = self.fix_relative_path(self.config['data']['features'])
+        self.config['data']['feature_states'] = self.fix_relative_path(self.config['data']['feature_states'])
 
-        # SIMULATION
         if self.is_simulation():
             self.config['simulation']['sites'] = self.fix_relative_path(self.config['simulation']['sites'])
             if type(self.config['simulation']['area']) is list:
                 self.config['simulation']['area'] = tuple(self.config['simulation']['area'])
 
-        if 'NEIGHBOR_DIST' not in self.config['model']:
-            self.config['model']['NEIGHBOR_DIST'] = 'euclidean'
+        # Model
+        if 'model' not in self.config:
+            raise NameError(f'´model´ is not defined in {self.config_file}')
+
+        # Priors
+        self.verify_priors(self.config['model']['prior'],
+                           inheritance=self.config['model']['inheritance'])
 
         # MCMC
-        # Is there an mcmc part in the config file?
         if 'mcmc' not in self.config:
-            raise NameError('Information about the MCMC setup was not found in'
-                            + self.config_file + '. Include mcmc as a key.')
-
-        # todo: activate for MC3
-        # Number of parallel Markov chains
-        # if 'N_CHAINS' not in self.config['mcmc']:
-        #     self.config['mcmc']['N_CHAINS'] = 5
-        # # Steps between two attempted chain swaps
-        # if 'SWAP_PERIOD' not in self.config['mcmc']:
-        #     self.config['mcmc']['SWAP_PERIOD'] = 1000
-        # # Number of attempted chain swaps
-        # if 'N_SWAPS' not in self.config['mcmc']:
-        #     self.config['mcmc']['N_SWAPS'] = 3
-        if 'MC3' not in self.config['mcmc']:
-            self.config['mcmc']['N_CHAINS'] = 1
-        else:
-            # todo: activate for MC3
-            pass
+            NameError(f'´mcmc´ is not defined in {self.config_file}')
 
         # Tracer does not like unevenly spaced samples
-        spacing = self.config['mcmc']['n_steps'] % self.config['mcmc']['n_samples']
+        spacing = self.config['mcmc']['steps'] % self.config['mcmc']['samples']
 
         if spacing != 0.:
-            raise ValueError("Non-consistent spacing between samples. Set n_steps to be a multiple of n_samples. ")
+            raise ValueError("Non-consistent spacing between samples. Set ´steps´ to be a multiple of ´samples´. ")
 
-        # Do not use inheritance steps if inheritance is disabled
+        # Do not use inheritance operators if inheritance is disabled
         if not self.config['model']['inheritance']:
-            if self.config['mcmc']['steps'].get('inheritance', 0) != 0:
-                self.logger.warning('steps for inheritance was set to 0, because ´inheritance´ is disabled.')
-            self.config['mcmc']['steps']['inheritance'] = 0.0
+            if self.config['mcmc']['operators'].get('inheritance', 0) != 0:
+                logging.warning('Operator for inheritance was set to 0, because ´inheritance´ is disabled.')
+            self.config['mcmc']['operators']['inheritance'] = 0.0
 
+        # Do not use source operators if sampling from source is disabled
         if not self.config['model']['sample_source']:
-            if self.config['mcmc']['steps'].get('source', 0) != 0:
-                self.logger.warning('steps for source was set to 0, because ´sample_source´ is disabled.')
-            self.config['mcmc']['steps']['source'] = 0.0
+            if self.config['mcmc']['operators'].get('source', 0) != 0:
+                logging.warning('Operator for source was set to 0, because ´sample_source´ is disabled.')
+            self.config['mcmc']['operators']['source'] = 0.0
 
-        # Normalize weights
-        weights_sum = sum(self.config['mcmc']['steps'].values())
-        for operator, weight in self.config['mcmc']['steps'].items():
-            self.config['mcmc']['steps'][operator] = weight / weights_sum
+        # Re-normalize weights for operators
+        weights_sum = sum(self.config['mcmc']['operators'].values())
+        for operator, weight in self.config['mcmc']['operators'].items():
+            self.config['mcmc']['operators'][operator] = weight / weights_sum
 
-        if 'results' in self.config:
-            if 'RESULTS_PATH' not in self.config['results']:
-                self.config['results']['RESULTS_PATH'] = "results"
-            if 'FILE_INFO' not in self.config['results']:
-                self.config['results']['FILE_INFO'] = "n"
-
-        else:
+        # Results
+        if 'results' not in self.config:
             self.config['results'] = {}
-            self.config['results']['RESULTS_PATH'] = "results"
-            self.config['results']['FILE_INFO'] = "n"
+            self.config['results']['path'] = "results"
 
-        # Data
-        if 'data' not in self.config:
-            raise NameError("Provide file paths to data.")
-        elif type(self.config['data']) == str:
-            # TODO: type comparison is considered bad form in Python. What to
-            # use instead?
-            self.config['data'] = {
-                'simulated': False,
-                'cldf_dataset': pycldf.StructureDataset.from_metadata(
-                    self.base_directory / self.config['data']
-                ),
-            }
         else:
+            if 'path' not in self.config['results']:
+                self.config['results']['path'] = "results"
+
             if 'simulated' not in self.config['data']:
                 self.config['data']['simulated'] = False
 
@@ -283,6 +294,7 @@ class Experiment:
     def add_logger_file(self, path_results):
         log_path = path_results / 'experiment.log'
         self.logger.addHandler(logging.FileHandler(filename=log_path))
+
 
     def log_experiment(self):
         self.logger.info("Experiment: %s", self.experiment_name)

@@ -35,8 +35,8 @@ class Model(object):
         # Create likelihood and prior objects
         self.likelihood = Likelihood(
             data=data,
-            inheritance=self.inheritance,
-            missing_family_as_universal=self.config['missing_family_as_universal']
+            inheritance=self.inheritance
+            # missing_family_as_universal=self.config['missing_family_as_universal']
         )
         self.prior = Prior(
             data=data,
@@ -46,9 +46,9 @@ class Model(object):
 
     def parse_attributes(self, config):
         """Read attributes from the config dictionary."""
-        self.n_zones = config['n_areas']
-        self.min_size = config['min_m']
-        self.max_size = config['max_m']
+        self.n_zones = config['areas']
+        self.min_size = config['languages_per_area']['min']
+        self.max_size = config['languages_per_area']['max']
         self.inheritance = config['inheritance']
         self.sample_source = config['sample_source']
 
@@ -590,6 +590,7 @@ class DirichletPrior(object):
         ...
 
     def __init__(self, config, data, initial_counts=1.):
+
         self.config = config
         self.data = data
         self.states = self.data.states
@@ -693,49 +694,56 @@ class PFamiliesPrior(DirichletPrior):
         COUNTS_AND_UNIVERSAL = 'counts_and_universal'
 
     def parse_attributes(self, config):
-        if config['type'] == 'uniform':
-            n_families, _ = self.data.families.shape
-            _, n_features, n_states = self.data.features.shape
+        n_families, _ = self.data.families.shape
+        _, n_features, n_states = self.data.features.shape
 
-            self.prior_type = self.TYPES.UNIFORM
-            self.counts = np.full(shape=(n_families, n_features, n_states),
-                                  fill_value=self.initial_counts)
+        self.prior_type = self.TYPES.UNIFORM
+        self.counts = np.full(shape=(n_families, n_features, n_states),
+                              fill_value=self.initial_counts)
+        # @Nico: Define uniform prior and adapt per family if necessary
+        for k in config:
+            if config[k]['type'] == 'uniform':
+                pass
+                # do nothing
+            # elif config['type'] == "dirichlet"
+                ""
+                # so something else
 
-        elif config['type'] == 'universal':
-            self.prior_type = self.TYPES.UNIVERSAL
-            self.strength = config['scale_counts']
-            # self.states = self.data.state_names['internal']
+        # elif config['type'] == 'universal':
+        #     self.prior_type = self.TYPES.UNIVERSAL
+        #     self.strength = config['scale_counts']
+        #     # self.states = self.data.state_names['internal']
 
-        elif config['type'] == 'counts':
-            self.prior_type = self.TYPES.COUNTS
+        # elif config['type'] == 'counts':
+        #     self.prior_type = self.TYPES.COUNTS
+        #
+        #     if config['scale_counts'] is not None:
+        #         self.data.prior_inheritance['counts'] = scale_counts(
+        #             counts=self.data.prior_inheritance['counts'],
+        #             scale_to=config['scale_counts'],
+        #             prior_inheritance=True
+        #         )
+        #     self.counts = self.initial_counts + self.data.prior_inheritance['counts']
+        #     self.dirichlet = inheritance_counts_to_dirichlet(
+        #         counts=self.counts,
+        #         states=self.states
+        #     )
+        #     # self.states = self.data.state_names['internal']
 
-            if config['scale_counts'] is not None:
-                self.data.prior_inheritance['counts'] = scale_counts(
-                    counts=self.data.prior_inheritance['counts'],
-                    scale_to=config['scale_counts'],
-                    prior_inheritance=True
-                )
-            self.counts = self.initial_counts + self.data.prior_inheritance['counts']
-            self.dirichlet = inheritance_counts_to_dirichlet(
-                counts=self.counts,
-                states=self.states
-            )
-            # self.states = self.data.state_names['internal']
-
-        elif config['type'] == 'counts_and_universal':
-            self.prior_type = self.TYPES.COUNTS_AND_UNIVERSAL
-
-            if config['scale_counts'] is not None:
-                self.data.prior_inheritance['counts'] = scale_counts(
-                    counts=self.data.prior_inheritance['counts'],
-                    scale_to=config['scale_counts'],
-                    prior_inheritance=True
-                )
-            # self.counts = self.initial_counts + self.data.prior_inheritance['counts']
-            self.strength = config['scale_counts']
-            # self.states = self.data.prior_inheritance['states']
-        else:
-            raise ValueError(self.invalid_prior_message(config['type']))
+        # elif config['type'] == 'counts_and_universal':
+        #     self.prior_type = self.TYPES.COUNTS_AND_UNIVERSAL
+        #
+        #     if config['scale_counts'] is not None:
+        #         self.data.prior_inheritance['counts'] = scale_counts(
+        #             counts=self.data.prior_inheritance['counts'],
+        #             scale_to=config['scale_counts'],
+        #             prior_inheritance=True
+        #         )
+        #     # self.counts = self.initial_counts + self.data.prior_inheritance['counts']
+        #     self.strength = config['scale_counts']
+        #     # self.states = self.data.prior_inheritance['states']
+        # else:
+        #     raise ValueError(self.invalid_prior_message(config['type']))
 
     def is_outdated(self, sample):
         """Check whether the cached prior_p_families is up-to-date or needs to be recomputed."""
