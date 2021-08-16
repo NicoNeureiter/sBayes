@@ -8,6 +8,7 @@ import os
 import warnings
 
 from pathlib import Path
+from typing import Optional
 
 try:
     import importlib.resources as pkg_resources     # PYTHON >= 3.7
@@ -43,7 +44,9 @@ class Experiment:
     """
 
     def __init__(self, experiment_name: str = None,
-                 config_file: Path = None, log: bool = True):
+                 config_file: Optional[Path] = None,
+                 custom_settings: Optional[dict] = None,
+                 log: bool = True):
 
         # Naming and shaming
         if experiment_name is None:
@@ -59,12 +62,14 @@ class Experiment:
         self.logger = self.init_logger()
 
         if config_file is not None:
-            self.load_config(config_file)
+            self.load_config(config_file, custom_settings=custom_settings)
 
         if log:
             self.log_experiment()
 
-    def load_config(self, config_file: Path, custom_settings=None):
+    def load_config(self,
+                    config_file: Path,
+                    custom_settings: Optional[dict] = None):
         # Get parameters from config_file
         self.base_directory, self.config_file = self.decompose_config_path(config_file)
 

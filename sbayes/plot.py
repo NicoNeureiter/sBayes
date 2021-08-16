@@ -2037,7 +2037,7 @@ def main(config=None, only_plot=None):
     def should_be_plotted(plot_type):
         """A plot type should only be generated if it
             1) is specified in the config file and
-            2) is in the reuqested list of plot types."""
+            2) is in the requested list of plot types."""
         return (plot_type in plot.config) and (plot_type in plot_types)
 
     for m in names:
@@ -2049,8 +2049,8 @@ def main(config=None, only_plot=None):
         # TODO (NN) For now we always plot the map, since the other plotting functions
         #  depend on the preprocessing done in plot_map. I suggest we resolve this when
         #  separating area summarization from plotting.
-        # if should_be_plotted('map'):
-        plot_map(plot, m)
+        if should_be_plotted('map'):
+            plot_map(plot, m)
 
         # Plot the reconstructed mixture weights in simplex plots
         if should_be_plotted('weights_plot'):
