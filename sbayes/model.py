@@ -8,7 +8,7 @@ import numpy as np
 import scipy.stats as stats
 from scipy.sparse.csgraph import minimum_spanning_tree, csgraph_from_dense
 
-from sbayes.util import (compute_delaunay, n_smallest_distances, log_binom,
+from sbayes.util import (compute_delaunay, n_smallest_distances, log_binom, log_multinom,
                          counts_to_dirichlet, inheritance_counts_to_dirichlet,
                          dirichlet_logpdf, scale_counts)
 EPS = np.finfo(float).eps
@@ -1002,7 +1002,9 @@ class ZoneSizePrior(object):
             if self.prior_type == self.TYPES.UNIFORM_SIZE:
                 # P(size)   =   uniform
                 # P(zone | size)   =   1 / |{zones of size k}|   =   1 / (n choose k)
-                logp = -np.sum(log_binom(n_sites, sizes))
+                # logp = -np.sum(log_binom(n_sites, sizes))
+                logp = -log_multinom(n_sites, sizes)
+
 
             elif self.prior_type == self.TYPES.QUADRATIC_SIZE:
                 # Here we assume that only a quadratically growing subset of zones is

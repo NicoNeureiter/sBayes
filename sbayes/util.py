@@ -1200,10 +1200,10 @@ def get_max_size_list(start, end, n_total, k_groups):
 
 
 def log_binom(n, k):
-    """Compute the logarithm of (n choose k), i.e. the binomial coefficient of n and k.
+    """Compute the logarithm of (n choose k), i.e. the binomial coefficient of `n` and `k`.
 
     Args:
-        n (int or np.array): Populations size..
+        n (int or np.array): Population size.
         k (int or np.array): Sample size.
     Returns:
         double: log(n choose k)
@@ -1215,6 +1215,43 @@ def log_binom(n, k):
     array([0.        , 0.69314718, 1.09861229])
     """
     return -betaln(1 + n - k, 1 + k) - np.log(n + 1)
+
+
+def log_multinom(n, ks):
+    """Compute the logarithm of (n choose k1,k2,...), i.e. the multinomial coefficient of
+    `n` and the integers in the list `ks`. The sum of the sample sizes (the numbers in
+     `ks`) may not exceed the population size (`n`).
+
+    Args:
+        n (int): Population size.
+        ks (list[int]): Sample sizes
+
+    Returns:
+        double: log(n choose k1,k2,...)
+
+    """
+    assert np.sum(ks) <= n
+
+    log_i = np.log(1 + np.arange(n))
+    log_i_cumsum = np.cumsum(log_i)
+
+    # Count all permutations of the total population
+    m = np.sum(log_i)
+
+    # Subtract all permutation within the samples (with sample sizes specified in `ks`).
+    for k in ks:
+        m -= log_i_cumsum[k-1]
+
+    # If there are is a remainder in the population, that was not assigned to any of the
+    # samples, subtract all permutations of the remainder population.
+    rest = n - sum(ks)
+    assert rest >= 0
+    if rest > 0:
+        m -= log_i_cumsum[rest-1]
+
+    assert m >= 0
+    return m
+
 
 
 # Fix path for default config files (in the folder sbayes/sbayes/config)
