@@ -47,8 +47,8 @@ class Model(object):
     def parse_attributes(self, config):
         """Read attributes from the config dictionary."""
         self.n_zones = config['areas']
-        self.min_size = config['languages_per_area']['min']
-        self.max_size = config['languages_per_area']['max']
+        self.min_size = config['prior']['languages_per_area']['min']
+        self.max_size = config['prior']['languages_per_area']['max']
         self.inheritance = config['inheritance']
         self.sample_source = config['sample_source']
 
@@ -527,7 +527,7 @@ class Prior(object):
         self.network = data.network
         self.config = prior_config
 
-        self.size_prior = ZoneSizePrior(config=prior_config['area_size'], data=data)
+        self.size_prior = ZoneSizePrior(config=prior_config['languages_per_area'], data=data)
         self.geo_prior = GeoPrior(config=prior_config['geo'], data=data)
         self.prior_weights = WeightsPrior(config=prior_config['weights'], data=data)
         self.prior_p_global = PGlobalPrior(config=prior_config['universal'], data=data)
@@ -1072,7 +1072,7 @@ class GeoPrior(object):
         elif config['type'] == 'cost_based':
             self.prior_type = self.TYPES.COST_BASED
             self.cost_matrix = self.data.geo_prior['cost_matrix']
-            self.scale = config['scale']
+            self.scale = config['rate']
 
         else:
             raise ValueError('Geo prior not supported')

@@ -6,27 +6,19 @@
 	},
 	"model": {
 		"areas": "<REQUIRED>",
-		"languages_per_area": {
-			"min": 3,
-			"max": 50
-		},
 		"inheritance": "<REQUIRED>",
 		"sample_source": true,
 		"prior": {
-			"geo": {
-				"type": "uniform"
+			"geo": {"type": "uniform"},
+			"languages_per_area": {
+				"type": "<REQUIRED>",
+				"min": 2,
+				"max": 10000
 			},
-			"area_size": {
-				"type": "uniform_size"
-			},
-			"weights": {
-				"type": "uniform"
-			},
+			"weights": "<REQUIRED>",
 			"universal": "<REQUIRED>",
 			"inheritance": "<REQUIRED>",
-			"contact": {
-				"type": "uniform"
-			}
+			"contact": "<REQUIRED>"
 		}
 	},
 	"mcmc": {
@@ -35,10 +27,10 @@
 		"runs": 1,
 		"grow_to_adjacent": 0.85,
 		"operators": {
-			"area": 5,
-			"weights": 40,
+			"area": 45,
+			"weights": 15,
 			"universal": 5,
-			"contact": 30,
+			"contact": 15,
 			"inheritance": 10,
 			"source": 10
 		},
