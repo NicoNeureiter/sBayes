@@ -42,7 +42,12 @@
 			"weights": {"type": "uniform"},
 			"universal": {"type": "uniform"},
 			"contact": {"type": "uniform"},
-			"inheritance": {"type": "uniform"}
+			"inheritance": {
+				"1": {"type": "uniform"},
+				"2": {"type": "uniform"},
+				"3": {"type": "uniform"},
+				"4": {"type": "uniform"}
+			}
 		}
 	},
 	"data": {
