@@ -18,19 +18,18 @@ class TestExperiment(unittest.TestCase):
 
     CUSTOM_SETTINGS = {
         'simulation': {
-            '_FEATURES': 5,
+            'n_features': 5,
             'i_contact': 3,
             'e_contact': 0.5,
-            'STRENGTH': 0,
             'area': 3,
             'correlation_threshold': 0.8
         },
         'mcmc': {
-            'n_steps': 40,
-            'n_samples': 20,
-            'warm_up': {
-                'n_warm_up_steps': 5,
-                'n_warm_up_chains': 2
+            'steps': 40,
+            'samples': 20,
+            'warmup': {
+                'warmup_steps': 5,
+                'warmup_chains': 2
             }
         },
     }
@@ -60,7 +59,7 @@ class TestExperiment(unittest.TestCase):
     def test_sim_exp3():
         """Test whether simulation experiment 3 is running without errors."""
         custom_settings = {
-            'model': {'n_areas': 2},
+            'model': {'areas': 2},
             **TestExperiment.CUSTOM_SETTINGS
         }
         TestExperiment.run_experiment(path=Path('experiments/simulation/sim_exp3/'),
@@ -75,8 +74,8 @@ class TestExperiment(unittest.TestCase):
         exp.load_config(config_file=path / 'config.json',
                         custom_settings=custom_settings)
 
-        if exp.config['model']['n_areas'] == "TBD":
-            exp.config['model']['n_areas'] = 2
+        # if exp.config['model']['areas'] == "TBD":
+        #     exp.config['model']['areas'] = 2
 
         # 2. Simulate contact areas
         sim = Simulation(experiment=exp)
