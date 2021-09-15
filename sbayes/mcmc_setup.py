@@ -89,16 +89,19 @@ Ratio of contact steps (changing gamma): {mcmc_config['operators']['contact']}
         if initial_sample is None:
             initial_sample = self.sample_from_warm_up
 
-        self.sampler = ZoneMCMC(data=self.data,
-                                model=self.model,
-                                initial_sample=initial_sample,
-                                operators=mcmc_config['operators'],
-                                p_grow_connected=mcmc_config['grow_to_adjacent'],
-                                initial_size=mcmc_config['init_lang_per_area'])
+        self.sampler = ZoneMCMC(
+            data=self.data,
+            model=self.model,
+            initial_sample=initial_sample,
+            operators=mcmc_config['operators'],
+            p_grow_connected=mcmc_config['grow_to_adjacent'],
+            initial_size=mcmc_config['init_lang_per_area'],
+            sample_from_prior=mcmc_config['sample_from_prior'],
+            logger=self.logger,
+        )
 
         self.sampler.generate_samples(self.config['mcmc']['steps'],
                                       self.config['mcmc']['samples'])
-
 
         # Evaluate likelihood and prior for each zone alone (makes it possible to rank zones)
         if lh_per_area:
@@ -164,13 +167,17 @@ Ratio of contact steps (changing gamma): {mcmc_config['operators']['contact']}
     def warm_up(self):
         mcmc_config = self.config['mcmc']
 
-        warmup = ZoneMCMCWarmup(data=self.data,
-                                model=self.model,
-                                n_chains=mcmc_config['warmup']['warmup_chains'],
-                                operators=mcmc_config['operators'],
-                                p_grow_connected=mcmc_config['grow_to_adjacent'],
-                                initial_sample=None,
-                                initial_size=mcmc_config['init_lang_per_area'])
+        warmup = ZoneMCMCWarmup(
+            data=self.data,
+            model=self.model,
+            n_chains=mcmc_config['warmup']['warmup_chains'],
+            operators=mcmc_config['operators'],
+            p_grow_connected=mcmc_config['grow_to_adjacent'],
+            initial_sample=None,
+            initial_size=mcmc_config['init_lang_per_area'],
+            sample_from_prior=mcmc_config['sample_from_prior'],
+            logger=self.logger,
+        )
 
         self.sample_from_warm_up = warmup.generate_samples(n_steps=0,
                                                            n_samples=0,

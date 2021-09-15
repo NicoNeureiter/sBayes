@@ -25,6 +25,7 @@
 		"steps": 1000000,
 		"samples": 1000,
 		"runs": 1,
+		"sample_from_prior": false,
 		"grow_to_adjacent": 0.85,
 		"operators": {
 			"area": 45,
