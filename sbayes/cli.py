@@ -76,11 +76,11 @@ def main(config: Path = None,
         data.log_loading()
 
     # Rerun experiment to check for consistency
-    for run in range(experiment.config['mcmc']['n_runs']):
-        n_areas = experiment.config['model']['n_areas']
+    for run in range(experiment.config['mcmc']['runs']):
+        n_areas = experiment.config['model']['areas']
         iterate_or_run(
             x=n_areas,
-            config_setter=lambda x: experiment.config['model'].__setitem__('n_areas', x),
+            config_setter=lambda x: experiment.config['model'].__setitem__('areas', x),
             function=lambda x: run_experiment(experiment, data, run)
         )
 
