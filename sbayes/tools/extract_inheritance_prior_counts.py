@@ -1,0 +1,87 @@
+import numpy as np
+from pathlib import Path
+import json
+import os
+import argparse
+
+import tkinter as tk
+from tkinter import filedialog
+
+from sbayes.util import read_features_from_csv
+
+
+def zip_internal_external(names):
+    return zip(names['internal'], names['external'])
+
+
+def main(args):
+    # CLI
+    parser = argparse.ArgumentParser(description="Tool to extract parameters for an empirical inheritance prior from sBayes data files.")
+    parser.add_argument("--data", nargs="?", type=Path, help="The input CSV file")
+    parser.add_argument("--featureStates", nargs="?", type=Path, help="The feature states CSV file")
+    parser.add_argument("--output", nargs="?", type=Path, help="The output directory")
+    parser.add_argument("--c0", nargs="?", default=1.0, type=int, help="Concentration of the hyper-prior (1.0 is Uniform)")
+
+    args = parser.parse_args(args)
+    prior_data_file = args.data
+    feature_states_file = args.featureStates
+    output_directory = args.output
+    hyper_prior_concentration = args.c0
+
+    # GUI
+    tk.Tk().withdraw()
+    current_directory = '.'
+
+    if prior_data_file is None:
+        # Ask the user for data file
+        prior_data_file = filedialog.askopenfilename(
+            title='Select the data file in CSV format.',
+            initialdir=current_directory,
+            filetypes=(('csv files', '*.csv'), ('all files', '*.*'))
+
+        )
+        current_directory = os.path.dirname(prior_data_file)
+
+    if feature_states_file is None:
+        # Ask the user for feature states file
+        feature_states_file = filedialog.askopenfilename(
+            title='Select the feature_states file in CSV format.',
+            initialdir=current_directory,
+            filetypes=(('csv files', '*.csv'), ('all files', '*.*'))
+        )
+        current_directory = os.path.dirname(feature_states_file)
+
+    if output_directory is None:
+        # Ask the user for output directory
+        output_directory = filedialog.askdirectory(
+            title='Select the output directory.',
+            initialdir=current_directory,
+        )
+
+    prior_data_file = Path(prior_data_file)
+    feature_states_file = Path(feature_states_file)
+    output_directory = Path(output_directory)
+
+    _, _, features, feature_names, state_names, _, families, family_names, _ = read_features_from_csv(
+        file=prior_data_file,
+        feature_states_file=feature_states_file
+    )
+
+    for i_fam, family in zip_internal_external(family_names):
+        sites_in_family = families[i_fam]
+        data_fam = features[sites_in_family, :, :]      # shape: (n_sites_in_family, n_features, n_states)
+        counts = np.sum(data_fam, axis=0)               # shape: (n_features, n_states)
+
+        counts_dict = {}
+        for i_f, feature in zip_internal_external(feature_names):
+            counts_dict[feature] = {}
+            for i_s, state in enumerate(state_names['external'][i_f]):
+                counts_dict[feature][state] = hyper_prior_concentration + counts[i_f, i_s]
+
+        with open(output_directory / f'{family}.json', 'w') as prior_file:
+            json.dump(counts_dict, prior_file, indent=4)
+
+
+if __name__ == '__main__':
+    import sys
+    main(sys.argv[1:])
