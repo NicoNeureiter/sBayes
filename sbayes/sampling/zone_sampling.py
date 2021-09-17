@@ -9,7 +9,7 @@ import scipy.stats as stats
 
 from sbayes.sampling.mcmc_generative import MCMCGenerative
 from sbayes.model import normalize_weights, PFamiliesPrior
-from sbayes.util import get_neighbours, normalize, dirichlet_pdf, get_max_size_list
+from sbayes.util import get_neighbours, normalize, dirichlet_logpdf, get_max_size_list
 from sbayes.preprocessing import sample_categorical
 
 
@@ -116,11 +116,17 @@ class Sample(object):
 
 
 class ZoneMCMC(MCMCGenerative):
-    """float: Probability at which grow operator only considers neighbours to add to the zone."""
 
     def __init__(self, p_grow_connected,
                  initial_sample, initial_size,
                  **kwargs):
+        """
+        Args:
+            p_grow_connected (float): Probability at which grow operator only considers neighbours to add to the zone.
+            initial_sample (Sample): The starting state.
+            initial_size (int): The initial size of an area.
+            **kwargs: Other arguments that are passed on to MCMCGenerative.
+        """
 
         super(ZoneMCMC, self).__init__(**kwargs)
 
@@ -149,7 +155,6 @@ class ZoneMCMC(MCMCGenerative):
         # Is inheritance (information on language families) available?
         self.inheritance = self.model.inheritance
         self.families = self.data.families
-
 
         self.n_sites = self.features.shape[0]
         self.n_features = self.features.shape[1]
@@ -193,8 +198,11 @@ class ZoneMCMC(MCMCGenerative):
         """
         likelihood = self.posterior_per_chain[sample.chain].likelihood
 
-        # The likelihood of each component in each feature and languages
-        lh_per_component = likelihood.update_component_likelihoods(sample=sample, caching=False)
+        if self.sample_from_prior:
+            lh_per_component = np.ones((self.n_sites, self.n_features, self.n_sources))
+        else:
+            # The likelihood of each component in each feature and languages
+            lh_per_component = likelihood.update_component_likelihoods(sample=sample, caching=False)
 
         # Weights (in each feature and language) are the priors on the source assignments
         weights = likelihood.update_weights(sample=sample)
@@ -248,10 +256,10 @@ class ZoneMCMC(MCMCGenerative):
         # Otherwise we can compute the approximate posterior for a pair of weights.
         # We always keep one weight fixed (relative to the universal weight)
         fixed = _random.choice(['inheritance', 'contact'])
+        # fixed = _random.choice(['inheritance'])
 
         if fixed == 'inheritance':
-            # 'w_inheritance / w_universal' is fixed.
-            # resample 'a_contact = w_contact / (w_universal + w_contact)'.
+            # Fix w_inheritance, resample contribution of w_contact and w_universal.
 
             # Select counts of the relevant languages
             has_area = likelihood.get_zone_assignment(sample)
@@ -267,18 +275,18 @@ class ZoneMCMC(MCMCGenerative):
             a_univ = 1 - a_contact
 
             # Adapt w_new and renormalize
-            w_univ = w[..., 0]
-            w_new[..., 1] = a_contact * w_univ / a_univ
+            w_01 = w[..., 0] + w[..., 1]
+            w_new[..., 0] = a_univ * w_01
+            w_new[..., 1] = a_contact * w_01
             w_new = normalize(w_new, axis=-1)
 
             # Compute transition and back probability (for each feature)
-            a_contact_old = w[..., 1] / (w[..., 0] + w[..., 1])
+            a_contact_old = w[..., 1] / w_01
             log_q = distr.logpdf(a_contact)
             log_q_back = distr.logpdf(a_contact_old)
 
         else:
-            # 'w_contact / w_universal' is fixed.
-            # resample 'w_inheritance / (w_universal + w_inheritance)'.
+            # Fix w_contact, resample contribution of w_inheritance and w_universal.
 
             # Select counts of the relevant languages
             has_family = likelihood.has_family
@@ -294,19 +302,20 @@ class ZoneMCMC(MCMCGenerative):
             a_univ = 1 - a_inherit
 
             # Adapt w_new and renormalize
-            w_univ = w[..., 0]
-            w_new[..., 2] = a_inherit * w_univ / a_univ
+            w_02 = w[..., 0] + w[..., 2]
+            w_new[..., 0] = a_univ * w_02
+            w_new[..., 2] = a_inherit * w_02
             w_new = normalize(w_new, axis=-1)
 
             # Compute transition and back probability (for each feature)
-            a_inherit_old = w[..., 2] / (w[..., 0] + w[..., 2])
+            a_inherit_old = w[..., 2] / w_02
             log_q = distr.logpdf(a_inherit)
             log_q_back = distr.logpdf(a_inherit_old)
 
+        sample_new.weights = w_new
+
         w_normalized = likelihood.update_weights(sample)
         w_new_normalized = likelihood.update_weights(sample_new)
-
-        # print(np.asarray(10*w_normalized.sum(axis=0), dtype=int))
 
         # Compute old and new weight likelihoods (for each feature)
         log_lh_old_per_site = np.log(np.sum(sample.source * w_normalized, axis=-1))
@@ -325,25 +334,31 @@ class ZoneMCMC(MCMCGenerative):
         accept = np.random.random(p_accept.shape) < p_accept
         sample_new.weights = np.where(accept[:, np.newaxis], w_new, w)
 
-        sample_new.weights = w_new
-
         # We already accepted/rejected for each feature independently
         # The result should always be accepted in the MCMC
         return sample_new, self.Q_GIBBS, self.Q_BACK_GIBBS
 
     def gibbs_sample_p_global(self, sample: Sample, fraction_of_features=0.4):
         feature_subset = np.random.random(self.n_features) < fraction_of_features
-        features = self.features[:, feature_subset, :]
+        n_features_subset = np.sum(feature_subset)
+        n_states = self.applicable_states.shape[-1]
 
-        # Only consider observations that are attributed to the global distribution
-        from_global = sample.source[:, feature_subset, 0, np.newaxis]
-        features = from_global * features
+        if self.sample_from_prior:
+            # To sample from prior we emulate an empty dataset
+            features = np.zeros((1, n_features_subset, n_states))
+        else:
+            # Select subset of features
+            features = self.features[:, feature_subset, :]
+
+            # Only consider observations that are attributed to the global distribution
+            from_global = sample.source[:, feature_subset, 0, np.newaxis]
+            features = from_global * features
 
         # Get the prior (pseudo-)counts from the data
         prior = self.posterior_per_chain[sample.chain].prior
-        prior_counts = prior.prior_p_global.counts
+        prior_counts = prior.prior_p_global.concentration
 
-        if self.inheritance and prior.prior_p_families.prior_type is PFamiliesPrior.TYPES.UNIVERSAL:
+        if self.inheritance and prior.prior_p_families.universal_as_prior:
             raise NotImplementedError('The operator <gibbs_sample_p_global> is not adapted to a universal prior '
                                       'on p_families yet. Please use the <alter_p_global> operator instead.')
             # TODO If p_family has a universal prior, it should affect p_global in sampling.
@@ -353,7 +368,7 @@ class ZoneMCMC(MCMCGenerative):
             i_feat = i_feat[0]
             s_idxs = self.applicable_states[i_feat]
             feature_counts = np.nansum(features[:, i_feat_subset, s_idxs], axis=0)
-            sample.p_global[0, i_feat, s_idxs] = np.random.dirichlet(prior_counts[i_feat, s_idxs] + feature_counts)
+            sample.p_global[0, i_feat, s_idxs] = np.random.dirichlet(prior_counts[i_feat] + feature_counts)
 
             # The step changed p_global (which has an influence on how the lh and the prior look like)
             sample.what_changed['lh']['p_global'].add(i_feat)
@@ -365,11 +380,14 @@ class ZoneMCMC(MCMCGenerative):
         if i_zone is None:
             i_zone = np.random.randint(0, self.n_zones)
 
-        features = self.features
-
-        # Only consider observations that are attributed to the zone distribution
-        from_zone = (sample.source[:, :, 1] & sample.zones[i_zone, :, np.newaxis])
-        features = from_zone[...,np.newaxis] * features
+        if self.sample_from_prior:
+            # To sample from prior we emulate an empty dataset
+            n_states = self.applicable_states.shape[-1]
+            features = np.zeros((1, self.n_features, n_states))
+        else:
+            # Only consider observations that are attributed to the zone distribution
+            from_zone = (sample.source[:, :, 1] & sample.zones[i_zone, :, np.newaxis])
+            features = from_zone[...,np.newaxis] * self.features
 
         # Resample p_zones according to these observations
         for i_feat in range(self.n_features):
@@ -388,22 +406,30 @@ class ZoneMCMC(MCMCGenerative):
             i_family = np.random.randint(0, self.n_families)
 
         feature_subset = np.random.random(self.n_features) < fraction_of_features
-        features = self.features[:, feature_subset, :]
+        n_features_subset = np.sum(feature_subset)
+        n_states = self.applicable_states.shape[-1]
 
-        # Only consider observations that are attributed to the family distribution
-        from_family = (sample.source[:, feature_subset, 2] & self.data.families[i_family, :, np.newaxis])
-        features = from_family[...,np.newaxis] * features
+        if self.sample_from_prior:
+            # To sample from prior we emulate an empty dataset
+            features = np.zeros((1, n_features_subset, n_states))
+        else:
+            # Select subset of features
+            features = self.features[:, feature_subset, :]
+
+            # Only consider observations that are attributed to the family distribution
+            from_family = (sample.source[:, feature_subset, 2] & self.data.families[i_family, :, np.newaxis])
+            features = from_family[...,np.newaxis] * features
 
         # Get the prior (pseudo-)counts from the data
         prior = self.posterior_per_chain[sample.chain].prior
-        prior_counts = prior.prior_p_families.counts[i_family]
+        prior_counts = prior.prior_p_families.concentration[i_family]
 
         # Resample p_families according to these observations
         for i_feat_subset, i_feat in enumerate(np.argwhere(feature_subset)):
             i_feat = i_feat[0]
             s_idxs = self.applicable_states[i_feat]
             feature_counts = np.nansum(features[:, i_feat_subset, s_idxs], axis=0)
-            sample.p_families[i_family, i_feat, s_idxs] = np.random.dirichlet(prior_counts[i_feat, s_idxs] + feature_counts)
+            sample.p_families[i_family, i_feat, s_idxs] = np.random.dirichlet(prior_counts[i_feat] + feature_counts)
 
             sample.what_changed['lh']['p_families'].add((i_family, i_feat))
             sample.what_changed['prior']['p_families'].add((i_family, i_feat))
@@ -556,10 +582,10 @@ class ZoneMCMC(MCMCGenerative):
         """
         alpha = 1 + step_precision * w
         w_new = np.random.dirichlet(alpha)
-        q = dirichlet_pdf(w_new, alpha)
+        log_q = dirichlet_logpdf(w_new, alpha)
 
         alpha_back = 1 + step_precision * w_new
-        q_back = dirichlet_pdf(w, alpha_back)
+        log_q_back = dirichlet_logpdf(w, alpha_back)
 
         if not np.all(np.isfinite(w_new)):
             logging.warning(f'Dirichlet step resulted in NaN or Inf:')
@@ -568,10 +594,7 @@ class ZoneMCMC(MCMCGenerative):
             logging.warning(f'\tNew sample: {w_new}')
             # return w, 0., -np.inf
 
-        assert 0 < q
-        assert 0 < q_back
-
-        return w_new, np.log(q), np.log(q_back)
+        return w_new, log_q, log_q_back
 
     def alter_p_families(self, sample):
         """This function modifies one p_families of one category, one feature and one family in the current sample
@@ -721,6 +744,11 @@ class ZoneMCMC(MCMCGenerative):
         sample_new = sample.copy()
         occupied = np.any(sample.zones, axis=0)
 
+        if self.sample_from_prior:
+            # When sampling from prior, the areas are independent from other parameters.
+            # Hence, there is no need to resample the sources in an area step.
+            resample_source = False
+
         if self.model.sample_source and resample_source:
             likelihood = self.posterior_per_chain[sample.chain].likelihood
             lh_per_component = likelihood.update_component_likelihoods(sample=sample, caching=False)
@@ -806,6 +834,11 @@ class ZoneMCMC(MCMCGenerative):
         zones_current = sample.zones
         occupied = np.any(zones_current, axis=0)
 
+        if self.sample_from_prior:
+            # When sampling from prior, the areas are independent from other parameters.
+            # Hence, there is no need to resample the sources in an area step.
+            resample_source = False
+
         if self.model.sample_source and resample_source:
             likelihood = self.posterior_per_chain[sample.chain].likelihood
             lh_per_component = likelihood.update_component_likelihoods(sample=sample, caching=False)
@@ -882,6 +915,11 @@ class ZoneMCMC(MCMCGenerative):
         """
         sample_new = sample.copy()
         zones_current = sample.zones
+
+        if self.sample_from_prior:
+            # When sampling from prior, the areas are independent from other parameters.
+            # Hence, there is no need to resample the sources in an area step.
+            resample_source = False
 
         if self.model.sample_source and resample_source:
             likelihood = self.posterior_per_chain[sample.chain].likelihood
