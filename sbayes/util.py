@@ -24,39 +24,10 @@ from fastcluster import linkage
 
 EPS = np.finfo(float).eps
 
+
 FAST_DIRICHLET = True
-if FAST_DIRICHLET:
-    def dirichlet_pdf(x, alpha): return np.exp(stats.dirichlet._logpdf(x, alpha))
-    dirichlet_logpdf = stats.dirichlet._logpdf
-
-    # ## Since the PDF is evaluated on the same samples again we could use
-    # ## an LRU cache for further speed-up (not properly tested yet):
-    #
-    # from lru import LRU
-    # from scipy.special import gammaln, xlogy
-    #
-    # cache = LRU(10000)
-    #
-    # def dirichlet_logpdf(x, alpha):
-    #     key = alpha.tobytes()
-    #
-    #     if hash in cache:
-    #         lnB = cache[key]
-    #
-    #     else:
-    #         lnB = np.sum(gammaln(alpha)) - gammaln(np.sum(alpha))
-    #         cache[key] = lnB
-    #
-    #     return -lnB  np.sum((xlogy(alpha - 1, x.T)).T, 0)
-    #
-    # # dirichlet_logpdf = stats.dirichlet._logpdf
-    #
-    # def dirichlet_pdf(x, alpha):
-    #     return np.exp(dirichlet_logpdf(x, alpha))
-
-else:
-    dirichlet_pdf = stats.dirichlet.pdf
-    dirichlet_logpdf = stats.dirichlet.logpdf
+dirichlet_logpdf = stats.dirichlet._logpdf if FAST_DIRICHLET else stats.dirichlet.logpdf
+dirichlet_pdf = stats.dirichlet.pdf
 
 
 class FamilyError(Exception):
@@ -103,19 +74,6 @@ def compute_distance(a, b):
     dist = sqrt(ab[0]**2 + ab[1]**2)
 
     return dist
-
-
-def dump(data, path):
-    """Dump the given data to the given path (using pickle)."""
-    with open(path, 'wb') as dump_file:
-        pickle.dump(data, dump_file)
-
-
-def load_from(path):
-    """Load and return data from the given path (using pickle)."""
-    with open(path, 'rb') as dump_file:
-
-        return pickle.load(dump_file)
 
 
 def bounding_box(points):
@@ -624,6 +582,7 @@ def counts_to_dirichlet(counts: t.Sequence[t.Sequence[int]], states: t.Sequence[
 
 
 def touch(fname):
+    """Create an empty file at path `fname`."""
     if os.path.exists(fname):
         os.utime(fname, None)
     else:
@@ -637,8 +596,7 @@ def mkpath(path):
 
 
 def add_edge(edges, edge_nodes, coords, i, j):
-    """
-    Add an edge between the i-th and j-th points, if not in edges already
+    """Add an edge between the i-th and j-th points, if not in edges already.
     Args:
         edges (set): set of edges
         edge_nodes(list): coordinates of all nodes in all edges
