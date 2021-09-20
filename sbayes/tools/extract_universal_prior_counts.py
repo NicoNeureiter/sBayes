@@ -21,12 +21,14 @@ def main(args):
     parser.add_argument("--featureStates", nargs="?", type=Path, help="The feature states CSV file")
     parser.add_argument("--output", nargs="?", type=Path, help="The output JSON file")
     parser.add_argument("--c0", nargs="?", default=1.0, type=int, help="Concentration of the hyper-prior (1.0 is Uniform)")
+    parser.add_argument("--scaleCounts", nargs="?", default=None, type=float, help="Concentration of the hyper-prior (1.0 is Uniform)")
 
     args = parser.parse_args(args)
     prior_data_file = args.data
     feature_states_file = args.featureStates
     output_file = args.output
     hyper_prior_concentration = args.c0
+    max_counts = args.scaleCounts
 
     # GUI
     tk.Tk().withdraw()
@@ -68,8 +70,11 @@ def main(args):
         feature_states_file=feature_states_file
     )
 
-    data = features                     # shape: (n_sites, n_features, n_states)
-    counts = np.sum(data, axis=0)       # shape: (n_features, n_states)
+    counts = np.sum(features, axis=0)       # shape: (n_features, n_states)
+
+    # Apply the scale_counts if provided
+    if max_counts is not None:
+        counts = scale_counts(counts, max_counts)
 
     counts_dict = {}
     for i_f, feature in zip_internal_external(feature_names):

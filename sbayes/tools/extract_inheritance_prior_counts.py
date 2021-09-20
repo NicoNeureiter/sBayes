@@ -8,6 +8,7 @@ import tkinter as tk
 from tkinter import filedialog
 
 from sbayes.util import read_features_from_csv
+from sbayes.util import scale_counts
 
 
 def zip_internal_external(names):
@@ -15,20 +16,22 @@ def zip_internal_external(names):
 
 
 def main(args):
-    # CLI
+    # ===== CLI =====
     parser = argparse.ArgumentParser(description="Tool to extract parameters for an empirical inheritance prior from sBayes data files.")
     parser.add_argument("--data", nargs="?", type=Path, help="The input CSV file")
     parser.add_argument("--featureStates", nargs="?", type=Path, help="The feature states CSV file")
     parser.add_argument("--output", nargs="?", type=Path, help="The output directory")
-    parser.add_argument("--c0", nargs="?", default=1.0, type=int, help="Concentration of the hyper-prior (1.0 is Uniform)")
+    parser.add_argument("--c0", nargs="?", default=1.0, type=float, help="Concentration of the hyper-prior (1.0 is Uniform)")
+    parser.add_argument("--scaleCounts", nargs="?", default=None, type=float, help="Concentration of the hyper-prior (1.0 is Uniform)")
 
     args = parser.parse_args(args)
     prior_data_file = args.data
     feature_states_file = args.featureStates
     output_directory = args.output
     hyper_prior_concentration = args.c0
+    max_counts = args.scaleCounts
 
-    # GUI
+    # ===== GUI =====
     tk.Tk().withdraw()
     current_directory = '.'
 
@@ -69,8 +72,12 @@ def main(args):
 
     for i_fam, family in zip_internal_external(family_names):
         sites_in_family = families[i_fam]
-        data_fam = features[sites_in_family, :, :]      # shape: (n_sites_in_family, n_features, n_states)
-        counts = np.sum(data_fam, axis=0)               # shape: (n_features, n_states)
+        features_fam = features[sites_in_family, :, :]      # shape: (n_sites_in_family, n_features, n_states)
+        counts = np.sum(features_fam, axis=0)               # shape: (n_features, n_states)
+
+        # Apply the scale_counts if provided
+        if max_counts is not None:
+            counts = scale_counts(counts, max_counts)
 
         counts_dict = {}
         for i_f, feature in zip_internal_external(feature_names):
