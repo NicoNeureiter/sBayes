@@ -32,10 +32,14 @@ def main(args):
     max_counts = args.scaleCounts
 
     # GUI
-    tk.Tk().withdraw()
+    tk_started = False
     current_directory = '.'
 
     if prior_data_file is None:
+        if not tk_started:
+            tk.Tk().withdraw()
+            tk_started = True
+
         # Ask the user for data file
         prior_data_file = filedialog.askopenfilename(
             title='Select the data file in CSV format.',
@@ -46,6 +50,10 @@ def main(args):
         current_directory = os.path.dirname(prior_data_file)
 
     if feature_states_file is None:
+        if not tk_started:
+            tk.Tk().withdraw()
+            tk_started = True
+
         # Ask the user for feature states file
         feature_states_file = filedialog.askopenfilename(
             title='Select the feature_states file in CSV format.',
@@ -55,6 +63,10 @@ def main(args):
         current_directory = os.path.dirname(feature_states_file)
 
     if output_file is None:
+        if not tk_started:
+            tk.Tk().withdraw()
+            tk_started = True
+
         # Ask the user for output directory
         output_file = filedialog.askopenfilename(
             title='Select the output file (for universal prior counts) in JSON format.',
