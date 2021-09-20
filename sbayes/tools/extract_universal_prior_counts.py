@@ -21,7 +21,7 @@ def main(args):
     parser.add_argument("--data", nargs="?", type=Path, help="The input CSV file")
     parser.add_argument("--featureStates", nargs="?", type=Path, help="The feature states CSV file")
     parser.add_argument("--output", nargs="?", type=Path, help="The output JSON file")
-    parser.add_argument("--c0", nargs="?", default=1.0, type=int, help="Concentration of the hyper-prior (1.0 is Uniform)")
+    parser.add_argument("--c0", nargs="?", default=1.0, type=float, help="Concentration of the hyper-prior (1.0 is Uniform)")
     parser.add_argument("--scaleCounts", nargs="?", default=None, type=float, help="Concentration of the hyper-prior (1.0 is Uniform)")
 
     args = parser.parse_args(args)
