@@ -8,6 +8,7 @@ import tkinter as tk
 from tkinter import filedialog
 
 from sbayes.util import read_features_from_csv
+from sbayes.util import scale_counts
 
 
 def zip_internal_external(names):
