@@ -1599,6 +1599,7 @@ class Plot:
 
 
     def plot_pies(self, file_name, file_format="pdf"):
+        config_pie = self.config['preference_plot']
         print('Plotting pie charts ...')
 
         areas = np.array(self.results['areas'])
@@ -1615,8 +1616,8 @@ class Plot:
         n_col = 3
         n_row = math.ceil(n_plots / n_col)
 
-        width = self.config['pie_plot']['output']['fig_width_subplot']
-        height = self.config['pie_plot']['output']['fig_height_subplot']
+        width = config_pie['output']['fig_width_subplot']
+        height = config_pie['output']['fig_height_subplot']
 
         fig, axs = plt.subplots(n_row, n_col, figsize=(width * n_col, height * n_row))
 
@@ -1649,8 +1650,8 @@ class Plot:
         for e in range(1, n_empty):
             axs[-1, -e].axis('off')
 
-        plt.subplots_adjust(wspace=self.config['pie_plot']['output']['spacing_horizontal'],
-                            hspace=self.config['pie_plot']['output']['spacing_vertical'])
+        plt.subplots_adjust(wspace=config_pie['output']['spacing_horizontal'],
+                            hspace=config_pie['output']['spacing_vertical'])
 
         fig.savefig(self.path_plots + '/' + file_name + '.' + file_format,
                     dpi=400, format=file_format, bbox_inches='tight')
@@ -1659,7 +1660,7 @@ class Plot:
 def main(config=None, only_plot=None):
     # TODO adapt paths according to experiment_name (if provided)
     # TODO add argument defining which plots to generate (all [default], map, weights, ...)
-    ALL_PLOT_TYPES = ['map', 'weights_plot', 'probabilities_plot', 'pie_plot']
+    ALL_PLOT_TYPES = ['map', 'weights_plot', 'preference_plot', 'pie_plot']
 
     # If no plot type is specified, plot everything in the config file
     plot_types = ALL_PLOT_TYPES
@@ -1678,7 +1679,8 @@ def main(config=None, only_plot=None):
             plot_types = [args.type]
 
     results_per_model = {}
-    plot = Plot(simulated_data=False)
+
+    plot = Plot()
     plot.load_config(config_file=config)
     plot.read_data()
 
@@ -1690,6 +1692,7 @@ def main(config=None, only_plot=None):
             1) is specified in the config file and
             2) is in the requested list of plot types."""
         return (plot_type in plot.config) and (plot_type in plot_types)
+        # return (plot_type in plot.config['plots']) and (plot_type in plot_types)
 
     for m in names:
         # Read results for model ´m´
@@ -1697,22 +1700,20 @@ def main(config=None, only_plot=None):
         print('Plotting model', m)
 
         # Plot the reconstructed areas on a map
-        # TODO (NN) For now we always plot the map, since the other plotting functions
-        #  depend on the preprocessing done in plot_map. I suggest we resolve this when
-        #  separating area summarization from plotting.
         if should_be_plotted('map'):
             plot_map(plot, m)
 
         # Plot the reconstructed mixture weights in simplex plots
         if should_be_plotted('weights_plot'):
-            plot.plot_weights_grid(file_name='weights_grid_' + m)
+            plot.plot_weights(file_name='weights_grid_' + m)
 
         # Plot the reconstructed probability vectors in simplex plots
-        if should_be_plotted('probabilities_plot'):
+        if should_be_plotted('preference_plot'):
+            config_pref = plot.config['preference_plot']
             iterate_or_run(
-                x=plot.config['probabilities_plot']['parameter'],
-                config_setter=lambda x: plot.config['probabilities_plot'].__setitem__('parameter', x),
-                function=lambda x: plot.plot_probability_grid(file_name=f'prob_grid_{m}_{x}')
+                x=config_pref['content']['preference'],
+                config_setter=lambda x: config_pref['content'].__setitem__('preference', x),
+                function=lambda x: plot.plot_preferences(file_name=f'prob_grid_{m}_{x}')
             )
 
         # Plot the reconstructed areas in pie-charts
@@ -1728,15 +1729,17 @@ def main(config=None, only_plot=None):
 
 
 def plot_map(plot, m):
-    map_type = plot.config['map']['content']['type']
+    config_map = plot.config['map']
+    # config_map = plot.config['plots']['map']
+    map_type = config_map['content']['type']
 
-    if map_type == plot.config['map']['content']['type'] == 'density_map':
+    if map_type == config_map['content']['type'] == 'density_map':
         plot.posterior_map(file_name='posterior_map_' + m)
 
-    elif map_type == plot.config['map']['content']['type'] == 'density_map':
+    elif map_type == config_map['content']['type'] == 'consensus_map':
         iterate_or_run(
-            x=plot.config['map']['content']['min_posterior_frequency'],
-            config_setter=lambda x: plot.config['map']['content'].__setitem__('min_posterior_frequency', x),
+            x=config_map['content']['min_posterior_frequency'],
+            config_setter=lambda x: config_map['content'].__setitem__('min_posterior_frequency', x),
             function=lambda x: plot.posterior_map(file_name=f'posterior_map_{m}_{x}'),
             print_message='Current mpf: {value} ({i} out of {len(mpf_values)})'
         )
