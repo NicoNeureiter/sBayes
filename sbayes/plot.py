@@ -1704,12 +1704,7 @@ def main(config=None, only_plot=None):
 
         # Plot the reconstructed probability vectors in simplex plots
         if should_be_plotted('preference_plot'):
-            config_pref = plot.config['preference_plot']
-            iterate_or_run(
-                x=config_pref['content']['preference'],
-                config_setter=lambda x: config_pref['content'].__setitem__('preference', x),
-                function=lambda x: plot.plot_preferences(file_name=f'prob_grid_{m}_{x}')
-            )
+            plot.plot_preferences(file_name=f'prob_grid_{m}')
 
         # Plot the reconstructed areas in pie-charts
         # (one per language, showing how likely the language is to be in each area)
