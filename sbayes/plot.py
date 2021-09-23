@@ -255,11 +255,12 @@ class Plot:
         self.results['prior_single_areas'] = prior_single_areas
         self.results['feature_names'] = feature_names
 
-    # Read stats
-    # Read the results from the files:
-    # <experiment_path>/stats_<scenario>.txt
     def read_stats(self, txt_path):
+        """Read stats for results files (<experiment_path>/stats_<scenario>.txt).
 
+        Args:
+            txt_path: path to results file
+        """
         sample_id = None
         # Load the stats using pandas
         df_stats = pd.read_csv(txt_path, delimiter='\t')
@@ -489,9 +490,8 @@ class Plot:
 
         return in_graph, lines, line_weights
 
-    # Reproject from data CRS to map CRD
     def reproject_to_map_crs(self, map_proj):
-
+        """Reproject from data CRS to map CRD"""
         data_proj = self.config['data']['projection']
 
         if map_proj != data_proj:
@@ -507,17 +507,14 @@ class Plot:
         else:
             return self.locations
 
-    # Initialize the map
     @staticmethod
     def initialize_map(locations, cfg_graphic, ax):
 
         ax.scatter(*locations.T, s=cfg_graphic['languages']['size'],
                    c=cfg_graphic['languages']['color'], alpha=1, linewidth=0)
 
-
-    # Add labels to languages in an area
     def add_label(self, is_in_area, current_color, locations_map_crs, extent, ax):
-
+        """Add labels to languages in an area"""
         # Find all languages in areas
         loc_in_area = locations_map_crs[is_in_area, :]
         labels_in_area = list(compress(self.sites['id'], is_in_area))
@@ -533,7 +530,6 @@ class Plot:
             ax.annotate(labels_in_area[loc] + 1, **anno_opts)
 
         return labels_in_area
-
 
     def visualize_areas(self, locations_map_crs, extent,
                         cfg_content, cfg_graphic, cfg_legend, ax):
@@ -598,7 +594,6 @@ class Plot:
             ax.add_artist(legend_areas)
 
         return all_labels
-
 
     def color_families(self, locations_maps_crs, cfg_graphic, cfg_legend, ax):
         family_array = self.family_names['external']
@@ -1599,11 +1594,11 @@ class Plot:
 
 
     def plot_pies(self, file_name, file_format="pdf"):
-        config_pie = self.config['preference_plot']
+        config_pie = self.config['pie_plot']
         print('Plotting pie charts ...')
 
         areas = np.array(self.results['areas'])
-        end_bi = math.ceil(areas.shape[1] * self.content_config['burn_in'])
+        end_bi = math.ceil(areas.shape[1] * config_pie['content']['burn_in'])
 
         samples = areas[:, end_bi:, ]
 
@@ -1616,8 +1611,8 @@ class Plot:
         n_col = 3
         n_row = math.ceil(n_plots / n_col)
 
-        width = config_pie['output']['fig_width_subplot']
-        height = config_pie['output']['fig_height_subplot']
+        width = config_pie['output']['width']
+        height = config_pie['output']['height']
 
         fig, axs = plt.subplots(n_row, n_col, figsize=(width * n_col, height * n_row))
 
@@ -1631,7 +1626,7 @@ class Plot:
                 no_area = n_samples - per_lang.sum()
 
                 x = per_lang.tolist()
-                col = list(self.graphic_config['area_colors'])[:len(x)]
+                col = list(self.config['map']['graphic']['areas']['color'])[:len(x)]
 
                 # Append samples that are not in an area
                 x.append(no_area)
