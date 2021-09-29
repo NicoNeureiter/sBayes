@@ -9,7 +9,10 @@
 		"inheritance": "<REQUIRED>",
 		"sample_source": true,
 		"prior": {
-			"geo": {"type": "uniform"},
+			"geo": {
+				"type": "uniform",
+				"aggregation": "mean"
+			},
 			"languages_per_area": {
 				"type": "<REQUIRED>",
 				"min": 2,

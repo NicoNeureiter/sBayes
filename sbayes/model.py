@@ -1097,9 +1097,11 @@ class GeoPrior(object):
             self.prior_type = self.TYPES.COST_BASED
             self.cost_matrix = self.data.geo_prior['cost_matrix']
             self.scale = config['rate']
-
+            self.aggregation = config['aggregation']
         else:
             raise ValueError('Geo prior not supported')
+
+
 
     def is_outdated(self, sample):
         return self.cached is None or sample.what_changed['prior']['zones']
@@ -1122,7 +1124,12 @@ class GeoPrior(object):
             #                                    self.config['gaussian'])
 
             elif self.prior_type == self.TYPES.COST_BASED:
-                geo_prior = geo_prior_distance(sample.zones, self.cost_matrix, self.scale)
+                geo_prior = geo_prior_distance(
+                    zones=sample.zones,
+                    cost_mat=self.cost_matrix,
+                    scale=self.scale,
+                    aggregation=self.aggregation
+                )
 
             else:
                 raise ValueError('geo_prior must be either \"uniform\", \"gaussian\" or \"cost_based\".')
@@ -1183,13 +1190,17 @@ def geo_prior_gaussian(zones: np.array, network: dict, cov: np.array):
     return np.mean(log_prior)
 
 
-def geo_prior_distance(zones: np.array, cost_mat: np.array, scale: float):
-
+def geo_prior_distance(zones: np.array,
+                       cost_mat: np.array,
+                       scale: float,
+                       aggregation: str):
     """ This function computes the geo prior for the sum of all distances of the mst of a zone
     Args:
         zones (np.array): The current zones (boolean array)
         cost_mat (np.array): The cost matrix between locations
         scale (float): The scale parameter of an exponential distribution
+        aggregation (str): The aggregation policy, defining how the single edge
+            costs are combined into one joint cost for the area.
 
     Returns:
         float: the geo-prior of the zones
@@ -1226,7 +1237,14 @@ def geo_prior_distance(zones: np.array, cost_mat: np.array, scale: float):
 
         log_prior = stats.expon.logpdf(distances, loc=0, scale=scale)
 
-    return np.mean(log_prior)
+    if aggregation == 'mean':
+        return np.mean(log_prior)
+    elif aggregation == 'sum':
+        return np.sum(log_prior)
+    elif aggregation == 'max':
+        return np.min(log_prior)
+    else:
+        raise ValueError(f'Unknown aggregation policy "{aggregation}" in geo prior.')
 
 
 def prior_p_global_dirichlet(p_global, concentration, applicable_states, outdated_features,
