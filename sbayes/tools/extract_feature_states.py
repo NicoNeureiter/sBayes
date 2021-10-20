@@ -106,6 +106,8 @@ def main(args):
                 out = '\nFeatures do not match between the different input files:'
                 out += '\n\tPreviously loaded features: \t %s' % sorted(feature_states.keys())
                 out += '\n\tFeatures in %s: \t %s' % (path, sorted(new_feature_states.keys()))
+                out += '\n\tPreviously loaded, but missing in %s: \t %s' % (path, sorted(set(feature_states.keys()) - set(new_feature_states.keys())))
+                out += '\n\tPresent in %s, but missing in previous files : \t %s' % (path, sorted(set(new_feature_states.keys()) - set(feature_states.keys())))
                 raise ValueError(out)
 
             for f in feature_states.keys():

@@ -17,44 +17,37 @@
 		"area": 10
 	},
 	"mcmc": {
-		"n_steps": 3000000,
-		"n_samples": 5000,
-		"n_runs": 1,
-		"p_grow_connected": 0.85,
-		"proposal_precision": {
-			"weights": 20,
-			"universal": 30,
-			"contact": 10,
-			"inheritance": 10
-		},
-		"steps": {
-			"area": 0.1,
-			"weights": 0.4,
-			"universal": 0.1,
-			"contact": 0.3,
-			"inheritance": 0.1
-		},
-		"m_initial": 15,
+		"steps": 1000000,
+		"samples": 5000,
+		"init_lang_per_area": 15,
 		"warm_up": {
-			"n_warm_up_steps": 100000,
-			"n_warm_up_chains": 20
+			"warmup_steps": 100000,
+			"warmup_chains": 20
 		}
 	},
 	"model": {
-		"n_areas": 1,
-		"min_m": 3,
-		"max_m": 200,
+		"areas": 1,
 		"inheritance": "TBD",
 		"sample_source": false,
 		"prior": {
 			"geo": {
 				"type": "cost_based",
-				"scale": 100
+				"rate": 100
+			},
+			"languages_per_area": {
+				"type": "uniform_area",
+				"min": 3,
+				"max": 200
 			},
 			"weights": {"type": "uniform"},
 			"universal": {"type": "uniform"},
 			"contact": {"type": "uniform"},
-			"inheritance": {"type": "uniform"}
+			"inheritance": {
+				"1": {"type": "uniform"},
+				"2": {"type": "uniform"},
+				"3": {"type": "uniform"},
+				"4": {"type": "uniform"}
+			}
 		}
 	},
 	"data": {

@@ -4,7 +4,7 @@
 			"areas": "<REQUIRED>",
 			"stats": "<REQUIRED>"
 		},
-		"path_out": "/plots"
+		"path_out": "./plots"
 	},
 	"data": {
 		"features": "<REQUIRED>",
@@ -46,7 +46,7 @@
 					"#66a61e"
 				],
 				"width": 2,
-				"alpha": 0.1
+				"alpha": 1.0
 			},
 			"families": {
 				"size": 200,
@@ -183,6 +183,17 @@
 			"height": 6,
 			"format": "pdf",
 			"resolution": 300
+		}
+	},
+	"pie_plot": {
+		"content": {
+			"burn_in": 0.2
+		},
+		"output": {
+			"width": 5,
+			"height": 2,
+			"spacing_horizontal": 0.1,
+			"spacing_vertical": 0.1
 		}
 	}
 }

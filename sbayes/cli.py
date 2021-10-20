@@ -27,7 +27,9 @@ def run_experiment(experiment, data, run):
     return mcmc.samples['last_sample']
 
 
-def main(config=None, experiment_name=None):
+def main(config: Path = None,
+         experiment_name: str = None,
+         custom_settings: dict = None):
     if config is None:
         parser = argparse.ArgumentParser(
             description="An MCMC algorithm to identify contact zones")
@@ -50,7 +52,9 @@ def main(config=None, experiment_name=None):
 
     # Initialize the experiment
     experiment = Experiment(experiment_name=experiment_name,
-                            config_file=config, log=True)
+                            config_file=config,
+                            custom_settings=custom_settings,
+                            log=True)
 
     if experiment.is_simulation():
         # The data is defined by a ´Simulation´ object
@@ -72,11 +76,11 @@ def main(config=None, experiment_name=None):
         data.log_loading()
 
     # Rerun experiment to check for consistency
-    for run in range(experiment.config['mcmc']['n_runs']):
-        n_areas = experiment.config['model']['n_areas']
+    for run in range(experiment.config['mcmc']['runs']):
+        n_areas = experiment.config['model']['areas']
         iterate_or_run(
             x=n_areas,
-            config_setter=lambda x: experiment.config['model'].__setitem__('n_areas', x),
+            config_setter=lambda x: experiment.config['model'].__setitem__('areas', x),
             function=lambda x: run_experiment(experiment, data, run)
         )
 

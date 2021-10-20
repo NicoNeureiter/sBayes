@@ -21,36 +21,27 @@
 		]
 	},
 	"mcmc": {
-		"n_steps": 3000000,
-		"n_samples": 5000,
-		"n_runs": 1,
-		"p_grow_connected": 0.85,
-		"proposal_precision": {
-			"weights": 10,
-			"universal": 20,
-			"contact": 10
-		},
-		"steps": {
-			"area": 0.1,
-			"weights": 0.3,
-			"universal": 0.2,
-			"contact": 0.4
-		},
-		"m_initial": 15,
-		"warm_up": {
-			"n_warm_up_steps": 80000,
-			"n_warm_up_chains": 20
+		"steps": 2000000,
+		"samples": 5000,
+		"init_lang_per_area": 15,
+		"warmup": {
+			"warmup_steps": 80000,
+			"warmup_chains": 15
 		}
 	},
 	"model": {
-		"n_areas": "TBD",
-		"min_m": 3,
-		"max_m": 200,
+		"areas": "TBD",
 		"inheritance": false,
 		"prior": {
 			"geo": {"type": "uniform"},
+			"languages_per_area": {
+				"type": "uniform_area",
+				"min": 3,
+				"max": 200
+			},
 			"weights": {"type": "uniform"},
 			"universal": {"type": "uniform"},
+			"inheritance": {"type": "uniform"},
 			"contact": {"type": "uniform"}
 		}
 	},

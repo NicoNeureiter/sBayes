@@ -6,18 +6,18 @@ import json
 import logging
 import os
 import warnings
+from pathlib import Path
+from typing import Optional
+
 import pycldf
+
+from sbayes.util import set_experiment_name
+from sbayes import config
 
 try:
     import importlib.resources as pkg_resources     # PYTHON >= 3.7
 except ImportError:
     import importlib_resources as pkg_resources     # PYTHON < 3.7
-
-import typing
-from pathlib import Path
-
-from sbayes.util import set_experiment_name
-from sbayes import config
 
 REQUIRED = '<REQUIRED>'
 DEFAULT_CONFIG = json.loads(pkg_resources.read_text(config, 'default_config.json'))
@@ -26,16 +26,24 @@ DEFAULT_CONFIG_SIMULATION = json.loads(pkg_resources.read_text(config, 'default_
 
 class Experiment:
 
-    def __init__(self, experiment_name="default", config_file: typing.Optional[str] = None, log=False):
-        """sBayes experiment class. Takes care of loading and verifying the config file,
-        handling paths, setting up logging...
-        Attributes:
-            experiment_name (str): The name of the experiment run (= name of results folder)
-            config_file (Path): The path to the config_file.
-            config (dict): The config parsed into a python dictionary.
-            base_directory (Path): The directory containing the config file.
-            path_results (Path): The path to the results folder.
-            logger (logging.Logger): The logger used throughout the run of the experiment."""
+    """sBayes experiment class. Takes care of loading and verifying the config file,
+    handling paths, setting up logging...
+
+    Attributes:
+        experiment_name (str): The name of the experiment run (= name of results folder)
+        config_file (Path): The path to the config_file.
+        config (dict): The config parsed into a python dictionary.
+        base_directory (Path): The directory containing the config file.
+        path_results (Path): The path to the results folder.
+        logger (logging.Logger): The logger used throughout the run of the experiment.
+
+    """
+
+    def __init__(self,
+                 experiment_name: str = "default",
+                 config_file: Optional[Path] = None,
+                 custom_settings: Optional[dict] = None,
+                 log: bool = True):
 
         # Naming and shaming
         if experiment_name is None:
@@ -51,14 +59,16 @@ class Experiment:
         self.logger = self.init_logger()
 
         if config_file is not None:
-            self.load_config(config_file)
+            self.load_config(config_file, custom_settings=custom_settings)
 
         if log:
             self.log_experiment()
 
-    def load_config(self, config_file: str, custom_settings=None):
-        # Get parameters from config_file
+    def load_config(self,
+                    config_file: Path,
+                    custom_settings: Optional[dict] = None):
 
+        # Get parameters from config_file
         self.base_directory, self.config_file = self.decompose_config_path(config_file)
 
         # Read the user specified config file
@@ -125,7 +135,7 @@ class Experiment:
     def verify_priors(self, priors_cfg: dict, inheritance: bool):
 
         # Define which priors are required
-        required_priors = ['geo', 'area_size', 'weights', 'universal', 'contact']
+        required_priors = ['geo', 'languages_per_area', 'weights', 'universal', 'contact']
 
         if inheritance:
             required_priors.append('inheritance')
@@ -154,21 +164,21 @@ class Experiment:
                         prior['file'] = self.fix_relative_path(prior['file'])
 
             # Inheritance
-            if key == "inheritance":
+            if key == 'inheritance':
                 for fam in prior:
                     if 'type' not in prior[fam]:
-                        raise NameError(f"`type` for prior \'{key}\' for \'{fam}\' "
-                                        f"is not defined in {self.config_file}.")
+                        raise NameError(f'`type` for prior \'{key}\' for family \'{fam}\''
+                                        f' is not defined in {self.config_file}.')
 
-                    if prior[fam]['type'] == "dirichlet":
+                    if prior[fam]['type'] == 'dirichlet':
                         if 'file' not in prior[fam] and 'parameters' not in prior[fam]:
-                            raise NameError(f"provide `file` or `parameters` for \'{key}\' "
-                                            f"for \'{fam}\'in {self.config_file}.")
+                            raise NameError(f'provide `file` or `parameters` for prior \'{key}\' '
+                                            f'for family \'{fam}\'in {self.config_file}.')
                         if 'file' in prior[fam]:
                             prior[fam]['file'] = self.fix_relative_path(prior[fam]['file'])
 
             # Contact
-            if key == "contact":
+            if key == 'contact':
                 if 'type' not in prior:
                     raise NameError(f"`type` for prior \'{key}\' is not defined in {self.config_file}.")
 
@@ -197,17 +207,16 @@ class Experiment:
                         prior['costs'] = self.fix_relative_path(prior['file'])
 
             # Area Size
-            if key == "area_size":
+            if key == "languages_per_area":
                 if 'type' not in prior:
                     raise NameError(f"`type` for prior \'{key}\' is not defined in {self.config_file}.")
 
     def verify_config(self):
-        print(self.config)
-        for k, v in iter_items_recursive(self.config):
-
-            if v == REQUIRED:
-                print (k)
-                raise NameError(f'´{k}´ is not defined in {self.config_file}')
+        # Check that all required fields are present
+        for key, value, loc in iter_items_recursive(self.config):
+            if value == REQUIRED:
+                loc_string = ': '.join([f'"{k}"' for k in (loc + (key, REQUIRED))])
+                raise NameError(f'The value for a required field is not defined in {self.config_file}:\n\t{loc_string}')\
         # Data
         if 'data' not in self.config:
             raise NameError(f'´data´ are not defined in {self.config_file}')
@@ -215,16 +224,16 @@ class Experiment:
         self.config['data']['features'] = self.fix_relative_path(self.config['data']['features'])
         self.config['data']['feature_states'] = self.fix_relative_path(self.config['data']['feature_states'])
 
+        # Data / Simulation (fix relative paths)
         if self.is_simulation():
             self.config['simulation']['sites'] = self.fix_relative_path(self.config['simulation']['sites'])
             if type(self.config['simulation']['area']) is list:
                 self.config['simulation']['area'] = tuple(self.config['simulation']['area'])
+        else:
+            self.config['data']['features'] = self.fix_relative_path(self.config['data']['features'])
+            self.config['data']['feature_states'] = self.fix_relative_path(self.config['data']['feature_states'])
 
-        # Model
-        if 'model' not in self.config:
-            raise NameError(f'´model´ is not defined in {self.config_file}')
-
-        # Priors
+        # Model / Priors
         self.verify_priors(self.config['model']['prior'],
                            inheritance=self.config['model']['inheritance'])
 
@@ -256,31 +265,23 @@ class Experiment:
             self.config['mcmc']['operators'][operator] = weight / weights_sum
 
         # Results
-        if 'results' not in self.config:
-            self.config['results'] = {}
-            self.config['results']['path'] = "results"
+        if 'simulated' not in self.config['data']:
+            self.config['data']['simulated'] = False
 
-        else:
-            if 'path' not in self.config['results']:
-                self.config['results']['path'] = "results"
-
-            if 'simulated' not in self.config['data']:
-                self.config['data']['simulated'] = False
-
-            if not self.config['data']['simulated']:
-                if 'cldf_dataset' in self.config['data']:
-                    self.config['data']['cldf_dataset'] = pycldf.StructureDataset.from_metadata(
-                        self.base_directory / self.config['data']
-                    )
+        if not self.config['data']['simulated']:
+            if 'cldf_dataset' in self.config['data']:
+                self.config['data']['cldf_dataset'] = pycldf.StructureDataset.from_metadata(
+                    self.base_directory / self.config['data']
+                )
+            else:
+                if not self.config['data']['features']:
+                    raise NameError("features is empty. Provide file paths to features file (e.g. features.csv)")
                 else:
-                    if not self.config['data']['features']:
-                        raise NameError("features is empty. Provide file paths to features file (e.g. features.csv)")
-                    else:
-                        self.config['data']['features'] = self.fix_relative_path(self.config['data']['features'])
-                    if not self.config['data']['feature_states']:
-                        raise NameError("feature_states is empty. Provide file paths to feature_states file (e.g. feature_states.csv)")
-                    else:
-                        self.config['data']['feature_states'] = self.fix_relative_path(self.config['data']['feature_states'])
+                    self.config['data']['features'] = self.fix_relative_path(self.config['data']['features'])
+                if not self.config['data']['feature_states']:
+                    raise NameError("feature_states is empty. Provide file paths to feature_states file (e.g. feature_states.csv)")
+                else:
+                    self.config['data']['feature_states'] = self.fix_relative_path(self.config['data']['feature_states'])
 
     def init_logger(self):
         logger = logging.Logger('sbayesLogger', level=logging.DEBUG)
@@ -344,24 +345,24 @@ def update_recursive(cfg: dict, new_cfg: dict):
     return cfg
 
 
-def iter_items_recursive(cfg: dict):
+def iter_items_recursive(cfg: dict, loc=tuple()):
     """Recursively iterate through all key-value pairs in ´cfg´ and sub-dictionaries.
 
     Args:
         cfg (dict): Config dictionary, potentially containing sub-dictionaries.
-
+        loc (tuple): Specifies the sequene of keys that lead to the current sub-dictionary.
     Yields:
         tuple: key-value pairs of the bottom level dictionaries
 
     == Usage ===
     >>> list(iter_items_recursive({0: 0, 1: {1: 0}, 2: {2: 1, 1: 1}}))
-    [(0, 0), (1, 0), (2, 1), (1, 1)]
+    [(0, 0, ()), (1, 0, (1,)), (2, 1, (2,)), (1, 1, (2,))]
     """
     for key, value in cfg.items():
         if isinstance(value, dict):
-            yield from iter_items_recursive(value)
+            yield from iter_items_recursive(value, loc + (key, ))
         else:
-            yield key, value
+            yield key, value, loc
 
 
 if __name__ == '__main__':

@@ -255,11 +255,12 @@ class Plot:
         self.results['prior_single_areas'] = prior_single_areas
         self.results['feature_names'] = feature_names
 
-    # Read stats
-    # Read the results from the files:
-    # <experiment_path>/stats_<scenario>.txt
     def read_stats(self, txt_path):
+        """Read stats for results files (<experiment_path>/stats_<scenario>.txt).
 
+        Args:
+            txt_path: path to results file
+        """
         sample_id = None
         # Load the stats using pandas
         df_stats = pd.read_csv(txt_path, delimiter='\t')
@@ -489,9 +490,8 @@ class Plot:
 
         return in_graph, lines, line_weights
 
-    # Reproject from data CRS to map CRD
     def reproject_to_map_crs(self, map_proj):
-
+        """Reproject from data CRS to map CRD"""
         data_proj = self.config['data']['projection']
 
         if map_proj != data_proj:
@@ -507,17 +507,14 @@ class Plot:
         else:
             return self.locations
 
-    # Initialize the map
     @staticmethod
     def initialize_map(locations, cfg_graphic, ax):
 
         ax.scatter(*locations.T, s=cfg_graphic['languages']['size'],
                    c=cfg_graphic['languages']['color'], alpha=1, linewidth=0)
 
-
-    # Add labels to languages in an area
     def add_label(self, is_in_area, current_color, locations_map_crs, extent, ax):
-
+        """Add labels to languages in an area"""
         # Find all languages in areas
         loc_in_area = locations_map_crs[is_in_area, :]
         labels_in_area = list(compress(self.sites['id'], is_in_area))
@@ -533,7 +530,6 @@ class Plot:
             ax.annotate(labels_in_area[loc] + 1, **anno_opts)
 
         return labels_in_area
-
 
     def visualize_areas(self, locations_map_crs, extent,
                         cfg_content, cfg_graphic, cfg_legend, ax):
@@ -598,7 +594,6 @@ class Plot:
             ax.add_artist(legend_areas)
 
         return all_labels
-
 
     def color_families(self, locations_maps_crs, cfg_graphic, cfg_legend, ax):
         family_array = self.family_names['external']
@@ -1599,10 +1594,11 @@ class Plot:
 
 
     def plot_pies(self, file_name, file_format="pdf"):
+        config_pie = self.config['pie_plot']
         print('Plotting pie charts ...')
 
         areas = np.array(self.results['areas'])
-        end_bi = math.ceil(areas.shape[1] * self.content_config['burn_in'])
+        end_bi = math.ceil(areas.shape[1] * config_pie['content']['burn_in'])
 
         samples = areas[:, end_bi:, ]
 
@@ -1615,8 +1611,8 @@ class Plot:
         n_col = 3
         n_row = math.ceil(n_plots / n_col)
 
-        width = self.config['pie_plot']['output']['fig_width_subplot']
-        height = self.config['pie_plot']['output']['fig_height_subplot']
+        width = config_pie['output']['width']
+        height = config_pie['output']['height']
 
         fig, axs = plt.subplots(n_row, n_col, figsize=(width * n_col, height * n_row))
 
@@ -1630,7 +1626,7 @@ class Plot:
                 no_area = n_samples - per_lang.sum()
 
                 x = per_lang.tolist()
-                col = list(self.graphic_config['area_colors'])[:len(x)]
+                col = list(self.config['map']['graphic']['areas']['color'])[:len(x)]
 
                 # Append samples that are not in an area
                 x.append(no_area)
@@ -1649,8 +1645,8 @@ class Plot:
         for e in range(1, n_empty):
             axs[-1, -e].axis('off')
 
-        plt.subplots_adjust(wspace=self.config['pie_plot']['output']['spacing_horizontal'],
-                            hspace=self.config['pie_plot']['output']['spacing_vertical'])
+        plt.subplots_adjust(wspace=config_pie['output']['spacing_horizontal'],
+                            hspace=config_pie['output']['spacing_vertical'])
 
         fig.savefig(self.path_plots + '/' + file_name + '.' + file_format,
                     dpi=400, format=file_format, bbox_inches='tight')
@@ -1659,7 +1655,7 @@ class Plot:
 def main(config=None, only_plot=None):
     # TODO adapt paths according to experiment_name (if provided)
     # TODO add argument defining which plots to generate (all [default], map, weights, ...)
-    ALL_PLOT_TYPES = ['map', 'weights_plot', 'probabilities_plot', 'pie_plot']
+    ALL_PLOT_TYPES = ['map', 'weights_plot', 'preference_plot', 'pie_plot']
 
     # If no plot type is specified, plot everything in the config file
     plot_types = ALL_PLOT_TYPES
@@ -1678,7 +1674,8 @@ def main(config=None, only_plot=None):
             plot_types = [args.type]
 
     results_per_model = {}
-    plot = Plot(simulated_data=False)
+
+    plot = Plot()
     plot.load_config(config_file=config)
     plot.read_data()
 
@@ -1688,8 +1685,9 @@ def main(config=None, only_plot=None):
     def should_be_plotted(plot_type):
         """A plot type should only be generated if it
             1) is specified in the config file and
-            2) is in the reuqested list of plot types."""
+            2) is in the requested list of plot types."""
         return (plot_type in plot.config) and (plot_type in plot_types)
+        # return (plot_type in plot.config['plots']) and (plot_type in plot_types)
 
     for m in names:
         # Read results for model ´m´
@@ -1697,23 +1695,16 @@ def main(config=None, only_plot=None):
         print('Plotting model', m)
 
         # Plot the reconstructed areas on a map
-        # TODO (NN) For now we always plot the map, since the other plotting functions
-        #  depend on the preprocessing done in plot_map. I suggest we resolve this when
-        #  separating area summarization from plotting.
-        # if should_be_plotted('map'):
-        plot_map(plot, m)
+        if should_be_plotted('map'):
+            plot_map(plot, m)
 
         # Plot the reconstructed mixture weights in simplex plots
         if should_be_plotted('weights_plot'):
-            plot.plot_weights_grid(file_name='weights_grid_' + m)
+            plot.plot_weights(file_name='weights_grid_' + m)
 
         # Plot the reconstructed probability vectors in simplex plots
-        if should_be_plotted('probabilities_plot'):
-            iterate_or_run(
-                x=plot.config['probabilities_plot']['parameter'],
-                config_setter=lambda x: plot.config['probabilities_plot'].__setitem__('parameter', x),
-                function=lambda x: plot.plot_probability_grid(file_name=f'prob_grid_{m}_{x}')
-            )
+        if should_be_plotted('preference_plot'):
+            plot.plot_preferences(file_name=f'prob_grid_{m}')
 
         # Plot the reconstructed areas in pie-charts
         # (one per language, showing how likely the language is to be in each area)
@@ -1728,15 +1719,17 @@ def main(config=None, only_plot=None):
 
 
 def plot_map(plot, m):
-    map_type = plot.config['map']['content']['type']
+    config_map = plot.config['map']
+    # config_map = plot.config['plots']['map']
+    map_type = config_map['content']['type']
 
-    if map_type == plot.config['map']['content']['type'] == 'density_map':
+    if map_type == config_map['content']['type'] == 'density_map':
         plot.posterior_map(file_name='posterior_map_' + m)
 
-    elif map_type == plot.config['map']['content']['type'] == 'density_map':
+    elif map_type == config_map['content']['type'] == 'consensus_map':
         iterate_or_run(
-            x=plot.config['map']['content']['min_posterior_frequency'],
-            config_setter=lambda x: plot.config['map']['content'].__setitem__('min_posterior_frequency', x),
+            x=config_map['content']['min_posterior_frequency'],
+            config_setter=lambda x: config_map['content'].__setitem__('min_posterior_frequency', x),
             function=lambda x: plot.posterior_map(file_name=f'posterior_map_{m}_{x}'),
             print_message='Current mpf: {value} ({i} out of {len(mpf_values)})'
         )
