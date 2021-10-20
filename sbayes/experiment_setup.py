@@ -66,6 +66,8 @@ class Experiment:
             self.config = json.load(f)
 
         # Load defaults
+        print(DEFAULT_CONFIG, "config")
+        print(self.config, "sel")
         set_defaults(self.config, DEFAULT_CONFIG)
         if 'simulation' in self.config:
 
@@ -200,8 +202,11 @@ class Experiment:
                     raise NameError(f"`type` for prior \'{key}\' is not defined in {self.config_file}.")
 
     def verify_config(self):
+        print(self.config)
         for k, v in iter_items_recursive(self.config):
+
             if v == REQUIRED:
+                print (k)
                 raise NameError(f'´{k}´ is not defined in {self.config_file}')
         # Data
         if 'data' not in self.config:
