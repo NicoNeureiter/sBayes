@@ -76,6 +76,8 @@ class Experiment:
             self.config = json.load(f)
 
         # Load defaults
+        print(DEFAULT_CONFIG, "config")
+        print(self.config, "sel")
         set_defaults(self.config, DEFAULT_CONFIG)
         if 'simulation' in self.config:
 
@@ -214,7 +216,13 @@ class Experiment:
         for key, value, loc in iter_items_recursive(self.config):
             if value == REQUIRED:
                 loc_string = ': '.join([f'"{k}"' for k in (loc + (key, REQUIRED))])
-                raise NameError(f'The value for a required field is not defined in {self.config_file}:\n\t{loc_string}')
+                raise NameError(f'The value for a required field is not defined in {self.config_file}:\n\t{loc_string}')\
+        # Data
+        if 'data' not in self.config:
+            raise NameError(f'´data´ are not defined in {self.config_file}')
+
+        self.config['data']['features'] = self.fix_relative_path(self.config['data']['features'])
+        self.config['data']['feature_states'] = self.fix_relative_path(self.config['data']['feature_states'])
 
         # Data / Simulation (fix relative paths)
         if self.is_simulation():
