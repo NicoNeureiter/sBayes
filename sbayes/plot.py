@@ -1730,8 +1730,7 @@ def plot_map(plot, m):
         iterate_or_run(
             x=config_map['content']['min_posterior_frequency'],
             config_setter=lambda x: config_map['content'].__setitem__('min_posterior_frequency', x),
-            function=lambda x: plot.posterior_map(file_name=f'posterior_map_{m}_{x}'),
-            print_message='Current mpf: {value} ({i} out of {len(mpf_values)})'
+            function=lambda x: plot.posterior_map(file_name=f'posterior_map_{m}_{x}')
         )
     else:
         raise ValueError(f'Unknown map type: {map_type}  (in the config file "map" -> "content" -> "type")')
