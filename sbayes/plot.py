@@ -914,10 +914,11 @@ class Plot:
             self.add_overview_map(locations_map_crs, extent, cfg_geo, cfg_graphic, cfg_legend, ax)
 
         if cfg_legend['correspondence']['add'] and cfg_graphic['languages']['label']:
-            if cfg_content['type']== "density_map":
+            if cfg_content['type'] == "density_map":
                 all_labels = [self.sites['id']]
 
-            self.add_correspondence_table(all_labels, cfg_graphic, cfg_legend, ax)
+            if any(len(labels) > 0 for labels in all_labels):
+                self.add_correspondence_table(all_labels, cfg_graphic, cfg_legend, ax)
 
         # Save the plot
 
@@ -1738,4 +1739,3 @@ def plot_map(plot, m):
 
 if __name__ == '__main__':
     main()
-
