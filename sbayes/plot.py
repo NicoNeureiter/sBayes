@@ -1089,7 +1089,7 @@ class Plot:
             plt.text(-0.7, 0.6, str(feature), fontdict={'fontweight': 'bold', 'fontsize': 12})
         x = samples_projected.T[0]
         y = samples_projected.T[1]
-        sns.kdeplot(data=x, data2=y, shade=True,  cut=30, n_levels=100,
+        sns.kdeplot(x=x, y=y, shade=True,  cut=30, n_levels=100,
                     clip=([xmin, xmax], [ymin, ymax]), cmap=cmap)
 
         if plot_samples:
