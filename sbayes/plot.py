@@ -934,10 +934,11 @@ class Plot:
             self.add_overview_map(locations_map_crs, extent, cfg_geo, cfg_graphic, cfg_legend, ax)
 
         if cfg_legend['correspondence']['add'] and cfg_graphic['languages']['label']:
-            if cfg_content['type']== "density_map":
+            if cfg_content['type'] == "density_map":
                 all_labels = [self.sites['id']]
 
-            self.add_correspondence_table(all_labels, cfg_graphic, cfg_legend, ax)
+            if any(len(labels) > 0 for labels in all_labels):
+                self.add_correspondence_table(all_labels, cfg_graphic, cfg_legend, ax)
 
         # Save the plot
 
@@ -1109,7 +1110,7 @@ class Plot:
             plt.text(-0.7, 0.6, str(feature), fontdict={'fontweight': 'bold', 'fontsize': 12})
         x = samples_projected.T[0]
         y = samples_projected.T[1]
-        sns.kdeplot(data=x, data2=y, shade=True,  cut=30, n_levels=100,
+        sns.kdeplot(x=x, y=y, shade=True,  cut=30, n_levels=100,
                     clip=([xmin, xmax], [ymin, ymax]), cmap=cmap)
 
         if plot_samples:
@@ -1750,8 +1751,7 @@ def plot_map(plot, m):
         iterate_or_run(
             x=config_map['content']['min_posterior_frequency'],
             config_setter=lambda x: config_map['content'].__setitem__('min_posterior_frequency', x),
-            function=lambda x: plot.posterior_map(file_name=f'posterior_map_{m}_{x}'),
-            print_message='Current mpf: {value} ({i} out of {len(mpf_values)})'
+            function=lambda x: plot.posterior_map(file_name=f'posterior_map_{m}_{x}')
         )
     else:
         raise ValueError(f'Unknown map type: {map_type}  (in the config file "map" -> "content" -> "type")')
@@ -1759,4 +1759,3 @@ def plot_map(plot, m):
 
 if __name__ == '__main__':
     main()
-

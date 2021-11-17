@@ -19,7 +19,7 @@ sudo apt-get install -y libproj-dev proj-data proj-bin libgeos-dev
 
 On MAC OS the same can be done using the homebrew package manager:
 ```shell
-brew install proj geos gdal`
+brew install proj geos gdal
 ```
 
 On Windows the three libraries need to be installed manually from the corresponding sources.
