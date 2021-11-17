@@ -129,12 +129,15 @@ class Data:
 
 
     def load_geo_cost_matrix(self):
-
-        if self.config['model']['prior']['geo']['type'] != 'cost_based':
+        geo_prior_cfg = self.config['model']['prior']['geo']
+        if geo_prior_cfg['type'] != 'cost_based':
             # Geo prior is not cost-based -> nothing to do
             return
 
-        if 'file' not in self.config['model']['prior']['geo']:
+        if 'costs' not in geo_prior_cfg:
+            geo_prior_cfg['costs'] = 'from_data'
+
+        if geo_prior_cfg['costs'] == 'from_data':
             # No cost-matrix given. Use distance matrix as costs
             geo_cost_matrix = self.network['dist_mat']
 
@@ -142,7 +145,7 @@ class Data:
             # Read cost matrix from data
             geo_cost_matrix, self.log_load_geo_cost_matrix =\
                 read_geo_cost_matrix(site_names=self.site_names,
-                                     file=self.config['model']['prior']['geo']['file'])
+                                     file=geo_prior_cfg['costs'])
 
         self.geo_prior = {'cost_matrix': geo_cost_matrix}
 

@@ -1147,8 +1147,10 @@ class GeoPrior(object):
         msg = f'Geo-prior: {self.prior_type.value}\n'
         if self.prior_type == self.TYPES.COST_BASED:
             msg += f'\tScale: {self.scale}\n'
-            if 'file' in self.config:
-                msg += f'\tCost-matrix file: {self.config["file"]}\n'
+            if self.config['costs'] == 'from_data':
+                msg += '\tCost-matrix inferred from geo-locations.\n'
+            else:
+                msg += f'\tCost-matrix file: {self.config["costs"]}\n'
         return msg
 
 

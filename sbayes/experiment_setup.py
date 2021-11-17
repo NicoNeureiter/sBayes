@@ -204,7 +204,7 @@ class Experiment:
                     if 'costs' not in prior:
                         prior['costs'] = "from_data"
                     if prior['costs'] != "from_data":
-                        prior['costs'] = self.fix_relative_path(prior['file'])
+                        prior['costs'] = self.fix_relative_path(prior['costs'])
 
             # Area Size
             if key == "languages_per_area":
