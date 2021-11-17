@@ -798,11 +798,11 @@ class Plot:
             if not cfg_geo['base_map']['geojson_polygon']:
                 print(f'Cannot add base map. Please provide a geojson_polygon')
             else:
-                self.add_background_map(bbox, cfg_geo, cfg_graphic, ax)
+                self.add_background_map(cfg_geo, cfg_graphic, ax)
             if not cfg_geo['base_map']['geojson_line']:
                 pass
             else:
-                self.add_rivers(bbox, cfg_geo, cfg_graphic, ax)
+                self.add_rivers(cfg_geo, cfg_graphic, ax)
 
     def add_correspondence_table(self, all_labels, cfg_graphic, cfg_legend, ax_c):
         """ Which language belongs to which number? This table will tell you more"""
