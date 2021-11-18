@@ -25,6 +25,7 @@ from matplotlib.lines import Line2D
 from matplotlib.patches import Patch
 from matplotlib.ticker import AutoMinorLocator
 from mpl_toolkits.axes_grid1.inset_locator import inset_axes
+from pyproj import CRS
 from scipy.spatial import Delaunay
 from shapely import geometry
 from shapely.ops import cascaded_union, polygonize
@@ -362,11 +363,16 @@ class Plot:
 
     @staticmethod
     def compute_bbox(extent):
-        bbox = geometry.Polygon([(extent['x_min'], extent['y_min']),
-                                 (extent['x_max'], extent['y_min']),
-                                 (extent['x_max'], extent['y_max']),
-                                 (extent['x_min'], extent['y_max']),
-                                 (extent['x_min'], extent['y_min'])])
+
+        bbox = geometry.box(extent['x_min'], extent['y_min'],
+                            extent['x_max'], extent['y_max'])
+
+        # bbox = geometry.Polygon([(extent['x_min'], extent['y_min']),
+        #                          (extent['x_max'], extent['y_min']),
+        #                          (extent['x_max'], extent['y_max']),
+        #                          (extent['x_min'], extent['y_max']),
+        #                          (extent['x_min'], extent['y_min'])])
+        bbox
         return bbox
 
     @staticmethod
@@ -747,11 +753,27 @@ class Plot:
         return area_labels, [extra]
 
     @staticmethod
-    def add_background_map(bbox, cfg_geo, cfg_graphic, ax):
+    def add_background_map(cfg_geo, cfg_graphic, ax):
         # Adds the geojson polygon geometries provided by the user as a background map
         world = gpd.read_file(cfg_geo['base_map']['geojson_polygon'])
+
+        map_crs = CRS(cfg_geo['map_projection'])
+        try:
+            lon_0 = map_crs.coordinate_operation.params[0].value
+        except KeyError:
+            lon_0 = 180
+
+        if lon_0 > 0:
+            anti_meridian = lon_0 - 180
+        else:
+            anti_meridian = lon_0 + 180
+
+        clip_box_1 = geometry.box(anti_meridian + 0.1, -90, 180, 90)
+        clip_box_2 = geometry.box(anti_meridian - 0.1, -90, -180, 90)
+        clip_box = gpd.GeoSeries([clip_box_1, clip_box_2], crs=world.crs)
+
+        world = gpd.clip(world, clip_box)
         world = world.to_crs(cfg_geo['map_projection'])
-        world = gpd.clip(world, bbox)
 
         cfg_polygon = cfg_graphic['base_map']['polygon']
         world.plot(ax=ax, facecolor=cfg_polygon['color'],
@@ -760,11 +782,10 @@ class Plot:
                    zorder=-100000)
 
     @staticmethod
-    def add_rivers(bbox, cfg_geo, cfg_graphic, ax):
+    def add_rivers(cfg_geo, cfg_graphic, ax):
         # The user can provide geojson line geometries, for example those for rivers. Looks good on a map :)
         rivers = gpd.read_file(cfg_geo['base_map']['geojson_line'])
         rivers = rivers.to_crs(cfg_geo['map_projection'])
-        rivers = gpd.clip(rivers, bbox)
 
         cfg_line = cfg_graphic['base_map']['line']
         rivers.plot(ax=ax, color=None, edgecolor=cfg_line['color'],
@@ -777,11 +798,11 @@ class Plot:
             if not cfg_geo['base_map']['geojson_polygon']:
                 print(f'Cannot add base map. Please provide a geojson_polygon')
             else:
-                self.add_background_map(bbox, cfg_geo, cfg_graphic, ax)
+                self.add_background_map(cfg_geo, cfg_graphic, ax)
             if not cfg_geo['base_map']['geojson_line']:
                 pass
             else:
-                self.add_rivers(bbox, cfg_geo, cfg_graphic, ax)
+                self.add_rivers(cfg_geo, cfg_graphic, ax)
 
     def add_correspondence_table(self, all_labels, cfg_graphic, cfg_legend, ax_c):
         """ Which language belongs to which number? This table will tell you more"""
@@ -853,13 +874,12 @@ class Plot:
             Args:
                 file_name (str): a path of the output file.
             """
-        print('Plotting map...')
+
         cfg_content = self.config['map']['content']
         cfg_geo = self.config['map']['geo']
         cfg_graphic = self.config['map']['graphic']
         cfg_legend = self.config['map']['legend']
         cfg_output = self.config['map']['output']
-
 
         for f in plt.get_fignums():
             plt.close(f)
@@ -924,7 +944,7 @@ class Plot:
 
         file_format = cfg_output['format']
 
-        fig.savefig(f"{self.path_plots + '/' + file_name}.{file_format}",bbox_inches='tight',
+        fig.savefig(f"{self.path_plots + '/' + file_name}.{file_format}", bbox_inches='tight',
                     dpi=cfg_output['resolution'], format=file_format)
         plt.close(fig)
 
