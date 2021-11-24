@@ -758,18 +758,25 @@ class Plot:
         world = gpd.read_file(cfg_geo['base_map']['geojson_polygon'])
 
         map_crs = CRS(cfg_geo['map_projection'])
+
         try:
             lon_0 = map_crs.coordinate_operation.params[0].value
-        except KeyError:
-            lon_0 = 180
+
+        except AttributeError or KeyError:
+            lon_0 = 0.0
+            print(f"We could not find the false origin (lon=0) of the projection {cfg_geo['map_projection']}. "
+                  f"It is assumed that the false origin is 0.0. "
+                  f"If plotting distorts the base map polygons, use a different projection, "
+                  f"preferably one with a well-defined false origin.")
 
         if lon_0 > 0:
             anti_meridian = lon_0 - 180
         else:
             anti_meridian = lon_0 + 180
 
-        clip_box_1 = geometry.box(anti_meridian + 0.1, -90, 180, 90)
-        clip_box_2 = geometry.box(anti_meridian - 0.1, -90, -180, 90)
+        offset = 10
+        clip_box_1 = geometry.box(anti_meridian + 1, -90, 180 + offset, 90)
+        clip_box_2 = geometry.box(anti_meridian - 1, -90, -180 + offset, 90)
         clip_box = gpd.GeoSeries([clip_box_1, clip_box_2], crs=world.crs)
 
         world = gpd.clip(world, clip_box)
