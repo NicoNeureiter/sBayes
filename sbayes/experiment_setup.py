@@ -204,7 +204,7 @@ class Experiment:
                     if 'costs' not in prior:
                         prior['costs'] = "from_data"
                     if prior['costs'] != "from_data":
-                        prior['costs'] = self.fix_relative_path(prior['file'])
+                        prior['costs'] = self.fix_relative_path(prior['costs'])
 
             # Area Size
             if key == "languages_per_area":
@@ -217,12 +217,6 @@ class Experiment:
             if value == REQUIRED:
                 loc_string = ': '.join([f'"{k}"' for k in (loc + (key, REQUIRED))])
                 raise NameError(f'The value for a required field is not defined in {self.config_file}:\n\t{loc_string}')\
-        # Data
-        if 'data' not in self.config:
-            raise NameError(f'´data´ are not defined in {self.config_file}')
-
-        self.config['data']['features'] = self.fix_relative_path(self.config['data']['features'])
-        self.config['data']['feature_states'] = self.fix_relative_path(self.config['data']['feature_states'])
 
         # Data / Simulation (fix relative paths)
         if self.is_simulation():
@@ -230,6 +224,9 @@ class Experiment:
             if type(self.config['simulation']['area']) is list:
                 self.config['simulation']['area'] = tuple(self.config['simulation']['area'])
         else:
+            if 'data' not in self.config:
+                raise NameError(f'´data´ are not defined in {self.config_file}')
+
             self.config['data']['features'] = self.fix_relative_path(self.config['data']['features'])
             self.config['data']['feature_states'] = self.fix_relative_path(self.config['data']['feature_states'])
 

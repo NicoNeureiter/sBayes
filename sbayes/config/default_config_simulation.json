@@ -1,69 +1,19 @@
 {
-	"simulation": {
-		"sites": "<REQUIRED>",
-		"n_features": 35,
-		"p_n_categories": {
-			"2": 0.4,
-			"3": 0.3,
-			"4": 0.3
-		},
-		"e_universal": 1.0,
-		"e_contact": "<REQUIRED>",
-		"e_inheritance": 2.0,
-		"i_universal": 1.0,
-		"i_contact": "<REQUIRED>",
-		"i_inheritance": 0.2,
-		"inheritance": "<REQUIRED>",
-		"subset": false,
-		"area": "<REQUIRED",
-		"correlation_threshold": 0.3
+	"sites": "<REQUIRED>",
+	"n_features": 35,
+	"p_n_categories": {
+		"2": 0.4,
+		"3": 0.3,
+		"4": 0.3
 	},
-	"model": {
-		"areas": "<REQUIRED>",
-		"languages_per_area": {
-			"min": 3,
-			"max": 50
-		},
-		"inheritance": "<REQUIRED>",
-		"sample_source": true,
-		"prior": {
-			"geo": {
-				"type": "uniform"
-			},
-			"area_size": {
-				"type": "uniform_size"
-			},
-			"weights": {
-				"type": "uniform"
-			},
-			"universal": "<REQUIRED>",
-			"inheritance": "<REQUIRED>",
-			"contact": {
-				"type": "uniform"
-			}
-		}
-	},
-	"mcmc": {
-		"steps": 1000000,
-		"samples": 1000,
-		"runs": 1,
-		"grow_to_adjacent": 0.85,
-		"operators": {
-			"area": 5,
-			"weights": 40,
-			"universal": 5,
-			"contact": 30,
-			"inheritance": 10,
-			"source": 10
-		},
-		"init_lang_per_area": 5,
-		"warmup": {
-			"warmup_steps": 100000,
-			"warmup_chains": 15
-		}
-	},
-	"results": {
-		"path": "results",
-		"log_file": true
-	}
+	"e_universal": 1.0,
+	"e_contact": "<REQUIRED>",
+	"e_inheritance": 2.0,
+	"i_universal": 1.0,
+	"i_contact": "<REQUIRED>",
+	"i_inheritance": 0.2,
+	"inheritance": "<REQUIRED>",
+	"subset": false,
+	"area": "<REQUIRED",
+	"correlation_threshold": 0.3
 }
