@@ -38,26 +38,13 @@
 			},
 			"areas": {
 				"size": 20,
-				"color": [
-					"#1b9e77",
-					"#d95f02",
-					"#7570b3",
-					"#e7298a",
-					"#66a61e"
-				],
+				"color": [],
 				"width": 2,
 				"alpha": 1.0
 			},
 			"families": {
 				"size": 200,
-				"color": [
-					"#b3e2cd",
-					"#f1e2cc",
-					"#cbd5e8",
-					"#f4cae4",
-					"#e6f5c9",
-					"#d3d3d3"
-				],
+				"color": [],
 				"buffer": 0.3,
 				"shape": 1
 			},

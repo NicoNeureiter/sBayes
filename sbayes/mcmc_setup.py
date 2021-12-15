@@ -44,7 +44,7 @@ class MCMC:
 
         self.logger.info(self.model.get_setup_message())
 
-
+        print(mcmc_config)
         logging.info(f'''
 MCMC SETUP
 ##########################################
@@ -166,7 +166,7 @@ Ratio of contact steps (changing gamma): {mcmc_config['operators']['contact']}
 
     def warm_up(self):
         mcmc_config = self.config['mcmc']
-
+        print(mcmc_config['warmup'])
         warmup = ZoneMCMCWarmup(
             data=self.data,
             model=self.model,
@@ -184,11 +184,10 @@ Ratio of contact steps (changing gamma): {mcmc_config['operators']['contact']}
                                                            warm_up=True,
                                                            warm_up_steps=self.config['mcmc']['warmup']['warmup_steps'])
 
-
     def save_samples(self, run=1):
 
-        self.samples = match_areas(self.samples)
-        self.samples = rank_areas(self.samples)
+        # self.samples = match_areas(self.samples)
+        # self.samples = rank_areas(self.samples)
 
 
         fi = 'K{K}'.format(K=self.config['model']['areas'])
