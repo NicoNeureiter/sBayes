@@ -15,6 +15,7 @@
 		"content": {
 			"type": "consensus_map",
 			"min_posterior_frequency": 0.5,
+			"labels": "in_area",
 			"plot_families": true,
 			"burn_in": 0.2
 		},
@@ -93,7 +94,8 @@
 				"font_size": 12,
 				"table_height": 0.2,
 				"n_columns": 4,
-				"color_labels": false
+				"color_labels": false,
+				"show_all": false
 			},
 			"overview": {
 				"add": false,
@@ -116,26 +118,36 @@
 			"resolution": 400
 		}
 	},
-
 	"weight_plot": {
 		"content": {
 			"features": [],
 			"burn_in": 0.2
 		},
-		"graphic": {
-			"labels": [
-				"U",
-				"C",
-				"I"
-			],
-			"title": true,
-			"n_columns": 5
+		"legend": {
+			"labels": {
+				"add": true,
+				"names": [
+					"U",
+					"C",
+					"I"
+				],
+				"font_size": 6
+			},
+			"title": {
+				"add": true,
+				"font_size": 6,
+				"position": [
+					0,
+					1
+				]
+			}
 		},
 		"output": {
 			"width_subplot": 2,
 			"height_subplot": 2,
 			"format": "pdf",
-			"resolution": 300
+			"resolution": 300,
+			"n_columns": 5
 		}
 	},
 	"preference_plot": {
@@ -144,16 +156,26 @@
 			"preference": [],
 			"burn_in": 0.2
 		},
-		"graphic": {
-			"labels": true,
-			"title": true,
-			"n_columns": 5
+		"legend": {
+			"labels": {
+				"add": true,
+				"font_size": 6
+			},
+			"title": {
+				"add": true,
+				"font_size": 6,
+				"position": [
+					0,
+					1
+				]
+			}
 		},
 		"output": {
 			"width_subplot": 3,
 			"height_subplot": 3,
 			"format": "pdf",
-			"resolution": 300
+			"resolution": 300,
+			"n_columns": 5
 		}
 	},
 	"dic_plot": {
@@ -180,7 +202,9 @@
 			"width": 5,
 			"height": 2,
 			"spacing_horizontal": 0.1,
-			"spacing_vertical": 0.1
+			"spacing_vertical": 0.1,
+			"format": "pdf",
+			"resolution": 300
 		}
 	}
 }
