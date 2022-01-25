@@ -176,26 +176,28 @@ class Likelihood(object):
         # Compute the weights of the mixture component in each feature and site
         weights = self.update_weights(sample)
 
-        # Compute the total weighted log-likelihood
-        log_lh = self.combine_lh(all_lh, weights, sample.source)
+        # Compute the total log-likelihood
+        observation_lhs = self.get_observation_lhs(all_lh, weights, sample.source)
+        sample.observation_lhs = observation_lhs
+        log_lh = np.sum(np.log(observation_lhs))
+
+        # Add the probability of observing the sampled (if sampled)
+        if sample.source is not None:
+            is_source = np.where(sample.source.ravel())
+            p_source = weights.ravel()[is_source]
+            log_lh += np.sum(np.log(p_source))
 
         # The step is completed -> everything is up-to-date.
         self.everything_updated(sample)
 
         return log_lh
 
-    def combine_lh(self, all_lh, weights, source):
+    def get_observation_lhs(self, all_lh, weights, source):
         if source is None:
-            feature_lh = np.sum(weights * all_lh, axis=2)
-            return np.sum(np.log(feature_lh))
+            return np.sum(weights * all_lh, axis=2)
         else:
             is_source = np.where(source.ravel())
-            observation_weights = weights.ravel()[is_source]
-            observation_lhs = all_lh.ravel()[is_source]
-            if np.any(observation_weights == 0):
-                return -np.inf
-
-            return np.sum(np.log(observation_weights * observation_lhs))
+            return all_lh.ravel()[is_source]
 
     def everything_updated(self, sample):
         sample.what_changed['lh']['zones'].clear()
@@ -971,6 +973,25 @@ class WeightsPrior(DirichletPrior):
         return f'Prior on weights: {self.prior_type.value}\n'
 
 
+class SourcePrior(object):
+
+    def __init__(self, config, likelihood: Likelihood):
+        self.config = config
+        self.likelihood = likelihood
+
+    def __call__(self, sample):
+        """Compute the prior for weights (or load from cache).
+        Args:
+            sample (Sample): Current MCMC sample.
+        Returns:
+            float: Logarithm of the prior probability density.
+        """
+        weights = self.likelihood.update_weights(sample)
+        is_source = np.where(sample.source.ravel())
+        observation_weights = weights.ravel()[is_source]
+        return np.sum(np.log(observation_weights))
+
+
 class ZoneSizePrior(object):
 
     class TYPES(Enum):
@@ -1030,7 +1051,6 @@ class ZoneSizePrior(object):
                 # P(zone | size)   =   1 / |{zones of size k}|   =   1 / (n choose k)
                 # logp = -np.sum(log_binom(n_sites, sizes))
                 logp = -log_multinom(n_sites, sizes)
-
 
             elif self.prior_type == self.TYPES.QUADRATIC_SIZE:
                 # Here we assume that only a quadratically growing subset of zones is

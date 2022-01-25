@@ -3,6 +3,7 @@
 import logging
 import random as _random
 from copy import deepcopy
+import tables
 
 import numpy as np
 import scipy.stats as stats
@@ -30,7 +31,6 @@ class IndexSet(set):
         return self.all or (len(self) > 0)
 
     def __copy__(self):
-        # other = deepcopy(super(IndexSet, self))
         other = IndexSet(all_i=self.all)
         for element in self:
             other.add(element)
@@ -38,7 +38,6 @@ class IndexSet(set):
         return other
 
     def __deepcopy__(self, memo):
-        # other = deepcopy(super(IndexSet, self))
         other = IndexSet(all_i=self.all)
         for element in self:
             other.add(deepcopy(element))
@@ -63,6 +62,12 @@ class Sample(object):
         source (np.array): Assignment of single observations (a feature in a language) to be
                            the result of the global, zone or family distribution.
             shape: (n_sites, n_features, 3)
+
+        what_changed (dict): Flags to indicate which parts of the state changed since
+                             the last likelihood/prior evaluation.
+        observation_lhs (np.array): The likelihood of each observation, given the state of
+                                    the sample.
+            shape: (n_sites, n_features)
     """
 
     def __init__(self, zones, weights, p_global, p_zones, p_families, source=None, chain=0):
@@ -77,6 +82,9 @@ class Sample(object):
         # The sample contains information about which of its parameters was changed in the last MCMC step
         self.what_changed = {}
         self.everything_changed()
+
+        # Store the likelihood of each observation (language and feature) for logging
+        self.observation_lhs = None
 
     @classmethod
     def empty_sample(cls):
@@ -176,12 +184,22 @@ class ZoneMCMC(MCMCGenerative):
         except KeyError:
             pass
 
-        # todo remove after testing
-        self.q_areas_stats = {'q_grow': [],
-                              'q_back_grow': [],
-                              'q_shrink': [],
-                              'q_back_shrink': []
-                              }
+        self.logged_likelihood_array = None
+
+    def generate_samples(self, *args, **kwargs):
+        likelihood_file = tables.open_file(self.data.path_results / 'likelihood.h5', mode='w')
+        filters = tables.Filters(complevel=9, complib='blosc:zlib', bitshuffle=True, fletcher32=True)
+        self.logged_likelihood_array = likelihood_file.create_earray(
+            where=likelihood_file.root,
+            name='likelihood',
+            atom=tables.Float32Col(),
+            filters=filters,
+            shape=(0, self.n_sites*self.n_features)
+        )
+
+        super().generate_samples(*args, **kwargs)
+
+        likelihood_file.close()
 
     def gibbs_sample_sources(self, sample: Sample, as_gibbs=True,
                              site_subset=slice(None)):
@@ -1341,6 +1359,7 @@ class ZoneMCMC(MCMCGenerative):
 
     def log_sample_statistics(self, sample, c, sample_id):
         super(ZoneMCMC, self).log_sample_statistics(sample, c, sample_id)
+        self.logged_likelihood_array.append(sample.observation_lhs[None,...])
 
 
 class ZoneMCMCWarmup(ZoneMCMC):

@@ -12,3 +12,5 @@ setuptools
 cartopy
 typing_extensions
 pycldf
+tables
+

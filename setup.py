@@ -2,9 +2,9 @@ from setuptools import setup, find_packages
 
 setup(
     name="sbayes",
-    version="1.0",
+    version="1.1",
     description="MCMC algorithms to identify contact areas in cultural data",
-    author="Peter Ranacher, Nico Neureiter",
+    author="Nico Neureiter, Peter Ranacher",
     author_email="peter.ranacher@geo.uzh.ch",
     #long_description=open('README.md').read(),
     long_description_content_type='text/markdown',
@@ -33,6 +33,7 @@ setup(
         "fastcluster",
         "typing_extensions",
         "pycldf",
+        "tables",
     ],
     entry_points={
         'console_scripts': [

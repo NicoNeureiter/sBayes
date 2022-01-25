@@ -41,11 +41,8 @@ class MCMC:
 
     def log_setup(self):
         mcmc_config = self.config['mcmc']
-
         self.logger.info(self.model.get_setup_message())
-
-
-        logging.info(f'''
+        self.logger.info(f'''
 MCMC SETUP
 ##########################################
 MCMC with {mcmc_config['steps']} steps and {mcmc_config['samples']} samples
@@ -57,31 +54,6 @@ Ratio of universal steps (changing alpha) : {mcmc_config['operators']['universal
 Ratio of inheritance steps (changing beta): {mcmc_config['operators']['inheritance']}
 Ratio of contact steps (changing gamma): {mcmc_config['operators']['contact']}
 ''')
-
-    # def steps_per_operator(self):
-    #     """Assign step frequency per operator."""
-    #     steps_config = self.config['mcmc']['operators']
-    #     ops = {'shrink_zone': steps_config['area'] * 0.4,
-    #            'grow_zone': steps_config['area'] * 0.4,
-    #            'swap_zone': steps_config['area'] * 0.2,
-    #            # 'gibbsish_sample_zones': steps_config['area'] * 0.7
-    #            }
-    #     if self.model.sample_source:
-    #         ops.update({
-    #            'gibbs_sample_sources': steps_config['source'],
-    #            'gibbs_sample_weights': steps_config['weights'],
-    #            'gibbs_sample_p_global': steps_config['universal'],
-    #            'gibbs_sample_p_zones': steps_config['contact'],
-    #            'gibbs_sample_p_families': steps_config['inheritance'],
-    #         })
-    #     else:
-    #         ops.update({
-    #            'alter_weights': steps_config['weights'],
-    #            'alter_p_global': steps_config['universal'],
-    #            'alter_p_zones': steps_config['contact'],
-    #            'alter_p_families': steps_config['inheritance'],
-    #         })
-    #     self.ops = ops
 
     def sample(self, lh_per_area=True, initial_sample: typing.Optional[typing.Any] = None):
         mcmc_config = self.config['mcmc']
@@ -184,36 +156,17 @@ Ratio of contact steps (changing gamma): {mcmc_config['operators']['contact']}
                                                            warm_up=True,
                                                            warm_up_steps=self.config['mcmc']['warmup']['warmup_steps'])
 
-
     def save_samples(self, run=1):
+
+        # TODO move all of this:
+        #   1. log samples during MCMC run
+        #   2. match + rang areas in summarization
+        #   3. compute simulation stats in separate script
 
         self.samples = match_areas(self.samples)
         self.samples = rank_areas(self.samples)
 
-
         fi = 'K{K}'.format(K=self.config['model']['areas'])
-
-        # Todo: could be relevant for simulation
-        # file_info = "K"
-        #
-        # if file_info == "K":
-        #     fi = 'K{K}'.format(K=self.config['model']['areas'])
-        # elif file_info == "s":
-        #     fi = 's{s}a{a}'.format(s=self.config['simulation']['STRENGTH'],
-        #                            a=self.config['simulation']['AREA'])
-        #
-        # elif file_info == "i":
-        #     fi = 'i{i}'.format(i=int(self.config['model']['INHERITANCE']))
-        #
-        # elif file_info == "p":
-        #
-        #     p = 0 if self.config['model']['PRIOR']['universal'] == "uniform" else 1
-        #     fi = 'p{p}'.format(p=p)
-        #
-        # else:
-        # else:
-        #     raise ValueError("file_info must be 'n', 's', 'i' or 'p'")
-
         run = '_{run}'.format(run=run)
         pth = self.path_results / fi
         ext = '.txt'
@@ -233,4 +186,5 @@ Ratio of contact steps (changing gamma): {mcmc_config['operators']['contact']}
         samples2file(self.samples, self.data, self.config, paths)
 
     def log_statistics(self):
+        # TODO log durin MCMC run
         self.sampler.print_statistics(self.samples)
