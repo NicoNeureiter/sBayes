@@ -125,6 +125,7 @@ def compute_delaunay(locations):
     """
 
     n = len(locations)
+
     delaunay = spatial.Delaunay(locations, qhull_options="QJ Pp")
 
     indptr, indices = delaunay.vertex_neighbor_vertices
@@ -303,8 +304,8 @@ def normalize_str(s):
 def read_features_from_csv(file, feature_states_file):
     """This is a helper function to import data (sites, features, family membership,...) from a csv file
     Args:
-        file (str): file location of the csv file
-        feature_states_file (str): file location of the meta data for the features
+        file (str | Path): file location of the csv file
+        feature_states_file (str | Path): file location of the meta data for the features
     Returns:
         (dict, dict, np.array, dict, dict, np.array, np.array, dict, str) :
         The language date including sites, site names, all features, feature names and state names per feature,
@@ -370,6 +371,14 @@ def read_features_from_csv(file, feature_states_file):
     log = f"{n_sites} sites with {n_features} features read from {file}. {na_number} NA value(s) found."
 
     return sites, site_names, features, feature_names, state_names, applicable_states, families, family_names, log
+
+    # TODO Proposition of cleaning up the data interfaces (NN):
+    # 1. featues:   features as numpy array (n_sites * n_features * n_states)
+    # 2. Sites:     pandas dataframe including site_names and families. Drop the internal/external separation?
+    # 3. Features:  pandas dataframe including internal names (they are just a running ID anyway),
+    #               external names, state names (as a list?), number of states (i.e. replacing state_names and applicable states)
+    # 4. Families:  could just be a list of names (internal name is given by index). Otherwise pandas dataframe with both.
+    # Pass logger as argument instead of returning the ´log´ string.
 
 
 def read_costs_from_csv(file):
@@ -1189,7 +1198,16 @@ def log_multinom(n, ks):
         double: log(n choose k1,k2,...)
 
     """
+    ks = np.asarray(ks)
+    assert np.all(ks >= 0)
     assert np.sum(ks) <= n
+
+    # Simple special case
+    if np.sum(ks) == 0:
+        return 0.
+
+    # Filter out 0-samples
+    ks = ks[ks > 0]
 
     log_i = np.log(1 + np.arange(n))
     log_i_cumsum = np.cumsum(log_i)
@@ -1198,17 +1216,16 @@ def log_multinom(n, ks):
     m = np.sum(log_i)
 
     # Subtract all permutation within the samples (with sample sizes specified in `ks`).
-    for k in ks:
-        m -= log_i_cumsum[k-1]
+    m -= np.sum(log_i_cumsum[ks-1])
 
     # If there are is a remainder in the population, that was not assigned to any of the
     # samples, subtract all permutations of the remainder population.
-    rest = n - sum(ks)
+    rest = n - np.sum(ks)
     assert rest >= 0
     if rest > 0:
         m -= log_i_cumsum[rest-1]
 
-    assert m >= 0
+    assert m >= 0, m
     return m
 
 
