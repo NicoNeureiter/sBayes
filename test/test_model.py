@@ -6,6 +6,7 @@ import unittest
 
 from sbayes.model import Likelihood
 from sbayes.sampling.zone_sampling import Sample
+from sbayes.util import log_multinom
 
 
 def binary_encoding(data, n_categories=None):
@@ -90,6 +91,28 @@ class TestLikelihood(unittest.TestCase):
         lh_direct = np.sum(np.log(p_per_feature[features]))
 
         self.assertAlmostEqual(lh_with_family, lh_direct)
+
+
+class TestSizePrior(unittest.TestCase):
+
+    """Test correctness of the geo prior."""
+
+    def test_symmetry(self):
+        zones = np.array([
+            [1, 1, 1, 0, 0, 0, 0],
+            [0, 0, 0, 1, 1, 0, 0],
+            [0, 0, 0, 0, 0, 1, 0]
+        ], dtype=bool)
+
+        n_zones, n_sites = zones.shape
+        print(zones.shape)
+        sizes = np.sum(zones, axis=-1)
+        logp = -log_multinom(n_sites, sizes)
+        for order in ([0, 2, 1], [1, 0, 2], [2, 1, 0]):
+            print(zones[order])
+            sizes = np.sum(zones[order], axis=-1)
+            print(sizes)
+            assert logp == -log_multinom(n_sites, sizes)
 
 
 if __name__ == '__main__':
