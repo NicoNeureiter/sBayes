@@ -194,7 +194,7 @@ class Likelihood(object):
 
     def get_observation_lhs(self, all_lh, weights, source):
         if source is None:
-            return np.sum(weights * all_lh, axis=2)
+            return np.sum(weights * all_lh, axis=2).ravel()
         else:
             is_source = np.where(source.ravel())
             return all_lh.ravel()[is_source]

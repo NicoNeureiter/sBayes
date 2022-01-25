@@ -6,6 +6,7 @@ except ImportError:
     from typing_extensions import Literal
 
 import csv
+import sys
 
 import numpy as np
 import pyproj
@@ -36,7 +37,8 @@ def read_sites(file, retrieve_family=False, retrieve_subset=False):
     """
 
     columns = []
-    with open(file, 'rU') as f:
+    filemode = 'r' if sys.version_info >= (3, 4) else 'rU'
+    with open(file, filemode) as f:
         reader = csv.reader(f)
         for row in reader:
             if columns:

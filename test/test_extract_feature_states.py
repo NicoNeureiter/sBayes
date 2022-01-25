@@ -6,7 +6,7 @@ import unittest
 from sbayes.tools import extract_feature_states
 
 
-class TestLikelihood(unittest.TestCase):
+class TestExctactFeatureStates(unittest.TestCase):
 
     """Simple validity test of ´extract_feature_states´ script."""
 

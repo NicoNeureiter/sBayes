@@ -247,13 +247,13 @@ class Experiment:
         # Do not use inheritance operators if inheritance is disabled
         if not self.config['model']['inheritance']:
             if self.config['mcmc']['operators'].get('inheritance', 0) != 0:
-                logging.warning('Operator for inheritance was set to 0, because ´inheritance´ is disabled.')
+                logging.info('Operator for inheritance was set to 0, because ´inheritance´ is disabled.')
             self.config['mcmc']['operators']['inheritance'] = 0.0
 
         # Do not use source operators if sampling from source is disabled
         if not self.config['model']['sample_source']:
             if self.config['mcmc']['operators'].get('source', 0) != 0:
-                logging.warning('Operator for source was set to 0, because ´sample_source´ is disabled.')
+                logging.info('Operator for source was set to 0, because ´sample_source´ is disabled.')
             self.config['mcmc']['operators']['source'] = 0.0
 
         # Re-normalize weights for operators
