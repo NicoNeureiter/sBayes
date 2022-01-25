@@ -19,11 +19,14 @@ import matplotlib.pyplot as plt
 import matplotlib.ticker as mtick
 import numpy as np
 import seaborn as sns
+import colorsys
+
 from descartes import PolygonPatch
 from matplotlib import patches
 from matplotlib.lines import Line2D
 from matplotlib.patches import Patch
 from matplotlib.ticker import AutoMinorLocator
+from matplotlib import colors
 from mpl_toolkits.axes_grid1.inset_locator import inset_axes
 from pyproj import CRS
 from scipy.spatial import Delaunay
@@ -31,7 +34,6 @@ from shapely import geometry
 from shapely.ops import cascaded_union, polygonize
 
 from sbayes.postprocessing import compute_dic
-from sbayes.preprocessing import read_sites, assign_family
 from sbayes.util import add_edge, compute_delaunay
 from sbayes.util import fix_default_config
 from sbayes.util import gabriel_graph_from_delaunay
@@ -50,6 +52,7 @@ class Plot:
         # Config variables
         self.config = {}
         self.config_file = None
+        self.base_directory = None
 
         # Path variables
         self.path_features = None
@@ -104,51 +107,17 @@ class Plot:
         if self.config['map']['content']['type'] == 'density_map':
             self.config['map']['legend']['correspondence']['color_labels'] = False
 
-        # NN TODO: This is fixing relative paths from experiment_setup.py. Needs some
-        #          adaptation here and in config files.
-        # # Set results path
-        # self.path_results = '{path}/{experiment}/'.format(
-        #     path=self.config['results']['RESULTS_PATH'],
-        #     experiment=self.experiment_name
-        # )
-        #
-        # # Compile relative paths, to be relative to config file
-        # self.path_results = self.fix_relative_path(self.path_results)
-        #
-        # if not os.path.exists(self.path_results):
-        #     os.makedirs(self.path_results)
-        #
-        # self.add_logger_file(self.path_results)
+        # Fix relative paths and assign global variables for more convenient workflow
+        self.path_plots = self.fix_relative_path(self.config['results']['path_out'])
 
+        self.path_features = self.fix_relative_path(self.config['data']['features'])
+        self.path_feature_states = self.fix_relative_path(self.config['data']['feature_states'])
 
-        # Assign global variables for more convenient workflow
-        self.path_plots = self.config['results']['path_out']
-        self.path_features = self.config['data']['features']
-        self.path_feature_states = self.config['data']['feature_states']
-
-        self.path_areas = list(self.config['results']['path_in']['areas'])
-        self.path_stats = list(self.config['results']['path_in']['stats'])
+        self.path_areas = [self.fix_relative_path(i) for i in self.config['results']['path_in']['areas']]
+        self.path_stats = [self.fix_relative_path(i) for i in self.config['results']['path_in']['stats']]
 
         if not os.path.exists(self.path_plots):
             os.makedirs(self.path_plots)
-
-    @staticmethod
-    def convert_config(d):
-        for k, v in d.items():
-            if isinstance(v, dict):
-                Plot.convert_config(v)
-            else:
-                if k != 'scenarios' and k != 'post_freq_lines' and type(v) == list:
-                    d[k] = tuple(v)
-
-    def verify_config(self):
-        pass
-
-    @staticmethod
-    def decompose_config_path(config_path):
-        abs_config_path = Path(config_path).absolute()
-        base_directory = abs_config_path.parent
-        return base_directory, abs_config_path
 
     def fix_relative_path(self, path):
         """Make sure that the provided path is either absolute or relative to
@@ -165,6 +134,25 @@ class Plot:
             return path
         else:
             return self.base_directory / path
+
+    @staticmethod
+    def convert_config(d):
+        for k, v in d.items():
+            if isinstance(v, dict):
+                Plot.convert_config(v)
+            else:
+                if type(v) == list:
+                    d[k] = tuple(v)
+
+    def verify_config(self):
+        pass
+
+    @staticmethod
+    def decompose_config_path(config_path):
+        abs_config_path = Path(config_path).absolute()
+        base_directory = abs_config_path.parent
+        return base_directory, abs_config_path
+
 
     ####################################
     # Read the data and the results
@@ -305,15 +293,15 @@ class Plot:
 
         else:
             print('Reading results of model %s...' % model)
-            path_areas = [p for p in self.path_areas if 'areas_' + str(model) + '_' in p][0]
-            path_stats = [p for p in self.path_stats if 'stats_' + str(model) + '_' in p][0]
+            path_areas = [p for p in self.path_areas if 'areas_' + str(model) + '_' in str(p)][0]
+            path_stats = [p for p in self.path_stats if 'stats_' + str(model) + '_' in str(p)][0]
 
         self.results['areas'] = self.read_areas(path_areas)
         self.read_stats(path_stats)
 
     def get_model_names(self):
-        last_part = [p.rsplit('/', 1)[-1] for p in self.path_areas]
-        name = [p.rsplit('_')[1] for p in last_part]
+        last_part = [str(p).replace('\\', '/').rsplit('/', 1)[-1] for p in self.path_areas]
+        name = [str(p).rsplit('_')[1] for p in last_part]
         return name
 
     # From map.py:
@@ -517,51 +505,79 @@ class Plot:
     def initialize_map(locations, cfg_graphic, ax):
 
         ax.scatter(*locations.T, s=cfg_graphic['languages']['size'],
-                   c=cfg_graphic['languages']['color'], alpha=1, linewidth=0)
+                   color=cfg_graphic['languages']['color'], linewidth=0)
 
-    def add_label(self, is_in_area, current_color, locations_map_crs, extent, ax):
-        """Add labels to languages in an area"""
-        # Find all languages in areas
-        loc_in_area = locations_map_crs[is_in_area, :]
-        labels_in_area = list(compress(self.sites['id'], is_in_area))
+    @staticmethod
+    def add_labels(cfg_content, locations_map_crs, area_labels, area_colors, extent, ax):
+        """Add labels to languages"""
+        all_loc = list(range(locations_map_crs.shape[0]))
 
-        for loc in range(len(loc_in_area)):
+        # Label all languages in areas
+        if cfg_content['labels'] == 'all' or cfg_content['labels'] == 'in_area':
 
-            range_x = extent['x_max'] - extent['x_min']
-            range_y = extent['y_max'] - extent['y_min']
-            x, y = loc_in_area[loc]
-            x += range_x/200
-            y += range_y/200
-            anno_opts = dict(xy=(x, y), fontsize=10, color=current_color)
-            ax.annotate(labels_in_area[loc] + 1, **anno_opts)
+            for j in range(len(area_labels)):
+                curr_labels = area_labels[j]
+                loc_in_area = locations_map_crs[curr_labels]
+                for i in range(len(loc_in_area)):
+                    range_x = extent['x_max'] - extent['x_min']
+                    range_y = extent['y_max'] - extent['y_min']
+                    x, y = loc_in_area[i]
+                    x += range_x/200
+                    y += range_y/200
+                    anno_opts = dict(xy=(x, y), fontsize=10, color=area_colors[j])
+                    ax.annotate(curr_labels[i] + 1, **anno_opts)
+                    all_loc.remove(curr_labels[i])
 
-        return labels_in_area
+            # Label all remaining languages
+            if cfg_content['labels'] == 'all':
+                for i in all_loc:
+                    range_x = extent['x_max'] - extent['x_min']
+                    range_y = extent['y_max'] - extent['y_min']
+                    x, y = locations_map_crs[i]
+                    x += range_x/200
+                    y += range_y/200
+                    anno_opts = dict(xy=(x, y), fontsize=10, color="black")
+                    ax.annotate(i + 1, **anno_opts)
 
-    def visualize_areas(self, locations_map_crs, extent,
-                        cfg_content, cfg_graphic, cfg_legend, ax):
-        all_labels = []
+    def visualize_areas(self, locations_map_crs, cfg_content, cfg_graphic, cfg_legend, ax):
+        area_labels = []
         # If log-likelihood is displayed: add legend entries with likelihood information per area
         if cfg_legend['areas']['add'] and cfg_legend['areas']['log-likelihood']:
-            area_labels, legend_areas = self.add_log_likelihood_legend()
+            area_labels_legend, legend_areas = self.add_log_likelihood_legend()
 
         else:
-            area_labels = []
+            area_labels_legend = []
             legend_areas = []
             for i, _ in enumerate(self.results['areas']):
-                area_labels.append(f'$Z_{i + 1}$')
-
-        # if self.content_config['type'] == 'density_map':
-        #     self.ax.scatter(*self.locations.T,
-        #                     s=self.graphic_config['point_size'], c="black")
+                area_labels_legend.append(f'$Z_{i + 1}$')
 
         # Color areas
+        cm = plt.get_cmap('gist_rainbow')
+
+        if len(cfg_graphic['areas']['color']) == 0:
+            print(f'No colors for areas provided in map>graphic>areas>color '
+                  f'in the config plot file ({self.config_file}). I am using default colors instead.')
+
+            area_colors = list(cm(np.linspace(0, 1, len(self.results['areas']))))
+
+        elif len(cfg_graphic['areas']['color']) < len(self.results['areas']):
+
+            print(f"Too few colors for areas ({len(cfg_graphic['areas']['color'])} provided, "
+                  f"{len(self.results['areas'])} needed) in map>graphic>areas>color in the config plot "
+                  f"file ({self.config_file}). I am adding default colors.")
+            provided = np.array([colors.to_rgba(c) for c in cfg_graphic['areas']['color']])
+            additional = cm(np.linspace(0, 1, len(self.results['areas']) - len(cfg_graphic['areas']['color'])))
+            area_colors = list(np.concatenate((provided, additional), axis=0))
+
+        else:
+            area_colors = list(cfg_graphic['areas']['color'])
 
         for i, area in enumerate(self.results['areas']):
 
             # This function computes a Gabriel graph for all points which are in the posterior with at least p_freq
-            in_graph, lines, line_w = self.areas_to_graph(area, locations_map_crs, cfg_content)
+            in_area, lines, line_w = self.areas_to_graph(area, locations_map_crs, cfg_content)
 
-            current_color = cfg_graphic['areas']['color'][i]
+            current_color = area_colors[i]
 
             if cfg_content['type'] == 'density_map':
 
@@ -570,7 +586,7 @@ class Plot:
                             alpha=line_w[li]*cfg_graphic['areas']['alpha'])
 
             else:
-                ax.scatter(*locations_map_crs[in_graph].T, s=cfg_graphic['areas']['size'], c=current_color)
+                ax.scatter(*locations_map_crs[in_area].T, s=cfg_graphic['areas']['size'], color=current_color)
                 for li in range(len(lines)):
                     ax.plot(*lines[li].T, color=current_color,
                             lw=line_w[li] * cfg_graphic['areas']['width'], alpha=cfg_graphic['areas']['alpha'])
@@ -586,32 +602,58 @@ class Plot:
                 if cfg_content['type'] == 'density_map':
                     current_color = "black"
 
-                all_labels.append(self.add_label(in_graph, current_color, locations_map_crs, extent, ax))
+                area_labels.append(list(compress(self.sites['id'], in_area)))
 
         if cfg_legend['areas']['add']:
             # add to legend
-            legend_areas = ax.legend(legend_areas, area_labels, title_fontsize=18, title='Contact areas',
+            legend_areas = ax.legend(legend_areas, area_labels_legend, title_fontsize=18, title='Contact areas',
                                      frameon=True, edgecolor='#ffffff', framealpha=1, fontsize=16, ncol=1,
                                      columnspacing=1, loc='upper left',
                                      bbox_to_anchor=cfg_legend['areas']['position'])
 
-
             legend_areas._legend_box.align = "left"
             ax.add_artist(legend_areas)
 
-        return all_labels
+        return area_labels, area_colors
+
+    @staticmethod
+    def lighten_color(color, amount=0.2):
+        # FUnction to lighten up colors
+        c = colorsys.rgb_to_hls(*color)
+        return colorsys.hls_to_rgb(c[0], 1 - amount * (1 - c[1]), c[2])
 
     def color_families(self, locations_maps_crs, cfg_graphic, cfg_legend, ax):
         family_array = self.family_names['external']
         families = self.families
+        cm = plt.get_cmap('gist_rainbow')
+
+        if len(cfg_graphic['families']['color']) == 0:
+            print(f'No colors for families provided in map>graphic>families>color '
+                  f'in the config plot file ({self.config_file}). I am using default colors instead.')
+            family_colors = cm(np.linspace(0.0, 0.8, len(self.families)))
+
+            # lighten colors up a bit
+            family_colors = [self.lighten_color(c[:3]) for c in family_colors]
+
+        elif len(cfg_graphic['families']['color']) < len(self.families):
+
+            print(f"Too few colors for families ({len(cfg_graphic['families']['color'])} provided, "
+                  f"{len(self.families)} needed) in map>graphic>areas>color in the config plot "
+                  f"file ({self.config_file}). I am adding default colors.")
+            provided = [colors.to_rgba(c) for c in cfg_graphic['families']['color']]
+            additional = cm(np.linspace(0, 0.8, len(self.families) - len(cfg_graphic['families']['color'])))
+            family_colors = provided + [self.lighten_color(c[:3]) for c in additional]
+
+        else:
+            family_colors = cfg_graphic['families']['color']
 
         # Initialize empty legend handle
         handles = []
 
         # Iterate over all family names
         for i, family in enumerate(family_array):
-            family_color = cfg_graphic['families']['color'][i]
-            family_fill, family_border = family_color, family_color
+
+            family_color = family_colors[i]
 
             # Find all languages belonging to a family
             is_in_family = families[i] == 1
@@ -619,21 +661,25 @@ class Plot:
 
             # Adds a color overlay for each language in a family
             ax.scatter(*family_locations.T, s=cfg_graphic['families']['size'],
-                       c=family_color, alpha=1, linewidth=0, zorder=-i, label=family)
+                       color=family_color, linewidth=0, zorder=-i, label=family)
 
             # For languages with more than three members combine several languages in an alpha shape (a polygon)
             if np.count_nonzero(is_in_family) > 3:
-                alpha_shape = self.compute_alpha_shapes(points=family_locations,
-                                                        alpha_shape=cfg_graphic['families']['shape'])
+                try:
+                    alpha_shape = self.compute_alpha_shapes(points=family_locations,
+                                                            alpha_shape=cfg_graphic['families']['shape'])
 
-                # making sure that the alpha shape is not empty
-                if not alpha_shape.is_empty:
-                    smooth_shape = alpha_shape.buffer(cfg_graphic['families']['buffer'], resolution=16,
-                                                      cap_style=1, join_style=1,
-                                                      mitre_limit=5.0)
-                    patch = PolygonPatch(smooth_shape, fc=family_fill, ec=family_border,
-                                         lw=1, ls='-', alpha=1, fill=True, zorder=-i)
-                    ax.add_patch(patch)
+                    # making sure that the alpha shape is not empty
+                    if not alpha_shape.is_empty:
+                        smooth_shape = alpha_shape.buffer(cfg_graphic['families']['buffer'], resolution=16,
+                                                          cap_style=1, join_style=1,
+                                                          mitre_limit=5.0)
+                        patch = PolygonPatch(smooth_shape, fc=family_color, ec=family_color,
+                                             lw=1, ls='-', fill=True, zorder=-i)
+                        ax.add_patch(patch)
+                # When languages in the same family have identical locations, alpha shapes cannot be computed
+                except ZeroDivisionError:
+                    pass
 
             # Add legend handle
             handle = Patch(facecolor=family_color, edgecolor=family_color, label=family)
@@ -704,7 +750,6 @@ class Plot:
             y_min = cfg_legend['overview']['extent']['y'][0]
             y_max = cfg_legend['overview']['extent']['y'][1]
 
-
         axins.set_xlim([x_min, x_max])
         axins.set_ylim([y_min, y_max])
 
@@ -717,7 +762,7 @@ class Plot:
 
         # add overview to the map
         axins.scatter(*locations_map_crs.T, s=cfg_graphic['languages']['size'] / 2,
-                      c=cfg_graphic['languages']['color'], alpha=1, linewidth=0)
+                      color=cfg_graphic['languages']['color'], linewidth=0)
 
         # adds a bounding box around the overview map
         bbox_width = extent['x_max'] - extent['x_min']
@@ -746,34 +791,42 @@ class Plot:
         for i, lh in enumerate(p):
             area_labels.append(f'$Z_{i + 1}: \, \;\;\; {int(lh)}$')
 
-
         extra = patches.Rectangle((0, 0), 1, 1, fc="w", fill=False, edgecolor='none', linewidth=0)
         # Line2D([0], [0], color=None, lw=6, linestyle='-')
 
         return area_labels, [extra]
 
-    @staticmethod
-    def add_background_map(cfg_geo, cfg_graphic, ax):
+    def add_background_map(self, bbox, cfg_geo, cfg_graphic, ax):
         # Adds the geojson polygon geometries provided by the user as a background map
-        world = gpd.read_file(cfg_geo['base_map']['geojson_polygon'])
+
+        world = gpd.read_file(self.fix_relative_path(cfg_geo['base_map']['geojson_polygon']))
 
         map_crs = CRS(cfg_geo['map_projection'])
+
         try:
             lon_0 = map_crs.coordinate_operation.params[0].value
-        except KeyError:
-            lon_0 = 180
+
+        except AttributeError or KeyError:
+            lon_0 = 0.0
+            print(f"I could not find the false origin (lon=0) of the projection {cfg_geo['map_projection']}. "
+                  f"It is assumed that the false origin is 0.0. "
+                  f"If plotting distorts the base map polygons, use a different projection, "
+                  f"preferably one with a well-defined false origin.")
 
         if lon_0 > 0:
             anti_meridian = lon_0 - 180
         else:
             anti_meridian = lon_0 + 180
 
-        clip_box_1 = geometry.box(anti_meridian + 0.1, -90, 180, 90)
-        clip_box_2 = geometry.box(anti_meridian - 0.1, -90, -180, 90)
+        offset = 10
+        clip_box_1 = geometry.box(anti_meridian + 1, -90, 180 + offset, 90)
+        clip_box_2 = geometry.box(anti_meridian - 1, -90, -180 + offset, 90)
         clip_box = gpd.GeoSeries([clip_box_1, clip_box_2], crs=world.crs)
 
         world = gpd.clip(world, clip_box)
         world = world.to_crs(cfg_geo['map_projection'])
+
+        world = gpd.clip(world, bbox)
 
         cfg_polygon = cfg_graphic['base_map']['polygon']
         world.plot(ax=ax, facecolor=cfg_polygon['color'],
@@ -781,10 +834,10 @@ class Plot:
                    lw=cfg_polygon['outline_width'],
                    zorder=-100000)
 
-    @staticmethod
-    def add_rivers(cfg_geo, cfg_graphic, ax):
+    def add_rivers(self, cfg_geo, cfg_graphic, ax):
+
         # The user can provide geojson line geometries, for example those for rivers. Looks good on a map :)
-        rivers = gpd.read_file(cfg_geo['base_map']['geojson_line'])
+        rivers = gpd.read_file(self.fix_relative_path(cfg_geo['base_map']['geojson_line']))
         rivers = rivers.to_crs(cfg_geo['map_projection'])
 
         cfg_line = cfg_graphic['base_map']['line']
@@ -798,13 +851,13 @@ class Plot:
             if not cfg_geo['base_map']['geojson_polygon']:
                 print(f'Cannot add base map. Please provide a geojson_polygon')
             else:
-                self.add_background_map(cfg_geo, cfg_graphic, ax)
+                self.add_background_map(bbox, cfg_geo, cfg_graphic, ax)
             if not cfg_geo['base_map']['geojson_line']:
                 pass
             else:
                 self.add_rivers(cfg_geo, cfg_graphic, ax)
 
-    def add_correspondence_table(self, all_labels, cfg_graphic, cfg_legend, ax_c):
+    def add_correspondence_table(self, area_labels, area_colors, cfg_legend, ax_c):
         """ Which language belongs to which number? This table will tell you more"""
 
         sites_id = []
@@ -812,12 +865,20 @@ class Plot:
         sites_color = []
 
         for i in range(len(self.sites['id'])):
-            for s in range(len(all_labels)):
-                if self.sites['id'][i] in all_labels[s]:
+            label_added = False
 
+            for s in range(len(area_labels)):
+                if self.sites['id'][i] in area_labels[s]:
                     sites_id.append(self.sites['id'][i])
                     sites_names.append(self.sites['names'][i])
-                    sites_color.append(cfg_graphic['areas']['color'][s])
+                    sites_color.append(area_colors[s])
+                    label_added = True
+
+            if not label_added:
+                if cfg_legend['correspondence']['show_all']:
+                    sites_id.append(self.sites['id'][i])
+                    sites_names.append(self.sites['names'][i])
+                    sites_color.append("black")
 
         n_col = cfg_legend['correspondence']['n_columns']
         n_row = math.ceil(len(sites_names) / n_col)
@@ -844,7 +905,7 @@ class Plot:
                     table_fill[i].append("")
                     color_fill[i].append("#000000")
 
-        widths = [0.06, 0.2] * int(((len(table_fill[0])) / 2))
+        widths = [0.02, 0.2] * int(((len(table_fill[0])) / 2))
         y_min = -(cfg_legend['correspondence']['table_height'] + 0.01)
         table = ax_c.table(cellText=table_fill, cellLoc="left", colWidths=widths,
                            bbox=(0.01, y_min, 0.98, cfg_legend['correspondence']['table_height']))
@@ -862,11 +923,6 @@ class Plot:
         for key, cell in table.get_celld().items():
             cell.set_linewidth(0)
 
-
-    ##############################################################
-    # This is the plot_posterior_map function from plotting_old
-    ##############################################################
-
     def posterior_map(self, file_name='mst_posterior'):
 
         """ This function creates a scatter plot of all sites in the posterior distribution.
@@ -874,6 +930,8 @@ class Plot:
             Args:
                 file_name (str): a path of the output file.
             """
+
+        print('Plotting map...')
 
         cfg_content = self.config['map']['content']
         cfg_geo = self.config['map']['geo']
@@ -911,7 +969,10 @@ class Plot:
         self.visualize_base_map(extent, cfg_geo, cfg_graphic, ax)
 
         # Iterates over all areas in the posterior and plots each with a different color
-        all_labels = self.visualize_areas(locations_map_crs, extent, cfg_content, cfg_graphic, cfg_legend, ax)
+        area_labels, area_colors = self.visualize_areas(locations_map_crs, cfg_content,
+                                                        cfg_graphic, cfg_legend, ax)
+
+        self.add_labels(cfg_content, locations_map_crs, area_labels, area_colors, extent, ax)
 
         # Visualizes language families
         if cfg_content['plot_families']:
@@ -929,22 +990,21 @@ class Plot:
         #
         #     self.add_secondary_legend()
 
-        # This adds an overview map to the map
+        # This adds an overview map
         if cfg_legend['overview']['add']:
+
             self.add_overview_map(locations_map_crs, extent, cfg_geo, cfg_graphic, cfg_legend, ax)
 
         if cfg_legend['correspondence']['add'] and cfg_graphic['languages']['label']:
             if cfg_content['type'] == "density_map":
-                all_labels = [self.sites['id']]
+                area_labels = [self.sites['id']]
 
-            if any(len(labels) > 0 for labels in all_labels):
-                self.add_correspondence_table(all_labels, cfg_graphic, cfg_legend, ax)
+            if any(len(labels) > 0 for labels in area_labels):
+                self.add_correspondence_table(area_labels, area_colors, cfg_legend, ax)
 
         # Save the plot
-
         file_format = cfg_output['format']
-
-        fig.savefig(f"{self.path_plots + '/' + file_name}.{file_format}", bbox_inches='tight',
+        fig.savefig(self.path_plots / f"{file_name}.{file_format}", bbox_inches='tight',
                     dpi=cfg_output['resolution'], format=file_format)
         plt.close(fig)
 
@@ -1039,7 +1099,6 @@ class Plot:
         sample = np.column_stack([p_dict[s] for s in p_dict]).astype(np.float)
         return sample, states
 
-
     # Get preferences or weights from relevant features
     def get_parameters(self, b_in, features, parameter="weights"):
 
@@ -1075,16 +1134,14 @@ class Plot:
 
     # Probability simplex (for one feature)
     @staticmethod
-    def plot_weight(samples, feature, title,
-                    labels=None, ax=None, mean_weights=False, plot_samples=False):
+    def plot_weight(samples, feature, cfg_legend, ax=None, mean_weights=False, plot_samples=False):
         """Plot a set of weight vectors in a 2D representation of the probability simplex.
 
         Args:
             samples (np.array): Sampled weight vectors to plot.
             feature (str): Name of the feature for which weights are being plotted
-            title (str): Plot title
-            labels (list[str]): Labels for each weight dimension.
             ax (plt.Axis): The pyplot axis.
+            cfg_legend(dict): legend info from the config plot file
             mean_weights (bool): Plot the mean of the weights?
             plot_samples (bool): Add a scatter plot overlay of the actual samples?
         """
@@ -1106,10 +1163,16 @@ class Plot:
         cmap = sns.cubehelix_palette(light=1, start=.5, rot=-.75, as_cmap=True)
 
         # Density and scatter plot
-        if title:
-            plt.text(-0.7, 0.6, str(feature), fontdict={'fontweight': 'bold', 'fontsize': 12})
+        title = cfg_legend['title']
+        if title['add']:
+            plt.text(title['position'][0],
+                     title['position'][1],
+                     str(feature), fontdict={'fontweight': 'bold',
+                                             'fontsize': title['font_size']}, transform=ax.transAxes)
+
         x = samples_projected.T[0]
         y = samples_projected.T[1]
+
         sns.kdeplot(x=x, y=y, shade=True,  cut=30, n_levels=100,
                     clip=([xmin, xmax], [ymin, ymax]), cmap=cmap)
 
@@ -1124,10 +1187,12 @@ class Plot:
             mean_projected = np.mean(samples, axis=0).dot(corners)
             plt.scatter(*mean_projected.T, color="#ed1696", lw=0, s=50, marker="o")
 
-        if labels is not None:
-            for xy, label in zip(corners, labels):
+        labels = cfg_legend['labels']
+
+        if labels['add']:
+            for xy, label in zip(corners, labels['names']):
                 xy *= 1.08  # Stretch, s.t. labels don't overlap with corners
-                plt.text(*xy, label, ha='center', va='center', fontdict={'fontsize': 6})
+                plt.text(*xy, label, ha='center', va='center', fontdict={'fontsize': labels['font_size']})
 
         plt.xlim(xmin - 0.1, xmax + 0.1)
         plt.ylim(ymin - 0.1, ymax + 0.1)
@@ -1135,14 +1200,14 @@ class Plot:
         plt.plot()
 
     @staticmethod
-    def plot_preference(samples, feature, labels=None, ax=None, title=False, plot_samples=False):
+    def plot_preference(samples, feature, cfg_legend, label_names, ax=None, plot_samples=False):
         """Plot a set of weight vectors in a 2D representation of the probability simplex.
 
         Args:
             samples (np.array): Sampled weight vectors to plot.
             feature (str): Name of the feature for which weights are being plotted
-            labels (list[str]): Labels for each weight dimension.
-            title (bool): plot title
+            cfg_legend(dict): legend info from the config plot file
+            label_names(list): labels for each corner
             ax (plt.Axis): The pyplot axis.
             plot_samples (bool): Add a scatter plot overlay of the actual samples?
         """
@@ -1151,23 +1216,27 @@ class Plot:
         n_samples, n_p = samples.shape
         # color map
         cmap = sns.cubehelix_palette(light=1, start=.5, rot=-.75, as_cmap=True)
+        title = cfg_legend['title']
+        labels = cfg_legend['labels']
+
         if n_p == 2:
             x = samples.T[1]
             sns.distplot(x, rug=True, hist=False, kde_kws={"shade": True, "lw": 0, "clip": (0, 1)}, color="g",
-            # sns.displot(x=x, rug=True, kde_kws={"shade": True, "lw": 0, "clip": (0, 1)}, color="g",
                          rug_kws={"color": "k", "alpha": 0.01, "height": 0.03})
 
             ax.axes.get_yaxis().set_visible(False)
 
-            if labels is not None:
-                for x, label in enumerate(labels):
+            if labels['add']:
+                for x, label in enumerate(label_names):
                     if x == 0:
-                        x = -0.05
+                        x = 0.05
                     if x == 1:
-                        x = 1.05
-                    plt.text(x, 0.1, label, ha='center', va='top', fontdict={'fontsize': 6})
-            if title:
-                plt.text(0.3, 4, str(feature), fontsize=6, fontweight='bold')
+                        x = 0.95
+                    plt.text(x, -0.05, label, ha='center', va='top',
+                             fontdict={'fontsize': labels['font_size']}, transform=ax.transAxes)
+            if title['add']:
+                plt.text(title['position'][0], title['position'][1],
+                         str(feature), fontsize=title['font_size'], fontweight='bold', transform=ax.transAxes)
 
             plt.plot([0, 1], [0, 0], c="k", lw=0.5)
 
@@ -1188,11 +1257,13 @@ class Plot:
             samples_projected = samples.dot(corners)
 
             # Density and scatter plot
-            if title:
-                plt.text(-0.8, 0.8, str(feature), fontsize=6, fontweight='bold')
+            if title['add']:
+                plt.text(title['position'][0], title['position'][1],
+                         str(feature), fontsize=title['font_size'], fontweight='bold', transform=ax.transAxes)
 
             x = samples_projected.T[0]
             y = samples_projected.T[1]
+
             sns.kdeplot(x=x, y=y, shade=True, thresh=0, cut=30, n_levels=100,
                         clip=([xmin, xmax], [ymin, ymax]), cmap=cmap)
 
@@ -1203,10 +1274,18 @@ class Plot:
             plt.fill(*corners.T, edgecolor='k', fill=False)
             Plot.fill_outside(corners, color='w', ax=ax)
 
-            if labels is not None:
-                for xy, label in zip(corners, labels):
-                    xy *= 1.1  # Stretch, s.t. labels don't overlap with corners
-                    plt.text(*xy, label, ha='center', va='center', fontdict={'fontsize': 6})
+            if labels['add']:
+                for xy, label in zip(corners, label_names):
+                    xy *= 1.2  # Stretch, s.t. labels don't overlap with corners
+                    # Split long labels
+                    if (" " in label or "-" in label) and len(label) > 10:
+                        white_or_dash = [i for i, ltr in enumerate(label) if (ltr == " " or ltr == "-")]
+                        mid_point = len(label)/2
+                        break_label = min(white_or_dash, key=lambda x: abs(x - mid_point))
+                        label = label[:break_label] + "\n" + label[break_label:]
+
+                    plt.text(*xy, label, ha='center', va='center',
+                             fontdict={'fontsize': labels['font_size']})
 
             plt.xlim(xmin - 0.1, xmax + 0.1)
             plt.ylim(ymin - 0.1, ymax + 0.1)
@@ -1229,15 +1308,14 @@ class Plot:
 
         features = weights.keys()
         n_plots = len(features)
-        n_col = cfg_weights['graphic']['n_columns']
+        n_col = cfg_weights['output']['n_columns']
         n_row = math.ceil(n_plots / n_col)
 
         width = cfg_weights['output']['width_subplot']
         height = cfg_weights['output']['height_subplot']
         fig, axs = plt.subplots(n_row, n_col, figsize=(width * n_col, height * n_row))
-        position = 1
 
-        labels = cfg_weights['graphic']['labels']
+        position = 1
         n_empty = n_row * n_col - n_plots
 
         for e in range(1, n_empty + 1):
@@ -1249,8 +1327,7 @@ class Plot:
         for f in features:
             plt.subplot(n_row, n_col, position)
 
-            self.plot_weight(weights[f], feature=f, title=cfg_weights['graphic']['title'],
-                             labels=labels, mean_weights=True)
+            self.plot_weight(weights[f], feature=f, cfg_legend=cfg_weights['legend'], mean_weights=True)
 
             print(position, "of", n_plots, "plots finished")
             position += 1
@@ -1262,8 +1339,10 @@ class Plot:
                             hspace=height_spacing)
         file_format = cfg_weights['output']['format']
         resolution = cfg_weights['output']['resolution']
-        fig.savefig(self.path_plots + '/' + file_name + '.' + file_format,
+
+        fig.savefig(self.path_plots / f'{file_name}.{file_format}', bbox_inches='tight',
                     dpi=resolution, format=file_format)
+        plt.close(fig)
 
     # This is not changed yet
     def plot_preferences(self, file_name):
@@ -1315,7 +1394,7 @@ class Plot:
             features = preferences.keys()
 
             n_plots = len(features)
-            n_col = cfg_preference['graphic']['n_columns']
+            n_col = cfg_preference['output']['n_columns']
             n_row = math.ceil(n_plots / n_col)
 
             fig, axs = plt.subplots(n_row, n_col, figsize=(width * n_col, height * n_row), )
@@ -1331,21 +1410,17 @@ class Plot:
 
             for f in features:
                 plt.subplot(n_row, n_col, position)
-                if cfg_preference['graphic']['labels']:
-                    labels = states[f]
-                else:
-                    labels = None
 
-                self.plot_preference(preferences[f], feature=f, labels=labels,
-                                     title=cfg_preference['graphic']['title'])
+                self.plot_preference(preferences[f], feature=f, label_names=states[f],
+                                     cfg_legend=cfg_preference['legend'])
 
                 print(p, ": ", position, "of", n_plots, "plots finished")
                 position += 1
 
             plt.subplots_adjust(wspace=width_spacing, hspace=height_spacing)
-            fig.savefig(self.path_plots + '/' + file_name + '_' + p + '.' + file_format,
+            fig.savefig(self.path_plots / f'{file_name}_{p}.{file_format}', bbox_inches='tight',
                         dpi=resolution, format=file_format)
-
+            plt.close(fig)
 
     def plot_dic(self, models, file_name):
         """This function plots the dics. What did you think?
@@ -1413,8 +1488,8 @@ class Plot:
         yticklabels = [f'{y_tick:.0f}' for y_tick in y_ticks]
         ax.set_yticklabels(yticklabels, fontsize=10)
 
-        fig.savefig(self.path_plots + '/' + file_name + '.' + file_format, dpi=resolution, format=file_format)
-
+        fig.savefig(self.path_plots / f'{file_name}.{file_format}', bbox_inches='tight',
+                    dpi=resolution, format=file_format)
 
     def plot_trace(self, file_name="trace", show_every_k_sample=1, file_format="pdf"):
         """
@@ -1613,13 +1688,14 @@ class Plot:
                     dpi=400, format=file_format, bbox_inches='tight')
         plt.close(fig)
 
+    def plot_pies(self, file_name):
 
-    def plot_pies(self, file_name, file_format="pdf"):
-        config_pie = self.config['pie_plot']
         print('Plotting pie charts ...')
+        cfg_pie = self.config['pie_plot']
 
         areas = np.array(self.results['areas'])
-        end_bi = math.ceil(areas.shape[1] * config_pie['content']['burn_in'])
+        n_areas = areas.shape[0]
+        end_bi = math.ceil(areas.shape[1] * cfg_pie['content']['burn_in'])
 
         samples = areas[:, end_bi:, ]
 
@@ -1632,10 +1708,34 @@ class Plot:
         n_col = 3
         n_row = math.ceil(n_plots / n_col)
 
-        width = config_pie['output']['width']
-        height = config_pie['output']['height']
+        width = cfg_pie['output']['width']
+        height = cfg_pie['output']['height']
 
         fig, axs = plt.subplots(n_row, n_col, figsize=(width * n_col, height * n_row))
+
+        cm = plt.get_cmap('gist_rainbow')
+
+        if len(self.config['map']['graphic']['areas']['color']) == 0:
+            print(f'I tried to color the pie charts the same as the map, but no colors were provided in '
+                  f'map>graphic>areas>color in the config plot file ({self.config_file}). '
+                  f'I am using default colors instead.')
+
+            all_colors = list(cm(np.linspace(0, 1, n_areas)))
+
+        elif len(self.config['map']['graphic']['areas']['color']) < n_areas:
+
+            print(f'I tried to color the pie charts the same as the map, but not enough colors were provided in '
+                  f'map>graphic>areas>color in the config plot file ({self.config_file}). '
+                  f'I am adding default colors.')
+
+            provided = np.array([colors.to_rgba(c) for c in self.config['map']['graphic']['areas']['color']])
+            additional = cm(np.linspace(0, 1, n_areas - len(self.config['map']['graphic']['areas']['color'])))
+            all_colors = list(np.concatenate((provided, additional), axis=0))
+
+        else:
+            print(f'I am using the colors in map>graphic>areas>color '
+                  f'in the config plot file ({self.config_file}) to color the pie charts.')
+            all_colors = list(self.config['map']['graphic']['areas']['color'])
 
         for l in range(n_col*n_row):
 
@@ -1647,16 +1747,32 @@ class Plot:
                 no_area = n_samples - per_lang.sum()
 
                 x = per_lang.tolist()
-                col = list(self.config['map']['graphic']['areas']['color'])[:len(x)]
+                col = all_colors[:len(x)]
 
                 # Append samples that are not in an area
                 x.append(no_area)
                 col.append("lightgrey")
 
                 axs[ax_row, ax_col].pie(x, colors=col, radius=15)
-                label = str(self.sites['id'][l] + 1) + ' ' + str(self.sites['names'][l])
-                axs[ax_row, ax_col].text(-160, 0, label, size=15, va='center', ha="left")
-                axs[ax_row, ax_col].set_xlim([-160, 5])
+
+                label = str(self.sites['names'][l])
+
+                # break long labels
+                if (" " in label or "-" in label) and len(label) > 10:
+                    white_or_dash = [i for i, ltr in enumerate(label) if (ltr == " " or ltr == "-")]
+                    mid_point = len(label) / 2
+                    break_label = min(white_or_dash, key=lambda x: abs(x - mid_point))
+                    if " " in label:
+                        label = label[:break_label] + '\n' + label[break_label+1:]
+                    elif "-" in label:
+                        label = label[:break_label] + '-\n' + label[break_label+1:]
+
+                axs[ax_row, ax_col].text(0.20, 0.5,  str(self.sites['id'][l] + 1), size=15, va='center', ha="right",
+                                         transform=axs[ax_row, ax_col].transAxes)
+
+                axs[ax_row, ax_col].text(0.25, 0.5, label, size=15, va='center', ha="left",
+                                         transform=axs[ax_row, ax_col].transAxes)
+                axs[ax_row, ax_col].set_xlim([0, 160])
                 axs[ax_row, ax_col].set_ylim([-10, 10])
 
             axs[ax_row, ax_col].axis('off')
@@ -1666,11 +1782,13 @@ class Plot:
         for e in range(1, n_empty):
             axs[-1, -e].axis('off')
 
-        plt.subplots_adjust(wspace=config_pie['output']['spacing_horizontal'],
-                            hspace=config_pie['output']['spacing_vertical'])
+        plt.subplots_adjust(wspace=cfg_pie['output']['spacing_horizontal'],
+                            hspace=cfg_pie['output']['spacing_vertical'])
 
-        fig.savefig(self.path_plots + '/' + file_name + '.' + file_format,
-                    dpi=400, format=file_format, bbox_inches='tight')
+        file_format = cfg_pie['output']['format']
+        fig.savefig(self.path_plots / f'{file_name}.{file_format}', bbox_inches='tight',
+                    dpi=cfg_pie['output']['resolution'], format=file_format)
+        plt.close(fig)
 
 
 def main(config=None, only_plot=None):

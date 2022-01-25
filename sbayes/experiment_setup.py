@@ -76,8 +76,6 @@ class Experiment:
             self.config = json.load(f)
 
         # Load defaults
-        print(DEFAULT_CONFIG, "config")
-        print(self.config, "sel")
         set_defaults(self.config, DEFAULT_CONFIG)
         if 'simulation' in self.config:
 

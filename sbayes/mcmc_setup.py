@@ -3,9 +3,6 @@
 
 """ Setup of the MCMC process """
 
-from __future__ import absolute_import, division, print_function, unicode_literals
-
-import logging
 import numpy as np
 import typing
 
@@ -138,7 +135,7 @@ Ratio of contact steps (changing gamma): {mcmc_config['operators']['contact']}
 
     def warm_up(self):
         mcmc_config = self.config['mcmc']
-
+        print(mcmc_config['warmup'])
         warmup = ZoneMCMCWarmup(
             data=self.data,
             model=self.model,
@@ -163,8 +160,8 @@ Ratio of contact steps (changing gamma): {mcmc_config['operators']['contact']}
         #   2. match + rang areas in summarization
         #   3. compute simulation stats in separate script
 
-        self.samples = match_areas(self.samples)
-        self.samples = rank_areas(self.samples)
+        # self.samples = match_areas(self.samples)
+        # self.samples = rank_areas(self.samples)
 
         fi = 'K{K}'.format(K=self.config['model']['areas'])
         run = '_{run}'.format(run=run)
@@ -186,5 +183,5 @@ Ratio of contact steps (changing gamma): {mcmc_config['operators']['contact']}
         samples2file(self.samples, self.data, self.config, paths)
 
     def log_statistics(self):
-        # TODO log durin MCMC run
+        # TODO log during MCMC run
         self.sampler.print_statistics(self.samples)
