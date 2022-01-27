@@ -11,4 +11,3 @@ fastcluster
 setuptools
 cartopy
 typing_extensions
-pycldf

@@ -5,23 +5,21 @@
 		"projection": "epsg:4326"
 	},
 	"model": {
-		"areas": "<REQUIRED>",
-		"inheritance": "<REQUIRED>",
+		"clusters": "<REQUIRED>",
 		"sample_source": true,
 		"prior": {
 			"geo": {
 				"type": "uniform",
 				"aggregation": "mean"
 			},
-			"languages_per_area": {
+			"objects_per_cluster": {
 				"type": "<REQUIRED>",
 				"min": 2,
 				"max": 10000
 			},
 			"weights": "<REQUIRED>",
-			"universal": "<REQUIRED>",
-			"inheritance": "<REQUIRED>",
-			"contact": "<REQUIRED>"
+			"confounding_effects": "<REQUIRED>",
+			"areal_effect": "<REQUIRED>"
 		}
 	},
 	"mcmc": {
@@ -31,14 +29,13 @@
 		"sample_from_prior": false,
 		"grow_to_adjacent": 0.85,
 		"operators": {
-			"area": 45,
+			"clusters": 45,
 			"weights": 15,
-			"universal": 5,
-			"contact": 15,
-			"inheritance": 10,
+			"areal_effect": 5,
+			"confounding_effects": 15,
 			"source": 10
 		},
-		"init_lang_per_area": 5,
+		"init_objects_per_area": 5,
 		"warmup": {
 			"warmup_steps": 100000,
 			"warmup_chains": 15

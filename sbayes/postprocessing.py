@@ -203,23 +203,23 @@ def samples_array_to_list(samples_in, samples_type):
 
 
 def match_areas(samples):
-    """Align areas and single area lh and priors from(possibly) different chains.
+    """Align clusters from (possibly) different chains.
     Args:
         samples (dict): samples from the MCMC
     Returns:
         matched_samples(list): Resulting matching.
     """
 
-    area_samples = np.array([np.array(s) for s in samples['sample_zones']])
-    area_samples = np.swapaxes(area_samples, 1, 2)
+    cluster_samples = np.array([np.array(s) for s in samples['sample_clusters']])
+    cluster_samples = np.swapaxes(cluster_samples, 1, 2)
 
-    n_samples, n_sites, n_areas = area_samples.shape
-    s_sum = np.zeros((n_sites, n_areas))
+    n_samples, n_sites, n_clusters = cluster_samples.shape
+    s_sum = np.zeros((n_sites, n_clusters))
 
     # All potential permutations of cluster labels
-    perm = list(permutations(range(n_areas)))
+    perm = list(permutations(range(n_clusters)))
     matching_list = []
-    for s in area_samples:
+    for s in cluster_samples:
 
         def clustering_agreement(p):
 
@@ -234,8 +234,8 @@ def match_areas(samples):
         s_sum += s[:, best_match]
 
     # Reorder chains according to matching
-    reordered_zones = []
-    reordered_p_zones = []
+    reordered_clusters = []
+    reordered_areal_effect = []
     reordered_lh = []
     reordered_prior = []
     reordered_posterior = []
@@ -245,7 +245,7 @@ def match_areas(samples):
         reordered_zones.append(samples['sample_zones'][s][:][matching_list[s]])
     samples['sample_zones'] = reordered_zones
 
-    print("Matching p areas ...")
+    print("Matching areal effect ...")
     for s in range(len(samples['sample_p_zones'])):
         reordered_p_zones.append(samples['sample_p_zones'][s][matching_list[s]])
     samples['sample_p_zones'] = reordered_p_zones
@@ -268,20 +268,21 @@ def match_areas(samples):
     return samples
 
 
-def contribution_per_area(mcmc_sampler):
-    """Evaluate the contribution of each zone to the lh and the posterior in each sample.
+def contribution_per_cluster(mcmc_sampler):
+    """Evaluate the contribution of each cluster to the lh and the posterior in each sample.
     Args:
         mcmc_sampler (MCMC_generative): MCMC sampler for generative model (including samples)
     Returns:
         MCMC_generative: MCMC sampler including statistics on the likelihood and prior per zone
     """
     stats = mcmc_sampler.statistics
-    stats['sample_lh_single_zones'] = []
-    stats['sample_prior_single_zones'] = []
-    stats['sample_posterior_single_zones'] = []
+    stats['sample_lh_single_clusters'] = []
+    stats['sample_prior_single_clusters'] = []
+    stats['sample_posterior_single_clusters'] = []
 
     # Iterate over all samples
-    n_samples = len(stats['sample_zones'])
+    n_samples = len(stats['sample_clusters'])
+    # todo: stop
     for s in range(n_samples):
         weights = stats['sample_weights'][s]
         p_global = stats['sample_p_global'][s]

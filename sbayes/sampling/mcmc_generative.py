@@ -16,7 +16,6 @@ class MCMCGenerative(metaclass=_abc.ABCMeta):
 
     """Base-class for MCMC samplers for generative model. Instantiable sub-classes have to implement
     some methods, like propose_step() and likelihood().
-    The base-class provides options for Markov coupled MCMC (MC3)[2].
 
     Attributes:
         statistics (dict): Container for a set of statistics about the sampling run.
@@ -31,7 +30,6 @@ class MCMCGenerative(metaclass=_abc.ABCMeta):
     Q_BACK_REJECT = -_np.inf
 
     def __init__(self, model, data, operators, n_chains=1,
-                 mc3=False, swap_period=None, chain_swaps=None,
                  sample_from_prior=False, show_screen_log=False,
                  logger=None, **kwargs):
 
@@ -45,28 +43,19 @@ class MCMCGenerative(metaclass=_abc.ABCMeta):
         self.sample_from_prior = sample_from_prior
 
         # Operators
-        self.fn_operators, self.p_operators = self.get_operators(operators)
-
-        # MC3
-        self.mc3 = mc3
-        self.swap_period = swap_period
-        self.chain_swaps = chain_swaps
+        self.callable_operators = self.get_operators(operators)
 
         # Initialize statistics
         self.statistics = {'sample_id': [],
                            'sample_likelihood': [],
                            'sample_prior': [],
-                           'sample_zones': [],
+                           'sample_clusters': [],
                            'sample_weights': [],
-                           'sample_p_global': [],
-                           'sample_p_zones': [],
-                           'sample_p_families': [],
+                           'sample_areal_effect': [],
+                           'sample_confounding_effects': {k: [] for k in model.confounders},
                            'last_sample': [],
                            'acceptance_ratio': _math.nan,
                            'accepted_steps': 0,
-                           'n_swaps': 0,
-                           'accepted_swaps': 0,
-                           'swap_ratio': [],
                            'accept_operator': defaultdict(int),
                            'reject_operator': defaultdict(int)}
 
@@ -126,7 +115,6 @@ class MCMCGenerative(metaclass=_abc.ABCMeta):
 
         return log_lh
 
-
     @_abc.abstractmethod
     def generate_initial_sample(self, c=0):
         """Generate an initial sample from which the run should be started.
@@ -147,16 +135,15 @@ class MCMCGenerative(metaclass=_abc.ABCMeta):
         """
 
     def generate_samples(self, n_steps, n_samples, warm_up=False, warm_up_steps=None):
-        """Run the MCMC sampling procedure for the Generative model with Metropolis Hastings rejection
-        step and options for multiple chains. Samples are returned, statistics saved in self.statistics.
-
+        """Run the MCMC sampling procedure with Metropolis Hastings rejection step and options for multiple chains. \
+        Samples are returned, statistics saved in self.statistics.
         Args:
-            n_steps (int): The number of steps the sampler takes (without burn-in steps)
+            n_steps (int): The number of steps taken by the sampler (without burn-in steps)
             n_samples (int): The number of samples
             warm_up (bool): Warm-up run or real sampling?
             warm_up_steps (int): Number of warm-up steps
         Returns:
-            list: The generated samples.
+            list: The generated samples
         """
 
         # Generate samples using MCMC with several chains
@@ -166,18 +153,19 @@ class MCMCGenerative(metaclass=_abc.ABCMeta):
         for c in self.chain_idx:
 
             sample[c] = self.generate_initial_sample(c)
+
             # Compute the (log)-likelihood and the prior for each sample
             self._ll[c] = self.likelihood(sample[c], c)
             self._prior[c] = self.prior(sample[c], c)
 
-        # # Probability of operators is different if there are zero zones
-        # if self.n_zones == 0:
+        # # Probability of operators is different if there are zero clusters
+        # if self.n_clusters == 0:
         #
         #     operator_names = [f.__name__ for f in self.fn_operators]
-        #     zone_op = [operator_names.index('alter_p_zones'), operator_names.index('shrink_zone'),
-        #                operator_names.index('grow_zone'), operator_names.index('swap_zone')]
+        #     cluster_op = [operator_names.index('alter_areal_effect'), operator_names.index('shrink_cluster'),
+        #                   operator_names.index('grow_cluster'), operator_names.index('swap_cluster')]
         #
-        #     for op in zone_op:
+        #     for op in cluster_op:
         #         self.p_operators[op] = 0.
         #     self.p_operators = [p / sum(self.p_operators) for p in self.p_operators]
 
@@ -217,11 +205,6 @@ class MCMCGenerative(metaclass=_abc.ABCMeta):
                     self.log_sample_statistics(sample[self.chain_idx[0]], c=self.chain_idx[0],
                                                sample_id=int(i_step/steps_per_sample))
 
-                # For mc3: Exchange chains at fixed intervals
-                if self.mc3:
-                    if (i_step+1) % self.swap_period == 0:
-                        self.swap_chains(sample)
-
                 # Print work status and likelihood at fixed intervals
                 if (i_step+1) % 1000 == 0:
                     self.print_screen_log(i_step+1, sample)
@@ -234,69 +217,30 @@ class MCMCGenerative(metaclass=_abc.ABCMeta):
             self.statistics['sampling_time'] = t_end - t_start
             self.statistics['time_per_sample'] = (t_end - t_start) / n_samples
             self.statistics['acceptance_ratio'] = (self.statistics['accepted_steps'] / n_steps)
-            if self.statistics['n_swaps'] > 0:
-                self.statistics['swap_ratio'] = (self.statistics['accepted_swaps'] / self.statistics['n_swaps'])
-            else:
-                self.statistics['swap_ratio'] = 0
 
-    def swap_chains(self, sample):
-
-        for _ in range(self.chain_swaps):
-
-            self.statistics['n_swaps'] += 1
-
-            # Chose random chains and try to swap with first chain
-            swap_from_idx = 0
-            swap_from = self.chain_idx[swap_from_idx]
-
-            swap_to_idx, = _np.random.choice(range(1, self.n_chains), 1)
-            swap_to = self.chain_idx[swap_to_idx]
-
-            # Compute lh and prior ratio for both chains
-            ll_from = self.likelihood(sample[swap_from], swap_from)
-            prior_from = self.prior(sample[swap_from], swap_from)
-
-            ll_to = self.likelihood(sample[swap_to], swap_to)
-            prior_to = self.prior(sample[swap_to], swap_to)
-            q_to = q_from = 0
-
-            # Evaluate the metropolis-hastings ratio
-            mh_ratio = self.metropolis_hastings_ratio(ll_new=ll_to, ll_prev=ll_from,
-                                                      prior_new=prior_to, prior_prev=prior_from,
-                                                      log_q=q_to, log_q_back=q_from)
-
-            # Swap chains according to MH-ratio and update
-            if _math.log(_random.random()) < mh_ratio:
-                self.chain_idx[swap_from_idx] = swap_to
-                self.chain_idx[swap_to_idx] = swap_from
-                self.statistics['accepted_swaps'] += 1
-
-            #     print("swapped")
-            # else:
-            #     print("not swapped")
-
-        # Set all 'what_changed' flags to true (to avoid caching errors)
-        for s in sample:
-            s.everything_changed()
 
     def step(self, sample, c):
         """This function performs a full MH step: first, a new candidate sample is proposed
-        for either the zones or the weights, then the candidate is evaluated against the current sample
-        and accepted with metropolis hastings acceptance probability
-
+        for either the clusters or the other parameters. Then the candidate is evaluated against the current sample
+        and accepted with Metropolis-Hastings acceptance probability
         Args:
-            sample(Sample): A Sample object consisting of zones and weights
+            sample(Sample): A Sample object consisting of clusters, weights, areal and confounding effects
             c(int): the current chain
         Returns:
-            Sample: A Sample object consisting of zones and weights"""
+            Sample: A Sample object consisting of clusters, weights, areal and confounding effects"""
 
-        # Randomly choose one operator to propose new sample (grow/shrink/swap zones, alter weights/p_zones/p_families)
-        propose_step = _np.random.choice(self.fn_operators, 1, p=self.p_operators)[0]
+        # Randomly choose one operator to propose a new sample
+        step_weights = [w['weight'] for w in self.callable_operators.values()]
+        possible_steps = list(self.callable_operators.keys())
+        step_name = _np.random.choice(possible_steps, 1, p=step_weights)[0]
+
+        step_function = self.callable_operators[step_name]['function']
+        additional_parameters = self.callable_operators[step_name]['additional_parameters']
 
         if self.IS_WARMUP:
-            candidate, log_q, log_q_back = propose_step(sample, c=c)
+            candidate, log_q, log_q_back = step_function(sample, c=c, additional_parameters=additional_parameters)
         else:
-            candidate, log_q, log_q_back = propose_step(sample)
+            candidate, log_q, log_q_back = step_function(sample, additional_parameters=additional_parameters)
 
         # Compute the log-likelihood of the candidate
         ll_candidate = self.likelihood(candidate, c)
@@ -322,9 +266,9 @@ class MCMCGenerative(metaclass=_abc.ABCMeta):
             self._ll[c] = ll_candidate
             self._prior[c] = prior_candidate
             self.statistics['accepted_steps'] += 1
-            self.statistics['accept_operator'][propose_step.__name__] += 1
+            self.statistics['accept_operator'][step_name] += 1
         else:
-            self.statistics['reject_operator'][propose_step.__name__] += 1
+            self.statistics['reject_operator'][step_name] += 1
 
         return sample
 
@@ -353,18 +297,18 @@ class MCMCGenerative(metaclass=_abc.ABCMeta):
     def log_sample_statistics(self, sample, c, sample_id):
         """ This function logs the statistics of an MCMC sample.
         Args:
-            sample (Sample): A Sample object consisting of zones and weights
+            sample (Sample): A Sample object consisting of clusters and parameters
             c (int): The current chain
             sample_id (int): Index of the logged sample.
         """
         self.statistics['sample_id'].append(sample_id)
-        self.statistics['sample_zones'].append(sample.zones)
+        self.statistics['sample_clusters'].append(sample.clusters)
         self.statistics['sample_weights'].append(sample.weights)
-        self.statistics['sample_p_global'].append(sample.p_global)
-        self.statistics['sample_p_zones'].append(sample.p_zones)
-        self.statistics['sample_p_families'].append(sample.p_families)
+        self.statistics['sample_areal_effect'].append(sample.areal_effect)
         self.statistics['sample_likelihood'].append(self._ll[c])
         self.statistics['sample_prior'].append(self._prior[c])
+        for k, v in self.statistics['sample_confounding_effects'].items():
+            v.append(sample.confounding_effects[k])
 
         if self.show_screen_log:
             print('Log-likelihood: %.2f' % self._ll[c])
@@ -373,7 +317,7 @@ class MCMCGenerative(metaclass=_abc.ABCMeta):
     def log_last_sample(self, last_sample):
         """ This function logs the last sample of the first chain of an MCMC run.
         Args:
-            last_sample (Sample): A Sample object consisting of zones and weights
+            last_sample (Sample): A Sample object consisting of zones and parameters
         """
         self.statistics['last_sample'] = last_sample
 
@@ -394,11 +338,12 @@ class MCMCGenerative(metaclass=_abc.ABCMeta):
         self.logger.info("MCMC STATISTICS")
         self.logger.info("##########################################")
         self.logger.info(log_operator_statistics_header())
-        for operator in self.fn_operators:
-            self.logger.info(log_operator_statistics(operator.__name__, samples))
+        for k, v in self.callable_operators.items():
+            self.logger.info(log_operator_statistics(k, samples))
 
 
 COL_WIDTHS = [20, 8, 8, 8, 10]
+
 
 def log_operator_statistics_header():
     name_header = str.ljust('OPERATOR', COL_WIDTHS[0])

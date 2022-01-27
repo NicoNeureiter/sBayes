@@ -16,7 +16,7 @@ import logging
 import numpy
 
 from sbayes.util import read_features_from_csv
-from sbayes.preprocessing import (compute_network,
+from sbayes.preprocessing import (ComputeNetwork,
                                   read_inheritance_counts,
                                   read_universal_counts,
                                   read_geo_cost_matrix)
@@ -36,40 +36,23 @@ class Data:
             self.crs = None
         else:
             self.crs = None
-            # todo install pyproj
-            #self.crs = pyproj.CRS(proj4_string)
 
-        # Features to be imported
         self.sites = None
-        self.site_names = None
         self.features = None
-        self.feature_names = None
-        self.states = None
-        self.state_names = None
-        self.families = None
-        self.family_names = None
+        self.confounders = None
         self.network = None
 
         # Logs
         self.log_load_features = None
-        self.log_load_universal_counts = None
-        self.log_load_inheritance_counts = None
         self.log_load_geo_cost_matrix = None
 
-        # Priors to be imported
-        self.prior_universal = {}
-        self.prior_inheritance = {}
-        self.geo_prior = {}
-
         # Not a simulation
-        self.is_simulated = False
+        # self.is_simulated = False
 
     def load_features(self):
-        (self.sites, self.site_names, self.features, self.feature_names,
-         self.state_names, self.states, self.families, self.family_names,
-         self.log_load_features) = read_features_from_csv(file=self.config['data']['features'],
-                                                          feature_states_file=self.config['data']['feature_states'])
-        self.network = compute_network(self.sites, crs=self.crs)
+        self.sites, self.features, self.confounders, self.log_load_features = read_features_from_csv(config=self.config)
+
+        self.network = ComputeNetwork(self.sites, crs=self.crs)
 
     def load_universal_counts(self):
         config_universal = self.config['model']['prior']['universal']
@@ -99,7 +82,6 @@ class Data:
         #                   index=self.feature_names['external'])
         # df.to_csv('universal_counts.csv')
 
-
     def load_inheritance_counts(self):
         if not self.config['model']['inheritance']:
             # Inheritance is not modeled -> nothing to do
@@ -127,7 +109,6 @@ class Data:
                 # self.prior_inheritance = {'counts': counts,
                 #                           'states': self.state_names['internal']}
 
-
     def load_geo_cost_matrix(self):
 
         if self.config['model']['prior']['geo']['type'] != 'cost_based':
@@ -153,8 +134,6 @@ class Data:
         logging.info("DATA IMPORT")
         logging.info("##########################################")
         logging.info(self.log_load_features)
-        logging.info(self.log_load_universal_counts)
-        logging.info(self.log_load_inheritance_counts)
         logging.info(self.log_load_geo_cost_matrix)
 
 

@@ -9,7 +9,7 @@ import logging
 import numpy as np
 import typing
 
-from sbayes.postprocessing import contribution_per_area, match_areas, rank_areas
+from sbayes.postprocessing import contribution_per_cluster, match_areas, rank_areas
 from sbayes.sampling.zone_sampling import Sample, ZoneMCMC, ZoneMCMCWarmup
 from sbayes.util import normalize, samples2file
 from sbayes.model import Model
@@ -40,10 +40,9 @@ class MCMC:
         self.logger = experiment.logger
 
     def log_setup(self):
+
         mcmc_config = self.config['mcmc']
-
         self.logger.info(self.model.get_setup_message())
-
 
         logging.info(f'''
 MCMC SETUP
@@ -51,39 +50,13 @@ MCMC SETUP
 MCMC with {mcmc_config['steps']} steps and {mcmc_config['samples']} samples
 Warm-up: {mcmc_config['warmup']['warmup_chains']} chains exploring the parameter space in 
 {mcmc_config['warmup']['warmup_steps']} steps
-Ratio of areal steps (growing, shrinking, swapping areas): {mcmc_config['operators']['area']}
+Ratio of areal steps (growing, shrinking, swapping clusters): {mcmc_config['operators']['clusters']}
 Ratio of weight steps (changing weights): {mcmc_config['operators']['weights']}
-Ratio of universal steps (changing alpha) : {mcmc_config['operators']['universal']}
-Ratio of inheritance steps (changing beta): {mcmc_config['operators']['inheritance']}
-Ratio of contact steps (changing gamma): {mcmc_config['operators']['contact']}
+Ratio of areal effect (changing probabilities in clusters): {mcmc_config['operators']['areal_effect']}
+Ratio of contact steps (changing probabilities in confounders): {mcmc_config['operators']['confounding_effects']}
 ''')
 
-    # def steps_per_operator(self):
-    #     """Assign step frequency per operator."""
-    #     steps_config = self.config['mcmc']['operators']
-    #     ops = {'shrink_zone': steps_config['area'] * 0.4,
-    #            'grow_zone': steps_config['area'] * 0.4,
-    #            'swap_zone': steps_config['area'] * 0.2,
-    #            # 'gibbsish_sample_zones': steps_config['area'] * 0.7
-    #            }
-    #     if self.model.sample_source:
-    #         ops.update({
-    #            'gibbs_sample_sources': steps_config['source'],
-    #            'gibbs_sample_weights': steps_config['weights'],
-    #            'gibbs_sample_p_global': steps_config['universal'],
-    #            'gibbs_sample_p_zones': steps_config['contact'],
-    #            'gibbs_sample_p_families': steps_config['inheritance'],
-    #         })
-    #     else:
-    #         ops.update({
-    #            'alter_weights': steps_config['weights'],
-    #            'alter_p_global': steps_config['universal'],
-    #            'alter_p_zones': steps_config['contact'],
-    #            'alter_p_families': steps_config['inheritance'],
-    #         })
-    #     self.ops = ops
-
-    def sample(self, lh_per_area=True, initial_sample: typing.Optional[typing.Any] = None):
+    def sample(self, lh_per_cluster=False, initial_sample: typing.Optional[typing.Any] = None):
         mcmc_config = self.config['mcmc']
 
         if initial_sample is None:
@@ -95,7 +68,7 @@ Ratio of contact steps (changing gamma): {mcmc_config['operators']['contact']}
             initial_sample=initial_sample,
             operators=mcmc_config['operators'],
             p_grow_connected=mcmc_config['grow_to_adjacent'],
-            initial_size=mcmc_config['init_lang_per_area'],
+            initial_size=mcmc_config['init_objects_per_cluster'],
             sample_from_prior=mcmc_config['sample_from_prior'],
             logger=self.logger,
         )
@@ -104,8 +77,9 @@ Ratio of contact steps (changing gamma): {mcmc_config['operators']['contact']}
                                       self.config['mcmc']['samples'])
 
         # Evaluate likelihood and prior for each zone alone (makes it possible to rank zones)
-        if lh_per_area:
-            contribution_per_area(self.sampler)
+        # todo: reactivate
+        if lh_per_cluster:
+            contribution_per_cluster(self.sampler)
 
         self.samples = self.sampler.statistics
 
@@ -166,7 +140,6 @@ Ratio of contact steps (changing gamma): {mcmc_config['operators']['contact']}
 
     def warm_up(self):
         mcmc_config = self.config['mcmc']
-
         warmup = ZoneMCMCWarmup(
             data=self.data,
             model=self.model,
@@ -174,7 +147,7 @@ Ratio of contact steps (changing gamma): {mcmc_config['operators']['contact']}
             operators=mcmc_config['operators'],
             p_grow_connected=mcmc_config['grow_to_adjacent'],
             initial_sample=None,
-            initial_size=mcmc_config['init_lang_per_area'],
+            initial_size=mcmc_config['init_objects_per_cluster'],
             sample_from_prior=mcmc_config['sample_from_prior'],
             logger=self.logger,
         )
@@ -182,55 +155,34 @@ Ratio of contact steps (changing gamma): {mcmc_config['operators']['contact']}
         self.sample_from_warm_up = warmup.generate_samples(n_steps=0,
                                                            n_samples=0,
                                                            warm_up=True,
-                                                           warm_up_steps=self.config['mcmc']['warmup']['warmup_steps'])
-
+                                                           warm_up_steps=mcmc_config['warmup']['warmup_steps'])
 
     def save_samples(self, run=1):
 
-        self.samples = match_areas(self.samples)
-        self.samples = rank_areas(self.samples)
+        # todo: reactivate
+        # self.samples = match_areas(self.samples)
+        # self.samples = rank_areas(self.samples)
 
-
-        fi = 'K{K}'.format(K=self.config['model']['areas'])
-
-        # Todo: could be relevant for simulation
-        # file_info = "K"
-        #
-        # if file_info == "K":
-        #     fi = 'K{K}'.format(K=self.config['model']['areas'])
-        # elif file_info == "s":
-        #     fi = 's{s}a{a}'.format(s=self.config['simulation']['STRENGTH'],
-        #                            a=self.config['simulation']['AREA'])
-        #
-        # elif file_info == "i":
-        #     fi = 'i{i}'.format(i=int(self.config['model']['INHERITANCE']))
-        #
-        # elif file_info == "p":
-        #
-        #     p = 0 if self.config['model']['PRIOR']['universal'] == "uniform" else 1
-        #     fi = 'p{p}'.format(p=p)
-        #
-        # else:
-        # else:
-        #     raise ValueError("file_info must be 'n', 's', 'i' or 'p'")
-
+        fi = 'K{K}'.format(K=self.config['model']['clusters'])
         run = '_{run}'.format(run=run)
         pth = self.path_results / fi
         ext = '.txt'
         gt_pth = pth / 'ground_truth'
 
         paths = {'parameters': pth / ('stats_' + fi + run + ext),
-                 'areas': pth / ('areas_' + fi + run + ext),
+                 'clusters': pth / ('clusters_' + fi + run + ext),
                  'gt': gt_pth / ('stats' + ext),
-                 'gt_areas': gt_pth / ('areas' + ext)}
+                 'gt_clusters': gt_pth / ('clusters' + ext)}
 
         pth.mkdir(exist_ok=True)
 
-        if self.data.is_simulated:
-            self.eval_ground_truth()
-            gt_pth.mkdir(exist_ok=True)
+        # todo: reactivate
+        # if self.data.is_simulated:
+        #     self.eval_ground_truth()
+        #     gt_pth.mkdir(exist_ok=True)
 
-        samples2file(self.samples, self.data, self.config, paths)
+        samples2file(samples=self.samples, data=self.data,
+                     config=self.config, paths=paths)
 
     def log_statistics(self):
         self.sampler.print_statistics(self.samples)

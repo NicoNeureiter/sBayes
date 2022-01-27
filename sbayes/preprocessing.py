@@ -8,7 +8,7 @@ except ImportError:
 import csv
 
 import numpy as np
-import pyproj
+import random
 
 from sbayes.model import normalize_weights
 from sbayes.util import (compute_delaunay,
@@ -19,24 +19,19 @@ from sbayes.util import (compute_delaunay,
 EPS = np.finfo(float).eps
 
 
-def read_sites(file, retrieve_family=False, retrieve_subset=False):
-    """ This function reads the simulated sites from a csv, with the following columns:
-        name: a unique identifier for each site
+def load_canvas(config):
+    """ This function reads sites from a csv, with the following columns:
         x: the x-coordinate
         y: the y-coordinate
-        cz: if a site belongs to a area this is the id of the simulated zone, 0 otherwise.
-        (family: if site belongs to a family this is the id of the simulated family, 0 otherwise.)
+        all other expected columns are defined in the config file
     Args:
-        file(str): file location of the csv
-        retrieve_family(boolean): retrieve family assignments from the csv
-        retrieve_subset(boolean): retrieve assignment to subsets from the csv
+        config(dict): config file for the simulation
     Returns:
-        dict, list: a dictionary containing the location tuples (x,y), the id and information about contact zones
-            of each point the mapping between name and id is by position
+        dict, list: a dictionary containing the location tuples (x,y), the areas and the confounders
     """
 
     columns = []
-    with open(file, 'rU') as f:
+    with open(config['canvas'], 'rU') as f:
         reader = csv.reader(f)
         for row in reader:
             if columns:
@@ -53,15 +48,28 @@ def read_sites(file, retrieve_family=False, retrieve_subset=False):
     try:
         x = csv_as_dict.pop('x')
         y = csv_as_dict.pop('y')
-        name = csv_as_dict.pop('name')
-        area = csv_as_dict.pop('area')
+        identifier = csv_as_dict.pop('id')
     except KeyError:
-        raise KeyError('The csv  must contain columns "x", "y", "name", "area')
+        raise KeyError(f"The canvas csv (\'{config['canvas']}\') must contain columns `x`, `y` and `id`")
 
-    locations = np.zeros((len(name), 2))
+    cluster_col = config['areal_effect']['canvas_col_name']
+    try:
+        cluster = csv_as_dict.pop(cluster_col)
+    except KeyError:
+        raise KeyError(f"The canvas csv (\'{config['canvas']}\') must contain the column \'{cluster_col}\'.")
+
+    confounders = dict()
+    for k, v in config['confounding_effects'].items():
+        confounder_col = v['canvas_col_name']
+        try:
+            confounders[k] = csv_as_dict.pop(confounder_col)
+        except KeyError:
+            raise KeyError(f"The canvas csv (\'{config['canvas']}\') must contain the column \'{conf}\'.")
+
+    locations = np.zeros((len(identifier), 2))
     seq_id = []
 
-    for i in range(len(name)):
+    for i in range(len(identifier)):
 
         # Define location tuples
         locations[i, 0] = float(x[i])
@@ -72,37 +80,21 @@ def read_sites(file, retrieve_family=False, retrieve_subset=False):
         seq_id.append(i)
 
     sites = {'locations': locations,
-             'id': seq_id,
-             'area': [int(z) for z in area],
-             'names': name}
+             'id': identifier,
+             'cluster': [int(z) for z in cluster],
+             'confounders': confounders}
 
-    if retrieve_family:
-        try:
-            families = csv_as_dict.pop('family')
-            sites['family'] = [int(f) for f in families]
+    site_names = {'external': identifier,
+                  'internal': list(range(0, len(identifier)))}
 
-        except KeyError:
-            KeyError('The csv does not contain family information, i.e. a "family" column')
-
-    if retrieve_subset:
-        try:
-            subset = csv_as_dict.pop('subset')
-            sites['subset'] = [int(s) for s in subset]
-
-        except KeyError:
-            KeyError('The csv does not contain subset information, i.e. a "subset" column')
-
-    site_names = {'external': name,
-                  'internal': list(range(0, len(name)))}
-
-    log = str(len(name)) + " locations read from " + str(file)
+    log = str(len(identifier)) + " locations read from " + str(config['canvas'])
     return sites, site_names, log
 
-class compute_network:
+
+class ComputeNetwork:
     def __init__(
             self,
             sites,
-            subset=None,
             crs=None):
         """Convert a set of sites into a network.
 
@@ -112,7 +104,6 @@ class compute_network:
 
         Args:
             sites(dict): a dict of sites with keys "locations", "id"
-            subset(list): boolean assignment of sites to subset
         Returns:
             dict: a network
 
@@ -125,26 +116,12 @@ class compute_network:
                 print("pip install cartopy")
                 raise e
 
-        if subset is None:
-            # Define vertices and edges
-            vertices = sites['id']
-
-            locations = sites['locations']
-
-            # Distance matrix
-            self.names = sites['names']
-        else:
-            sub_idx = np.nonzero(subset)[0]
-            vertices = list(range(len(sub_idx)))
-
-            # Delaunay triangulation
-            locations = sites['locations'][sub_idx, :]
-
-            # Distance matrix
-            self.names = [sites['names'][i] for i in sub_idx]
+        # Define vertices
+        vertices = sites['id']
+        locations = sites['locations']
+        self.names = sites['id']
 
         # Delaunay triangulation
-
         delaunay = compute_delaunay(locations)
         v1, v2 = delaunay.toarray().nonzero()
         edges = np.column_stack((v1, v2))
@@ -214,7 +191,6 @@ class compute_network:
             raise AttributeError(f"Network object has no attribute {key}")
 
 
-
 def subset_features(features, subset):
     """This function returns the subset of a feature array
         Args:
@@ -230,98 +206,66 @@ def subset_features(features, subset):
     return features[sub, :, :]
 
 
-def simulate_features(areas,  p_universal, p_contact, weights, inheritance,
-                      p_inheritance=None, families=None,
-                      missing_family_as_universal=False):
-    """Simulate features for of all sites from the likelihood.
-
+def simulate_features(clusters, confounders, probabilities, weights):
+    """Simulate features from the likelihood.
     Args:
-        areas (np.array): Binary array indicating the assignment of sites to areas.
-            shape: (n_areas, n_sites)
-        families (np.array): Binary array indicating the assignment of a site to a language family.
-            shape: (n_families, n_sites)
-        p_universal (np.array[float]): The universal probabilities of every state.
-            shape: (n_features, n_categories)
-        p_contact (np.array[float]): The  contact probabilities of every state in every area.
-            shape: (n_areas, n_features, n_categories)
-        p_inheritance (np.array): The probabilities of every state in every language family.
-            shape: (n_families, n_features, n_categories)
-        weights (np.array): The mixture coefficient controlling how much each feature is explained
-            by universal pressure, contact, and inheritance.
-            shape: (n_features, 3)
-        inheritance (bool): Is inheritance (family membership) considered when simulating features?
-        missing_family_as_universal (bool): Add family weights to the universal distribution instead
-            of re-normalizing when family is absent.
-
+        clusters (np.array): Binary array indicating the assignment of sites to clusters.
+            shape: (n_clusters, n_sites)
+       confounders (dict): Includes binary arrays indicating the assignment of a site to a confounder
+       probabilities (dict): The probabilities of every state in each cluster and each group of a confounder
+       weights (np.array): The mixture coefficient controlling how much areal and confounding effects explain features
+            shape: (n_features, 1 + n_confounders)
     Returns:
-        np.array: The sampled categories for all sites and features and states
-        shape:  n_sites, n_features, n_categories
+        #todo: change if necessary
+        np.array: The sampled categories for all sites, features and states
+        shape:  n_sites, n_features, n_states
     """
-    n_areas, n_sites = areas.shape
-    n_features, n_categories = p_universal.shape
+
+    n_clusters, n_sites = clusters.shape
+    n_confounders = len(confounders)
+    _, n_features, n_states = probabilities['areal_effect'].shape
 
     # Are the weights fine?
     assert np.allclose(a=np.sum(weights, axis=-1), b=1., rtol=EPS)
 
-    # Compute the universal assignment and the assignment of sites to areas and families
-    universal_assignment = np.ones(n_sites)
-    area_assignment = np.any(areas, axis=0)
+    # Retrieve the assignment of sites to areal and confounding effects
+    # not all sites need to be assigned to one of the clusters or a confounder
+    assignment = [np.any(clusters, axis=0)]
+    o = 0
+    assignment_order = {"areal_effect": o}
 
-    if not inheritance:
-        assignment = np.array([universal_assignment, area_assignment]).T
+    for k, v in confounders.items():
+        o += 1
+        assignment.append(np.any(v['membership'], axis=0))
+        assignment_order[k] = o
 
-    else:
-        family_assignment = np.any(families, axis=0)
-        assignment = np.array([universal_assignment, area_assignment, family_assignment]).T
-
-    # Normalize the weights for each site depending on whether areas or families are relevant for that site
-    # Order of columns in weights: universal, contact, (inheritance if available)
-    normed_weights = normalize_weights(weights, assignment,
-                                       missing_family_as_universal=missing_family_as_universal)
+    # Normalize the weights for each site depending on whether clusters or confounder are relevant for that site
+    normed_weights = normalize_weights(weights, np.array(assignment).T)
     normed_weights = np.transpose(normed_weights, (1, 0, 2))
 
     features = np.zeros((n_sites, n_features), dtype=int)
 
-    for i_feat in range(n_features):
+    for feat in range(n_features):
 
-        # Compute the feature likelihood matrix (for all sites and all categories)
-        lh_universal = p_universal[np.newaxis, i_feat, :].T
-        lh_area = areas.T.dot(p_contact[:, i_feat, :]).T
+        # Compute the feature likelihood matrix (for all sites and all states)
+        lh_areal_effect = clusters.T.dot(probabilities['areal_effect'][:, feat, :]).T
+        lh_feature = normed_weights[feat, :, assignment_order['areal_effect']] * lh_areal_effect
 
-        lh_feature = normed_weights[i_feat, :, 0] * lh_universal + normed_weights[i_feat, :, 1] * lh_area
+        for k, v in confounders.items():
 
-        # Families
-        if inheritance:
-            lh_family = families.T.dot(p_inheritance[:, i_feat, :]).T
-            lh_feature += normed_weights[i_feat, :, 2] * lh_family
+            lh_confounder = v['membership'].T.dot(probabilities[k][:, feat, :]).T
+
+            lh_feature += normed_weights[feat, :, assignment_order[k]] * lh_confounder
 
         # Sample from the categorical distribution defined by lh_feature
-        features[:, i_feat] = sample_categorical(lh_feature.T)
+        features[:, feat] = sample_categorical(lh_feature.T)
 
-    # Restructure features
-    states = np.unique(features)
-    features_states = np.zeros((n_sites, n_features, len(states)), dtype=int)
-    for st in states:
-        features_states[:, :, st] = np.where(features == st, 1, 0)
-
-    # State names
-    state_names = []
-    for f in range(n_features):
-        applicable = np.unique(features.transpose()[f])
-        state_names.append(applicable.tolist())
-
-    applicable_states = p_universal > 0.0
-
-    feature_names = {'external': ['f' + str(f+1) for f in range(features_states.shape[1])],
-                     'internal': [f for f in range(features_states.shape[1])]}
-
-    state_names = {'external': state_names,
-                   'internal': state_names}
-
-    return features_states, applicable_states, feature_names, state_names
+    return features
 
 
 EYES = {}
+
+
 def sample_categorical(p, binary_encoding=False):
     """Sample from a (multidimensional) categorical distribution. The
     probabilities for every category are given by `p`
@@ -331,6 +275,7 @@ def sample_categorical(p, binary_encoding=False):
             every site of the output array. The last axis defines the categories
             and should sum up to 1.
             shape: (*output_dims, n_states)
+        binary_encoding(bool): Return samples in binary encoding?
     Returns
         np.array: Samples of the categorical distribution.
             shape: output_dims
@@ -352,172 +297,141 @@ def sample_categorical(p, binary_encoding=False):
         return samples
 
 
-def assign_area(area_id, sites_sim):
-    """ This function finds out which sites belong to contact areas and assigns areal membership accordingly.
-
+def assign_to_cluster(sites_sim):
+    """ This function finds out which sites belong to a cluster and assigns cluster membership accordingly.
         Args:
-            area_id(int, tuple): The IDs of the simulated contact areas
-            sites_sim (dict): dict with simulates sites
-
+            sites_sim (dict): simulates sites
         Returns:
-            (np.array): the simulated areas, boolean assignment of site to area.
+            (np.array): the simulated clusters, boolean assignment of site to a cluster.
                 shape(n_areas, n_sites)
     """
 
     # Retrieve areas
-    sites_in_area = {}
-    area = np.asarray(sites_sim['area'])
+    cluster = np.asarray(sites_sim['cluster'])
+    cluster_ids = np.unique(cluster[cluster != 0])
 
-    # For single area
-    if isinstance(area_id, int):
-        sites_in_area[area_id] = np.where(area == area_id)[0].tolist()
+    sites_in_cluster = dict()
+    for z in cluster_ids:
+        sites_in_cluster[z] = np.where(cluster == z)[0].tolist()
 
-    # For multiple areas
-    elif isinstance(area_id, tuple) and all(isinstance(x, int) for x in area_id):
-        for z in area_id:
-            sites_in_area[z] = np.where(area == z)[0].tolist()
-    else:
-        raise ValueError('area_id must be int or a tuple of int')
-
-    n_areas = len(sites_in_area)
+    n_cluster = len(sites_in_cluster)
     n_sites = len(sites_sim['id'])
 
-    # Assign areal membership
-    areas = np.zeros((n_areas, n_sites), bool)
-    for k, z_id in enumerate(sites_in_area.values()):
-        areas[k, z_id] = 1
+    # Assign cluster membership
+    cluster_membership = np.zeros((n_cluster, n_sites), bool)
+    for k, z_id in enumerate(sites_in_cluster.values()):
+        cluster_membership[k, z_id] = 1
 
-    return areas
+    return cluster_membership
 
 
-def assign_family(fam_id, sites_sim):
-    """ This function finds out which sites belong to a family and assigns family membership accordingly.
+def assign_to_confounders(sites_sim):
+    """ This function assigns sites to confounders
         Args:
-            fam_id(int): The IDs of the simulated families
             sites_sim (dict): dict with simulates sites
-
         Returns:
-            (np.array): the simulated families, boolean assignment of site to family.
+            (np.array): the simulated confounders, boolean assignment of site to confounder.
                 shape(n_families, n_sites)
     """
-    # Retrieve families
-    sites_in_families = {}
-    family = np.asarray(sites_sim['family'])
+    confounders = dict()
 
-    # For single family
-    if isinstance(fam_id, int):
-        sites_in_families[fam_id] = np.where(family == fam_id)[0].tolist()
+    # Loop through all confounders
+    for k, v in sites_sim['confounders'].items():
 
-    # For multiple families
-    elif isinstance(fam_id, tuple) and all(isinstance(x, int) for x in fam_id):
-        for f in fam_id:
-            sites_in_families[f] = np.where(family == f)[0].tolist()
-    else:
-        raise ValueError('area_id must be int or a tuple of int')
+        confounder = np.asarray(v)
+        confounder_groups = np.unique(confounder[confounder is not None])
 
-    n_families = len(sites_in_families)
-    n_sites = len(sites_sim['id'])
+        sites_with_confounder = dict()
+        for s in confounder_groups:
+            sites_with_confounder[s] = np.where(confounder == s)[0].tolist()
 
-    # Assign family membership
-    families = np.zeros((n_families, n_sites), dtype=bool)
-    for k, z_id in enumerate(sites_in_families.values()):
-        families[k, z_id] = True
+        n_states = len(confounder_groups)
+        n_sites = len(sites_sim['id'])
 
-    family_names = {'external': ['fam' + str(s + 1) for s in range(families.shape[0])],
-                    'internal': [s for s in range(families.shape[0])]}
-    return families, family_names
+        # Assign membership to each of the states of the confounder
+        confounder_membership = np.zeros((n_states, n_sites), bool)
+        for q, s_id in enumerate(sites_with_confounder.values()):
+            confounder_membership[q, s_id] = 1
+
+        group_names = {'external': list(confounder_groups),
+                       'internal': [s for s in range(len(confounder_groups))]}
+
+        confounders[k] = {"membership": confounder_membership,
+                          "names": group_names}
+    return confounders
 
 
-def simulate_weights(i_universal, i_contact,  inheritance, n_features, i_inheritance=None):
-    """ Simulates weights for all features, that is the influence of global preference, inheritance and contact.
+def simulate_weights(config):
+    """ Simulates weights of the areal and the confounding effect on all features
     Args:
-        i_universal (float): controls the number of features for which the influence of universal pressure is high,
-            passed as alpha when drawing samples from a dirichlet distribution
-        i_contact(float): controls the number of features for which the influence of contact is high,
-            passed as alpha when drawing samples from a dirichlet distribution
-        i_inheritance: controls the number of features for which the influence of inheritance is high,
-            passed as alpha when drawing samples from a dirichlet distribution, only relevant if inheritance = True
-        inheritance: Is inheritance evaluated/simulated?
-        n_features: Simulate weights for how many features?
+        config (dict): config file for the simulation
     Returns:
-        (np.array):
+        (np.array): simulated weights for each effect
         """
     # Define alpha values which control the influence of contact (and inheritance if available) when simulating features
-    if inheritance:
-        alpha_sim = [i_universal, i_contact, i_inheritance]
-    else:
-        alpha_sim = [i_universal, i_contact]
 
-    # columns in weights: global, contact, (inheritance if available)
-    weights = np.random.dirichlet(alpha_sim, n_features)
+    alpha = [config['areal_effect']['intensity']]
+    for k, v in config['confounding_effects'].items():
+        alpha.append(v['intensity'])
+
+    weights = np.random.dirichlet(alpha, config['n_features'])
     return weights
 
 
-def simulate_assignment_probabilities(n_features, p_number_categories, inheritance, areas, e_universal,
-                                      e_contact, e_inheritance=None, families=None):
-    """ Simulates the categories and then the assignment probabilities to categories in areas, families and universally
-
+def simulate_assignment_probabilities(config, clusters, confounders):
+    """ Simulates states per feature and the assignment probabilities to states in the clusters and confounders
        Args:
-           n_features(int): number of features to simulate
-           p_number_categories(dict): probability of simulating a feature with k categories
-           inheritance(bool): Simulate probability ofr inheritance?
-           areas (np.array): assignment of sites to areas (Boolean)
-                shape(n_areas, n_sites)
-           families(np.array): assignment of sites to families
-                shape(n_families, n_sites)
-           e_universal (float): controls the entropy of the simulated universal pressure
-           e_contact(float): controls the entropy of the simulated contact effect in the areas
-           e_inheritance(float): controls the entropy of the simulated inheritance in the families
+          config(dict): The config file for the simulation
        Returns:
-           (np.array, np.array, np.array): The assignment probabilities (universal, areal, inheritance) per feature
+           (dict): The assignment probabilities (areal and confounding effect) per feature
        """
-    cat = []
-    p_cat = []
-    for k, v in p_number_categories.items():
-        cat.append(int(k))
-        p_cat.append(v)
+    states = []
+    n_states_per_feature = []
+    n_features = config['n_features']
 
-    # Simulate categories
-    n_categories = np.random.choice(a=cat, size=n_features, p=p_cat)
+    for k, v in config['n_states'].items():
+        states.append(int(k))
+        n_states_per_feature.extend([int(k)] * int(config['n_features'] * v))
 
-    n_features = len(n_categories)
-    max_categories = max(n_categories)
-    n_areas = len(areas)
+    if len(n_states_per_feature) < config['n_features']:
+        missing = config['n_features'] - len(n_states_per_feature)
+        n_states_per_feature.extend(np.random.choice(n_states_per_feature, missing))
 
-    # Initialize empty assignment probabilities
-    p_universal = np.zeros((n_features, max_categories), dtype=float)
-    p_contact = np.zeros((n_areas, n_features, max_categories), dtype=float)
+    random.shuffle(n_states_per_feature)
 
-    # Simulate assignment to categories
-    for f in range(n_features):
-        cat_f = n_categories[f]
+    # Simulate states
+    max_states = max(n_states_per_feature)
+    n_clusters = clusters.shape[0]
 
-        # Universal assignment
-        alpha_p_universal = np.full(shape=cat_f, fill_value=e_universal)
-        p_universal[f, range(cat_f)] = np.random.dirichlet(alpha_p_universal, size=1)
+    # Areal effect
+    # Initialize empty arrays
+    p_areal = np.zeros((n_clusters, n_features, max_states), dtype=float)
 
-        # Assignment in areas
-        alpha_p_contact = np.full(shape=cat_f, fill_value=e_contact)
-        for z in range(n_areas):
-            p_contact[z, f, range(cat_f)] = np.random.dirichlet(alpha_p_contact, size=1)
-    # Simulate Inheritance?
-    if not inheritance:
-        return p_universal, p_contact, None
+    for feat in range(n_features):
+        states_f = n_states_per_feature[feat]
+        alpha_p_areal = np.full(shape=states_f, fill_value=config['areal_effect']['concentration'])
 
-    else:
-        n_families = len(families)
-        p_inheritance = np.zeros((n_families, n_features, max_categories), dtype=float)
+        # Assignment probabilities per cluster
+        for z in range(n_clusters):
+            p_areal[z, feat, range(states_f)] = np.random.dirichlet(alpha_p_areal, size=1)
 
-        for f in range(n_features):
-            cat_f = n_categories[f]
+    p = {'areal_effect': p_areal}
 
-            # Assignment in families
-            alpha_p_inheritance = [e_inheritance] * cat_f
+    # Confounding effect
+    for k, v in confounders.items():
+        n_groups = v['membership'].shape[0]
+        p_confounder = np.zeros((n_groups, n_features, max_states), dtype=float)
 
-            for fam in range(n_families):
-                p_inheritance[fam, f, range(cat_f)] = np.random.dirichlet(alpha_p_inheritance, size=1)
+        for feat in range(n_features):
+            states_f = n_states_per_feature[feat]
+            alpha_p_confounder = np.full(shape=states_f,
+                                         fill_value=config['confounding_effects'][k]['concentration'])
+            # Assignment probability per group
+            for g in range(n_groups):
+                p_confounder[g, feat, range(states_f)] = np.random.dirichlet(alpha_p_confounder, size=1)
+        p[k] = p_confounder
 
-        return p_universal, p_contact, p_inheritance
+    return p
 
 
 def read_universal_counts(feature_names, state_names, file, file_type, feature_states_file):
