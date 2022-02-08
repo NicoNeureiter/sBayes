@@ -35,9 +35,7 @@ class Data:
         if proj4_string is None:
             self.crs = None
         else:
-            self.crs = None
-            # todo install pyproj
-            #self.crs = pyproj.CRS(proj4_string)
+            self.crs = pyproj.CRS(proj4_string)
 
         # Features to be imported
         self.sites = None
