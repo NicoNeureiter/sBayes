@@ -507,37 +507,38 @@ class Plot:
         ax.scatter(*locations.T, s=cfg_graphic['languages']['size'],
                    color=cfg_graphic['languages']['color'], linewidth=0)
 
-    @staticmethod
-    def add_labels(cfg_content, locations_map_crs, area_labels, area_colors, extent, ax):
+    def add_labels(self, cfg_content, locations_map_crs, area_labels, area_colors, extent, ax):
         """Add labels to languages"""
+
         all_loc = list(range(locations_map_crs.shape[0]))
 
-        # Label all languages in areas
-        if cfg_content['labels'] == 'all' or cfg_content['labels'] == 'in_area':
+        # Offset
+        offset_x = (extent['x_max'] - extent['x_min'])/200
+        offset_y = (extent['y_max'] - extent['y_min'])/200
 
+        # Label languages
+        for i in all_loc:
+            label_color = "black"
+            in_area = False
             for j in range(len(area_labels)):
-                curr_labels = area_labels[j]
-                loc_in_area = locations_map_crs[curr_labels]
-                for i in range(len(loc_in_area)):
-                    range_x = extent['x_max'] - extent['x_min']
-                    range_y = extent['y_max'] - extent['y_min']
-                    x, y = loc_in_area[i]
-                    x += range_x/200
-                    y += range_y/200
-                    anno_opts = dict(xy=(x, y), fontsize=10, color=area_colors[j])
-                    ax.annotate(curr_labels[i] + 1, **anno_opts)
-                    all_loc.remove(curr_labels[i])
+                if i in area_labels[j]:
+                    # Recolor labels (only for consensus_map)
+                    if cfg_content['type'] == 'consensus_map':
+                        label_color = area_colors[j]
+                    in_area = True
 
-            # Label all remaining languages
-            if cfg_content['labels'] == 'all':
-                for i in all_loc:
-                    range_x = extent['x_max'] - extent['x_min']
-                    range_y = extent['y_max'] - extent['y_min']
-                    x, y = locations_map_crs[i]
-                    x += range_x/200
-                    y += range_y/200
-                    anno_opts = dict(xy=(x, y), fontsize=10, color="black")
-                    ax.annotate(i + 1, **anno_opts)
+            if cfg_content['labels'] == 'in_area' and not in_area:
+                pass
+            else:
+                self.annotate_label(xy=locations_map_crs[i], label=i + 1, color=label_color,
+                                    offset_x=offset_x, offset_y=offset_y, ax=ax)
+
+    @staticmethod
+    def annotate_label(xy, label, color, offset_x, offset_y, ax):
+        x = xy[0]+offset_x
+        y = xy[1]+offset_y
+        anno_opts = dict(xy=(x, y), fontsize=10, color=color)
+        ax.annotate(label, **anno_opts)
 
     def visualize_areas(self, locations_map_crs, cfg_content, cfg_graphic, cfg_legend, ax):
         area_labels = []
@@ -972,7 +973,8 @@ class Plot:
         area_labels, area_colors = self.visualize_areas(locations_map_crs, cfg_content,
                                                         cfg_graphic, cfg_legend, ax)
 
-        self.add_labels(cfg_content, locations_map_crs, area_labels, area_colors, extent, ax)
+        if cfg_content['labels'] == 'all' or cfg_content['labels'] == 'in_area':
+            self.add_labels(cfg_content, locations_map_crs, area_labels, area_colors, extent, ax)
 
         # Visualizes language families
         if cfg_content['plot_families']:
