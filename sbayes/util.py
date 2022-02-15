@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-import pickle
 import datetime
 import time
 import csv
 import os
 from math import sqrt, floor, ceil
-
+from itertools import combinations
 import typing as t
 
 import numpy as np
@@ -17,10 +16,7 @@ import scipy.stats as stats
 from scipy.sparse import csr_matrix
 import matplotlib.pyplot as plt
 from matplotlib.collections import LineCollection
-from scipy.stats import chi2_contingency
 
-from itertools import combinations
-from fastcluster import linkage
 
 EPS = np.finfo(float).eps
 
@@ -1289,49 +1285,6 @@ def fix_relative_path(base_directory, path):
         return path
     else:
         return os.path.join(base_directory, path).replace("\\", "/")
-
-
-def seriation(Z, N, cur_index):
-    if cur_index < N:
-        return [cur_index]
-    else:
-        left = int(Z[cur_index - N, 0])
-        right = int(Z[cur_index - N, 1])
-        return seriation(Z, N, left) + seriation(Z, N, right)
-
-
-def sort_by_similarity(similarity_matrix):
-    n, _ = similarity_matrix.shape
-    assert n == _, 'Similarity matrix needs to be a square matrix.'
-
-    max_sim = np.max(similarity_matrix)
-    dendrogram = linkage(max_sim-similarity_matrix, method='ward', preserve_input=True)
-    order = seriation(dendrogram, n, 2 * n - 2)
-
-    return order
-
-
-def plot_similarity_matrix(similarities, names, show_similarity_overlay=False):
-    n = len(similarities)
-
-    order = sort_by_similarity(similarities)
-    similarities = similarities[order, :][:, order]
-    names_ordered = names[order]
-
-    fig, ax = plt.subplots(figsize=(12, 12), dpi=200)
-    plt.imshow(similarities, origin='lower')
-    ax.set_xticks(np.arange(n))
-    ax.set_yticks(np.arange(n))
-    ax.set_xticklabels(names_ordered, rotation=-90, fontsize=9)
-    ax.set_yticklabels(names_ordered, fontsize=9)
-
-    if show_similarity_overlay:
-        for i in range(n):
-            for j in range(n):
-                ax.text(j, i, '%.2f' % similarities[i, j],
-                        ha='center', va='center', color='w', fontsize=5)
-
-    plt.show()
 
 
 def timeit(func):
