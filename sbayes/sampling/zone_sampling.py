@@ -187,19 +187,21 @@ class ZoneMCMC(MCMCGenerative):
         self.logged_likelihood_array = None
 
     def generate_samples(self, *args, **kwargs):
-        likelihood_file = tables.open_file(self.data.path_results / 'likelihood.h5', mode='w')
-        filters = tables.Filters(complevel=9, complib='blosc:zlib', bitshuffle=True, fletcher32=True)
-        self.logged_likelihood_array = likelihood_file.create_earray(
-            where=likelihood_file.root,
-            name='likelihood',
-            atom=tables.Float32Col(),
-            filters=filters,
-            shape=(0, self.n_sites*self.n_features)
-        )
+        # Create the likelihood file (for model comparison)
+        likelihood_path = self.data.path_results / f'K{self.n_zones}' / 'likelihood.h5'
+        with tables.open_file(likelihood_path, mode='w') as likelihood_file:
 
-        super().generate_samples(*args, **kwargs)
+            # Create the likelihood array
+            self.logged_likelihood_array = likelihood_file.create_earray(
+                where=likelihood_file.root,
+                name='likelihood',
+                atom=tables.Float32Col(),
+                filters=tables.Filters(complevel=9, complib='blosc:zlib', bitshuffle=True, fletcher32=True),
+                shape=(0, self.n_sites*self.n_features)
+            )
 
-        likelihood_file.close()
+            # Run the sampler
+            super().generate_samples(*args, **kwargs)
 
     def gibbs_sample_sources(self, sample: Sample, as_gibbs=True,
                              site_subset=slice(None)):
@@ -1072,7 +1074,7 @@ class ZoneMCMC(MCMCGenerative):
 
         # Find all sites that already belong to a zone (sites_occupied) and those that don't (sites_free)
         sites_occupied = np.nonzero(already_in_zone)[0]
-        sites_free = set(range(self.n_sites)) - set(sites_occupied)
+        sites_free = list(set(range(self.n_sites)) - set(sites_occupied))
 
         # Take a random free site and use it as seed for the new zone
         try:
