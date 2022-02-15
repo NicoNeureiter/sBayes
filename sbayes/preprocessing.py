@@ -121,7 +121,7 @@ class compute_network:
         """
         if crs is not None:
             try:
-                from cartopy import crs as ccrs, geodesic
+                from cartopy import crs as geodesic
             except ImportError as e:
                 print("Using a coordinate reference system (crs) requires the ´cartopy´ library:")
                 print("pip install cartopy")
@@ -307,11 +307,7 @@ def simulate_features(areas,  p_universal, p_contact, weights, inheritance,
         features_states[:, :, st] = np.where(features == st, 1, 0)
 
     # State names
-    state_names = []
-    for f in range(n_features):
-        applicable = np.unique(features.transpose()[f])
-        state_names.append(applicable.tolist())
-
+    state_names = [np.nonzero(p_u_f)[0].tolist() for p_u_f in p_universal]
     applicable_states = p_universal > 0.0
 
     feature_names = {'external': ['f' + str(f+1) for f in range(features_states.shape[1])],
