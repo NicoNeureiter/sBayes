@@ -37,7 +37,7 @@ class Data:
         else:
             self.crs = None
 
-        self.sites = None
+        self.objects = None
         self.features = None
         self.confounders = None
         self.network = None
@@ -50,9 +50,9 @@ class Data:
         # self.is_simulated = False
 
     def load_features(self):
-        self.sites, self.features, self.confounders, self.log_load_features = read_features_from_csv(config=self.config)
+        self.objects, self.features, self.confounders, self.log_load_features = read_features_from_csv(config=self.config)
 
-        self.network = ComputeNetwork(self.sites, crs=self.crs)
+        self.network = ComputeNetwork(self.objects, crs=self.crs)
 
     def load_universal_counts(self):
         config_universal = self.config['model']['prior']['universal']
