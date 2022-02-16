@@ -5,19 +5,16 @@
 		"projection": "+proj=eqdc +lat_0=-32 +lon_0=-60 +lat_1=-5 +lat_2=-42 +x_0=0 +y_0=0 +ellps=aust_SA +units=m +no_defs "
 	},
 	"model": {
-		"areas": 5,
-		"languages_per_area": {
-			"min": 3,
-			"max": 50
-		},
+		"areas": [1, 2, 3, 4, 5, 6, 7, 8],
 		"inheritance": true,
-		"sample_source": true,
 		"prior": {
 			"geo": {
 				"type": "uniform"
 			},
-			"area_size": {
-				"type": "uniform_size"
+			"languages_per_area": {
+				"type": "uniform_area",
+				"min": 3,
+				"max": 50
 			},
 			"weights": {
 				"type": "uniform"
@@ -26,24 +23,12 @@
 				"type": "uniform"
 			},
 			"inheritance": {
-				"Arawak": {
-					"type": "uniform"
-				},
-				"Panoan": {
-					"type": "uniform"
-				},
-				"Quechuan": {
-					"type": "uniform"
-				},
-				"Tacanan": {
-					"type": "uniform"
-				},
-				"Tucanoan": {
-					"type": "uniform"
-				},
-				"Tupian": {
-					"type": "uniform"
-				}
+				"Arawak": {"type": "uniform"},
+				"Panoan": {"type": "uniform"},
+				"Quechuan": {"type": "uniform"},
+				"Tacanan": {"type": "uniform"},
+				"Tucanoan": {"type": "uniform"},
+				"Tupian": {"type": "uniform"}
 			},
 			"contact": {
 				"type": "uniform"
