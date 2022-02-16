@@ -415,7 +415,7 @@ def compute_family_likelihood(features, families, p_families=None,
         features(np.array or 'SparseMatrix'): The feature values for all sites and features.
             shape: (n_sites, n_features, n_categories)
         families(np.array): Binary arrays indicating the assignment of a site to a family.
-                shape: (n_families, n_sites)
+            shape: (n_families, n_sites)
     Kwargs:
         p_families(np.array): The estimated probabilities of features in all sites according to the family
             shape: (n_families, n_features, n_sites)
@@ -611,8 +611,6 @@ class DirichletPrior(object):
 
         self.parse_attributes(config)
 
-
-
     def load_concentration(self, config: dict) -> List[np.ndarray]:
         if 'file' in config:
             return self.parse_concentration_json(config['file'])
@@ -645,7 +643,7 @@ class DirichletPrior(object):
         concentration = []
         for state_names_f in self.data.state_names['external']:
             concentration.append(
-                np.full(shape=len(state_names_f), fill_value=self.initial_counts)
+                np.ones(shape=len(state_names_f))
             )
         return concentration
 
@@ -1090,7 +1088,7 @@ class GeoPrior(object):
 
     class TYPES(Enum):
         UNIFORM = 'uniform'
-        # GAUSSIAN = 'gaussian'
+        GAUSSIAN = 'gaussian'
         COST_BASED = 'cost_based'
 
     def __init__(self, config, data, initial_counts=1.):
@@ -1109,9 +1107,9 @@ class GeoPrior(object):
         if config['type'] == 'uniform':
             self.prior_type = self.TYPES.UNIFORM
 
-        # elif config['type'] == 'gaussian':
-        #     self.prior_type = self.TYPES.GAUSSIAN
-        #     ...
+        elif config['type'] == 'gaussian':
+            self.prior_type = self.TYPES.GAUSSIAN
+            self.covariance = config['covariance']
 
         elif config['type'] == 'cost_based':
             self.prior_type = self.TYPES.COST_BASED
@@ -1120,8 +1118,6 @@ class GeoPrior(object):
             self.aggregation = config['aggregation']
         else:
             raise ValueError('Geo prior not supported')
-
-
 
     def is_outdated(self, sample):
         return self.cached is None or sample.what_changed['prior']['zones']
@@ -1136,14 +1132,17 @@ class GeoPrior(object):
             float: Logarithm of the prior probability density.
         """
         if self.is_outdated(sample):
-            if self.prior_type == self.TYPES.UNIFORM:
+            if self.prior_type is self.TYPES.UNIFORM:
                 geo_prior = 0.
 
-            # elif self.prior_type == self.TYPES.GAUSSIAN:
-            #     geo_prior = geo_prior_gaussian(sample.zones, self.data.network,
-            #                                    self.config['gaussian'])
+            elif self.prior_type is self.TYPES.GAUSSIAN:
+                geo_prior = geo_prior_gaussian(
+                    zones=sample.zones,
+                    network=self.data.network,
+                    cov=self.covariance
+                )
 
-            elif self.prior_type == self.TYPES.COST_BASED:
+            elif self.prior_type is self.TYPES.COST_BASED:
                 geo_prior = geo_prior_distance(
                     zones=sample.zones,
                     cost_mat=self.cost_matrix,
@@ -1225,10 +1224,21 @@ def geo_prior_distance(zones: np.array,
             costs are combined into one joint cost for the area.
 
     Returns:
-        float: the geo-prior of the zones
+        float: the log geo-prior of the zones
     """
 
-    log_prior = np.ndarray([])
+    AGGREGATORS = {
+        'mean': np.mean,
+        'sum': np.sum,
+        'max': np.min,  # sic: max distance == min log-likelihood
+    }
+    if aggregation in AGGREGATORS:
+        aggregator = AGGREGATORS[aggregation]
+    else:
+        raise ValueError(f'Unknown aggregation policy "{aggregation}" in geo prior.')
+
+
+    log_prior = 0.0
     for z in zones:
         cost_mat_z = cost_mat[z][:, z]
 
@@ -1257,16 +1267,10 @@ def geo_prior_distance(zones: np.array,
         else:
             raise ValueError("Too few locations to compute distance.")
 
-        log_prior = stats.expon.logpdf(distances, loc=0, scale=scale)
+        log_prior_per_edge = stats.expon.logpdf(distances, loc=0, scale=scale)
+        log_prior += aggregator(log_prior_per_edge)
 
-    if aggregation == 'mean':
-        return np.mean(log_prior)
-    elif aggregation == 'sum':
-        return np.sum(log_prior)
-    elif aggregation == 'max':
-        return np.min(log_prior)
-    else:
-        raise ValueError(f'Unknown aggregation policy "{aggregation}" in geo prior.')
+    return log_prior
 
 
 def prior_p_global_dirichlet(p_global, concentration, applicable_states, outdated_features,
