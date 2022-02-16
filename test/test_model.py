@@ -5,7 +5,7 @@ from collections import namedtuple
 import unittest
 
 from sbayes.model import Likelihood
-from sbayes.sampling.zone_sampling import Sample
+from sbayes.sampling.sbayes_sampling import Sample
 from sbayes.util import log_multinom
 
 
@@ -50,7 +50,7 @@ class TestLikelihood(unittest.TestCase):
 
     """Test correctness of the model likelihood."""
 
-    def test_family_area_overlap(self):
+    def test_family_cluster_overlap(self):
         N_SITES = 10
         N_FEATURES = 5
         N_CATEGORIES = 3
@@ -98,19 +98,19 @@ class TestSizePrior(unittest.TestCase):
     """Test correctness of the geo prior."""
 
     def test_symmetry(self):
-        zones = np.array([
+        clusters = np.array([
             [1, 1, 1, 0, 0, 0, 0],
             [0, 0, 0, 1, 1, 0, 0],
             [0, 0, 0, 0, 0, 1, 0]
         ], dtype=bool)
 
-        n_zones, n_sites = zones.shape
-        print(zones.shape)
-        sizes = np.sum(zones, axis=-1)
+        n_clusters, n_sites = clusters.shape
+        print(clusters.shape)
+        sizes = np.sum(clusters, axis=-1)
         logp = -log_multinom(n_sites, sizes)
         for order in ([0, 2, 1], [1, 0, 2], [2, 1, 0]):
-            print(zones[order])
-            sizes = np.sum(zones[order], axis=-1)
+            print(clusters[order])
+            sizes = np.sum(clusters[order], axis=-1)
             print(sizes)
             assert logp == -log_multinom(n_sites, sizes)
 

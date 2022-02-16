@@ -4,6 +4,7 @@ import datetime
 import time
 import csv
 import os
+from pathlib import Path
 from math import sqrt, floor, ceil
 from itertools import combinations
 import typing as t
@@ -30,27 +31,27 @@ class FamilyError(Exception):
     pass
 
 
-def encode_area(area):
-    """Format the given area as a compact bit-string."""
-    area_s = area.astype(int).astype(str)
-    return ''.join(area_s)
+def encode_cluster(cluster):
+    """Format the given cluster as a compact bit-string."""
+    cluster_s = cluster.astype(int).astype(str)
+    return ''.join(cluster_s)
 
 
-def decode_area(area_str):
+def decode_cluster(cluster_str):
     """Read a bit-string and parse it into an area array."""
-    return np.array(list(area_str)).astype(int).astype(bool)
+    return np.array(list(cluster_str)).astype(int).astype(bool)
 
 
-def format_area_columns(areas):
-    """Format the given array of areas as tab separated strings."""
-    areas_encoded = map(encode_area, areas)
-    return '\t'.join(areas_encoded)
+def format_cluster_columns(clusters):
+    """Format the given array of clusters as tab separated strings."""
+    clusters_encoded = map(encode_cluster, clusters)
+    return '\t'.join(clusters_encoded)
 
 
-def parse_area_columns(areas_encoded):
+def parse_cluster_columns(clusters_encoded):
     """Read tab-separated area encodings into a two-dimensional area array."""
-    areas_decoded = map(decode_area, areas_encoded.split('\t'))
-    return np.array(list(areas_decoded))
+    clusters_decoded = map(decode_cluster, clusters_encoded.split('\t'))
+    return np.array(list(clusters_decoded))
 
 
 def compute_distance(a, b):
@@ -90,22 +91,22 @@ def bounding_box(points):
     return box
 
 
-def get_neighbours(zone, already_in_zone, adj_mat):
-    """This function computes the neighbourhood of a zone, excluding vertices already
-    belonging to this zone or any other zone.
+def get_neighbours(cluster, already_in_cluster, adjacency_matrix):
+    """This function returns the neighbourhood of a cluster as given in the adjacency_matrix, excluding sites already
+    belonging to this or any other cluster.
 
     Args:
-        zone (np.array): The current contact zone (boolean array)
-        already_in_zone (np.array): All nodes in the network already assigned to a zone (boolean array)
-        adj_mat (np.array): The adjacency matrix (boolean)
+        cluster (np.array): The current cluster (boolean array)
+        already_in_cluster (np.array): All sites already assigned to a cluster (boolean array)
+        adjacency_matrix (np.array): The adjacency matrix of the sites (boolean)
 
     Returns:
-        np.array: The neighborhood of the zone (boolean array)
+        np.array: The neighborhood of the cluster (boolean array)
     """
 
     # Get all neighbors of the current zone, excluding all vertices that are already in a zone
 
-    neighbours = np.logical_and(adj_mat.dot(zone), ~already_in_zone)
+    neighbours = np.logical_and(adjacency_matrix.dot(cluster), ~already_in_cluster)
     return neighbours
 
 
@@ -216,17 +217,17 @@ def set_experiment_name():
     return now
 
 
-def zones_autosimilarity(zones, t):
+def clusters_autosimilarity(cluster, t):
     """
-    This function computes the similarity of consecutive zones in a chain
+    This function computes the similarity of consecutive cluster in a chain
     Args:
-        zones (list): zones
-        t (integer): lag between consecutive zones in the chain
+        cluster (list): cluster
+        t (integer): lag between consecutive cluster in the chain
 
     Returns:
-        (float) : mean similarity between zones in the chain with lag t
+        (float) : mean similarity between cluster in the chain with lag t
     """
-    z = np.asarray(zones)
+    z = np.asarray(cluster)
     z = z[:, 0, :]
     unions = np.maximum(z[t:], z[:-t])
     intersections = np.minimum(z[t:], z[:-t])
@@ -251,7 +252,7 @@ def encode_states(features_raw, feature_states):
     # Initialize arrays and counts
     features_bin = np.zeros(features_bin_shape, dtype=int)
     applicable_states = np.zeros((n_features, n_states), dtype=bool)
-    state_names = {'external': [], 'internal': []}
+    state_names = []
     na_number = 0
 
     # Binary vectors used for encoding
@@ -267,8 +268,7 @@ def encode_states(features_raw, feature_states):
         # Define external and internal state names
         s_ext = f_states.dropna().to_list()
         s_int = range_like(s_ext)
-        state_names['external'].append(s_ext)
-        state_names['internal'].append(s_int)
+        state_names.append(s_ext)
 
         # Map external to internal states for feature f
         ext_to_int = dict(zip(s_ext, s_int))
@@ -288,7 +288,13 @@ def encode_states(features_raw, feature_states):
         # Count NA
         na_number += np.count_nonzero(f_enc.isna())
 
-    return features_bin.astype(bool), state_names, applicable_states, na_number
+    features = {
+        'values': features_bin.astype(bool),
+        'states': applicable_states,
+        'state_names': state_names
+    }
+
+    return features, na_number
 
 
 def normalize_str(s):
@@ -297,84 +303,80 @@ def normalize_str(s):
     return str.strip(s)
 
 
-def read_features_from_csv(file, feature_states_file):
-    """This is a helper function to import data (sites, features, family membership,...) from a csv file
+def read_features_from_csv(config):
+    """This is a helper function to import data (objects, features, confounders) from a csv file
     Args:
-        file (str | Path): file location of the csv file
-        feature_states_file (str | Path): file location of the meta data for the features
+        config (dict): the config file
     Returns:
-        (dict, dict, np.array, dict, dict, np.array, np.array, dict, str) :
-        The language date including sites, site names, all features, feature names and state names per feature,
-        as well as family membership and family names and log information
+        (dict) : The features for all objects
     """
+    file = config['data']['features']
     data = pd.read_csv(file, dtype=str)
     data = data.applymap(normalize_str)
 
+    confounder_raw = dict()
     try:
         x = data.pop('x')
         y = data.pop('y')
-        l_id = data.pop('id')
-        name = data.pop('name')
-        family = data.pop('family')
+        id_ext = data.pop('id')
     except KeyError:
-        raise KeyError('The csv must contain columns "x", "y", "id","name", "family"')
+        raise KeyError("The csv must contain columns `x`, `y` and `id`")
+
+    try:
+        names = data.pop('name')
+    except KeyError:
+        names = id_ext
+
+    for c in config['model']['confounding_effects']:
+        try:
+            confounder_raw[c] = data.pop(c)
+        except KeyError:
+            raise KeyError(f"The config file lists `\'{c}'\' as a confounder. Remove confounder or include "
+                           f"`\'{c}\'` in the features.csv file.")
 
     # Load the valid features-states
-    feature_states = pd.read_csv(feature_states_file, dtype=str)
+    feature_states = pd.read_csv(config['data']['feature_states'], dtype=str)
     feature_states = feature_states.applymap(normalize_str)
     feature_names_ext = feature_states.columns.to_numpy()
 
     # Make sure the same features are specified in the data file and in the feature_states file
     assert set(feature_states.columns) == set(data.columns)
 
-    # sites
+    # objects
     n_sites, n_features = data.shape
     locations = np.zeros((n_sites, 2))
-    site_id = []
 
     for i in range(n_sites):
         # Define location tuples
         locations[i, 0] = float(x[i])
         locations[i, 1] = float(y[i])
 
-        # The order in the list maps name to id and id to name
-        # name could be any unique identifier, id is an integer from 0 to len(name)
-        site_id.append(i)
-
-    sites = {'locations': locations,
-             'id': site_id,
-             'cz': None,
-             'names': name}
-    site_names = {'external': l_id,
-                  'internal': list(range(n_sites))}
+        # The order in the list maps to the external names and id
+    objects = {'locations': locations,
+               'id': id_ext,
+               'names': names}
 
     # features
-    features, state_names, applicable_states, na_number = encode_states(data, feature_states)
-    feature_names = {'external': feature_names_ext,
-                     'internal': list(range(n_features))}
+    features, na_number = encode_states(data, feature_states)
+    features['names'] = feature_names_ext
 
-    # family
-    family_names_ordered = np.unique(family.dropna()).tolist()
-    n_families = len(family_names_ordered)
+    # confounders
+    confounders = dict()
+    for k, v in confounder_raw.items():
+        groups_ordered = np.unique(v.dropna()).tolist()
+        n_groups = len(groups_ordered)
 
-    families = np.zeros((n_families, n_sites), dtype=bool)
-    for fam in range(n_families):
-        families[fam, np.where(family == family_names_ordered[fam])] = True
+        c = np.zeros((n_groups, n_sites), dtype=bool)
 
-    family_names = {'external': family_names_ordered,
-                    'internal': list(range(n_families))}
+        for g in range(n_groups):
+            c[g, np.where(v == groups_ordered[g])] = True
 
-    log = f"{n_sites} sites with {n_features} features read from {file}. {na_number} NA value(s) found."
+        confounders[k] = {'values': c,
+                          'names': groups_ordered}
 
-    return sites, site_names, features, feature_names, state_names, applicable_states, families, family_names, log
+    log = f"{n_sites} objects with {n_features} features read from {file}. {na_number} NA value(s) found."
 
-    # TODO Proposition of cleaning up the data interfaces (NN):
-    # 1. featues:   features as numpy array (n_sites * n_features * n_states)
-    # 2. Sites:     pandas dataframe including site_names and families. Drop the internal/external separation?
-    # 3. Features:  pandas dataframe including internal names (they are just a running ID anyway),
-    #               external names, state names (as a list?), number of states (i.e. replacing state_names and applicable states)
-    # 4. Families:  could just be a list of names (internal name is given by index). Otherwise pandas dataframe with both.
-    # Pass logger as argument instead of returning the ´log´ string.
+    return objects, features, confounders, log
 
 
 def read_costs_from_csv(file):
@@ -383,7 +385,8 @@ def read_costs_from_csv(file):
             file (str): file location of the csv file
 
         Returns:
-            CHANGE
+            pd.DataFrame: cost matrix
+            str: log message
         """
 
     data = pd.read_csv(file, dtype=str, index_col=0)
@@ -426,18 +429,18 @@ def write_languages_to_csv(features, sites, families, file):
             writer.writerow([name] + [x] + [y] + [fam] + f)
 
 
-def write_feature_occurrence_to_csv(occurr, categories, file):
+def write_feature_occurrence_to_csv(occurrence, categories, file):
     """This is a helper function to export the occurrence of features in families or globally to a csv
     Args:
-        occurr: the occurrence of each feature, either as a relative frequency or counts
+        occurrence: the occurrence of each feature, either as a relative frequency or counts
         categories: the possible categories per feature
         file(str): output csv file
     """
 
     with open(file, mode='w', encoding='utf-8') as csv_file:
-        features = list(range(occurr.shape[0]))
+        features = list(range(occurrence.shape[0]))
         feature_names = ['f' + str(f) for f in features]
-        cats = list(range(occurr.shape[1]))
+        cats = list(range(occurrence.shape[1]))
         cat_names = ['cat' + str(c) for c in cats]
         csv_names = ["feature"] + cat_names
         writer = csv.writer(csv_file)
@@ -447,7 +450,7 @@ def write_feature_occurrence_to_csv(occurr, categories, file):
             # feature name
             f_name = feature_names[f]
             # frequencies
-            p = occurr[f, :].tolist()
+            p = occurrence[f, :].tolist()
             idx = categories[f]
             for i in range(len(p)):
                 if i not in idx:
@@ -678,30 +681,30 @@ def collect_gt_for_writing(samples, data, config):
                         gt_col_names += [feature_name]
                     gt[feature_name] = samples['true_p_families'][fam][f][st]
     # Single areas
-    if 'true_lh_single_zones' in samples.keys():
+    if 'true_lh_single_cluster' in samples.keys():
         for a in range(len(data.areas)):
             lh_name = 'lh_a' + str(a + 1)
             prior_name = 'prior_a' + str(a + 1)
             posterior_name = 'post_a' + str(a + 1)
 
             gt_col_names += [lh_name]
-            gt[lh_name] = samples['true_lh_single_zones'][a]
+            gt[lh_name] = samples['true_lh_single_cluster'][a]
 
             gt_col_names += [prior_name]
-            gt[prior_name] = samples['true_prior_single_zones'][a]
+            gt[prior_name] = samples['true_prior_single_cluster'][a]
             gt_col_names += [posterior_name]
-            gt[posterior_name] = samples['true_posterior_single_zones'][a]
+            gt[posterior_name] = samples['true_posterior_single_cluster'][a]
 
     return gt, gt_col_names
 
 
-def collect_gt_areas_for_writing(samples):
-    return format_area_columns(samples['true_zones'])
+def collect_gt_clusters_for_writing(samples):
+    return format_cluster_columns(samples['true_clusters'])
 
 
-def collect_areas_for_writing(s, samples):
-    area_row = format_area_columns(samples['sample_zones'][s])
-    return area_row
+def collect_clusters_for_writing(s, samples):
+    cluster_row = format_cluster_columns(samples['sample_clusters'][s])
+    return cluster_row
 
 
 def collect_row_for_writing(s, samples, data, config, steps_per_sample):
@@ -712,96 +715,81 @@ def collect_row_for_writing(s, samples, data, config, steps_per_sample):
     row['likelihood'] = samples['sample_likelihood'][s]
     row['prior'] = samples['sample_prior'][s]
 
-    # Area sizes
-    for i, area in enumerate(samples['sample_zones'][s]):
+    # Cluster size
+    for i, cluster in enumerate(samples['sample_clusters'][s]):
         col_name = f'size_a{i}'
         column_names.append(col_name)
-        row[col_name] = np.count_nonzero(area)
+        row[col_name] = np.count_nonzero(cluster)
 
     # weights
-    for f in range(len(data.feature_names['external'])):
-        # universal pressure
-        w_universal_name = 'w_universal_' + str(data.feature_names['external'][f])
-        column_names += [w_universal_name]
+    for f in range(len(data.features['names'])):
 
-        row[w_universal_name] = samples['sample_weights'][s][f][0]
+        # Areal effect
+        w_cluster_effect = f"w_cluster_effect_{str(data.features['names'][f])}"
+        column_names += [w_cluster_effect]
+        # index of cluster_effect = 0
+        # todo: use source_index instead of remembering the order
+        row[w_cluster_effect] = samples['sample_weights'][s][f][0]
 
-        # contact
-        w_contact_name = 'w_contact_' + str(data.feature_names['external'][f])
-        column_names += [w_contact_name]
-        row[w_contact_name] = samples['sample_weights'][s][f][1]
+        # Confounding effects
+        for i, k in enumerate(data.confounders):
+            w_confounder = f"w_{k}_{str(data.features['names'][f])}"
+            column_names += [w_confounder]
+            # todo: use source_index instead of remembering the order
+            # index of confounding effect starts with 1
+            row[w_confounder] = samples['sample_weights'][s][f][i+1]
 
-        # inheritance
-        if config['model']['inheritance']:
-            w_inheritance_name = 'w_inheritance_' + str(data.feature_names['external'][f])
-            column_names += [w_inheritance_name]
-            row[w_inheritance_name] = samples['sample_weights'][s][f][2]
-
-    # alpha
-    for f in range(len(data.feature_names['external'])):
-        for st in data.state_names['external'][f]:
-            feature_name = 'alpha_' + str(data.feature_names['external'][f]) \
-                           + '_' + str(st)
-            idx = data.state_names['external'][f].index(st)
-            column_names += [feature_name]
-            row[feature_name] = samples['sample_p_global'][s][0][f][idx]
-
-    # gamma
-    for a in range(config['model']['areas']):
-        for f in range(len(data.feature_names['external'])):
-            for st in data.state_names['external'][f]:
-                feature_name = 'gamma_' + 'a' + str(a + 1) \
-                               + '_' + str(data.feature_names['external'][f]) + '_' \
-                               + str(st)
-                idx = data.state_names['external'][f].index(st)
-
+    # Cluster effect
+    for a in range(config['model']['clusters']):
+        for f in range(len(data.features['names'])):
+            for st in data.features['state_names'][f]:
+                feature_name = f"cluster_a{str(a + 1)}_{str(data.features['names'][f])}_{str(st)}"
+                idx = data.features['state_names'][f].index(st)
                 column_names += [feature_name]
-                row[feature_name] = samples['sample_p_zones'][s][a][f][idx]
+                row[feature_name] = samples['sample_cluster_effect'][s][a][f][idx]
 
-    # beta
-    if config['model']['inheritance']:
-        for fam in range(len(data.family_names['external'])):
-            for f in range(len(data.feature_names['external'])):
-                for st in data.state_names['external'][f]:
-                    feature_name = 'beta_' + str(data.family_names['external'][fam]) \
-                                   + '_' + str(data.feature_names['external'][f]) \
-                                   + '_' + str(st)
-                    idx = data.state_names['external'][f].index(st)
+    # Confounding effects
+    for k, v in data.confounders.items():
+        for group in range(len(data.confounders[k])):
+            for f in range(len(data.features['names'])):
+                for st in data.features['state_names'][f]:
+                    feature_name = f"{k}_{v['names'][group]}_{str(data.features['names'][f])}_{str(st)}"
+                    idx = data.features['state_names'][f].index(st)
                     column_names += [feature_name]
+                    row[feature_name] = samples['sample_confounding_effects'][k][s][group][f][idx]
 
-                    row[feature_name] = samples['sample_p_families'][s][fam][f][idx]
-
+    # todo: reactivate
     # Recall and precision
-    if data.is_simulated:
-        sample_z = np.any(samples['sample_zones'][s], axis=0)
-        true_z = np.any(samples['true_zones'], axis=0)
-        n_true = np.sum(true_z)
-        intersections = np.minimum(sample_z, true_z)
-
-        total_recall = np.sum(intersections, axis=0) / n_true
-        precision = np.sum(intersections, axis=0) / np.sum(sample_z, axis=0)
-
-        column_names += ['recall']
-        row['recall'] = total_recall
-
-        column_names += ['precision']
-        row['precision'] = precision
+    # if data.is_simulated:
+    #     sample_z = np.any(samples['sample_zones'][s], axis=0)
+    #     true_z = np.any(samples['true_zones'], axis=0)
+    #     n_true = np.sum(true_z)
+    #     intersections = np.minimum(sample_z, true_z)
+    #
+    #     total_recall = np.sum(intersections, axis=0) / n_true
+    #     precision = np.sum(intersections, axis=0) / np.sum(sample_z, axis=0)
+    #
+    #     column_names += ['recall']
+    #     row['recall'] = total_recall
+    #
+    #     column_names += ['precision']
+    #     row['precision'] = precision
 
     # Single areas
-    if 'sample_lh_single_zones' in samples.keys():
-        for a in range(config['model']['areas']):
+    if 'sample_lh_single_cluster' in samples.keys():
+        for a in range(config['model']['clusters']):
             lh_name = 'lh_a' + str(a + 1)
             prior_name = 'prior_a' + str(a + 1)
             posterior_name = 'post_a' + str(a + 1)
 
             column_names += [lh_name]
-            row[lh_name] = samples['sample_lh_single_zones'][s][a]
+            row[lh_name] = samples['sample_lh_single_cluster'][s][a]
 
             column_names += [prior_name]
-            row[prior_name] = samples['sample_prior_single_zones'][s][a]
+            row[prior_name] = samples['sample_prior_single_cluster'][s][a]
 
             column_names += [posterior_name]
-            row[posterior_name] = samples['sample_posterior_single_zones'][s][a]
+            row[posterior_name] = samples['sample_posterior_single_cluster'][s][a]
 
     return row, column_names
 
@@ -814,30 +802,31 @@ def samples2file(samples, data, config, paths):
         samples (dict): samples
         data (Data): object of class data (features, priors, ...)
         config(dict): config information
-        paths(dict): file path for stats, areas and ground truth
+        paths(dict): file path for stats and clusters
     """
     print("Writing results to file ...")
     # Write ground truth to file (for simulated data only)
-    if data.is_simulated:
-
-        try:
-            with open(paths['gt'], 'w', newline='') as file:
-                gt, gt_col_names = collect_gt_for_writing(samples=samples, data=data, config=config)
-                writer = csv.DictWriter(file, fieldnames=gt_col_names, delimiter='\t')
-                writer.writeheader()
-                writer.writerow(gt)
-
-        except IOError:
-            print("I/O error")
-
-        try:
-            with open(paths['gt_areas'], 'w', newline='') as file:
-                gt_areas = collect_gt_areas_for_writing(samples=samples)
-                file.write(gt_areas)
-                file.close()
-
-        except IOError:
-            print("I/O error")
+    # todo: reactivate
+    # if data.is_simulated:
+    #
+    #     try:
+    #         with open(paths['gt'], 'w', newline='') as file:
+    #             gt, gt_col_names = collect_gt_for_writing(samples=samples, data=data, config=config)
+    #             writer = csv.DictWriter(file, fieldnames=gt_col_names, delimiter='\t')
+    #             writer.writeheader()
+    #             writer.writerow(gt)
+    #
+    #     except IOError:
+    #         print("I/O error")
+    #
+    #     try:
+    #         with open(paths['gt_areas'], 'w', newline='') as file:
+    #             gt_areas = collect_gt_areas_for_writing(samples=samples)
+    #             file.write(gt_areas)
+    #             file.close()
+    #
+    #     except IOError:
+    #         print("I/O error")
 
     # Results
     steps_per_sample = float(config['mcmc']['steps'] / config['mcmc']['samples'])
@@ -847,7 +836,7 @@ def samples2file(samples, data, config, paths):
         writer = None
         with open(paths['parameters'], 'w', newline='') as file:
 
-            for s in range(len(samples['sample_zones'])):
+            for s in range(len(samples['sample_clusters'])):
                 row, column_names = collect_row_for_writing(s=s, samples=samples, data=data, config=config,
                                                             steps_per_sample=steps_per_sample)
                 if s == 0:
@@ -861,10 +850,10 @@ def samples2file(samples, data, config, paths):
 
     # Areas
     try:
-        with open(paths['areas'], 'w', newline='') as file:
-            for s in range(len(samples['sample_zones'])):
-                areas = collect_areas_for_writing(s, samples)
-                file.write(areas + '\n')
+        with open(paths['clusters'], 'w', newline='') as file:
+            for s in range(len(samples['sample_clusters'])):
+                clusters = collect_clusters_for_writing(s, samples)
+                file.write(clusters + '\n')
             file.close()
 
     except IOError:
@@ -955,12 +944,9 @@ def round_multiple_ints(ups, downs, position=2, offset=1):
     # find value with fewest digits
     fewest_digits = len(str(np.min(ups + downs)))
 
-    # print(f'rounding multiples {ups} {downs} {fewest_digits}')
-
     ups_rounded = []
     for n in ups:
         length = len(str(n))
-        # print(f'n {n} length {length}')
         n_rounded = round_single_int(n, 'up', position + length - fewest_digits, offset)
         ups_rounded.append(n_rounded)
 
@@ -1144,7 +1130,7 @@ def assess_correlation_probabilities(p_universal, p_contact, p_inheritance, corr
 
 
 def get_max_size_list(start, end, n_total, k_groups):
-    """Returns a list of maximum area sizes between a start and end size 
+    """Returns a list of maximum cluster sizes between a start and end size
     Entries of the list are later used to vary max_size in different chains during warmup
     
     Args: 
@@ -1188,7 +1174,7 @@ def log_multinom(n, ks):
 
     Args:
         n (int): Population size.
-        ks (list[int]): Sample sizes
+        ks (list[int] or np.array): Sample sizes
 
     Returns:
         double: log(n choose k1,k2,...)
@@ -1271,20 +1257,21 @@ def decompose_config_path(config_path):
 
 
 def fix_relative_path(base_directory, path):
-    """Make sure that the provided path is either absolute or relative to
-    the config file directory.
+    """Make sure that the provided path is either absolute or relative to the config file directory.
 
     Args:
-        path (str): The original path (absolute or relative).
+        path (Path or str): The original path (absolute or relative).
+        base_directory (str): The base directory
 
     Returns:
-        str: The fixed path.
-     """
-    path = path.strip()
-    if os.path.isabs(path):
+        Path: The fixed path.
+    """
+
+    path = Path(path)
+    if path.is_absolute():
         return path
     else:
-        return os.path.join(base_directory, path).replace("\\", "/")
+        return base_directory / path
 
 
 def timeit(func):

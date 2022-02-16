@@ -11,6 +11,4 @@ fastcluster
 setuptools
 cartopy==0.18.0
 typing_extensions
-pycldf
 tables
-

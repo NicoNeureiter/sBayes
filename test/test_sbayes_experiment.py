@@ -6,7 +6,7 @@ from pathlib import Path
 
 from sbayes.experiment_setup import Experiment
 from sbayes.simulation import Simulation
-from sbayes.mcmc_setup import MCMC
+from sbayes.mcmc_setup import MCMCSetup
 
 
 class TestExperiment(unittest.TestCase):
@@ -21,7 +21,7 @@ class TestExperiment(unittest.TestCase):
             'n_features': 5,
             'i_contact': 3,
             'e_contact': 0.5,
-            'area': 3,
+            'clusters': 3,
             'correlation_threshold': 0.8
         },
         'mcmc': {
@@ -59,7 +59,7 @@ class TestExperiment(unittest.TestCase):
     def test_sim_exp3():
         """Test whether simulation experiment 3 is running without errors."""
         custom_settings = {
-            'model': {'areas': 2},
+            'model': {'clusters': 2},
             **TestExperiment.CUSTOM_SETTINGS
         }
         TestExperiment.run_experiment(path=Path('experiments/simulation/sim_exp3/'),
@@ -74,22 +74,22 @@ class TestExperiment(unittest.TestCase):
         exp.load_config(config_file=path / 'config.json',
                         custom_settings=custom_settings)
 
-        # if exp.config['model']['areas'] == "TBD":
-        #     exp.config['model']['areas'] = 2
+        # if exp.config['model']['clusters'] == "TBD":
+        #     exp.config['model']['clusters'] = 2
 
-        # 2. Simulate contact areas
+        # 2. Simulate clusters
         sim = Simulation(experiment=exp)
         sim.run_simulation()
 
         # 3. Define MCMC
-        mc = MCMC(data=sim, experiment=exp)
+        mc = MCMCSetup(data=sim, experiment=exp)
 
         # 4. Warm-up sampler and sample from posterior
         mc.warm_up()
         mc.sample()
 
-        # 5. Evaluate ground truth
-        mc.eval_ground_truth()
+#         # 5. Evaluate ground truth
+#         mc.eval_ground_truth()
 
         # 6. Log sampling statistics and save samples to file
         mc.save_samples(run=0)

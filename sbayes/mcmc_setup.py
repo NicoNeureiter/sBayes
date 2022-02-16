@@ -6,14 +6,14 @@
 import numpy as np
 import typing
 
-from sbayes.postprocessing import contribution_per_area, match_areas, rank_areas
-from sbayes.sampling.zone_sampling import Sample, ZoneMCMC, ZoneMCMCWarmup
+from sbayes.postprocessing import contribution_per_cluster, match_clusters, rank_clusters
+from sbayes.sampling.sbayes_sampling import Sample, ClusterMCMC, ClusterMCMCWarmup
 from sbayes.util import normalize, samples2file
 from sbayes.model import Model
 from sbayes.simulation import Simulation
 
 
-class MCMC:
+class MCMCSetup:
     def __init__(self, data, experiment):
 
         # Retrieve the data
@@ -45,26 +45,25 @@ MCMC SETUP
 MCMC with {mcmc_config['steps']} steps and {mcmc_config['samples']} samples
 Warm-up: {mcmc_config['warmup']['warmup_chains']} chains exploring the parameter space in 
 {mcmc_config['warmup']['warmup_steps']} steps
-Ratio of areal steps (growing, shrinking, swapping areas): {mcmc_config['operators']['area']}
+Ratio of cluster steps (growing, shrinking, swapping clusters): {mcmc_config['operators']['clusters']}
 Ratio of weight steps (changing weights): {mcmc_config['operators']['weights']}
-Ratio of universal steps (changing alpha) : {mcmc_config['operators']['universal']}
-Ratio of inheritance steps (changing beta): {mcmc_config['operators']['inheritance']}
-Ratio of contact steps (changing gamma): {mcmc_config['operators']['contact']}
+Ratio of cluster_effect steps (changing probabilities in clusters): {mcmc_config['operators']['cluster_effect']}
+Ratio of confounding_effects steps (changing probabilities in confounders): {mcmc_config['operators']['confounding_effects']}
 ''')
 
-    def sample(self, lh_per_area=True, initial_sample: typing.Optional[typing.Any] = None):
+    def sample(self, lh_per_cluster=False, initial_sample: typing.Optional[typing.Any] = None):
         mcmc_config = self.config['mcmc']
 
         if initial_sample is None:
             initial_sample = self.sample_from_warm_up
 
-        self.sampler = ZoneMCMC(
+        self.sampler = ClusterMCMC(
             data=self.data,
             model=self.model,
             initial_sample=initial_sample,
             operators=mcmc_config['operators'],
             p_grow_connected=mcmc_config['grow_to_adjacent'],
-            initial_size=mcmc_config['init_lang_per_area'],
+            initial_size=mcmc_config['init_objects_per_cluster'],
             sample_from_prior=mcmc_config['sample_from_prior'],
             logger=self.logger,
         )
@@ -72,13 +71,15 @@ Ratio of contact steps (changing gamma): {mcmc_config['operators']['contact']}
         self.sampler.generate_samples(self.config['mcmc']['steps'],
                                       self.config['mcmc']['samples'])
 
-        # Evaluate likelihood and prior for each zone alone (makes it possible to rank zones)
-        if lh_per_area:
-            contribution_per_area(self.sampler)
+        # Evaluate likelihood and prior for each zone alone (makes it possible to rank clusters)
+        # todo: reactivate
+        if lh_per_cluster:
+            contribution_per_cluster(self.sampler)
 
         self.samples = self.sampler.statistics
 
     def eval_ground_truth(self, lh_per_area=True):
+        # TODO: Move evaluation to a separate script
         assert isinstance(self.data, Simulation)
         simulation = self.data
 
@@ -129,21 +130,20 @@ Ratio of contact steps (changing gamma): {mcmc_config['operators']['contact']}
                 ground_truth_prior_single_area.append(prior)
                 ground_truth_posterior_single_area.append(lh + prior)
 
-                self.samples['true_lh_single_zones'] = ground_truth_log_lh_single_area
-                self.samples['true_prior_single_zones'] = ground_truth_prior_single_area
-                self.samples['true_posterior_single_zones'] = ground_truth_posterior_single_area
+                self.samples['true_lh_single_cluster'] = ground_truth_log_lh_single_area
+                self.samples['true_prior_single_cluster'] = ground_truth_prior_single_area
+                self.samples['true_posterior_single_cluster'] = ground_truth_posterior_single_area
 
     def warm_up(self):
         mcmc_config = self.config['mcmc']
-        print(mcmc_config['warmup'])
-        warmup = ZoneMCMCWarmup(
+        warmup = ClusterMCMCWarmup(
             data=self.data,
             model=self.model,
             n_chains=mcmc_config['warmup']['warmup_chains'],
             operators=mcmc_config['operators'],
             p_grow_connected=mcmc_config['grow_to_adjacent'],
             initial_sample=None,
-            initial_size=mcmc_config['init_lang_per_area'],
+            initial_size=mcmc_config['init_objects_per_cluster'],
             sample_from_prior=mcmc_config['sample_from_prior'],
             logger=self.logger,
         )
@@ -151,36 +151,32 @@ Ratio of contact steps (changing gamma): {mcmc_config['operators']['contact']}
         self.sample_from_warm_up = warmup.generate_samples(n_steps=0,
                                                            n_samples=0,
                                                            warm_up=True,
-                                                           warm_up_steps=self.config['mcmc']['warmup']['warmup_steps'])
+                                                           warm_up_steps=mcmc_config['warmup']['warmup_steps'])
 
     def save_samples(self, run=1):
 
         # TODO move all of this:
         #   1. log samples during MCMC run
-        #   2. match + rang areas in summarization
+        #   2. match + rank cluster in summarization
         #   3. compute simulation stats in separate script
 
-        # self.samples = match_areas(self.samples)
-        # self.samples = rank_areas(self.samples)
+        # self.samples = match_clusters(self.samples)
+        # self.samples = rank_clusters(self.samples)
 
-        fi = 'K{K}'.format(K=self.config['model']['areas'])
+        fi = 'K{K}'.format(K=self.config['model']['clusters'])
         run = '_{run}'.format(run=run)
         pth = self.path_results / fi
         ext = '.txt'
         gt_pth = pth / 'ground_truth'
 
         paths = {'parameters': pth / ('stats_' + fi + run + ext),
-                 'areas': pth / ('areas_' + fi + run + ext),
+                 'clusters': pth / ('clusters_' + fi + run + ext),
                  'gt': gt_pth / ('stats' + ext),
-                 'gt_areas': gt_pth / ('areas' + ext)}
+                 'gt_clusters': gt_pth / ('clusters' + ext)}
 
         pth.mkdir(exist_ok=True)
-
-        if self.data.is_simulated:
-            self.eval_ground_truth()
-            gt_pth.mkdir(exist_ok=True)
-
-        samples2file(self.samples, self.data, self.config, paths)
+        samples2file(samples=self.samples, data=self.data,
+                     config=self.config, paths=paths)
 
     def log_statistics(self):
         # TODO log during MCMC run

@@ -35,9 +35,9 @@ from shapely.ops import cascaded_union, polygonize
 
 from sbayes.postprocessing import compute_dic
 from sbayes.util import add_edge, compute_delaunay
-from sbayes.util import fix_default_config
+from sbayes.util import fix_default_config, fix_relative_path
 from sbayes.util import gabriel_graph_from_delaunay
-from sbayes.util import parse_area_columns, read_features_from_csv
+from sbayes.util import parse_cluster_columns, read_features_from_csv
 from sbayes.cli import iterate_or_run
 from sbayes.experiment_setup import REQUIRED, set_defaults
 from sbayes import config
@@ -108,32 +108,17 @@ class Plot:
             self.config['map']['legend']['correspondence']['color_labels'] = False
 
         # Fix relative paths and assign global variables for more convenient workflow
-        self.path_plots = self.fix_relative_path(self.config['results']['path_out'])
+        self.path_plots = fix_relative_path(self.config['results']['path_out'], self.base_directory)
 
-        self.path_features = self.fix_relative_path(self.config['data']['features'])
-        self.path_feature_states = self.fix_relative_path(self.config['data']['feature_states'])
+        self.path_features = fix_relative_path(self.config['data']['features'], self.base_directory)
+        self.path_feature_states = fix_relative_path(self.config['data']['feature_states'], self.base_directory)
 
-        self.path_areas = [self.fix_relative_path(i) for i in self.config['results']['path_in']['areas']]
-        self.path_stats = [self.fix_relative_path(i) for i in self.config['results']['path_in']['stats']]
+        self.path_areas = [fix_relative_path(i, self.base_directory) for i in self.config['results']['path_in']['areas']]
+        self.path_stats = [fix_relative_path(i, self.base_directory) for i in self.config['results']['path_in']['stats']]
 
         if not os.path.exists(self.path_plots):
             os.makedirs(self.path_plots)
 
-    def fix_relative_path(self, path):
-        """Make sure that the provided path is either absolute or relative to
-        the config file directory.
-
-        Args:
-            path (Path or str): The original path (absolute or relative).
-
-        Returns:
-            Path: The fixed path.
-         """
-        path = Path(path)
-        if path.is_absolute():
-            return path
-        else:
-            return self.base_directory / path
 
     @staticmethod
     def convert_config(d):
@@ -206,8 +191,8 @@ class Plot:
 
                     # Parse each sample
                     # len(parsed_result) equals the number of areas
-                    # parse_area_columns.shape equals (n_areas, n_sites)
-                    parsed_sample = parse_area_columns(sample)
+                    # parse_cluster_columns.shape equals (n_areas, n_sites)
+                    parsed_sample = parse_cluster_columns(sample)
 
                     # Add each item in parsed_area_columns to the corresponding array in result
                     for j in range(len(parsed_sample)):
@@ -239,9 +224,9 @@ class Plot:
         self.results['alpha'] = alpha
         self.results['beta'] = beta
         self.results['gamma'] = gamma
-        self.results['posterior_single_areas'] = posterior_single_areas
-        self.results['likelihood_single_areas'] = likelihood_single_areas
-        self.results['prior_single_areas'] = prior_single_areas
+        self.results['posterior_single_cluster'] = posterior_single_areas
+        self.results['likelihood_single_cluster'] = likelihood_single_areas
+        self.results['prior_single_cluster'] = prior_single_areas
         self.results['feature_names'] = feature_names
 
     def read_stats(self, txt_path):
@@ -800,7 +785,7 @@ class Plot:
     def add_background_map(self, bbox, cfg_geo, cfg_graphic, ax):
         # Adds the geojson polygon geometries provided by the user as a background map
 
-        world = gpd.read_file(self.fix_relative_path(cfg_geo['base_map']['geojson_polygon']))
+        world = gpd.read_file(fix_relative_path(cfg_geo['base_map']['geojson_polygon'], self.base_directory))
 
         map_crs = CRS(cfg_geo['map_projection'])
 
@@ -838,7 +823,7 @@ class Plot:
     def add_rivers(self, cfg_geo, cfg_graphic, ax):
 
         # The user can provide geojson line geometries, for example those for rivers. Looks good on a map :)
-        rivers = gpd.read_file(self.fix_relative_path(cfg_geo['base_map']['geojson_line']))
+        rivers = gpd.read_file(fix_relative_path(cfg_geo['base_map']['geojson_line'], self.base_directory))
         rivers = rivers.to_crs(cfg_geo['map_projection'])
 
         cfg_line = cfg_graphic['base_map']['line']

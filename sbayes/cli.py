@@ -5,12 +5,12 @@ from tkinter import filedialog
 
 from sbayes.experiment_setup import Experiment
 from sbayes.load_data import Data
-from sbayes.mcmc_setup import MCMC
+from sbayes.mcmc_setup import MCMCSetup
 from sbayes.simulation import Simulation
 
 
 def run_experiment(experiment, data, run):
-    mcmc = MCMC(data=data, experiment=experiment)
+    mcmc = MCMCSetup(data=data, experiment=experiment)
     mcmc.log_setup()
 
     # Warm-up
@@ -32,7 +32,7 @@ def main(config: Path = None,
          custom_settings: dict = None):
     if config is None:
         parser = argparse.ArgumentParser(
-            description="An MCMC algorithm to identify contact zones")
+            description="An MCMC algorithm to identify cluster")
         parser.add_argument("config", nargs="?", type=Path,
                             help="The JSON configuration file")
         parser.add_argument("name", nargs="?", type=str,
@@ -68,8 +68,6 @@ def main(config: Path = None,
         data.load_features()
 
         # Counts for priors
-        data.load_universal_counts()
-        data.load_inheritance_counts()
         data.load_geo_cost_matrix()
 
         # Log
@@ -77,10 +75,10 @@ def main(config: Path = None,
 
     # Rerun experiment to check for consistency
     for run in range(experiment.config['mcmc']['runs']):
-        n_areas = experiment.config['model']['areas']
+        n_clusters = experiment.config['model']['clusters']
         iterate_or_run(
-            x=n_areas,
-            config_setter=lambda x: experiment.config['model'].__setitem__('areas', x),
+            x=n_clusters,
+            config_setter=lambda x: experiment.config['model'].__setitem__('clusters', x),
             function=lambda x: run_experiment(experiment, data, run)
         )
 

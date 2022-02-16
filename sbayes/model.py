@@ -2,7 +2,6 @@
 # -*- coding: utf-8 -*-
 import itertools
 from enum import Enum
-import json
 from typing import List
 
 import numpy as np
@@ -10,49 +9,48 @@ import numpy as np
 import scipy.stats as stats
 from scipy.sparse.csgraph import minimum_spanning_tree, csgraph_from_dense
 
-from sbayes.util import (compute_delaunay, n_smallest_distances, log_binom, log_multinom,
-                         counts_to_dirichlet, inheritance_counts_to_dirichlet,
-                         dirichlet_logpdf, scale_counts)
+from sbayes.util import (compute_delaunay, n_smallest_distances,
+                         log_multinom, dirichlet_logpdf)
 EPS = np.finfo(float).eps
 
 
 class Model(object):
-
-    """The sBayes model defining the posterior distribution of areas and parameters.
+    """The sBayes model: posterior distribution of clusters and parameters.
 
     Attributes:
-        data (Data): data used in the likelihood and empirical priors.
-        config (dict): a dictionary containing configuration parameters of the model.
-        inheritance (bool): indicator whether or not inheritance is modeled
-        likelihood (Likelihood): the likelihood of the model.
-        prior (Prior): the prior of the model.
+        data (Data): The data used in the likelihood
+        config (dict): A dictionary containing configuration parameters of the model
+        confounders (dict): A ict of all confounders and group names
+        shapes (dict): A dictionary with shape information for building the Likelihood and Prior objects
+        likelihood (Likelihood): The likelihood of the model
+        prior (Prior): Rhe prior of the model
 
     """
-
     def __init__(self, data, config):
         self.data = data
         self.config = config
-        self.parse_attributes(config)
+        self.confounders = config['confounding_effects']
+        self.n_clusters = config['clusters']
+        self.min_size = config['prior']['objects_per_cluster']['min']
+        self.max_size = config['prior']['objects_per_cluster']['max']
+        self.sample_source = config['sample_source']
+        n_sites, n_features, n_states = self.data.features['values'].shape
+
+        self.shapes = {
+            'n_sites': n_sites,
+            'n_features': n_features,
+            'n_states': n_states,
+            'states_per_feature': self.data.features['states']
+        }
 
         # Create likelihood and prior objects
-        self.likelihood = Likelihood(
-            data=data,
-            inheritance=self.inheritance
-            # missing_family_as_universal=self.config['missing_family_as_universal']
-        )
+        self.likelihood = Likelihood(data=self.data,
+                                     shapes=self.shapes)
         self.prior = Prior(
-            data=data,
-            inheritance=self.inheritance,
-            prior_config=config['prior']
+            shapes=self.shapes,
+            config=self.config['prior'],
+            data=data
         )
-
-    def parse_attributes(self, config):
-        """Read attributes from the config dictionary."""
-        self.n_zones = config['areas']
-        self.min_size = config['prior']['languages_per_area']['min']
-        self.max_size = config['prior']['languages_per_area']['max']
-        self.inheritance = config['inheritance']
-        self.sample_source = config['sample_source']
 
     def __call__(self, sample, caching=True):
         """Evaluate the (non-normalized) posterior probability of the given sample."""
@@ -65,15 +63,12 @@ class Model(object):
 
     def get_setup_message(self):
         """Compile a set-up message for logging."""
-        setup_msg = '\n'
-        setup_msg += 'Model\n'
-        setup_msg += '##########################################\n'
-        setup_msg += f'Number of inferred areas: {self.n_zones}\n'
-        setup_msg += f'Areas have a minimum size of {self.min_size} and a maximum ' \
-                     f'size of {self.max_size}\n'
-        setup_msg += f'Inheritance is considered for inference: {self.inheritance}\n'
-        setup_msg += f'Family weights are added to universal weights for languages ' \
-                     f'without family : {self.likelihood.missing_family_as_universal}\n'
+        setup_msg = "\n"
+        setup_msg += "Model\n"
+        setup_msg += "##########################################\n"
+        setup_msg += f"Number of clusters: {self.config['clusters']}\n"
+        setup_msg += f"Clusters have a minimum size of {self.config['prior']['objects_per_cluster']['min']} " \
+                     f"and a maximum size of {self.config['prior']['objects_per_cluster']['max']}\n"
         setup_msg += self.prior.get_setup_message()
         return setup_msg
 
@@ -83,101 +78,87 @@ class Likelihood(object):
     """Likelihood of the sBayes model.
 
     Attributes:
-        features (np.array): The feature values for all sites and features.
+        features (np.array): The values for all sites and features.
             shape: (n_sites, n_features, n_categories)
-        inheritance (bool): flag indicating whether inheritance (i.e. family distributions) is modelled or not.
-        families (np.array): assignment of languages to families.
-            shape: (n_families, n_sites)
-        n_sites (int): number of sites (languages) in the sample.
-        n_features (int): number of features in the data-set.
-        n_categories (int): the maximum number of categories per feature.
-        has_global (np.array): indicator whether a languages is part of global (always true).
-            shape: (n_sites)
-        has_family (np.array): indicators whether a language is in any family.
-            shape: (n_sites)
-        has_zone (np.array): indicators whether a languages is in any zone.
-            shape: (n_sites)
-        has_components (np.array): indicators whether a languages is affected by each
-            mixture components (global, family, zone) in one array.
-            shape: (n_sites, 3)
-        global_lh (np.array): cached likelihood values for each site and feature according to global component.
-            shape: (n_sites, n_features)
-        family_lh (np.array): cached likelihood values for each site and feature according to family component.
-            shape: (n_sites, n_features)
-        zone_lh (np.array): cached likelihood values for each site and feature according to zone component.
-            shape: (n_sites, n_features)
-        all_lh (np.array): cached likelihood values for each site and feature according to each component.
+        confounders (dict): Assignment of objects to confounders. For each confounder (c) one np.array
+            with shape: (n_groups(c), n_sites)
+        shapes (dict): A dictionary with shape information for building the Likelihood and Prior objects
+        has (dict): Indicates if objects are in a cluster, have a confounder or are affected by a mixture component
+        lh_components (dict): A dictionary of cached likelihood values for each site and feature
+        weights (np.array): The cached normalized weights of each component in the final likelihood for each feature
             shape: (n_sites, n_features, 3)
-        weights (np.array): cached normalized weights of each component in the final likelihood for each feature.
-            shape: (n_sites, n_features, 3)
-        na_features (np.array): bool array indicating missing observations
+        na_features (np.array): A boolean array indicating missing observations
             shape: (n_sites, n_features)
     """
 
-    def __init__(self, data, inheritance, missing_family_as_universal=False):
-        self.features = data.features
-        self.families = np.asarray(data.families, dtype=bool)
-        self.inheritance = inheritance
+    def __init__(self, data, shapes):
 
-        # Store relevant dimensions for convenience
-        self.n_sites, self.n_features, self.n_categories = data.features.shape
+        self.features = data.features['values']
+        self.confounders = data.confounders
+
+        self.shapes = shapes
         self.na_features = (np.sum(self.features, axis=-1) == 0)
 
-        # Initialize attributes for caching
+        # Initialize attributes for caching: assignment of objects to clusters, confounders and mixture components
+        self.has = {
+            'clusters': None,
+            'confounders': dict(),
+            'components': None
+        }
 
-        # Assignment of languages to all component (global, per zone and family)
-        self.has_global = np.ones(self.n_sites, dtype=bool)
-        self.has_family = np.any(self.families, axis=0)
-        self.has_zone = None
-        self.has_components = None
+        # The likelihood components
+        self.lh_components = {
+            'cluster_effect': None,
+            'confounding_effects': dict(),
+            'all': None
+        }
 
-        # The component likelihoods
-        self.global_lh = None
-        self.family_lh = None
-        self.zone_lh = None
-
-        # The combined and weighted and the non-normalized likelihood
-        self.all_lh = None
+        for k, v in data.confounders.items():
+            self.has['confounders'][k] = np.any(v['values'], axis=0)
+            self.lh_components['confounding_effects'][k] = None
 
         # Weights
         self.weights = None
 
-        self.missing_family_as_universal = missing_family_as_universal
-
     def reset_cache(self):
-        # The assignment (global, zone, family) combined and weighted and the non-normalized likelihood
-        self.has_components = None
-        self.all_lh = None
-        # Assignment and lh (global, per zone and family)
-        self.has_zone = None
-        self.global_lh = None
-        self.family_lh = None
-        self.zone_lh = None
+        # Assignments
+        for k in self.has:
+            # Assignment to confounders is fixed
+            if k == "confounders":
+                pass
+            else:
+                self.has[k] = None
+
+        # Lh
+        for k in self.lh_components:
+            if k == "confounding_effects":
+                for c in self.lh_components[k]:
+                    self.lh_components[k][c] = None
+            else:
+                self.lh_components[k] = None
+
         # Weights
         self.weights = None
 
     def __call__(self, sample, caching=True):
-        """Compute the likelihood of all sites. The likelihood is defined as a mixture of the global distribution
-           and the likelihood distribution of the family and the zone.
-
+        """Compute the likelihood of all sites. The likelihood is defined as a mixture of areal and confounding effects.
             Args:
-                sample(Sample): A Sample object consisting of zones and weights
-
+                sample(Sample): A Sample object consisting of clusters and weights
             Returns:
-                float: The joint likelihood of the current sample.
+                float: The joint likelihood of the current sample
             """
 
         if not caching:
             self.reset_cache()
 
         # Compute the likelihood values per mixture component
-        all_lh = self.update_component_likelihoods(sample)
+        component_lhs = self.update_component_likelihoods(sample)
 
         # Compute the weights of the mixture component in each feature and site
         weights = self.update_weights(sample)
 
         # Compute the total log-likelihood
-        observation_lhs = self.get_observation_lhs(all_lh, weights, sample.source)
+        observation_lhs = self.get_observation_lhs(component_lhs, weights, sample.source)
         sample.observation_lhs = observation_lhs
         log_lh = np.sum(np.log(observation_lhs))
 
@@ -192,7 +173,8 @@ class Likelihood(object):
 
         return log_lh
 
-    def get_observation_lhs(self, all_lh, weights, source):
+    @staticmethod
+    def get_observation_lhs(all_lh, weights, source):
         if source is None:
             return np.sum(weights * all_lh, axis=2).ravel()
         else:
@@ -200,350 +182,235 @@ class Likelihood(object):
             return all_lh.ravel()[is_source]
 
     def everything_updated(self, sample):
-        sample.what_changed['lh']['zones'].clear()
-        sample.what_changed['lh']['p_global'].clear()
-        sample.what_changed['lh']['p_zones'].clear()
+        sample.what_changed['lh']['clusters'].clear()
         sample.what_changed['lh']['weights'] = False
-        if self.inheritance:
-            sample.what_changed['lh']['p_families'].clear()
+        sample.what_changed['lh']['cluster_effect'].clear()
+        for k, v in self.confounders.items():
+            sample.what_changed['lh']['confounding_effects'][k].clear()
 
-    def get_global_lh(self, sample):
-        if (self.global_lh is None) or (sample.what_changed['lh']['p_global']):
+    def get_confounding_effects_lh(self, sample, conf):
+        """Get the lh for the confounding effect[i]"""
+        # The lh for a confounding effect[i] is evaluated when initialized and when the confounding_effect[i] is changed
+        if (self.lh_components['confounding_effects'][conf] is None
+                or sample.what_changed['lh']['confounding_effects'][conf]):
 
-            self.global_lh = compute_global_likelihood(features=self.features,
-                                                       p_global=sample.p_global,
-                                                       outdated_indices=sample.what_changed['lh']['p_global'],
-                                                       cached_lh=self.global_lh)
-
-        return self.global_lh
-
-    def get_family_lh(self, sample):
-        # Families are only evaluated if the model considers inheritance
-        if not self.inheritance:
-            return None
-
-        # Family lh is evaluated when initialized and when p_families is changed
-        if self.family_lh is None or sample.what_changed['lh']['p_families']:
             # assert np.allclose(a=np.sum(sample.p_families, axis=-1), b=1., rtol=EPS)
-            self.family_lh = compute_family_likelihood(features=self.features, families=self.families,
-                                                       p_families=sample.p_families,
-                                                       outdated_indices=sample.what_changed['lh']['p_families'],
-                                                       cached_lh=self.family_lh)
+            lh = compute_confounding_effects_lh(features=self.features, groups=self.confounders[conf]['values'],
+                                                confounding_effect=sample.confounding_effects[conf],
+                                                shapes=self.shapes,
+                                                outdated_indices=sample.what_changed['lh']['confounding_effects'][conf],
+                                                cached_lh=self.lh_components['confounding_effects'][conf])
+            self.lh_components['confounding_effects'][conf] = lh
+        return self.lh_components['confounding_effects'][conf]
 
-        return self.family_lh
+    def get_cluster_effect_lh(self, sample):
+        """Get the lh for the cluster effect"""
 
-    def get_zone_lh(self, sample):
-        # Zone lh is evaluated when initialized, or when zones or p_zones change
-        if self.zone_lh is None or sample.what_changed['lh']['zones'] or sample.what_changed['lh']['p_zones']:
+        # The lh for the areal effect is evaluated when initialized or when the clusters or the cluster_effect changes
+        if (self.lh_components['cluster_effect'] is None
+                or sample.what_changed['lh']['clusters']
+                or sample.what_changed['lh']['cluster_effect']):
+
             # assert np.allclose(a=np.sum(p_zones, axis=-1), b=1., rtol=EPS)
-            self.zone_lh = compute_zone_likelihood(features=self.features, zones=sample.zones,
-                                                   p_zones=sample.p_zones,
-                                                   outdated_indices=sample.what_changed['lh']['p_zones'],
-                                                   outdated_zones=sample.what_changed['lh']['zones'],
-                                                   cached_lh=self.zone_lh)
-        return self.zone_lh
+            lh = compute_cluster_effect_lh(features=self.features, clusters=sample.clusters,
+                                           cluster_effect=sample.cluster_effect, shapes=self.shapes,
+                                           outdated_indices=sample.what_changed['lh']['cluster_effect'],
+                                           outdated_clusters=sample.what_changed['lh']['clusters'],
+                                           cached_lh=self.lh_components['cluster_effect'])
+            self.lh_components['cluster_effect'] = lh
+        return self.lh_components['cluster_effect']
 
     def update_component_likelihoods(self, sample, caching=True):
-        # Update the likelihood valus for each of the mixture components
-        global_lh = self.get_global_lh(sample)
-        family_lh = self.get_family_lh(sample)
-        zone_lh = self.get_zone_lh(sample)
+        """Update the likelihood values for each of the mixture components"""
+        lh = [self.get_cluster_effect_lh(sample=sample)]
+
+        for k in self.confounders:
+            lh.append(self.get_confounding_effects_lh(sample=sample, conf=k))
 
         # Merge the component likelihoods into one array (if something has changed)
-        if ((not caching) or (self.all_lh is None)
-                or sample.what_changed['lh']['zones'] or sample.what_changed['lh']['p_global']
-                or sample.what_changed['lh']['p_zones'] or sample.what_changed['lh']['p_families']):
+        if ((not caching) or (self.lh_components['all'] is None)
+                or sample.what_changed['lh']['clusters'] or sample.what_changed['lh']['cluster_effect']
+                or any([v for v in sample.what_changed['lh']['confounding_effects'].values()])):
 
-            # Structure of likelihood depends on whether inheritance is considered or not
-            if self.inheritance:
-                self.all_lh = np.array([global_lh, zone_lh, family_lh]).transpose((1, 2, 0))
-            else:
-                self.all_lh = np.array([global_lh, zone_lh]).transpose((1, 2, 0))
+            self.lh_components['all'] = np.array(lh).transpose((1, 2, 0))
+            self.lh_components['all'][self.na_features] = 1.
 
-            self.all_lh[self.na_features] = 1.
+        return self.lh_components['all']
 
-        return self.all_lh
+    def get_cluster_assignment(self, sample):
+        """Update the cluster assignment if necessary and return it."""
 
-    def get_zone_assignment(self, sample):
-        """Update the zone assignment if necessary and return it."""
-        if self.has_zone is None or sample.what_changed['lh']['zones']:
-            self.has_zone = np.any(sample.zones, axis=0)
-        return self.has_zone
+        if self.has['clusters'] is None or sample.what_changed['lh']['clusters']:
+            self.has['clusters'] = np.any(sample.clusters, axis=0)
+        return self.has['clusters']
 
     def update_weights(self, sample):
         """Compute the normalized weights of each component at each site.
-
         Args:
             sample (Sample): the current MCMC sample.
-
         Returns:
             np.array: normalized weights of each component at each site.
-                shape: (n_sites, n_features, 3)
+                shape: (n_sites, n_features, 1 + n_confounders)
         """
+        # Assignments are recombined when initialized or when clusters change
+        if self.has['components'] is None or sample.what_changed['lh']['clusters']:
+            components = [self.get_cluster_assignment(sample)]
 
-        # The area assignment needs to be updated when the area changes
-        self.has_zone = self.get_zone_assignment(sample)
+            for k in self.confounders:
+                components.append(self.has['confounders'][k])
 
-        # Assignments are recombined when initialized or when zones change
-        if self.has_components is None or sample.what_changed['lh']['zones']:
-            # Structure of assignment depends on
-            # whether inheritance is considered or not
-            if self.inheritance:
-                self.has_components = np.array([self.has_global,
-                                                self.has_zone,
-                                                self.has_family]).T
-            else:
-                self.has_components = np.array([self.has_global,
-                                                self.has_zone]).T
+            self.has['components'] = np.array(components).T
 
-        # weights are evaluated when initialized, when weights change or when assignment to zones changes
-        if self.weights is None or sample.what_changed['lh']['weights'] or sample.what_changed['lh']['zones']:
+        # The weights are evaluated when initialized, or when the weights or the assignment to clusters changes
+        if (self.weights is None or sample.what_changed['lh']['weights']
+                or sample.what_changed['lh']['clusters']):
+
             # Extract weights for each site depending on whether the likelihood is available
-            # Order of columns in weights: global, contact, inheritance (if available)
-            self.weights = normalize_weights(
-                weights=sample.weights,
-                has_components=self.has_components,
-                missing_family_as_universal=self.missing_family_as_universal
-            )
+            self.weights = normalize_weights(weights=sample.weights,
+                                             has_components=self.has['components'])
 
         return self.weights
 
 
-def compute_global_likelihood(features, p_global=None,
-                              outdated_indices=None, cached_lh=None):
-    """Computes the global likelihood, that is the likelihood per site and features
-    without knowledge about family or zones.
-
+def compute_cluster_effect_lh(features, clusters, shapes, cluster_effect=None,
+                              outdated_indices=None, outdated_clusters=None, cached_lh=None):
+    """Computes the areal effect lh, that is the likelihood per site and feature given clusters z1, ... zn
     Args:
-        features (np.array or 'SparseMatrix'): The feature values for all sites and features.
-                shape: (n_sites, n_features, n_categories)
-        p_global (np.array): The estimated global probabilities of all features in all site
-            shape: (1, n_features, n_sites)
-        outdated_indices (IndexSet): Features which changed, i.e. where lh needs to be recomputed.
-        cached_lh (np.array): the global likelihood computed previously
-    Returns:
-        (np.array): the global likelihood per site and feature
-            shape: (n_sites, n_features)
-    """
-    n_sites, n_features, n_categories = features.shape
-
-    if cached_lh is None:
-        lh_global = np.ones((n_sites, n_features))
-        assert outdated_indices.all
-    else:
-        lh_global = cached_lh
-
-    if outdated_indices.all:
-        outdated_indices = range(n_features)
-
-    for i_f in outdated_indices:
-        f = features[:, i_f, :]
-
-        # Compute the feature likelihood vector (for all sites in zone)
-        lh_global[:, i_f] = f.dot(p_global[0, i_f, :])
-
-    return lh_global
-
-
-def compute_zone_likelihood(features, zones, p_zones=None,
-                            outdated_indices=None, outdated_zones=None, cached_lh=None):
-    """Computes the zone likelihood that is the likelihood per site and feature given zones z1, ... zn
-    Args:
-        features(np.array or 'SparseMatrix'): The feature values for all sites and features.
+        features(np.array or 'SparseMatrix'): The feature values for all sites and features
             shape: (n_sites, n_features, n_categories)
-        zones(np.array): Binary arrays indicating the assignment of a site to the current zones.
-            shape: (n_zones, n_sites)
-    Kwargs:
-        p_zones(np.array): The estimated probabilities of features in all sites according to the zone
-            shape: (n_zones, n_features, n_sites)
-        outdated_indices (IndexSet): Set of outdated (zone, feature) index-pairs.
-        outdated_zones (IndexSet): Set of indices, where the zone changed (=> update across features).
-        cached_lh (np.array): The cached set of likelihood values (to be updated, where outdated).
-
+        clusters(np.array): Binary arrays indicating the assignment of a site to the current clusters
+            shape: (n_clusters, n_sites)
+        cluster_effect(np.array): The areal effect in the current sample
+            shape: (n_clusters, n_features, n_sites)
+        shapes (dict): A dictionary with shape information for building the Likelihood and Prior objects
+        outdated_indices (IndexSet): Set of outdated (cluster, feature) index-pairs
+        outdated_clusters (IndexSet): Set of indices, where the cluster changed (=> update across features)
+        cached_lh (np.array): The cached set of likelihood values (to be updated where outdated).
 
     Returns:
-        (np.array): the zone likelihood per site and feature
+        (np.array): the areal effect likelihood per site and feature
             shape: (n_sites, n_features)
     """
 
-    n_sites, n_features, n_categories = features.shape
-    n_zones = len(zones)
+    n_clusters = len(clusters)
 
     if cached_lh is None:
-        lh_zone = np.zeros((n_sites, n_features))
+        lh_cluster_effect = np.zeros((shapes['n_sites'], shapes['n_features']))
         assert outdated_indices.all
     else:
-        lh_zone = cached_lh
-
-    # if outdated_indices.all:
-    #     outdated_indices = itertools.product(range(n_zones), range(n_features))
-    # else:
-    #     if outdated_zones:
-    #         outdated_zones_expanded = {(zone, feat) for zone in outdated_zones for feat in range(n_features)}
-    #         outdated_indices = set.union(outdated_indices, outdated_zones_expanded)
-    #
-    # # features_by_zone = {features[zones[z], :, :] for z in range(n_zones)}
-    # features_by_zone = {}
-    #
-    # for z, i_f in outdated_indices:
-    #     # Compute the feature likelihood vector (for all sites in zone)
-    #     if z not in features_by_zone:
-    #         features_by_zone[z] = features[zones[z], :, :]
-    #     f = features_by_zone[z][:, i_f, :]
-    #     p = p_zones[z, i_f, :]
-    #     lh_zone[zones[z], i_f] = f.dot(p)
+        lh_cluster_effect = cached_lh
 
     if outdated_indices.all:
-        outdated_zones = range(n_zones)
+        outdated_clusters = range(n_clusters)
     else:
-        outdated_zones = set.union(outdated_zones,
-                                   {i_zone for (i_zone, i_feat) in outdated_indices})
+        outdated_clusters = set.union(outdated_clusters,
+                                      {i_cluster for (i_cluster, i_feat) in outdated_indices})
 
-    for z in outdated_zones:
-        f_z = features[zones[z], :, :]
-        p_z = p_zones[z, :, :]
-        lh_zone[zones[z], :] = np.einsum('ijk,jk->ij', f_z, p_z)
+    for z in outdated_clusters:
+        f_z = features[clusters[z], :, :]
+        p_z = cluster_effect[z, :, :]
+        lh_cluster_effect[clusters[z], :] = np.einsum('ijk,jk->ij', f_z, p_z)
 
-    return lh_zone
+    return lh_cluster_effect
 
 
-def compute_family_likelihood(features, families, p_families=None,
-                              outdated_indices=None, cached_lh=None):
-    """Computes the family likelihood, that is the likelihood per site and feature given family f1, ... fn
+def compute_confounding_effects_lh(features, groups, shapes, confounding_effect,
+                                   outdated_indices=None, cached_lh=None):
+    """Computes the confounding effects lh that is the likelihood per site and feature given confounder[i]
 
     Args:
-        features(np.array or 'SparseMatrix'): The feature values for all sites and features.
+        features(np.array or 'SparseMatrix'): The feature values for all sites and features
             shape: (n_sites, n_features, n_categories)
-        families(np.array): Binary arrays indicating the assignment of a site to a family.
-                shape: (n_families, n_sites)
-    Kwargs:
-        p_families(np.array): The estimated probabilities of features in all sites according to the family
-            shape: (n_families, n_features, n_sites)
-        outdated_indices (IndexSet): Set of outdated (family, feature) index-pairs.
-        cached_lh (np.array): The cached set of likelihood values (to be updated, where outdated).
+        groups(np.array): Binary arrays indicating the assignment of a site to each group of the confounder[i]
+            shape: (n_groups, n_sites)
+        confounding_effect(np.array): The confounding effect of confounder[i] in the current sample
+            shape: (n_clusters, n_features, n_sites)
+        shapes (dict): A dictionary with shape information for building the Likelihood and Prior objects
+        outdated_indices (IndexSet): Set of outdated (group, feature) index-pairs
+        cached_lh (np.array): The cached set of likelihood values (to be updated where outdated).
 
     Returns:
         (np.array): the family likelihood per site and feature
             shape: (n_sites, n_features)
     """
 
-    n_sites, n_features, n_categories = features.shape
-    n_families = len(families)
-
+    n_groups = len(groups)
     if cached_lh is None:
-        lh_families = np.zeros((n_sites, n_features))
+        lh_confounding_effect = np.zeros((shapes['n_sites'], shapes['n_features']))
         assert outdated_indices.all
     else:
-        lh_families = cached_lh
+        lh_confounding_effect = cached_lh
 
     if outdated_indices.all:
-        outdated_indices = itertools.product(range(n_families), range(n_features))
+        outdated_indices = itertools.product(range(n_groups), range(shapes['n_features']))
 
-    for fam, i_f in outdated_indices:
+    for g, i_f in outdated_indices:
         # Compute the feature likelihood vector (for all sites in family)
-        f = features[families[fam], i_f, :]
-        p = p_families[fam, i_f, :]
-        lh_families[families[fam], i_f] = f.dot(p)
+        f = features[groups[g], i_f, :]
+        p = confounding_effect[g, i_f, :]
+        lh_confounding_effect[groups[g], i_f] = f.dot(p)
 
-    return lh_families
+    return lh_confounding_effect
 
 
-def normalize_weights(weights, has_components, missing_family_as_universal=False):
+def normalize_weights(weights, has_components):
     """This function assigns each site a weight if it has a likelihood and zero otherwise
 
     Args:
         weights (np.array): the weights to normalize
-            shape: (n_features, 3)
-        has_components (np.array): boolean indicators, showing whether a language is
-            affected by the universal distribution (always true), an areal distribution
-            and a family distribution respectively.
-            shape: (n_sites, 3)
-        missing_family_as_universal (bool): Add family weights to the universal distribution instead
-            of re-normalizing when family is absent.
+            shape: (n_features, 1 + n_confounders)
+        has_components (np.array): boolean indicators, showing whether an object is
+            affected by an areal or confounding effect
+            shape: (n_sites, 1 + n_confounders)
 
     Return:
         np.array: the weight_per site
-            shape: (n_sites, n_features, 3)
-
-    == Usage ===
-    >>> normalize_weights(weights=np.array([[0.2, 0.2, 0.6],
-    ...                                     [0.2, 0.6, 0.2]]),
-    ...                   has_components=np.array([[True, False, True],
-    ...                                            [True, True, False]]),
-    ...                   missing_family_as_universal=False)
-    array([[[0.25, 0.  , 0.75],
-            [0.5 , 0.  , 0.5 ]],
-    <BLANKLINE>
-           [[0.5 , 0.5 , 0.  ],
-            [0.25, 0.75, 0.  ]]])
-    >>> normalize_weights(weights=np.array([[0.2, 0.2, 0.6],
-    ...                                     [0.2, 0.6, 0.2]]),
-    ...                   has_components=np.array([[True, False, True],
-    ...                                            [True, True, False]]),
-    ...                   missing_family_as_universal=True)
-    array([[[0.25, 0.  , 0.75],
-            [0.5 , 0.  , 0.5 ]],
-    <BLANKLINE>
-           [[0.8 , 0.2 , 0.  ],
-            [0.4 , 0.6 , 0.  ]]])
-
+            shape: (n_sites, n_features, 1 + n_confounders)
     """
-    inheritance = ((weights.shape[-1]) == 3)
 
-    # Broadcast weights to each site and mask with the has_components arrays (so that
-    # area-/family-weights in languages without area/family are set to 0.
+    # Broadcast weights to each site and mask with the has_components arrays
     # Broadcasting:
     #   `weights` doesnt know about sites -> add axis to broadcast to the sites-dimension of `has_component`
     #   `has_components` doesnt know about features -> add axis to broadcast to the features-dimension of `weights`
     weights_per_site = weights[np.newaxis, :, :] * has_components[:, np.newaxis, :]
 
-    if inheritance and missing_family_as_universal:
-        # If `missing_family_as_universal` is set, we assume that the missing family
-        # distribution for isolates (or languages who are the only sample from their
-        # family) is best replaced by the universal distribution -> shift the weight
-        # accordingly from w[l, :, 2] (family weight) to w[l, :, 0] (universal weight).
-        without_family = ~has_components[:, 2]
-        weights_per_site[without_family, :, 0] += weights[:, 2]
-        assert np.all(weights_per_site[without_family, :, 2] == 0.)
-
-    # Re-normalize the weights, where weights were masked (and not added to universal)
+    # Re-normalize the weights, where weights were masked
     return weights_per_site / weights_per_site.sum(axis=2, keepdims=True)
 
 
 class Prior(object):
-
     """The joint prior of all parameters in the sBayes model.
 
     Attributes:
-        inheritance (bool): activate family distribution.
-        network (dict): network containing the graph, location,...
-        size_prior (ZoneSizePrior): prior on the area size
-        geo_prior (GeoPrior): prior on the geographic spread of an area
+        size_prior (ClusterSizePrior): prior on the cluster size
+        geo_prior (GeoPrior): prior on the geographic spread of a cluster
         prior_weights (WeightsPrior): prior on the mixture weights
-        prior_p_global (PGlobalPrior): prior on the p_global parameters
-        prior_p_zones (PZonesPrior): prior on the p_zones parameters
-        prior_p_families (PFamiliesPrior): prior on the p_families parameters
+        prior_cluster_effect (ClusterEffectPrior): prior on the areal effect
+        prior_confounding_effects (ConfoundingEffectsPrior): prior on all confounding effects
     """
 
-    def __init__(self, data, inheritance, prior_config):
-        self.inheritance = inheritance
-        self.data = data
-        self.network = data.network
-        self.config = prior_config
+    def __init__(self, shapes, config, data):
+        self.shapes = shapes
+        self.config = config
 
-        self.size_prior = ZoneSizePrior(config=prior_config['languages_per_area'], data=data)
-        self.geo_prior = GeoPrior(config=prior_config['geo'], data=data)
-        self.prior_weights = WeightsPrior(config=prior_config['weights'], data=data)
-        self.prior_p_global = PGlobalPrior(config=prior_config['universal'], data=data)
-        self.prior_p_zones = PZonesPrior(config=prior_config['contact'], data=data)
-        if self.inheritance:
-            self.prior_p_families = PFamiliesPrior(config=prior_config['inheritance'], data=data)
+        self.size_prior = ClusterSizePrior(config=self.config['objects_per_cluster'],
+                                           shapes=self.shapes)
+        self.geo_prior = GeoPrior(config=self.config['geo'],
+                                  cost_matrix=data.geo_prior['cost_matrix'])
+        self.prior_weights = WeightsPrior(config=self.config['weights'],
+                                          shapes=self.shapes)
+        self.prior_cluster_effect = ClusterEffectPrior(config=self.config['cluster_effect'],
+                                                       shapes=self.shapes)
+        self.prior_confounding_effects = dict()
+        for k, v in self.config['confounding_effects'].items():
+            self.prior_confounding_effects[k] = ConfoundingEffectsPrior(config=v,
+                                                                        shapes=self.shapes,
+                                                                        conf=k)
 
     def __call__(self, sample):
         """Compute the prior of the current sample.
         Args:
-            sample (Sample): A Sample object consisting of zones and weights
-
+            sample (Sample): A Sample object consisting of clusters, weights, areal and confounding effects
         Returns:
             float: The (log)prior of the current sample
         """
@@ -553,39 +420,37 @@ class Prior(object):
         log_prior += self.size_prior(sample)
         log_prior += self.geo_prior(sample)
         log_prior += self.prior_weights(sample)
-        log_prior += self.prior_p_global(sample)
-        log_prior += self.prior_p_zones(sample)
-        if self.inheritance:
-            log_prior += self.prior_p_families(sample)
+        log_prior += self.prior_cluster_effect(sample)
+        for k, v in self.prior_confounding_effects.items():
+            log_prior += v(sample)
 
         self.everything_updated(sample)
 
         return log_prior
 
-    def everything_updated(self, sample):
+    @staticmethod
+    def everything_updated(sample):
         """Mark all parameters in ´sample´ as updated."""
-        sample.what_changed['prior']['zones'].clear()
+        sample.what_changed['prior']['clusters'].clear()
         sample.what_changed['prior']['weights'] = False
-        sample.what_changed['prior']['p_global'].clear()
-        sample.what_changed['prior']['p_zones'].clear()
-        if self.inheritance:
-            sample.what_changed['prior']['p_families'].clear()
+        sample.what_changed['prior']['cluster_effect'].clear()
+        for k, v in sample.what_changed['prior']['confounding_effects'].items():
+            v.clear()
 
     def get_setup_message(self):
         """Compile a set-up message for logging."""
         setup_msg = self.geo_prior.get_setup_message()
         setup_msg += self.size_prior.get_setup_message()
         setup_msg += self.prior_weights.get_setup_message()
-        setup_msg += self.prior_p_global.get_setup_message()
-        setup_msg += self.prior_p_zones.get_setup_message()
-        if self.inheritance:
-            setup_msg += self.prior_p_families.get_setup_message()
+        setup_msg += self.prior_cluster_effect.get_setup_message()
+        for k, v in self.prior_confounding_effects.items():
+            setup_msg += v.get_setup_message()
+
         return setup_msg
 
     def __copy__(self):
-        return Prior(data=self.data,
-                     inheritance=self.inheritance,
-                     prior_config=self.config)
+        return Prior(shapes=self.shapes,
+                     config=self.config['prior'])
 
 
 class DirichletPrior(object):
@@ -594,63 +459,59 @@ class DirichletPrior(object):
         UNIFORM = 'uniform'
         DIRICHLET = 'dirichlet'
 
-    def __init__(self, config, data, initial_counts=1.):
+    def __init__(self, config, shapes, conf=None, initial_counts=1.):
 
         self.config = config
-        self.data = data
-        self.states = self.data.states
-        self.initial_counts = initial_counts
+        self.shapes = shapes
+        self.conf = conf
 
+        self.initial_counts = initial_counts
         self.prior_type = None
         self.counts = None
         self.concentration = None
-
         self.cached = None
 
-        self.n_sites, self.n_features, self.n_states = data.features.shape
+        self.parse_attributes()
 
-        self.parse_attributes(config)
+    # todo: reactivate
+    # def load_concentration(self, config: dict) -> List[np.ndarray]:
+    #     if 'file' in config:
+    #         return self.parse_concentration_json(config['file'])
+    #     elif 'parameters' in config:
+    #         return self.parse_concentration_dict(config['parameters'])
 
+    # todo: reactivate
+    # def parse_concentration_json(self, json_path: str) -> List[np.ndarray]:
+    #     # Read the concentration parameters from the JSON file
+    #     with open(json_path, 'r') as f:
+    #         concentration_dict = json.load(f)
+    #
+    #     # Parse the resulting dictionary
+    #     return self.parse_concentration_dict(concentration_dict)
 
-
-    def load_concentration(self, config: dict) -> List[np.ndarray]:
-        if 'file' in config:
-            return self.parse_concentration_json(config['file'])
-        elif 'parameters' in config:
-            return self.parse_concentration_dict(config['parameters'])
-
-    def parse_concentration_json(self, json_path: str) -> List[np.ndarray]:
-        # Read the concentration parameters from the JSON file
-        with open(json_path, 'r') as f:
-            concentration_dict = json.load(f)
-
-        # Parse the resulting dictionary
-        return self.parse_concentration_dict(concentration_dict)
-
-    def parse_concentration_dict(self, concentration_dict: dict) -> List[np.ndarray]:
-        # Get feature_names and state_names lists to put parameters in the right order
-        feature_names = self.data.feature_names['external']
-        state_names = self.data.state_names['external']
-        assert len(state_names) == len(feature_names) == self.n_features
-
-        # Compile the array with concentration parameters
-        concentration = []
-        for f, state_names_f in zip(feature_names, state_names):
-            conc_f = [concentration_dict[f][s] for s in state_names_f]
-            concentration.append(np.array(conc_f))
-
-        return concentration
+    # todo: reactivate
+    # def parse_concentration_dict(self, concentration_dict: dict) -> List[np.ndarray]:
+    #     # Get feature_names and state_names lists to put parameters in the right order
+    #     feature_names = self.data.feature_names['external']
+    #     state_names = self.data.state_names['external']
+    #     assert len(state_names) == len(feature_names) == self.n_features
+    #
+    #     # Compile the array with concentration parameters
+    #     concentration = []
+    #     for f, state_names_f in zip(feature_names, state_names):
+    #         conc_f = [concentration_dict[f][s] for s in state_names_f]
+    #         concentration.append(np.array(conc_f))
+    #
+    #     return concentration
 
     def get_uniform_concentration(self) -> List[np.ndarray]:
         concentration = []
-        for state_names_f in self.data.state_names['external']:
+        for state_names_f in self.shapes['states_per_feature']:
             concentration.append(
-                np.full(shape=len(state_names_f), fill_value=self.initial_counts)
-            )
+                np.full(shape=len(state_names_f), fill_value=self.initial_counts))
         return concentration
 
-
-    def parse_attributes(self, config):
+    def parse_attributes(self):
         raise NotImplementedError()
 
     def is_outdated(self, sample):
@@ -665,233 +526,94 @@ class DirichletPrior(object):
         return f'Invalid prior type {s} for {name} (choose from [{valid_types}]).'
 
 
-class PGlobalPrior(DirichletPrior):
+class ConfoundingEffectsPrior(DirichletPrior):
 
-    def parse_attributes(self, config):
-        if config['type'] == 'uniform':
-            self.prior_type = self.TYPES.UNIFORM
-            self.concentration = self.get_uniform_concentration()
-        elif config['type'] == 'dirichlet':
-            self.prior_type = self.TYPES.DIRICHLET
-            self.concentration = self.load_concentration(config)
-        else:
-            raise ValueError(self.invalid_prior_message(config['type']))
+    def __init__(self, config, shapes, conf, initial_counts=1.):
+        super(ConfoundingEffectsPrior, self).__init__(config, shapes, conf=conf,
+                                                      initial_counts=initial_counts)
 
-    def is_outdated(self, sample):
-        """Check whether the cached prior_p_global is up-to-date or needs to be recomputed."""
-        return (self.cached is None) or sample.what_changed['prior']['p_global']
+    def parse_attributes(self):
+        n_groups = len(self.config)
 
-    def __call__(self, sample):
-        """Compute the prior for p_global (or load from cache).
-
-        Args:
-            sample (Sample): Current MCMC sample.
-
-        Returns:
-            float: Logarithm of the prior probability density.
-        """
-        if not self.is_outdated(sample):
-            return np.sum(self.cached)
-
-        if self.prior_type is self.TYPES.UNIFORM:
-            prior_p_global = 0
-
-        elif self.prior_type is self.TYPES.DIRICHLET:
-            prior_p_global = prior_p_global_dirichlet(
-                p_global=sample.p_global,
-                concentration=self.concentration,
-                applicable_states=self.states,
-                outdated_features=sample.what_changed['prior']['p_global'],
-                cached_prior=self.cached
-            )
-        else:
-            raise ValueError(self.invalid_prior_message(self.prior_type))
-
-        self.cached = prior_p_global
-        return np.sum(self.cached)
-
-    def get_setup_message(self):
-        """Compile a set-up message for logging."""
-        msg = f'Universal-prior type: {self.prior_type.value}\n'
-        if self.prior_type == self.TYPES.DIRICHLET:
-            msg += f'\tCounts file: {self.config["file"]}\n'
-        return msg
-
-
-class PFamiliesPrior(DirichletPrior):
-
-    # TODO (NN): Turn prior_type UNIVERSAL into a separate flag (can be combined with any other fixed prior).
-
-    def __init__(self, config, data, initial_counts=1.):
-        self.universal_as_prior = False
-        self.universal_concentration = 2.0
-        super(PFamiliesPrior, self).__init__(config, data, initial_counts=initial_counts)
-
-    def parse_attributes(self, config):
-        n_families, _ = self.data.families.shape
-        _, n_features, n_states = self.data.features.shape
-
-        self.concentration = [np.empty(0) for _ in range(n_families)]
-
-        # @Nico: Define uniform prior and adapt per family if necessary
-        for i_fam, family in enumerate(self.data.family_names['external']):
-            if (family not in config) or (config[family]['type'] == 'uniform'):
-                self.concentration[i_fam] = self.get_uniform_concentration()
-            elif config[family]['type'] == 'dirichlet':
-                self.concentration[i_fam] = self.load_concentration(config[family])
+        self.concentration = [np.empty(0) for _ in range(n_groups)]
+        for i_g, group in enumerate(self.config):
+            if self.config[group]['type'] == 'uniform':
+                self.concentration[i_g] = self.get_uniform_concentration()
+            # todo: reactivate
+            # elif config[family]['type'] == 'dirichlet':
+            #     self.concentration[i_fam] = self.load_concentration(config[family])
             else:
-                raise ValueError(self.invalid_prior_message(config['type']))
-
-        # elif config['type'] == 'counts_and_universal':
-        #     self.prior_type = self.TYPES.COUNTS_AND_UNIVERSAL
-        #
-        #     if config['scale_counts'] is not None:
-        #         self.data.prior_inheritance['counts'] = scale_counts(
-        #             counts=self.data.prior_inheritance['counts'],
-        #             scale_to=config['scale_counts'],
-        #             prior_inheritance=True
-        #         )
-        #     # self.counts = self.initial_counts + self.data.prior_inheritance['counts']
-        #     self.strength = config['scale_counts']
-        #     # self.states = self.data.prior_inheritance['states']
-        # else:
-        #     raise ValueError(self.invalid_prior_message(config['type']))
+                raise ValueError(self.invalid_prior_message(self.config['type']))
 
     def is_outdated(self, sample):
-        """Check whether the cached prior_p_families is up-to-date or needs to be recomputed."""
+        """Check whether the cached prior for the confounding effect [i] is up-to-date or needs to be recomputed."""
         if self.cached is None:
             return True
-        elif sample.what_changed['prior']['p_families']:
-            return True
-        elif self.universal_as_prior and sample.what_changed['prior']['p_global']:
+        elif sample.what_changed['prior']['confounding_effects'][self.conf]:
             return True
         else:
             return False
 
     def __call__(self, sample):
-        what_changed = sample.what_changed['prior']
 
+        what_changed = sample.what_changed['prior']['confounding_effects'][self.conf]
         if not self.is_outdated(sample):
             return np.sum(self.cached)
 
         current_concentration = self.concentration
-        if self.universal_as_prior:
-            # TODO Update the concentration parameter with hyperprior_concentration * p_global
-            ...
 
-        prior_p_families = prior_p_families_dirichlet(p_families=sample.p_families,
-                                                      concentration=current_concentration,
-                                                      applicable_states=self.states,
-                                                      outdated_indices=what_changed['p_families'],
-                                                      outdated_distributions=what_changed['p_global'], # TODO this is only necessary if we us unversal_as_hyperprior
-                                                      cached_prior=self.cached,
-                                                      broadcast=False)
-
-        # elif self.prior_type == self.TYPES.UNIVERSAL:
-        #     c_universal = self.strength * sample.p_global[0]
-        #     self.prior_p_families_distr = counts_to_dirichlet(counts=c_universal,
-        #                                                       states=self.states,
-        #                                                       outdated_features=what_changed['p_global'],
-        #                                                       dirichlet=self.prior_p_families_distr)
-        #
-        #     prior_p_families = prior_p_families_dirichlet(p_families=sample.p_families,
-        #                                                   concentration=self.prior_p_families_distr,
-        #                                                   applicable_states=self.states,
-        #                                                   outdated_indices=what_changed['p_families'],
-        #                                                   outdated_distributions=what_changed['p_global'],
-        #                                                   cached_prior=self.cached,
-        #                                                   broadcast=True)
-        #
-        # elif self.prior_type == self.TYPES.COUNTS_AND_UNIVERSAL:
-        #     c_pseudocounts = self.counts
-        #     c_universal = self.strength * sample.p_global[0]
-        #
-        #     self.prior_p_families_distr = \
-        #         inheritance_counts_to_dirichlet(counts=c_universal + c_pseudocounts,
-        #                                         states=self.states,
-        #                                         outdated_features=what_changed['p_global'],
-        #                                         dirichlet=self.prior_p_families_distr)
-        #
-        #     prior_p_families = prior_p_families_dirichlet(p_families=sample.p_families,
-        #                                                   concentration=self.prior_p_families_distr,
-        #                                                   applicable_states=self.states,
-        #                                                   outdated_indices=what_changed['p_families'],
-        #                                                   outdated_distributions=what_changed['p_global'],
-        #                                                   cached_prior=self.cached,
-        #                                                   broadcast=False)
-        #
-        # else:
-        #     raise ValueError(self.invalid_prior_message(self.prior_type))
-
-        self.cached = prior_p_families
+        prior = compute_confounding_effects_prior(confounding_effect=sample.confounding_effects[self.conf],
+                                                  concentration=current_concentration,
+                                                  applicable_states=self.shapes['states_per_feature'],
+                                                  outdated_indices=what_changed,
+                                                  cached_prior=self.cached,
+                                                  broadcast=False)
+        self.cached = prior
 
         return np.sum(self.cached)
 
     def get_setup_message(self):
         """Compile a set-up message for logging."""
-        msg = f'Prior on inheritance (beta):\n'
+        msg = f"Prior on confounding effect {self.conf}:\n"
 
-        for i_fam, family in enumerate(self.data.family_names['external']):
-            if family not in self.config:
-                msg += f'\tNo inheritance prior defined for family {family}, using a uniform prior.\n'
-            elif self.config[family]['type'] == 'uniform':
-                msg += f'\tUniform prior for family {family}.\n'
-            elif self.config[family]['type'] == 'dirichlet':
-                msg += f'\tDirichlet prior for family {family}.'
-                if 'parameters' in self.config[family]:
-                    msg += f'Parameters defined in config.\n'
-                elif 'file' in self.config[family]:
-                    msg += f'Parameters defined in {self.config[family]["file"]}.\n'
+        for i_g, group in enumerate(self.config):
+            if self.config[group]['type'] == 'uniform':
+                msg += f'\tUniform prior for confounder {self.conf} = {group}.\n'
+            elif self.config[group]['type'] == 'dirichlet':
+                msg += f'\tDirichlet prior for confounder {self.conf} = {group}.\n'
             else:
                 raise ValueError(self.invalid_prior_message(self.config['type']))
-
-        if self.universal_as_prior:
-            msg += f'\tUniversal hyperprior concentration: {self.universal_concentration}\n'
-
         return msg
 
 
-class PZonesPrior(DirichletPrior):
+class ClusterEffectPrior(DirichletPrior):
 
     class TYPES(Enum):
         UNIFORM = 'uniform'
-        UNIVERSAL = 'universal'
 
-        # TODO like in PFamilyPrior: Turn the type UNIVERSAL into a separate flag.
+    def parse_attributes(self):
 
-    def parse_attributes(self, config):
-        _, n_features, n_states = self.data.features.shape
-
-        if config['type'] == 'uniform':
+        if self.config['type'] == 'uniform':
             self.prior_type = self.TYPES.UNIFORM
-            self.counts = np.full(shape=(n_features, n_states),
+            self.counts = np.full(shape=(self.shapes['n_features'], self.shapes['n_states']),
                                   fill_value=self.initial_counts)
 
-        elif config['type'] == 'universal':
-            self.prior_type = self.TYPES.UNIVERSAL
-            self.strength = config['scale_counts']
-            self.states = self.data.state_names['internal']
-
         else:
-            raise ValueError(self.invalid_prior_message(config['type']))
+            raise ValueError(self.invalid_prior_message(self.config['type']))
 
     def is_outdated(self, sample):
-        """Check whether the cached prior_p_global is up-to-date or needs to be recomputed."""
+        """Check whether the cached prior for the areal effect is up-to-date or needs to be recomputed."""
         if self.cached is None:
             return True
-        elif sample.what_changed['prior']['p_zones']:
-            return True
-        elif self.prior_type == self.TYPES.UNIVERSAL and sample.what_changed['prior']['p_global']:
+        elif sample.what_changed['prior']['cluster_effect']:
             return True
         else:
             return False
 
     def __call__(self, sample):
-        """Compute the prior for p_zones (or load from cache).
-
+        """Compute the prior for the areal effect (or load from cache).
         Args:
             sample (Sample): Current MCMC sample.
-
         Returns:
             float: Logarithm of the prior probability density.
         """
@@ -899,34 +621,16 @@ class PZonesPrior(DirichletPrior):
             return np.sum(self.cached)
 
         if self.prior_type == self.TYPES.UNIFORM:
-            prior_p_zones = 0.
-
-        elif self.prior_type == self.TYPES.UNIVERSAL:
-            raise ValueError('Currently only uniform p_zones priors are supported.')
-            # todo: check!
-            # s = self.strength
-            # c_universal = s * sample.p_global[0]
-            #
-            # self.prior_p_zones_distr = counts_to_dirichlet(counts=c_universal,
-            #                                                categories=self.states,
-            #                                                outdated_features=what_changed['p_global'],
-            #                                                dirichlet=self.prior_p_zones_distr)
-            # prior_p_zones = prior_p_families_dirichlet(p_families=sample.p_zones,
-            #                                                 dirichlet=self.prior_p_zones_distr,
-            #                                                 categories=self.states,
-            #                                                 outdated_indices=what_changed['p_zones'],
-            #                                                 outdated_distributions=what_changed['p_global'],
-            #                                                 cached_prior=self.prior_p_zones,
-            #                                                 broadcast=True)
+            prior_cluster_effect = 0.
         else:
             raise ValueError(self.invalid_prior_message(self.prior_type))
 
-        self.cached = prior_p_zones
+        self.cached = prior_cluster_effect
         return np.sum(self.cached)
 
     def get_setup_message(self):
         """Compile a set-up message for logging."""
-        return f'Prior on contact (gamma): {self.prior_type.value}\n'
+        return f'Prior on cluster effect: {self.prior_type.value}\n'
 
 
 class WeightsPrior(DirichletPrior):
@@ -934,26 +638,22 @@ class WeightsPrior(DirichletPrior):
     class TYPES(Enum):
         UNIFORM = 'uniform'
 
-    def parse_attributes(self, config):
-        _, n_features, n_states = self.data.features.shape
-
-        if config['type'] == 'uniform':
+    def parse_attributes(self):
+        if self.config['type'] == 'uniform':
             self.prior_type = self.TYPES.UNIFORM
-            self.counts = np.full(shape=(n_features, n_states),
+            self.counts = np.full(shape=(self.shapes['n_features'], self.shapes['n_states']),
                                   fill_value=self.initial_counts)
 
         else:
-            raise ValueError(self.invalid_prior_message(config['type']))
+            raise ValueError(self.invalid_prior_message(self.config['type']))
 
     def is_outdated(self, sample):
         return self.cached is None or sample.what_changed['prior']['weights']
 
     def __call__(self, sample):
         """Compute the prior for weights (or load from cache).
-
         Args:
             sample (Sample): Current MCMC sample.
-
         Returns:
             float: Logarithm of the prior probability density.
         """
@@ -992,32 +692,28 @@ class SourcePrior(object):
         return np.sum(np.log(observation_weights))
 
 
-class ZoneSizePrior(object):
+class ClusterSizePrior(object):
 
     class TYPES(Enum):
         UNIFORM_AREA = 'uniform_area'
         UNIFORM_SIZE = 'uniform_size'
         QUADRATIC_SIZE = 'quadratic'
 
-    def __init__(self, config, data, initial_counts=1.):
+    def __init__(self, config, shapes, initial_counts=1.):
         self.config = config
-        self.data = data
+        self.shapes = shapes
         self.initial_counts = initial_counts
-
         self.prior_type = None
-        self.counts = None
-        self.dirichlet = None
 
         self.cached = None
-
-        self.parse_attributes(config)
+        self.parse_attributes()
 
     def invalid_prior_message(self, s):
         valid_types = ','.join([str(t.value) for t in self.TYPES])
         return f'Invalid prior type {s} for size prior (choose from [{valid_types}]).'
 
-    def parse_attributes(self, config):
-        size_prior_type = config['type']
+    def parse_attributes(self):
+        size_prior_type = self.config['type']
         if size_prior_type == 'uniform_area':
             self.prior_type = self.TYPES.UNIFORM_AREA
         elif size_prior_type == 'uniform_size':
@@ -1028,41 +724,31 @@ class ZoneSizePrior(object):
             raise ValueError(self.invalid_prior_message(size_prior_type))
 
     def is_outdated(self, sample):
-        return self.cached is None or sample.what_changed['prior']['zones']
+        return self.cached is None or sample.what_changed['prior']['clusters']
 
     def __call__(self, sample):
-        """Compute the prior probability of a set of zones, based on the number of
-        languages in each zone.
-
+        """Compute the prior probability of a set of clusters, based on its number of objects.
         Args:
             sample (Sample): Current MCMC sample.
-
         Returns:
-            float: Log-probability of the zone sizes.
+            float: log-probability of the cluster size.
         """
-        # TODO It would be quite natural to allow informative priors here.
 
         if self.is_outdated(sample):
-            n_zones, n_sites = sample.zones.shape
-            sizes = np.sum(sample.zones, axis=-1)
+            sizes = np.sum(sample.clusters, axis=-1)
 
             if self.prior_type == self.TYPES.UNIFORM_SIZE:
                 # P(size)   =   uniform
-                # P(zone | size)   =   1 / |{zones of size k}|   =   1 / (n choose k)
-                # logp = -np.sum(log_binom(n_sites, sizes))
-                logp = -log_multinom(n_sites, sizes)
+                # P(zone | size)   =   1 / |{clusters of size k}|   =   1 / (n choose k)
+                logp = -log_multinom(self.shapes['n_sites'], sizes)
 
             elif self.prior_type == self.TYPES.QUADRATIC_SIZE:
-                # Here we assume that only a quadratically growing subset of zones is
+                # Here we assume that only a quadratically growing subset of clusters is
                 # plausibly permitted by the likelihood and/or geo-prior.
-                # P(zone | size) = 1 / |{"plausible" zones of size k}| = 1 / k**2
-                log_plausible_zones = np.log(sizes ** 2)
+                # P(zone | size) = 1 / |{"plausible" clusters of size k}| = 1 / k**2
+                log_plausible_clusters = np.log(sizes ** 2)
+                logp = -np.sum(log_plausible_clusters)
 
-                # We could bound the number of plausible zones by the number of possible zones:
-                # log_possible_zones = log_binom(n_sites, sizes)
-                # log_plausible_zones = np.minimum(np.log(sizes**2), log_possible_zones)
-
-                logp = -np.sum(log_plausible_zones)
             elif self.prior_type == self.TYPES.UNIFORM_AREA:
                 # No size prior
                 # P(zone | size) = P(zone) = const.
@@ -1076,32 +762,34 @@ class ZoneSizePrior(object):
 
     def get_setup_message(self):
         """Compile a set-up message for logging."""
-        return f'Prior on area size: {self.prior_type.value}\n'
+        return f'Prior on cluster size: {self.prior_type.value}\n'
 
-    @staticmethod
-    def sample(prior_type, n_zones, n_sites):
-        if prior_type == ZoneSizePrior.TYPES.UNIFORM_AREA:
-            onehots = np.eye(n_zones+1, n_zones, dtype=bool)
-            return onehots[np.random.randint(0, n_zones+1, size=n_sites)].T
-        else:
-            raise NotImplementedError()
+    # @staticmethod
+    # def sample(prior_type, n_clusters, n_sites):
+    #     if prior_type == ClusterSizePrior.TYPES.UNIFORM_AREA:
+    #         onehots = np.eye(n_clusters+1, n_clusters, dtype=bool)
+    #         return onehots[np.random.randint(0, n_clusters+1, size=n_sites)].T
+    #     else:
+    #         raise NotImplementedError()
+
 
 class GeoPrior(object):
 
     class TYPES(Enum):
         UNIFORM = 'uniform'
-        # GAUSSIAN = 'gaussian'
         COST_BASED = 'cost_based'
 
-    def __init__(self, config, data, initial_counts=1.):
+    def __init__(self, config, cost_matrix=None, initial_counts=1.):
         self.config = config
-        self.data = data
+        self.cost_matrix = cost_matrix
         self.initial_counts = initial_counts
 
         self.prior_type = None
         self.cost_matrix = None
         self.scale = None
         self.cached = None
+        self.aggregation = None
+        self.linkage = None
 
         self.parse_attributes(config)
 
@@ -1109,43 +797,41 @@ class GeoPrior(object):
         if config['type'] == 'uniform':
             self.prior_type = self.TYPES.UNIFORM
 
-        # elif config['type'] == 'gaussian':
-        #     self.prior_type = self.TYPES.GAUSSIAN
-        #     ...
-
         elif config['type'] == 'cost_based':
+            if self.cost_matrix is None:
+                ValueError('`cost_based` geo-prior requires a cost_matrix.')
+
             self.prior_type = self.TYPES.COST_BASED
-            self.cost_matrix = self.data.geo_prior['cost_matrix']
+            self.cost_matrix = self.cost_matrix
             self.scale = config['rate']
             self.aggregation = config['aggregation']
+            self.linkage = config['linkage']
+
         else:
             raise ValueError('Geo prior not supported')
 
-
-
     def is_outdated(self, sample):
-        return self.cached is None or sample.what_changed['prior']['zones']
+        return self.cached is None or sample.what_changed['prior']['clusters']
 
     def __call__(self, sample):
-        """Compute the size-prior of the current zone (or load from cache).
-
+        """Compute the geo-prior of the current cluster (or load from cache).
         Args:
-            sample (Sample): Current MCMC sample.
-
+            sample (Sample): Current MCMC sample
         Returns:
-            float: Logarithm of the prior probability density.
+            float: Logarithm of the prior probability density
         """
         if self.is_outdated(sample):
+
             if self.prior_type == self.TYPES.UNIFORM:
                 geo_prior = 0.
 
             # elif self.prior_type == self.TYPES.GAUSSIAN:
-            #     geo_prior = geo_prior_gaussian(sample.zones, self.data.network,
-            #                                    self.config['gaussian'])
+            #     geo_prior = compute_gaussian_geo_prior(sample.clusters, self.data.network,
+            #     self.config['gaussian'])
 
             elif self.prior_type == self.TYPES.COST_BASED:
-                geo_prior = geo_prior_distance(
-                    zones=sample.zones,
+                geo_prior = compute_cost_based_geo_prior(
+                    clusters=sample.clusters,
                     cost_mat=self.cost_matrix,
                     scale=self.scale,
                     aggregation=self.aggregation
@@ -1174,19 +860,19 @@ class GeoPrior(object):
         return msg
 
 
-def geo_prior_gaussian(zones: np.array, network: dict, cov: np.array):
+def compute_gaussian_geo_prior(cluster: np.array, network: dict, cov: np.array):
     """
     This function computes the two-dimensional Gaussian geo-prior for all edges in the zone
     Args:
-        zones (np.array): boolean array representing the current zone
+        cluster (np.array): boolean array representing the current zone
         network (dict): network containing the graph, location,...
         cov (np.array): Covariance matrix of the multivariate gaussian (estimated from the data)
 
     Returns:
-        float: the log geo-prior of the zones
+        float: the log geo-prior of the clusters
     """
     log_prior = np.ndarray([])
-    for z in zones:
+    for z in cluster:
         dist_mat = network['dist_mat'][z][:, z]
         locations = network['locations'][z]
 
@@ -1212,24 +898,35 @@ def geo_prior_gaussian(zones: np.array, network: dict, cov: np.array):
     return np.mean(log_prior)
 
 
-def geo_prior_distance(zones: np.array,
-                       cost_mat: np.array,
-                       scale: float,
-                       aggregation: str):
+def compute_cost_based_geo_prior(
+        clusters: np.array,
+        cost_mat: np.array,
+        scale: float,
+        aggregation: str
+):
     """ This function computes the geo prior for the sum of all distances of the mst of a zone
     Args:
-        zones (np.array): The current zones (boolean array)
+        clusters (np.array): The current cluster (boolean array)
         cost_mat (np.array): The cost matrix between locations
         scale (float): The scale parameter of an exponential distribution
         aggregation (str): The aggregation policy, defining how the single edge
             costs are combined into one joint cost for the area.
 
     Returns:
-        float: the geo-prior of the zones
+        float: the geo-prior of the cluster
     """
+    AGGREGATORS = {
+        'mean': np.mean,
+        'sum': np.sum,
+        'max': np.min,  # sic: max distance == min log-likelihood
+    }
+    if aggregation in AGGREGATORS:
+        aggregator = AGGREGATORS[aggregation]
+    else:
+        raise ValueError(f'Unknown aggregation policy "{aggregation}" in geo prior.')
 
-    log_prior = np.ndarray([])
-    for z in zones:
+    log_prior = 0.0
+    for z in clusters:
         cost_mat_z = cost_mat[z][:, z]
 
         # if len(locations) > 3:
@@ -1257,99 +954,81 @@ def geo_prior_distance(zones: np.array,
         else:
             raise ValueError("Too few locations to compute distance.")
 
-        log_prior = stats.expon.logpdf(distances, loc=0, scale=scale)
-
-    if aggregation == 'mean':
-        return np.mean(log_prior)
-    elif aggregation == 'sum':
-        return np.sum(log_prior)
-    elif aggregation == 'max':
-        return np.min(log_prior)
-    else:
-        raise ValueError(f'Unknown aggregation policy "{aggregation}" in geo prior.')
-
-
-def prior_p_global_dirichlet(p_global, concentration, applicable_states, outdated_features,
-                             cached_prior=None):
-    """" This function evaluates the prior for p_families
-    Args:
-        p_global (np.array): p_global from the sample
-        concentration (list): list of Dirichlet concentration parameters
-        applicable_states (list): list of available categories per feature
-        outdated_features (IndexSet): The features which changed and need to be updated.
-    Kwargs:
-        cached_prior (list):
-
-    Returns:
-        float: the prior for p_global
-    """
-    _, n_feat, n_cat = p_global.shape
-
-    if outdated_features.all:
-        outdated_features = range(n_feat)
-        log_prior = np.zeros(n_feat)
-    else:
-        log_prior = cached_prior
-
-    for f in outdated_features:
-        states_f = applicable_states[f]
-        log_prior[f] = dirichlet_logpdf(
-            x=p_global[0, f, states_f],
-            alpha=concentration[f]
-        )
+        log_prior_per_edge = stats.expon.logpdf(distances, loc=0, scale=scale)
+        log_prior += aggregator(log_prior_per_edge)
 
     return log_prior
 
 
-def prior_p_families_dirichlet(p_families, concentration, applicable_states,
-                               outdated_indices, outdated_distributions,
-                               cached_prior=None, broadcast=False):
+# def prior_p_global_dirichlet(p_global, concentration, applicable_states, outdated_features,
+#                              cached_prior=None):
+#     """" This function evaluates the prior for p_families
+#     Args:
+#         p_global (np.array): p_global from the sample
+#         concentration (list): list of Dirichlet concentration parameters
+#         applicable_states (list): list of available categories per feature
+#         outdated_features (IndexSet): The features which changed and need to be updated.
+#     Kwargs:
+#         cached_prior (list):
+#
+#     Returns:
+#         float: the prior for p_global
+#     """
+#     _, n_feat, n_cat = p_global.shape
+#
+#     if outdated_features.all:
+#         outdated_features = range(n_feat)
+#         log_prior = np.zeros(n_feat)
+#     else:
+#         log_prior = cached_prior
+#
+#     for f in outdated_features:
+#         states_f = applicable_states[f]
+#         log_prior[f] = dirichlet_logpdf(
+#             x=p_global[0, f, states_f],
+#             alpha=concentration[f]
+#         )
+#
+#     return log_prior
+
+def compute_confounding_effects_prior(confounding_effect, concentration, applicable_states,
+                                      outdated_indices, cached_prior=None, broadcast=False):
     """" This function evaluates the prior for p_families
     Args:
-        p_families (np.array): p_families from the sample
+        confounding_effect (np.array): The confounding effect [i] from the sample
         concentration (list): List of Dirichlet concentration parameters
-        applicable_states (list): List of available categories per feature
-        outdated_indices (IndexSet): The features which need to be updated in each family.
-        outdated_distributions (IndexSet): The features where the dirichlet distributions changed.
-    Kwargs:
-        cached_prior (list):
-        broadcast (bool):
-
+        applicable_states (list): List of available states per feature
+        outdated_indices (IndexSet): The features which need to be updated in each group
+        cached_prior (np.array): The cached prior for confound effect [i]
+        broadcast (bool): Apply the same prior for all groups (TRUE)?
 
     Returns:
-        float: the prior for p_families
+        float: the prior for confounding effect [i]
     """
-    n_fam, n_feat, n_cat = p_families.shape
+    n_groups, n_features, n_states = confounding_effect.shape
+
     if cached_prior is None:
         assert outdated_indices.all
-        log_prior = np.zeros((n_fam, n_feat))
+        log_prior = np.zeros((n_groups, n_features))
     else:
         log_prior = cached_prior
 
-    if outdated_indices.all or outdated_distributions.all:
-        outdated_indices = itertools.product(range(n_fam), range(n_feat))
-    else:
-        if outdated_distributions:
-            outdated_distributions_expanded = {(fam, f) for f in outdated_distributions for fam in range(n_fam)}
-            outdated_indices = set.union(outdated_indices, outdated_distributions_expanded)
-
-    for fam, f in outdated_indices:
+    for group, f in outdated_indices:
 
         if broadcast:
-            # One prior is applied to all families
-            conc_f = concentration[f]
+            # One prior is applied to all groups
+            concentration_group = concentration[f]
 
         else:
-            # One prior per family
-            conc_f = concentration[fam][f]
+            # One prior per group
+            concentration_group = concentration[group][f]
 
         states_f = applicable_states[f]
-        p_fam = p_families[fam, f, states_f]
-        log_prior[fam, f] = dirichlet_logpdf(x=p_fam, alpha=conc_f)
-        # log_prior[fam, f] = diri.logpdf(p_fam)
+        conf_group = confounding_effect[group, f, states_f]
+
+        log_prior[group, f] = dirichlet_logpdf(x=conf_group, alpha=concentration_group)
 
     return log_prior
-
 
 
 if __name__ == '__main__':

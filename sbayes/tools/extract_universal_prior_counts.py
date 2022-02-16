@@ -78,10 +78,16 @@ def main(args):
     feature_states_file = Path(feature_states_file)
     output_file = Path(output_file)
 
-    _, _, features, feature_names, state_names, _, families, family_names, _ = read_features_from_csv(
-        file=prior_data_file,
-        feature_states_file=feature_states_file
-    )
+    # TODO: MAKE THIS SCRIPT COMPATIBLE WITH GEO_SBAYES
+
+    config = {
+        'data': {'features': prior_data_file}
+    }
+
+    _, _, features, feature_names, state_names, _, families, family_names, _ = read_features_from_csv(config)
+    #    file=prior_data_file,
+    #    feature_states_file=feature_states_file
+    #)
 
     counts = np.sum(features, axis=0)       # shape: (n_features, n_states)
 

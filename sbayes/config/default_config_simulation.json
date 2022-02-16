@@ -1,19 +1,14 @@
 {
-	"sites": "<REQUIRED>",
-	"n_features": 35,
-	"p_n_categories": {
+	"canvas": "<REQUIRED>",
+	"results": {
+		"path": ""
+	},
+	"n_features": 20,
+	"n_states": {
 		"2": 0.4,
 		"3": 0.3,
 		"4": 0.3
 	},
-	"e_universal": 1.0,
-	"e_contact": "<REQUIRED>",
-	"e_inheritance": 2.0,
-	"i_universal": 1.0,
-	"i_contact": "<REQUIRED>",
-	"i_inheritance": 0.2,
-	"inheritance": "<REQUIRED>",
-	"subset": false,
-	"area": "<REQUIRED",
-	"correlation_threshold": 0.3
+	"cluster_effect": "<REQUIRED>",
+	"confounding_effects": "<REQUIRED>"
 }
