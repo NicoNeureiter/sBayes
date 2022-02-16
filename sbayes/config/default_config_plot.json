@@ -22,9 +22,9 @@
 		"geo": {
 			"map_projection": "epsg:4326",
 			"base_map": {
-				"add": false,
-				"geojson_polygon": "",
-				"geojson_line": ""
+				"add": true,
+				"geojson_polygon": "<DEFAULT>",
+				"geojson_line": "<DEFAULT>"
 			},
 			"extent": {
 				"x": [],
