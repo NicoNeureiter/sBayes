@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+import os
 import logging
 import random as _random
 from copy import deepcopy
@@ -189,6 +190,7 @@ class ZoneMCMC(MCMCGenerative):
     def generate_samples(self, *args, **kwargs):
         # Create the likelihood file (for model comparison)
         likelihood_path = self.data.path_results / f'K{self.n_zones}' / 'likelihood.h5'
+        os.makedirs(likelihood_path.parent, exist_ok=True)
         with tables.open_file(likelihood_path, mode='w') as likelihood_file:
 
             # Create the likelihood array
