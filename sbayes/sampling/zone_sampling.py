@@ -189,21 +189,24 @@ class ZoneMCMC(MCMCGenerative):
 
     def generate_samples(self, *args, **kwargs):
         # Create the likelihood file (for model comparison)
-        likelihood_path = self.data.path_results / f'K{self.n_zones}' / 'likelihood.h5'
-        os.makedirs(likelihood_path.parent, exist_ok=True)
-        with tables.open_file(likelihood_path, mode='w') as likelihood_file:
-
-            # Create the likelihood array
-            self.logged_likelihood_array = likelihood_file.create_earray(
-                where=likelihood_file.root,
-                name='likelihood',
-                atom=tables.Float32Col(),
-                filters=tables.Filters(complevel=9, complib='blosc:zlib', bitshuffle=True, fletcher32=True),
-                shape=(0, self.n_sites*self.n_features)
-            )
-
-            # Run the sampler
+        if self.sample_from_prior:
             super().generate_samples(*args, **kwargs)
+        else:
+            likelihood_path = self.data.path_results / f'K{self.n_zones}' / 'likelihood.h5'
+            os.makedirs(likelihood_path.parent, exist_ok=True)
+            with tables.open_file(likelihood_path, mode='w') as likelihood_file:
+
+                # Create the likelihood array
+                self.logged_likelihood_array = likelihood_file.create_earray(
+                    where=likelihood_file.root,
+                    name='likelihood',
+                    atom=tables.Float32Col(),
+                    filters=tables.Filters(complevel=9, complib='blosc:zlib', bitshuffle=True, fletcher32=True),
+                    shape=(0, self.n_sites*self.n_features)
+                )
+
+                # Run the sampler
+                super().generate_samples(*args, **kwargs)
 
     def gibbs_sample_sources(self, sample: Sample, as_gibbs=True,
                              site_subset=slice(None)):
@@ -1363,7 +1366,8 @@ class ZoneMCMC(MCMCGenerative):
 
     def log_sample_statistics(self, sample, c, sample_id):
         super(ZoneMCMC, self).log_sample_statistics(sample, c, sample_id)
-        self.logged_likelihood_array.append(sample.observation_lhs[None,...])
+        if not self.sample_from_prior:
+            self.logged_likelihood_array.append(sample.observation_lhs[None,...])
 
 
 class ZoneMCMCWarmup(ZoneMCMC):
