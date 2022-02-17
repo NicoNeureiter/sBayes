@@ -121,7 +121,12 @@ class compute_network:
         """
         if crs is not None:
             try:
-                from cartopy import crs as geodesic
+                import cartopy
+                if cartopy.__version__ >= '0.18.0':
+                    from cartopy.geodesic import Geodesic
+                else:
+                    from cartopy.crs import Geodesic
+
             except ImportError as e:
                 print("Using a coordinate reference system (crs) requires the ´cartopy´ library:")
                 print("pip install cartopy")
@@ -164,7 +169,7 @@ class compute_network:
             w_locations = np.vstack(
                 transformer.transform(locations[:, 0], locations[:, 1])
             ).T
-            geod = geodesic.Geodesic()
+            geod = Geodesic()
             dist_mat = np.hstack([geod.inverse(location, w_locations)[:, :2] for location in w_locations])
 
         self.vertices = vertices
