@@ -7,10 +7,8 @@ pyproj
 scipy
 Shapely
 seaborn
-fastcluster
 setuptools
-cartopy==0.18.0
+cartopy
 typing_extensions
 pycldf
 tables
-

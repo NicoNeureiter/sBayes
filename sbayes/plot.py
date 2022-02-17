@@ -3,7 +3,6 @@ import math
 import os
 from itertools import compress
 from statistics import median
-import argparse
 from pathlib import Path
 
 try:
@@ -1803,26 +1802,11 @@ class Plot:
         plt.close(fig)
 
 
-def main(config=None, plot_types=None):
+ALL_PLOT_TYPES = ['map', 'weights_plot', 'preference_plot', 'pie_plot']
+
+
+def main(config, plot_types=None):
     # TODO adapt paths according to experiment_name (if provided)
-    # TODO add argument defining which plots to generate (all [default], map, weights, ...)
-    ALL_PLOT_TYPES = ['map', 'weights_plot', 'preference_plot', 'pie_plot']
-
-
-    if config is None or plot_types is None:
-        parser = argparse.ArgumentParser(description="Plot the results of a sBayes run.")
-        parser.add_argument("config", type=Path, help="The JSON configuration file")
-        parser.add_argument("type", nargs='?', type=str, help="The type of plot to generate")
-        args = parser.parse_args()
-
-        if config is None:
-            config = args.config
-
-        if args.type is not None:
-            if args.type not in ALL_PLOT_TYPES:
-                raise ValueError('Unknown plot type: ' + args.type)
-            plot_types = [args.type]
-
     # If no plot type is specified, plot everything in the config file
     if plot_types is None:
         plot_types = ALL_PLOT_TYPES
@@ -1891,4 +1875,20 @@ def plot_map(plot, m):
 
 
 if __name__ == '__main__':
-    main()
+    import argparse
+
+    parser = argparse.ArgumentParser(description='Plot the results of a sBayes run.')
+    parser.add_argument('config', type=Path, help='The JSON configuration file')
+    parser.add_argument('type', nargs='?', type=str, help='The type of plot to generate')
+    args = parser.parse_args()
+
+    config = args.config
+
+    if args.type is not None:
+        if args.type not in ALL_PLOT_TYPES:
+            raise ValueError('Unknown plot type: ' + args.type)
+        plot_types = [args.type]
+    else:
+        plot_types = None
+
+    main(config, plot_types=plot_types)
