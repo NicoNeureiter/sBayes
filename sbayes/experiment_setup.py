@@ -36,7 +36,7 @@ class Experiment:
     """
 
     def __init__(self,
-                 experiment_name: str = "default",
+                 experiment_name: str = None,
                  config_file: Optional[Path] = None,
                  custom_settings: Optional[dict] = None,
                  log: bool = True):

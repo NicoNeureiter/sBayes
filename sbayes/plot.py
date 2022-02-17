@@ -3,12 +3,10 @@ import math
 import os
 from itertools import compress
 from statistics import median
-import argparse
 from pathlib import Path
 
 try:
     import importlib.resources as pkg_resources     # PYTHON >= 3.7
-
 except ImportError:
     import importlib_resources as pkg_resources     # PYTHON < 3.7
 
@@ -40,10 +38,10 @@ from sbayes.util import gabriel_graph_from_delaunay
 from sbayes.util import parse_cluster_columns, read_features_from_csv
 from sbayes.cli import iterate_or_run
 from sbayes.experiment_setup import REQUIRED, set_defaults
-from sbayes import config
+from sbayes import config as config_package
+from sbayes import maps as maps_package
 
-
-DEFAULT_CONFIG = json.loads(pkg_resources.read_text(config, 'default_config_plot.json'))
+DEFAULT_CONFIG = json.loads(pkg_resources.read_text(config_package, 'default_config_plot.json'))
 
 
 class Plot:
@@ -785,7 +783,12 @@ class Plot:
     def add_background_map(self, bbox, cfg_geo, cfg_graphic, ax):
         # Adds the geojson polygon geometries provided by the user as a background map
 
-        world = gpd.read_file(fix_relative_path(cfg_geo['base_map']['geojson_polygon'], self.base_directory))
+        if cfg_geo['base_map'].get('geojson_polygon') == '<DEFAULT>':
+            with pkg_resources.path(maps_package, 'land.geojson') as world_path:
+                world = gpd.read_file(world_path)
+        else:
+            world_path = fix_relative_path(cfg_geo['base_map']['geojson_polygon'], self.base_directory)
+            world = gpd.read_file(world_path)
 
         map_crs = CRS(cfg_geo['map_projection'])
 
@@ -821,9 +824,14 @@ class Plot:
                    zorder=-100000)
 
     def add_rivers(self, cfg_geo, cfg_graphic, ax):
-
         # The user can provide geojson line geometries, for example those for rivers. Looks good on a map :)
-        rivers = gpd.read_file(fix_relative_path(cfg_geo['base_map']['geojson_line'], self.base_directory))
+        if cfg_geo['base_map'].get('geojson_line', '') == '<DEFAULT>':
+            with pkg_resources.path(maps_package, 'rivers_lake.geojson') as rivers_path:
+                rivers = gpd.read_file(rivers_path)
+        else:
+            rivers_path = fix_relative_path(cfg_geo['base_map']['geojson_line'], self.base_directory)
+            rivers = gpd.read_file(rivers_path)
+
         rivers = rivers.to_crs(cfg_geo['map_projection'])
 
         cfg_line = cfg_graphic['base_map']['line']
@@ -1778,26 +1786,14 @@ class Plot:
         plt.close(fig)
 
 
-def main(config=None, only_plot=None):
+ALL_PLOT_TYPES = ['map', 'weights_plot', 'preference_plot', 'pie_plot']
+
+
+def main(config, plot_types=None):
     # TODO adapt paths according to experiment_name (if provided)
-    # TODO add argument defining which plots to generate (all [default], map, weights, ...)
-    ALL_PLOT_TYPES = ['map', 'weights_plot', 'preference_plot', 'pie_plot']
-
     # If no plot type is specified, plot everything in the config file
-    plot_types = ALL_PLOT_TYPES
-
-    if config is None:
-        parser = argparse.ArgumentParser(description="Plot the results of a sBayes run.")
-        parser.add_argument("config", type=Path, help="The JSON configuration file")
-        parser.add_argument("type", nargs='?', type=str,
-                            help="The type of plot to generate")
-        args = parser.parse_args()
-
-        config = args.config
-        if args.type is not None:
-            if args.type not in ALL_PLOT_TYPES:
-                raise ValueError('Unknown plot type: ' + args.type)
-            plot_types = [args.type]
+    if plot_types is None:
+        plot_types = ALL_PLOT_TYPES
 
     results_per_model = {}
 
@@ -1863,4 +1859,20 @@ def plot_map(plot, m):
 
 
 if __name__ == '__main__':
-    main()
+    import argparse
+
+    parser = argparse.ArgumentParser(description='Plot the results of a sBayes run.')
+    parser.add_argument('config', type=Path, help='The JSON configuration file')
+    parser.add_argument('type', nargs='?', type=str, help='The type of plot to generate')
+    args = parser.parse_args()
+
+    config = args.config
+
+    if args.type is not None:
+        if args.type not in ALL_PLOT_TYPES:
+            raise ValueError('Unknown plot type: ' + args.type)
+        plot_types = [args.type]
+    else:
+        plot_types = None
+
+    main(config, plot_types=plot_types)

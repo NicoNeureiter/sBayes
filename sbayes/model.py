@@ -508,7 +508,8 @@ class DirichletPrior(object):
         concentration = []
         for state_names_f in self.shapes['states_per_feature']:
             concentration.append(
-                np.full(shape=len(state_names_f), fill_value=self.initial_counts))
+                np.ones(shape=len(state_names_f))
+            )
         return concentration
 
     def parse_attributes(self):
@@ -822,23 +823,17 @@ class GeoPrior(object):
         """
         if self.is_outdated(sample):
 
-            if self.prior_type == self.TYPES.UNIFORM:
+            if self.prior_type is self.TYPES.UNIFORM:
                 geo_prior = 0.
-
-            # elif self.prior_type == self.TYPES.GAUSSIAN:
-            #     geo_prior = compute_gaussian_geo_prior(sample.clusters, self.data.network,
-            #     self.config['gaussian'])
-
-            elif self.prior_type == self.TYPES.COST_BASED:
+            elif self.prior_type is self.TYPES.COST_BASED:
                 geo_prior = compute_cost_based_geo_prior(
                     clusters=sample.clusters,
                     cost_mat=self.cost_matrix,
                     scale=self.scale,
                     aggregation=self.aggregation
                 )
-
             else:
-                raise ValueError('geo_prior must be either \"uniform\", \"gaussian\" or \"cost_based\".')
+                raise ValueError('geo_prior must be either \"uniform\" or \"cost_based\".')
 
             self.cached = geo_prior
 
@@ -913,7 +908,7 @@ def compute_cost_based_geo_prior(
             costs are combined into one joint cost for the area.
 
     Returns:
-        float: the geo-prior of the cluster
+        float: the log geo-prior of the cluster
     """
     AGGREGATORS = {
         'mean': np.mean,
@@ -928,18 +923,6 @@ def compute_cost_based_geo_prior(
     log_prior = 0.0
     for z in clusters:
         cost_mat_z = cost_mat[z][:, z]
-
-        # if len(locations) > 3:
-        #
-        #     delaunay = compute_delaunay(locations)
-        #     mst = minimum_spanning_tree(delaunay.multiply(dist_mat))
-        #     distances = mst.tocsr()[mst.nonzero()]
-        #
-        # elif len(locations) == 3:
-        #     distances = n_smallest_distances(dist_mat, n=2, return_idx=False)
-        #
-        # elif len(locations) == 2:
-        #     distances = n_smallest_distances(dist_mat, n=1, return_idx=False)
 
         if cost_mat_z.shape[0] > 1:
             graph = csgraph_from_dense(cost_mat_z, null_value=np.inf)
@@ -990,6 +973,7 @@ def compute_cost_based_geo_prior(
 #         )
 #
 #     return log_prior
+
 
 def compute_confounding_effects_prior(confounding_effect, concentration, applicable_states,
                                       outdated_indices, cached_prior=None, broadcast=False):
