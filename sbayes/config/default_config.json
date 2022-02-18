@@ -7,6 +7,7 @@
 	"model": {
 		"clusters": "<REQUIRED>",
 		"sample_source": true,
+		"confounders": "<REQUIRED>",
 		"prior": {
 			"geo": {
 				"type": "uniform",
