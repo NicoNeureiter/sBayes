@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-import os
 import logging
 import os
 import random as _random
@@ -10,7 +9,6 @@ import tables
 import numpy as np
 import scipy.stats as stats
 
-import model
 from sbayes.sampling.mcmc import MCMC
 from sbayes.model import normalize_weights, ConfoundingEffectsPrior
 from sbayes.util import get_neighbours, normalize, dirichlet_logpdf, get_max_size_list
