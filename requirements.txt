@@ -2,6 +2,7 @@ descartes
 geopandas
 matplotlib
 numpy
+pygeos
 pandas
 pyproj
 scipy
