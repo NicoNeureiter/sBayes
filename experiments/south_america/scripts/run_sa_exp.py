@@ -40,7 +40,7 @@ if __name__ == '__main__':
 
             # Sample
             mc.warm_up()
-            mc.sample()
+            mc.sample(run=run)
 
             # Save samples to file
             mc.log_statistics()

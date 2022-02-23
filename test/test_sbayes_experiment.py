@@ -7,6 +7,7 @@ from pathlib import Path
 from sbayes.experiment_setup import Experiment
 from sbayes.simulation import Simulation
 from sbayes.mcmc_setup import MCMC
+from sbayes.cli import main
 
 
 class TestExperiment(unittest.TestCase):
@@ -39,8 +40,11 @@ class TestExperiment(unittest.TestCase):
     def test_sim_exp1():
         """Test whether simulation experiment 1 is running without errors."""
         custom_settings = TestExperiment.CUSTOM_SETTINGS
-        TestExperiment.run_experiment(path=Path('experiments/simulation/sim_exp1/'),
-                                      custom_settings=custom_settings)
+        main(
+            config=Path('experiments/simulation/sim_exp1/config.json'),
+            custom_settings=custom_settings,
+            experiment_name='test_sim_exp1',
+        )
 
         print('Experiment 1 passed\n')
 
@@ -49,8 +53,11 @@ class TestExperiment(unittest.TestCase):
         """Test whether simulation experiment 2 is running without errors."""
         custom_settings = deepcopy(TestExperiment.CUSTOM_SETTINGS)
         custom_settings['model']['inheritance'] = True
-        TestExperiment.run_experiment(path=Path('experiments/simulation/sim_exp2/'),
-                                      custom_settings=custom_settings)
+        main(
+            config=Path('experiments/simulation/sim_exp2/config.json'),
+            custom_settings=custom_settings,
+            experiment_name='test_sim_exp2',
+        )
 
         print('Experiment 2 passed\n')
 
@@ -59,8 +66,11 @@ class TestExperiment(unittest.TestCase):
         """Test whether simulation experiment 3 is running without errors."""
         custom_settings = deepcopy(TestExperiment.CUSTOM_SETTINGS)
         custom_settings['model']['areas'] = 2
-        TestExperiment.run_experiment(path=Path('experiments/simulation/sim_exp3/'),
-                                      custom_settings=custom_settings)
+        main(
+            config=Path('experiments/simulation/sim_exp3/config.json'),
+            custom_settings=custom_settings,
+            experiment_name='test_sim_exp3',
+        )
 
         print('Experiment 3 passed\n')
 
@@ -69,37 +79,13 @@ class TestExperiment(unittest.TestCase):
         """Test whether sampling from prior is running without errors."""
         custom_settings = deepcopy(TestExperiment.CUSTOM_SETTINGS)
         custom_settings['mcmc']['sample_from_prior'] = True
-        TestExperiment.run_experiment(path=Path('experiments/simulation/sim_exp1/'),
-                                      custom_settings=custom_settings)
+        main(
+            config=Path('experiments/simulation/sim_exp1/config.json'),
+            custom_settings=custom_settings,
+            experiment_name='test_sample_prior',
+        )
 
         print('Sample prior passed\n')
-
-    @staticmethod
-    def run_experiment(path: Path, custom_settings: dict):
-        # 1. Initialize the experiment
-        exp = Experiment()
-        exp.load_config(config_file=path / 'config.json',
-                        custom_settings=custom_settings)
-
-        # if exp.config['model']['areas'] == "TBD":
-        #     exp.config['model']['areas'] = 2
-
-        # 2. Simulate contact areas
-        sim = Simulation(experiment=exp)
-        sim.run_simulation()
-
-        # 3. Define MCMC
-        mc = MCMC(data=sim, experiment=exp)
-
-        # 4. Warm-up sampler and sample from posterior
-        mc.warm_up()
-        mc.sample()
-
-        # 5. Evaluate ground truth
-        mc.eval_ground_truth()
-
-        # 6. Log sampling statistics and save samples to file
-        mc.save_samples(run=0)
 
 
 if __name__ == '__main__':

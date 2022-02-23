@@ -2,7 +2,11 @@ from itertools import permutations
 import numpy as np
 import math
 from scipy.special import logsumexp
+
 from sbayes.sampling.zone_sampling import ZoneMCMC, Sample
+from sbayes.simulation import Simulation
+from sbayes.model import Model
+from sbayes.util import normalize
 
 
 def compute_dic(lh, burn_in):
@@ -411,3 +415,63 @@ def unnest_marginal_lh(samples_in):
     return samples_out
 
 
+def eval_ground_truth(
+        simulation: Simulation,
+        model: Model,
+        lh_per_area=True,
+) -> dict:
+
+    results = {}
+
+    # Evaluate the likelihood of the true sample in simulated data
+    # If the model includes inheritance use all weights, if not use only the first two weights (global, zone)
+    if model.inheritance:
+        weights = simulation.weights.copy()
+    else:
+        weights = normalize(simulation.weights[:, :2])
+
+    ground_truth = Sample(zones=simulation.areas,
+                          weights=weights,
+                          p_global=simulation.p_universal[np.newaxis, ...],
+                          p_zones=simulation.p_contact,
+                          p_families=simulation.p_inheritance)
+
+    ground_truth.everything_changed()
+
+    results['true_zones'] = simulation.areas
+    results['true_weights'] = weights
+    results['true_p_global'] = simulation.p_universal[np.newaxis, ...]
+    results['true_p_zones'] = simulation.p_contact
+    results['true_p_families'] = simulation.p_inheritance
+    results['true_ll'] = model.likelihood(ground_truth, caching=False)
+    results['true_prior'] = model.prior(ground_truth)
+    results["true_families"] = simulation.families
+
+    if lh_per_area:
+        ground_truth_log_lh_single_area = []
+        ground_truth_prior_single_area = []
+        ground_truth_posterior_single_area = []
+
+        for z in range(len(simulation.areas)):
+            area = simulation.areas[np.newaxis, z]
+            p_zone = simulation.p_contact[np.newaxis, z]
+
+            # Define Model
+            ground_truth_single_zone = Sample(zones=area, weights=weights,
+                                              p_global=simulation.p_universal[np.newaxis, ...],
+                                              p_zones=p_zone, p_families=simulation.p_inheritance)
+            ground_truth_single_zone.everything_changed()
+
+            # Evaluate Likelihood and Prior
+            lh = model.likelihood(ground_truth_single_zone, caching=False)
+            prior = model.prior(ground_truth_single_zone)
+
+            ground_truth_log_lh_single_area.append(lh)
+            ground_truth_prior_single_area.append(prior)
+            ground_truth_posterior_single_area.append(lh + prior)
+
+            results['true_lh_single_zones'] = ground_truth_log_lh_single_area
+            results['true_prior_single_zones'] = ground_truth_prior_single_area
+            results['true_posterior_single_zones'] = ground_truth_posterior_single_area
+
+    return results

@@ -53,22 +53,25 @@ class Sample(object):
         zones (np.array): Assignment of sites to zones.
             shape: (n_zones, n_sites)
         weights (np.array): Weights of zone, family and global likelihood for different features.
-            shape: (n_features, 3)
+            shape: (n_features, n_components)
         p_global (np.array): Global probabilities of categories
-            shape(1, n_features, n_categories)
+            shape(1, n_features, n_states)
         p_zones (np.array): Probabilities of categories in zones
-            shape: (n_zones, n_features, n_categories)
+            shape: (n_zones, n_features, n_states)
         p_families (np.array): Probabilities of categories in families
-            shape: (n_families, n_features, n_categories)
+            shape: (n_families, n_features, n_states)
         source (np.array): Assignment of single observations (a feature in a language) to be
                            the result of the global, zone or family distribution.
-            shape: (n_sites, n_features, 3)
+            shape: (n_sites, n_features, n_components)
 
         what_changed (dict): Flags to indicate which parts of the state changed since
                              the last likelihood/prior evaluation.
+        last_lh (float): The last log-likelihood value of this sample (for logging).
+        last_prior (float): The last log-prior value of this sample (for logging).
         observation_lhs (np.array): The likelihood of each observation, given the state of
                                     the sample.
             shape: (n_sites, n_features)
+
     """
 
     def __init__(self, zones, weights, p_global, p_zones, p_families, source=None, chain=0):
@@ -84,8 +87,42 @@ class Sample(object):
         self.what_changed = {}
         self.everything_changed()
 
+        # Store last likelihood and prior for logging
+        self.last_lh = 0.0
+        self.last_prior = 0.0
+
         # Store the likelihood of each observation (language and feature) for logging
         self.observation_lhs = None
+
+        self.i_step = 0
+
+    @property
+    def n_areas(self):
+        return self.zones.shape[0]
+
+    @property
+    def n_sites(self):
+        return self.zones.shape[1]
+
+    @property
+    def n_features(self):
+        return self.weights.shape[0]
+
+    @property
+    def n_components(self):
+        return self.weights.shape[1]
+
+    @property
+    def n_families(self):
+        return self.p_families.shape[0]
+
+    @property
+    def n_states(self):
+        return self.p_families.shape[2]
+
+    @property
+    def inheritance(self):
+        return self.n_components == 3
 
     @classmethod
     def empty_sample(cls):
@@ -184,29 +221,6 @@ class ZoneMCMC(MCMCGenerative):
             self.var_proposal_p_families = 20
         except KeyError:
             pass
-
-        self.logged_likelihood_array = None
-
-    def generate_samples(self, *args, **kwargs):
-        # Create the likelihood file (for model comparison)
-        if self.sample_from_prior:
-            super().generate_samples(*args, **kwargs)
-        else:
-            likelihood_path = self.data.path_results / f'K{self.n_zones}' / 'likelihood.h5'
-            os.makedirs(likelihood_path.parent, exist_ok=True)
-            with tables.open_file(likelihood_path, mode='w') as likelihood_file:
-
-                # Create the likelihood array
-                self.logged_likelihood_array = likelihood_file.create_earray(
-                    where=likelihood_file.root,
-                    name='likelihood',
-                    atom=tables.Float32Col(),
-                    filters=tables.Filters(complevel=9, complib='blosc:zlib', bitshuffle=True, fletcher32=True),
-                    shape=(0, self.n_sites*self.n_features)
-                )
-
-                # Run the sampler
-                super().generate_samples(*args, **kwargs)
 
     def gibbs_sample_sources(self, sample: Sample, as_gibbs=True,
                              site_subset=slice(None)):
@@ -1363,11 +1377,6 @@ class ZoneMCMC(MCMCGenerative):
             })
 
         return op_weights
-
-    def log_sample_statistics(self, sample, c, sample_id):
-        super(ZoneMCMC, self).log_sample_statistics(sample, c, sample_id)
-        if not self.sample_from_prior:
-            self.logged_likelihood_array.append(sample.observation_lhs[None,...])
 
 
 class ZoneMCMCWarmup(ZoneMCMC):

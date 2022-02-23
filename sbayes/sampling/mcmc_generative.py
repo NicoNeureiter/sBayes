@@ -1,18 +1,27 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-from __future__ import absolute_import, division, print_function, \
-    unicode_literals
+import logging
 import math as _math
 import abc as _abc
 import random as _random
 import time as _time
 import numpy as _np
 from copy import copy
+from typing import List
 
 from collections import defaultdict
 
+from sbayes.model import Model
+from sbayes.load_data import Data
+from sbayes.sampling.loggers import ResultsLogger
 
-class MCMCGenerative(metaclass=_abc.ABCMeta):
+class MCMCSample(_abc.ABC):
+    last_lh: float
+    last_prior: float
+    what_changed: dict
+
+
+class MCMCGenerative(_abc.ABC):
 
     """Base-class for MCMC samplers for generative model. Instantiable sub-classes have to implement
     some methods, like propose_step() and likelihood().
@@ -30,10 +39,21 @@ class MCMCGenerative(metaclass=_abc.ABCMeta):
     Q_REJECT = 0
     Q_BACK_REJECT = -_np.inf
 
-    def __init__(self, model, data, operators, n_chains=1,
-                 mc3=False, swap_period=None, chain_swaps=None,
-                 sample_from_prior=False, show_screen_log=False,
-                 logger=None, **kwargs):
+    def __init__(
+            self,
+            model: Model,
+            data: Data,
+            operators: dict,
+            sample_loggers: List[ResultsLogger],
+            n_chains: int = 1,
+            mc3: bool = False,
+            swap_period: int = None,
+            chain_swaps: int = None,
+            sample_from_prior: bool = False,
+            show_screen_log: bool = False,
+            logger: logging.Logger = None,
+            **kwargs
+    ):
 
         # The model and data defining the posterior distribution
         self.model = model
@@ -51,6 +71,9 @@ class MCMCGenerative(metaclass=_abc.ABCMeta):
         self.mc3 = mc3
         self.swap_period = swap_period
         self.chain_swaps = chain_swaps
+
+        # Loggers to write results to files
+        self.sample_loggers = sample_loggers
 
         # Initialize statistics
         self.statistics = {'sample_id': [],
@@ -101,6 +124,7 @@ class MCMCGenerative(metaclass=_abc.ABCMeta):
             log_prior_stable = self.posterior_per_chain[chain].prior(sample=sample)
             assert log_prior == log_prior_stable, f'{log_prior} != {log_prior_stable}'
 
+        sample.last_prior = log_prior
         return log_prior
 
     def likelihood(self, sample, chain):
@@ -124,6 +148,7 @@ class MCMCGenerative(metaclass=_abc.ABCMeta):
             log_lh_stable = self.posterior_per_chain[chain].likelihood(sample=sample, caching=False)
             assert log_lh == log_lh_stable, f'{log_lh} != {log_lh_stable}'
 
+        sample.last_lh = log_lh
         return log_lh
 
 
@@ -209,6 +234,7 @@ class MCMCGenerative(metaclass=_abc.ABCMeta):
                 # Generate samples for each chain
                 for c in self.chain_idx:
                     sample[c] = self.step(sample[c], c)
+                    sample[c].i_step = i_step
 
                 # Log samples at fixed intervals
                 if i_step % steps_per_sample == 0:
@@ -238,6 +264,10 @@ class MCMCGenerative(metaclass=_abc.ABCMeta):
                 self.statistics['swap_ratio'] = (self.statistics['accepted_swaps'] / self.statistics['n_swaps'])
             else:
                 self.statistics['swap_ratio'] = 0
+
+        # Close files of all sample_loggers
+        for logger in self.sample_loggers:
+            logger.close()
 
     def swap_chains(self, sample):
 
@@ -270,10 +300,6 @@ class MCMCGenerative(metaclass=_abc.ABCMeta):
                 self.chain_idx[swap_from_idx] = swap_to
                 self.chain_idx[swap_to_idx] = swap_from
                 self.statistics['accepted_swaps'] += 1
-
-            #     print("swapped")
-            # else:
-            #     print("not swapped")
 
         # Set all 'what_changed' flags to true (to avoid caching errors)
         for s in sample:
@@ -357,18 +383,17 @@ class MCMCGenerative(metaclass=_abc.ABCMeta):
             c (int): The current chain
             sample_id (int): Index of the logged sample.
         """
-        self.statistics['sample_id'].append(sample_id)
-        self.statistics['sample_zones'].append(sample.zones)
-        self.statistics['sample_weights'].append(sample.weights)
-        self.statistics['sample_p_global'].append(sample.p_global)
-        self.statistics['sample_p_zones'].append(sample.p_zones)
-        self.statistics['sample_p_families'].append(sample.p_families)
-        self.statistics['sample_likelihood'].append(self._ll[c])
-        self.statistics['sample_prior'].append(self._prior[c])
+        for logger in self.sample_loggers:
+            logger.write_sample(sample)
 
-        if self.show_screen_log:
-            print('Log-likelihood: %.2f' % self._ll[c])
-            print('Accepted steps: %i' % self.statistics['accepted_steps'])
+        # self.statistics['sample_id'].append(sample_id)
+        # self.statistics['sample_zones'].append(sample.zones)
+        # self.statistics['sample_weights'].append(sample.weights.astype('float32'))
+        # self.statistics['sample_p_global'].append(sample.p_global.astype('float32'))
+        # self.statistics['sample_p_zones'].append(sample.p_zones.astype('float32'))
+        # self.statistics['sample_p_families'].append(sample.p_families.astype('float32'))
+        # self.statistics['sample_likelihood'].append(self._ll[c])
+        # self.statistics['sample_prior'].append(self._prior[c])
 
     def log_last_sample(self, last_sample):
         """ This function logs the last sample of the first chain of an MCMC run.
@@ -387,18 +412,18 @@ class MCMCGenerative(metaclass=_abc.ABCMeta):
         time_str = '%i seconds / million steps' % time_per_million
 
         print(i_step_str + likelihood_str + time_str)
-        # print('size0 =', 'sum(sample[self.chain_idx[0]].zones[0]))
 
-    def print_statistics(self, samples):
+    def print_statistics(self):
         self.logger.info("\n")
         self.logger.info("MCMC STATISTICS")
         self.logger.info("##########################################")
         self.logger.info(log_operator_statistics_header())
         for operator in self.fn_operators:
-            self.logger.info(log_operator_statistics(operator.__name__, samples))
+            self.logger.info(log_operator_statistics(operator.__name__, self.statistics))
 
 
 COL_WIDTHS = [20, 8, 8, 8, 10]
+
 
 def log_operator_statistics_header():
     name_header = str.ljust('OPERATOR', COL_WIDTHS[0])
