@@ -359,7 +359,6 @@ class Plot:
         #                          (extent['x_max'], extent['y_max']),
         #                          (extent['x_min'], extent['y_max']),
         #                          (extent['x_min'], extent['y_min'])])
-        bbox
         return bbox
 
     @staticmethod
@@ -506,6 +505,16 @@ class Plot:
         ax.scatter(*locations.T, s=cfg_graphic['languages']['size'],
                    color=cfg_graphic['languages']['color'], linewidth=0)
 
+    @staticmethod
+    def get_area_colors(n_areas: int, custom_colors=None):
+        cm = plt.get_cmap('gist_rainbow')
+        if custom_colors is None:
+            return list(cm(np.linspace(0, 1, n_areas, endpoint=False)))
+        else:
+            provided = np.array([colors.to_rgba(c) for c in custom_colors])
+            additional = cm(np.linspace(0, 1, n_areas - len(custom_colors), endpoint=False))
+            return list(np.concatenate((provided, additional), axis=0))
+
     def add_labels(self, cfg_content, locations_map_crs, area_labels, area_colors, extent, ax):
         """Add labels to languages"""
 
@@ -552,22 +561,19 @@ class Plot:
                 area_labels_legend.append(f'$Z_{i + 1}$')
 
         # Color areas
-        cm = plt.get_cmap('gist_rainbow')
-
         if len(cfg_graphic['areas']['color']) == 0:
             print(f'No colors for areas provided in map>graphic>areas>color '
                   f'in the config plot file ({self.config_file}). I am using default colors instead.')
 
-            area_colors = list(cm(np.linspace(0, 1, len(self.results['areas']))))
+            area_colors = self.get_area_colors(n_areas=len(self.results['areas']))
 
         elif len(cfg_graphic['areas']['color']) < len(self.results['areas']):
 
             print(f"Too few colors for areas ({len(cfg_graphic['areas']['color'])} provided, "
                   f"{len(self.results['areas'])} needed) in map>graphic>areas>color in the config plot "
                   f"file ({self.config_file}). I am adding default colors.")
-            provided = np.array([colors.to_rgba(c) for c in cfg_graphic['areas']['color']])
-            additional = cm(np.linspace(0, 1, len(self.results['areas']) - len(cfg_graphic['areas']['color'])))
-            area_colors = list(np.concatenate((provided, additional), axis=0))
+            area_colors = self.get_area_colors(n_areas=len(self.results['areas']),
+                                               custom_colors=cfg_graphic['areas']['color'])
 
         else:
             area_colors = list(cfg_graphic['areas']['color'])
@@ -1724,25 +1730,19 @@ class Plot:
 
         fig, axs = plt.subplots(n_row, n_col, figsize=(width * n_col, height * n_row))
 
-        cm = plt.get_cmap('gist_rainbow')
-
         if len(self.config['map']['graphic']['areas']['color']) == 0:
             print(f'I tried to color the pie charts the same as the map, but no colors were provided in '
                   f'map>graphic>areas>color in the config plot file ({self.config_file}). '
                   f'I am using default colors instead.')
 
-            all_colors = list(cm(np.linspace(0, 1, n_areas)))
+            all_colors = self.get_area_colors(n_areas=n_areas)
 
         elif len(self.config['map']['graphic']['areas']['color']) < n_areas:
 
             print(f'I tried to color the pie charts the same as the map, but not enough colors were provided in '
                   f'map>graphic>areas>color in the config plot file ({self.config_file}). '
                   f'I am adding default colors.')
-
-            provided = np.array([colors.to_rgba(c) for c in self.config['map']['graphic']['areas']['color']])
-            additional = cm(np.linspace(0, 1, n_areas - len(self.config['map']['graphic']['areas']['color'])))
-            all_colors = list(np.concatenate((provided, additional), axis=0))
-
+            all_colors = self.get_area_colors(n_areas, custom_colors=self.config['map']['graphic']['areas']['color'])
         else:
             print(f'I am using the colors in map>graphic>areas>color '
                   f'in the config plot file ({self.config_file}) to color the pie charts.')
