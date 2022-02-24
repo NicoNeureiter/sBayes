@@ -1,4 +1,4 @@
-import types
+import json
 from pathlib import Path
 from enum import Enum
 from typing import Union, List, Dict, Literal, Optional
@@ -52,7 +52,7 @@ class GeoPriorConfig(BaseConfig):
         return values
 
 
-class ClusterSizePriorConfig(BaseConfig):
+class LanguagesPerAreaConfig(BaseConfig):
     """Config for area size prior."""
 
     class Types(str, Enum):
@@ -70,6 +70,7 @@ class DirichletPriorConfig(BaseConfig):
     class Types(str, Enum):
         UNIFORM = 'uniform'
         DIRICHLET = 'dirichlet'
+        UNIVERSAL = 'universal'
 
     type: Types = Types.UNIFORM
     file: Optional[FilePath] = None
@@ -105,49 +106,56 @@ class DirichletPriorConfig(BaseConfig):
 
 class WeightsPriorConfig(DirichletPriorConfig):
     """Config for prion on the weights of the mixture components."""
+    # TODO disallow Types.UNIVERSAL
 
 
-class ConfoundingEffectsPriorConfig(DirichletPriorConfig):
-    """Config for prior on the parameters of the confounding-effects."""
+class UniversalPriorConfig(DirichletPriorConfig):
+    """Config for prion on the universal distribution."""
+    # TODO disallow Types.UNIVERSAL
 
 
-class ClusterEffectConfig(DirichletPriorConfig):
-    """Config for prior on the parameters of the cluster-effect."""
+class ContactPriorConfig(DirichletPriorConfig):
+    """Config for prion on the areal distributions."""
+
+
+class InheritancePriorConfig(DirichletPriorConfig):
+    """Config for prion on the family distributions."""
 
 
 class PriorConfig(BaseConfig):
     """Config for all priors of a sBayes model."""
 
     geo: GeoPriorConfig
-    objects_per_cluster: ClusterSizePriorConfig
+    languages_per_area: LanguagesPerAreaConfig
     weights: WeightsPriorConfig
-    confounding_effects: ConfoundingEffectsPriorConfig
-    cluster_effect: ClusterEffectConfig
+    universal: UniversalPriorConfig
+    inheritance: Dict[str, InheritancePriorConfig]
+    contact: ContactPriorConfig
 
 
 class ModelConfig(BaseConfig):
+    areas: Union[int, list] = 1
+    """The number of areas to be inferred."""
 
-    clusters: Union[int, List[int]] = 1
-    """The number of clusters to be inferred."""
-
-    confounders: List[str] = Field(default_factory=list)
-    """List of confounders to be modelled along the clusters."""
+    inheritance: bool = True
+    """Whether or not to include a mixture component for inheritance in the model."""
 
     sample_source: bool = True
     """Sample the source component for each observation (implicitly activates Gibbs sampling)."""
 
     prior: PriorConfig
-    """The config section defining the priors of the model"""
+    """The config section defining the priors of the model."""
 
 
 class OperatorsConfig(BaseConfig):
     """The frequency of each MCMC operator. Will be normalized to 1.0 at runtime."""
 
-    clusters: PositiveFloat = 45.0
+    area: PositiveFloat = 35.0
     weights: PositiveFloat = 15.0
-    cluster_effect: PositiveFloat = 5.0
-    confounding_effects: PositiveFloat = 15.0
-    source: PositiveFloat = 10.0
+    universal: PositiveFloat = 5.0
+    contact: PositiveFloat = 15.0
+    inheritance: PositiveFloat = 15.0
+    source: PositiveFloat = 15.0
 
 
 class WarmupConfig(BaseConfig):
@@ -162,8 +170,8 @@ class MCMCConfig(BaseConfig):
     samples: PositiveInt = 1000
     runs: PositiveInt = 1
     sample_from_prior: bool = False
-    init_objects_per_cluster: PositiveInt = 5
-    grow_to_adjacent: confloat(ge=0, le=1) = 0.8
+    init_lang_per_area: PositiveInt = 5
+    grow_to_adjacent: confloat(ge=0, le=1) = 0.85
     operators: OperatorsConfig = Field(default_factory=OperatorsConfig)
     warmup: WarmupConfig = Field(default_factory=WarmupConfig)
 
@@ -171,10 +179,10 @@ class MCMCConfig(BaseConfig):
 class DataConfig(BaseConfig):
     """Config storing information on the data for an sBayes analysis."""
 
-    features: FilePath
+    features: Path
     """Path to the CSV file with features used for the analysis."""
 
-    feature_states: FilePath
+    feature_states: Path
     """Path to the CSV file defining the possible states for each feature."""
 
     projection: str = "epsg:4326"
@@ -211,27 +219,29 @@ def make_default_dict(cfg: type):
 
 
 if __name__ == '__main__':
-    cfg_1 = SBayesConfig(**{
-        'data': {
-            'features': 'config.py',
-            'feature_states': 'config.py',
-        },
-        'model': {
-            'prior': {
-                'geo': {},
-                'objects_per_cluster': {
-                    'type': 'uniform_size',
-                },
-                'weights': {},
-                'confounding_effects': {},
-                'cluster_effect': {},
-            },
-        },
-        'mcmc': {
+    import yaml
 
-        },
-        'results': {
-        },
-    })
+    # sa_config_dict = json.load(open('experiments/south_america/config.json','r'))
+    # print(sa_config_dict)
+    # sa_config = SBayesConfig(**sa_config_dict)
+    # print(yaml.dump(json.loads(sa_config.json())))
 
-    print(cfg_1['model'])
+    # print(yaml.dump(serialize(SBayesConfig)))
+    print(json.dumps(make_default_dict(SBayesConfig), indent=2))
+    exit()
+
+    # cfg_1 = LanguagesPerAreaConfig(**{
+    #     'type': 'uniform_area',
+    #     'min': 2,
+    #     'max': 3,
+    # })
+    #
+    # cfg_2 = PFamiliesPriorConfig(**{
+    #     'type': 'dirichlet',
+    #     'parameters': {1: 2},
+    # })
+    #
+    # # cfg.min = 1
+
+
+
