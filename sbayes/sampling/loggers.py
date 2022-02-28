@@ -51,7 +51,7 @@ class ParametersCSVLogger(ResultsLogger):
         self,
         path: str,
         data: Data,
-        float_format: str = "%.6g",
+        float_format: str = "%.12g",
     ):
         super(ParametersCSVLogger, self).__init__(path=path, data=data)
         self.float_format = float_format
