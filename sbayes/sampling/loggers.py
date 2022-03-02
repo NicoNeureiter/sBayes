@@ -58,7 +58,7 @@ class ParametersCSVLogger(ResultsLogger):
         self,
         *args,
         log_contribution_per_area: bool = True,
-        float_format: str = "%.10g",
+        float_format: str = "%.12g",
         match_areas: bool = True,
     ):
         super().__init__(*args)
