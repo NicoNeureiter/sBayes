@@ -1305,12 +1305,8 @@ def timeit(func):
 
     return timed_func
 
-if __name__ == "__main__":
-    import doctest
-    doctest.testmod()
 
-
-@lru_cache
+@lru_cache(maxsize=128)
 def get_permutations(n: int) -> t.List[t.Tuple[int]]:
     return list(permutations(range(n)))
 
@@ -1328,3 +1324,8 @@ def get_best_permutation(
     print(areas.shape[0])
     print(list(all_permutations))
     return max(all_permutations, key=clustering_agreement)
+
+
+if __name__ == "__main__":
+    import doctest
+    doctest.testmod()
