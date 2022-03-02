@@ -4,13 +4,16 @@ import datetime
 import time
 import csv
 import os
+from functools import lru_cache
 from math import sqrt, floor, ceil
-from itertools import combinations
+from itertools import combinations, permutations
 import typing as t
 
 import numpy as np
+import numpy.typing as npt
 import pandas as pd
 import scipy.spatial as spatial
+from numpy import typing as npt
 from scipy.special import betaln
 import scipy.stats as stats
 from scipy.sparse import csr_matrix
@@ -30,24 +33,24 @@ class FamilyError(Exception):
     pass
 
 
-def encode_area(area):
+def encode_area(area: npt.NDArray) -> str:
     """Format the given area as a compact bit-string."""
     area_s = area.astype(int).astype(str)
     return ''.join(area_s)
 
 
-def decode_area(area_str):
+def decode_area(area_str: str) -> npt.NDArray:
     """Read a bit-string and parse it into an area array."""
     return np.array(list(area_str)).astype(int).astype(bool)
 
 
-def format_area_columns(areas):
+def format_area_columns(areas: npt.NDArray) -> str:
     """Format the given array of areas as tab separated strings."""
     areas_encoded = map(encode_area, areas)
     return '\t'.join(areas_encoded)
 
 
-def parse_area_columns(areas_encoded):
+def parse_area_columns(areas_encoded: str) -> npt.NDArray[bool]:
     """Read tab-separated area encodings into a two-dimensional area array."""
     areas_decoded = map(decode_area, areas_encoded.split('\t'))
     return np.array(list(areas_decoded))
@@ -364,8 +367,9 @@ def read_features_from_csv(file, feature_states_file):
     family_names = {'external': family_names_ordered,
                     'internal': list(range(n_families))}
 
-    log = f"{n_sites} sites with {n_features} features read from {file}. {na_number} NA value(s) found."
-
+    log = f"{n_sites} sites with {n_features} features read from {file}.\n"
+    log += f"{na_number} NA value(s) found.\n"
+    log += f"The maximum number of states in a single feature was {applicable_states.shape[1]}."
     return sites, site_names, features, feature_names, state_names, applicable_states, families, family_names, log
 
     # TODO Proposition of cleaning up the data interfaces (NN):
@@ -1304,3 +1308,23 @@ def timeit(func):
 if __name__ == "__main__":
     import doctest
     doctest.testmod()
+
+
+@lru_cache
+def get_permutations(n: int) -> t.List[t.Tuple[int]]:
+    return list(permutations(range(n)))
+
+
+def get_best_permutation(
+        areas: npt.NDArray[bool],  # shape = (n_areas, n_sites)
+        prev_area_sum: npt.NDArray[int],  # shape = (n_areas, n_sites)
+) -> t.Tuple[int]:
+    """Return a permutation of areas that would align the areas in the new sample with previous ones."""
+    def clustering_agreement(p):
+        """In how many sites does permutation `p` previous samples?"""
+        return np.sum(prev_area_sum * areas[p, :])
+
+    all_permutations = get_permutations(areas.shape[0])
+    print(areas.shape[0])
+    print(list(all_permutations))
+    return max(all_permutations, key=clustering_agreement)

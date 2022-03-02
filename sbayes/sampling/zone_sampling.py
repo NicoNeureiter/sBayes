@@ -1,10 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-import os
 import logging
 import random as _random
 from copy import deepcopy
-import tables
 
 import numpy as np
 import scipy.stats as stats
@@ -793,8 +791,6 @@ class ZoneMCMC(MCMCGenerative):
             lh_per_component = likelihood.update_component_likelihoods(sample=sample, caching=False)
             weights = likelihood.update_weights(sample=sample)
             source_posterior = normalize(lh_per_component * weights, axis=-1)
-            # q_per_observation = np.sum(sample.source * source_posterior, axis=2)
-            # log_q_back_s = np.sum(np.log(q_per_observation))
             is_source = np.where(sample.source.ravel())
             log_q_back_s = np.sum(np.log(source_posterior.ravel()[is_source]))
 

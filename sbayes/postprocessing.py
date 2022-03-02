@@ -1,12 +1,12 @@
-from itertools import permutations
-import numpy as np
 import math
-from scipy.special import logsumexp
+
+import numpy as np
 
 from sbayes.sampling.zone_sampling import ZoneMCMC, Sample
 from sbayes.simulation import Simulation
 from sbayes.model import Model
 from sbayes.util import normalize
+from sbayes.util import get_best_permutation
 
 
 def compute_dic(lh, burn_in):
@@ -215,27 +215,14 @@ def match_areas(samples):
     """
 
     area_samples = np.array([np.array(s) for s in samples['sample_zones']])
-    area_samples = np.swapaxes(area_samples, 1, 2)
-
-    n_samples, n_sites, n_areas = area_samples.shape
-    s_sum = np.zeros((n_sites, n_areas))
+    n_samples, n_areas, n_sites = area_samples.shape
+    s_sum = np.zeros((n_areas, n_sites))
 
     # All potential permutations of cluster labels
-    perm = list(permutations(range(n_areas)))
     matching_list = []
     for s in area_samples:
-
-        def clustering_agreement(p):
-
-            """In how many sites does the permutation 'p'
-            match the previous sample?
-            """
-
-            return np.sum(s_sum * s[:, p])
-
-        best_match = max(perm, key=clustering_agreement)
-        matching_list.append(list(best_match))
-        s_sum += s[:, best_match]
+        permutation = get_best_permutation(s, s_sum)
+        s_sum += s[permutation, :]
 
     # Reorder chains according to matching
     reordered_zones = []

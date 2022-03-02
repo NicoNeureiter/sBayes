@@ -113,11 +113,11 @@ Ratio of contact steps (changing gamma): {mcmc_config['operators']['contact']}
         likelihood_path = base_dir / f'likelihood_K{k}_{run}.h5'
 
         sample_loggers = [
-            ParametersCSVLogger(params_path, self.data),
-            AreasLogger(areas_path, self.data),
+            ParametersCSVLogger(params_path, self.data, self.model),
+            AreasLogger(areas_path, self.data, self.model),
         ]
         if not self.config['mcmc']['sample_from_prior']:
-            sample_loggers.append(LikelihoodLogger(likelihood_path, self.data))
+            sample_loggers.append(LikelihoodLogger(likelihood_path, self.data, self.model))
 
         return sample_loggers
 
