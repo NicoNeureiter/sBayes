@@ -1321,8 +1321,6 @@ def get_best_permutation(
         return np.sum(prev_area_sum * areas[p, :])
 
     all_permutations = get_permutations(areas.shape[0])
-    print(areas.shape[0])
-    print(list(all_permutations))
     return max(all_permutations, key=clustering_agreement)
 
 
