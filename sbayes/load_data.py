@@ -62,6 +62,8 @@ class Data:
         # Not a simulation
         self.is_simulated = False
 
+        self.logger = experiment.logger
+
     def load_features(self):
         (self.sites, self.site_names, self.features, self.feature_names,
          self.state_names, self.states, self.families, self.family_names,
@@ -148,15 +150,13 @@ class Data:
         self.geo_prior = {'cost_matrix': geo_cost_matrix}
 
     def log_loading(self):
-        log_path = self.path_results / 'experiment.log'
-        logging.basicConfig(format='%(message)s', filename=log_path, level=logging.DEBUG)
-        logging.info("\n")
-        logging.info("DATA IMPORT")
-        logging.info("##########################################")
-        logging.info(self.log_load_features)
-        logging.info(self.log_load_universal_counts)
-        logging.info(self.log_load_inheritance_counts)
-        logging.info(self.log_load_geo_cost_matrix)
+        self.logger.info("\n")
+        self.logger.info("DATA IMPORT")
+        self.logger.info("##########################################")
+        self.logger.info(self.log_load_features)
+        self.logger.info(self.log_load_universal_counts)
+        self.logger.info(self.log_load_inheritance_counts)
+        self.logger.info(self.log_load_geo_cost_matrix)
 
 
 @dataclass
