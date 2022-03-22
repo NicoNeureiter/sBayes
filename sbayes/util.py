@@ -12,9 +12,9 @@ import typing as t
 import numpy as np
 import numpy.typing as npt
 import pandas as pd
+import scipy
 import scipy.spatial as spatial
-from numpy import typing as npt
-from scipy.special import betaln
+from scipy.special import betaln, expit
 import scipy.stats as stats
 from scipy.sparse import csr_matrix
 import matplotlib.pyplot as plt
@@ -1322,6 +1322,13 @@ def get_best_permutation(
 
     all_permutations = get_permutations(areas.shape[0])
     return max(all_permutations, key=clustering_agreement)
+
+
+if scipy.__version__ >= '1.8.0':
+    log_expit = scipy.special.log_expit
+else:
+    def log_expit(*args, **kwargs):
+        return np.log(expit(*args, **kwargs))
 
 
 if __name__ == "__main__":

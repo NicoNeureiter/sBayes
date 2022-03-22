@@ -1,11 +1,11 @@
 descartes
 geopandas
 matplotlib
-numpy
+numpy>=1.21
 pygeos
 pandas
 pyproj
-scipy>=1.8.0
+scipy
 Shapely
 seaborn
 setuptools

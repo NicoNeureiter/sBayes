@@ -9,12 +9,12 @@ from typing import List
 import numpy as np
 
 import scipy.stats as stats
-from scipy.special import log_expit
 from scipy.sparse.csgraph import minimum_spanning_tree, csgraph_from_dense
 
 from sbayes.util import (compute_delaunay, n_smallest_distances, log_binom, log_multinom,
                          counts_to_dirichlet, inheritance_counts_to_dirichlet,
-                         dirichlet_logpdf, scale_counts)
+                         dirichlet_logpdf, log_expit)
+
 EPS = np.finfo(float).eps
 
 
