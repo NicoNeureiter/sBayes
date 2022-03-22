@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 import itertools
+import typing
 from enum import Enum
 import json
 from typing import List
@@ -8,6 +9,7 @@ from typing import List
 import numpy as np
 
 import scipy.stats as stats
+from scipy.special import log_expit
 from scipy.sparse.csgraph import minimum_spanning_tree, csgraph_from_dense
 
 from sbayes.util import (compute_delaunay, n_smallest_distances, log_binom, log_multinom,
@@ -1084,6 +1086,7 @@ class ZoneSizePrior(object):
         else:
             raise NotImplementedError()
 
+
 class GeoPrior(object):
 
     class TYPES(Enum):
@@ -1091,13 +1094,23 @@ class GeoPrior(object):
         GAUSSIAN = 'gaussian'
         COST_BASED = 'cost_based'
 
+    AGGREGATORS = {
+        'mean': np.mean,
+        'sum': np.sum,
+        'max': np.max,
+    }
+
     def __init__(self, config, data, initial_counts=1.):
         self.config = config
         self.data = data
         self.initial_counts = initial_counts
 
         self.prior_type = None
+        self.covariance = None
         self.cost_matrix = None
+        self.aggregator = None
+        self.aggregation_policy = None
+        self.probability_function = None
         self.scale = None
         self.cached = None
 
@@ -1115,11 +1128,43 @@ class GeoPrior(object):
             self.prior_type = self.TYPES.COST_BASED
             self.cost_matrix = self.data.geo_prior['cost_matrix']
             self.scale = config['rate']
-            self.aggregation = config['aggregation']
+
+            self.aggregation_policy = config['aggregation']
+            assert self.aggregation_policy in ['mean', 'sum', 'max']
+            self.aggregator = self.AGGREGATORS.get(self.aggregation_policy)
+            if self.aggregator is None:
+                raise ValueError(f'Unknown aggregation policy "{self.aggregation_policy}" in geo prior.')
+
+            assert config['probability_function'] in ['exponential', 'sigmoid']
+            self.probability_function = self.parse_prob_function(
+                prob_function_type=config['probability_function'],
+                scale=self.scale,
+                inflection_point=config.get('inflection_point')
+            )
+
         else:
             raise ValueError('Geo prior not supported')
 
-    def is_outdated(self, sample):
+    @staticmethod
+    def parse_prob_function(
+            prob_function_type: str,
+            scale: float,
+            inflection_point: typing.Optional[float]
+    ) -> callable:
+
+        if prob_function_type == 'exponential':
+            return lambda x: -x / scale
+            # == log(e^(-x/scale))
+
+        elif prob_function_type == 'sigmoid':
+            x0 = inflection_point
+            return lambda x: log_expit(-(x - x0) / scale) - log_expit(x0 / scale)
+            # The last term `- log_expit(x0/scale)` scales the sigmoid to be 1 at distance 0
+
+        else:
+            raise ValueError(f'Unknown probability_function `{prob_function_type}`')
+
+    def is_outdated(self, sample) -> bool:
         return self.cached is None or sample.what_changed['prior']['zones']
 
     def __call__(self, sample):
@@ -1146,8 +1191,8 @@ class GeoPrior(object):
                 geo_prior = geo_prior_distance(
                     zones=sample.zones,
                     cost_mat=self.cost_matrix,
-                    scale=self.scale,
-                    aggregation=self.aggregation
+                    aggregator=self.aggregator,
+                    probability_function=self.probability_function,
                 )
 
             else:
@@ -1213,46 +1258,24 @@ def geo_prior_gaussian(zones: np.array, network: dict, cov: np.array):
 
 def geo_prior_distance(zones: np.array,
                        cost_mat: np.array,
-                       scale: float,
-                       aggregation: str):
+                       aggregator: callable,
+                       probability_function: callable,
+                       ):
     """ This function computes the geo prior for the sum of all distances of the mst of a zone
     Args:
-        zones (np.array): The current zones (boolean array)
-        cost_mat (np.array): The cost matrix between locations
-        scale (float): The scale parameter of an exponential distribution
-        aggregation (str): The aggregation policy, defining how the single edge
+        zones: The current zones (boolean array)
+        cost_mat: The cost matrix between locations
+        aggregator: The aggregation policy, defining how the single edge
             costs are combined into one joint cost for the area.
+        probability_function: Function mapping aggregate distances to log-probabilities
 
     Returns:
         float: the log geo-prior of the zones
     """
 
-    AGGREGATORS = {
-        'mean': np.mean,
-        'sum': np.sum,
-        'max': np.min,  # sic: max distance == min log-likelihood
-    }
-    if aggregation in AGGREGATORS:
-        aggregator = AGGREGATORS[aggregation]
-    else:
-        raise ValueError(f'Unknown aggregation policy "{aggregation}" in geo prior.')
-
-
     log_prior = 0.0
     for z in zones:
         cost_mat_z = cost_mat[z][:, z]
-
-        # if len(locations) > 3:
-        #
-        #     delaunay = compute_delaunay(locations)
-        #     mst = minimum_spanning_tree(delaunay.multiply(dist_mat))
-        #     distances = mst.tocsr()[mst.nonzero()]
-        #
-        # elif len(locations) == 3:
-        #     distances = n_smallest_distances(dist_mat, n=2, return_idx=False)
-        #
-        # elif len(locations) == 2:
-        #     distances = n_smallest_distances(dist_mat, n=1, return_idx=False)
 
         if cost_mat_z.shape[0] > 1:
             graph = csgraph_from_dense(cost_mat_z, null_value=np.inf)
@@ -1267,9 +1290,8 @@ def geo_prior_distance(zones: np.array,
         else:
             raise ValueError("Too few locations to compute distance.")
 
-        log_prior_per_edge = stats.expon.logpdf(distances, loc=0, scale=scale)
-        log_prior += aggregator(log_prior_per_edge)
-
+        agg_distance = aggregator(distances)
+        log_prior += probability_function(agg_distance)
     return log_prior
 
 

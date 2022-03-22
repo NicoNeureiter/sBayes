@@ -5,7 +5,7 @@ numpy
 pygeos
 pandas
 pyproj
-scipy
+scipy>=1.8.0
 Shapely
 seaborn
 setuptools
