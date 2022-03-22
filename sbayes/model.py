@@ -714,7 +714,10 @@ class PGlobalPrior(DirichletPrior):
         """Compile a set-up message for logging."""
         msg = f'Universal-prior type: {self.prior_type.value}\n'
         if self.prior_type == self.TYPES.DIRICHLET:
-            msg += f'\tCounts file: {self.config["file"]}\n'
+            if 'file' in self.config:
+                msg += f'\tCounts file: {self.config["file"]}\n'
+            else:
+                msg += f'\tCounts provided in config file.\n'
         return msg
 
 
