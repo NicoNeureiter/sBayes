@@ -1213,15 +1213,25 @@ class GeoPrior(object):
         """Compile a set-up message for logging."""
         msg = f'Geo-prior: {self.prior_type.value}\n'
         if self.prior_type == self.TYPES.COST_BASED:
+            prob_fun = self.config["probability_function"]
+            msg += f'\tProbability function: {prob_fun}\n'
+            msg += f'\tAggregation policy: {self.aggregation_policy}\n'
             msg += f'\tScale: {self.scale}\n'
+            if self.config['probability_function'] == 'sigmoid':
+                msg += f'\tInflection point: {self.config["inflection_point"]}\n'
             if self.config['costs'] == 'from_data':
                 msg += '\tCost-matrix inferred from geo-locations.\n'
             else:
                 msg += f'\tCost-matrix file: {self.config["costs"]}\n'
+
         return msg
 
 
-def geo_prior_gaussian(zones: np.array, network: dict, cov: np.array):
+def geo_prior_gaussian(
+        zones: np.array,
+        network: dict,
+        cov: np.array,
+) -> float:
     """
     This function computes the two-dimensional Gaussian geo-prior for all edges in the zone
     Args:
@@ -1259,11 +1269,12 @@ def geo_prior_gaussian(zones: np.array, network: dict, cov: np.array):
     return np.mean(log_prior)
 
 
-def geo_prior_distance(zones: np.array,
-                       cost_mat: np.array,
-                       aggregator: callable,
-                       probability_function: callable,
-                       ):
+def geo_prior_distance(
+        zones: np.array,
+        cost_mat: np.array,
+        aggregator: callable,
+        probability_function: callable,
+) -> float:
     """ This function computes the geo prior for the sum of all distances of the mst of a zone
     Args:
         zones: The current zones (boolean array)
@@ -1279,7 +1290,6 @@ def geo_prior_distance(zones: np.array,
     log_prior = 0.0
     for z in zones:
         cost_mat_z = cost_mat[z][:, z]
-
         if cost_mat_z.shape[0] > 1:
             graph = csgraph_from_dense(cost_mat_z, null_value=np.inf)
             mst = minimum_spanning_tree(graph)
