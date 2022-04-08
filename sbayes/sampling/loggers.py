@@ -41,7 +41,8 @@ class ResultsLogger(ABC):
         self._write_sample(sample)
 
     def open(self):
-        self.file = open(self.path, "w")
+        self.file = open(self.path, "w", buffering=1)
+        # ´buffering=1´ activates line-buffering, i.e. flushing to file after each line
 
     def close(self):
         self.file.close()
