@@ -4,6 +4,7 @@ import os
 from itertools import compress
 from statistics import median
 from pathlib import Path
+import typing as tp
 
 try:
     import importlib.resources as pkg_resources     # PYTHON >= 3.7
@@ -11,7 +12,6 @@ try:
 except ImportError:
     import importlib_resources as pkg_resources     # PYTHON < 3.7
 
-import pandas as pd
 import geopandas as gpd
 import matplotlib as mpl
 import matplotlib.pyplot as plt
@@ -33,6 +33,7 @@ from shapely import geometry
 from shapely.ops import cascaded_union, polygonize
 
 from sbayes.postprocessing import compute_dic
+from sbayes.results import Results
 from sbayes.util import add_edge, compute_delaunay
 from sbayes.util import fix_default_config
 from sbayes.util import gabriel_graph_from_delaunay
@@ -70,7 +71,7 @@ class Plot:
         self.family_names = None
 
         # Dictionary with all the MCMC results
-        self.results = {}
+        self.results: tp.Optional[Results] = None
 
         # Needed for the weights and parameters plotting
         plt.style.use('seaborn-paper')
@@ -112,8 +113,8 @@ class Plot:
         self.path_features = self.fix_relative_path(self.config['data']['features'])
         self.path_feature_states = self.fix_relative_path(self.config['data']['feature_states'])
 
-        self.path_areas = [self.fix_relative_path(i) for i in self.config['results']['path_in']['areas']]
-        self.path_stats = [self.fix_relative_path(i) for i in self.config['results']['path_in']['stats']]
+        self.all_path_areas = [self.fix_relative_path(i) for i in self.config['results']['path_in']['areas']]
+        self.all_path_stats = [self.fix_relative_path(i) for i in self.config['results']['path_in']['stats']]
 
         if not os.path.exists(self.path_plots):
             os.makedirs(self.path_plots)
@@ -225,78 +226,34 @@ class Plot:
 
         return param_dict
 
-    # Helper function for read_stats
-    # Bind all statistics together into the dictionary self.results
-    def bind_stats(self, sample_id, posterior, likelihood, prior,
-                   weights, alpha, beta, gamma,
-                   posterior_single_areas, likelihood_single_areas, prior_single_areas, feature_names):
-        self.results['sample_id'] = sample_id
-        self.results['posterior'] = posterior
-        self.results['likelihood'] = likelihood
-        self.results['prior'] = prior
-        self.results['weights'] = weights
-        self.results['alpha'] = alpha
-        self.results['beta'] = beta
-        self.results['gamma'] = gamma
-        self.results['posterior_single_areas'] = posterior_single_areas
-        self.results['likelihood_single_areas'] = likelihood_single_areas
-        self.results['prior_single_areas'] = prior_single_areas
-        self.results['feature_names'] = feature_names
-
-    def read_stats(self, txt_path):
-        """Read stats for results files (<experiment_path>/stats_<scenario>.txt).
-
-        Args:
-            txt_path: path to results file
-        """
-        sample_id = None
-        # Load the stats using pandas
-        df_stats = pd.read_csv(txt_path, delimiter='\t')
-
-        # Read scalar parameters from the dataframe
-        if 'Sample' in df_stats:
-            sample_id = df_stats['Sample'].to_numpy(dtype=int)
-        posterior = df_stats['posterior'].to_numpy(dtype=float)
-        likelihood = df_stats['likelihood'].to_numpy(dtype=float)
-        prior = df_stats['prior'].to_numpy(dtype=float)
-
-        # Read multivalued parameters from the dataframe into dicts
-        weights = Plot.read_dictionary(df_stats, 'w_')
-        alpha = Plot.read_dictionary(df_stats, 'alpha_')
-        beta = Plot.read_dictionary(df_stats, 'beta_')
-        gamma = Plot.read_dictionary(df_stats, 'gamma_')
-        posterior_single_areas = Plot.read_dictionary(df_stats, 'post_')
-        likelihood_single_areas = Plot.read_dictionary(df_stats, 'lh_')
-        prior_single_areas = Plot.read_dictionary(df_stats, 'prior_')
-
-        # Names of distinct features
-        feature_names = []
-        for key in weights:
-            if 'universal' in key:
-                feature_names.append(str(key).rsplit('_', 1)[1])
-
-        # Bind all statistics together into the dictionary self.results
-        self.bind_stats(sample_id, posterior, likelihood, prior, weights, alpha, beta, gamma,
-                        posterior_single_areas, likelihood_single_areas, prior_single_areas, feature_names)
+    def iterate_over_models(self) -> str:
+        for path_areas, path_stats in zip(sorted(self.all_path_areas),
+                                          sorted(self.all_path_stats)):
+            last_part = str(path_areas).replace('\\', '/').rsplit('/', 1)[-1]
+            model_name = str(last_part).rsplit('_')[1]
+            self.path_areas = path_areas
+            self.path_stats = path_stats
+            yield model_name
 
     # Read results
     # Call all the previous functions
     # Bind the results together into the results dictionary
-    def read_results(self, model=None):
+    def read_results(self):
+        self.results = Results.from_csv_files(self.path_areas, self.path_stats)
 
-        self.results = {}
-        if model is None:
-            print('Reading results...')
-            path_areas = self.path_areas
-            path_stats = self.path_stats
-
-        else:
-            print('Reading results of model %s...' % model)
-            path_areas = [p for p in self.path_areas if 'areas_' + str(model) + '_' in str(p)][0]
-            path_stats = [p for p in self.path_stats if 'stats_' + str(model) + '_' in str(p)][0]
-
-        self.results['areas'] = self.read_areas(path_areas)
-        self.read_stats(path_stats)
+        # self.results = {}
+        # if model is None:
+        #     print('Reading results...')
+        #     path_areas = self.path_areas
+        #     path_stats = self.path_stats
+        #
+        # else:
+        #     print('Reading results of model %s...' % model)
+        #     path_areas = [p for p in self.path_areas if 'areas_' + str(model) + '_' in str(p)][0]
+        #     path_stats = [p for p in self.path_stats if 'stats_' + str(model) + '_' in str(p)][0]
+        #
+        # self.results['areas'] = self.read_areas(path_areas)
+        # self.read_stats(path_stats)
 
     def get_model_names(self):
         last_part = [str(p).replace('\\', '/').rsplit('/', 1)[-1] for p in self.path_areas]
@@ -350,15 +307,8 @@ class Plot:
 
     @staticmethod
     def compute_bbox(extent):
-
         bbox = geometry.box(extent['x_min'], extent['y_min'],
                             extent['x_max'], extent['y_max'])
-
-        # bbox = geometry.Polygon([(extent['x_min'], extent['y_min']),
-        #                          (extent['x_max'], extent['y_min']),
-        #                          (extent['x_max'], extent['y_max']),
-        #                          (extent['x_min'], extent['y_max']),
-        #                          (extent['x_min'], extent['y_min'])])
         return bbox
 
     @staticmethod
@@ -790,7 +740,7 @@ class Plot:
         # Legend for area labels
         area_labels = ["      log-likelihood per area"]
 
-        lh_per_area = np.array(list(self.results['likelihood_single_areas'].values()), dtype=float)
+        lh_per_area = np.array(list(self.results.likelihood_single_areas.values()), dtype=float)
         to_rank = np.mean(lh_per_area, axis=1)
         p = to_rank[np.argsort(-to_rank)]
 
@@ -1817,19 +1767,15 @@ def main(config, plot_types=None):
     plot.load_config(config_file=config)
     plot.read_data()
 
-    # Get model names
-    names = plot.get_model_names()
-
     def should_be_plotted(plot_type):
         """A plot type should only be generated if it
             1) is specified in the config file and
             2) is in the requested list of plot types."""
         return (plot_type in plot.config) and (plot_type in plot_types)
-        # return (plot_type in plot.config['plots']) and (plot_type in plot_types)
 
-    for m in names:
+    for m in plot.iterate_over_models():
         # Read results for model ´m´
-        plot.read_results(model=m)
+        plot.read_results()
         print('Plotting model', m)
 
         # Plot the reconstructed areas on a map
@@ -1858,18 +1804,19 @@ def main(config, plot_types=None):
 
 def plot_map(plot, m):
     config_map = plot.config['map']
-    # config_map = plot.config['plots']['map']
     map_type = config_map['content']['type']
 
     if map_type == config_map['content']['type'] == 'density_map':
         plot.posterior_map(file_name='posterior_map_' + m)
 
     elif map_type == config_map['content']['type'] == 'consensus_map':
-        iterate_or_run(
-            x=config_map['content']['min_posterior_frequency'],
-            config_setter=lambda x: config_map['content'].__setitem__('min_posterior_frequency', x),
-            function=lambda x: plot.posterior_map(file_name=f'posterior_map_{m}_{x}')
-        )
+        min_posterior_frequency = config_map['content']['min_posterior_frequency']
+        if min_posterior_frequency in [tuple, list, set]:
+            for mpf in min_posterior_frequency:
+                config_map['content'].__setitem__('min_posterior_frequency', mpf)
+                plot.posterior_map(file_name=f'posterior_map_{m}_{mpf}')
+        else:
+            plot.posterior_map(file_name=f'posterior_map_{m}_{min_posterior_frequency}')
     else:
         raise ValueError(f'Unknown map type: {map_type}  (in the config file "map" -> "content" -> "type")')
 
@@ -1882,13 +1829,10 @@ if __name__ == '__main__':
     parser.add_argument('type', nargs='?', type=str, help='The type of plot to generate')
     args = parser.parse_args()
 
-    config = args.config
-
+    plot_types = None
     if args.type is not None:
         if args.type not in ALL_PLOT_TYPES:
             raise ValueError('Unknown plot type: ' + args.type)
         plot_types = [args.type]
-    else:
-        plot_types = None
 
-    main(config, plot_types=plot_types)
+    main(args.config, plot_types=plot_types)
