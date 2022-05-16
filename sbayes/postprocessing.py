@@ -2,7 +2,8 @@ import math
 
 import numpy as np
 
-from sbayes.sampling.zone_sampling import ZoneMCMC, Sample
+from sbayes.sampling.zone_sampling import ZoneMCMC
+from sbayes.sampling.state import Sample
 from sbayes.simulation import Simulation
 from sbayes.model import Model
 from sbayes.util import normalize

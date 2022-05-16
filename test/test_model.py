@@ -5,7 +5,7 @@ from collections import namedtuple
 import unittest
 
 from sbayes.model import Likelihood
-from sbayes.sampling.zone_sampling import Sample
+from sbayes.sampling.state import Sample
 from sbayes.util import log_multinom
 
 

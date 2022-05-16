@@ -5,7 +5,8 @@
 
 import typing as tp
 
-from sbayes.sampling.zone_sampling import Sample, ZoneMCMC, ZoneMCMCWarmup
+from sbayes.sampling.zone_sampling import ZoneMCMC, ZoneMCMCWarmup
+from sbayes.sampling.state import Sample
 from sbayes.model import Model
 from sbayes.sampling.loggers import ResultsLogger, ParametersCSVLogger, AreasLogger, LikelihoodLogger
 
