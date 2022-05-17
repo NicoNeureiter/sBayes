@@ -306,7 +306,7 @@ def normalize_str(s):
 
 
 def read_features_from_csv(config):
-    """This is a helper function to import data (sites, features, confounders) from a csv file
+    """This is a helper function to import data (objects, features, confounders) from a csv file
     Args:
         config (dict): the config file
     Returns:
@@ -316,7 +316,7 @@ def read_features_from_csv(config):
     data = pd.read_csv(file, dtype=str)
     data = data.applymap(normalize_str)
 
-    conf = dict()
+    confounder_raw = dict()
     try:
         x = data.pop('x')
         y = data.pop('y')
@@ -331,7 +331,7 @@ def read_features_from_csv(config):
 
     for c in config['model']['confounding_effects']:
         try:
-            conf[c] = data.pop(c)
+            confounder_raw[c] = data.pop(c)
         except KeyError:
             raise KeyError(f"The config file lists `\'{c}'\' as a confounder. Remove confounder or include "
                            f"`\'{c}\'` in the features.csv file.")
@@ -344,7 +344,7 @@ def read_features_from_csv(config):
     # Make sure the same features are specified in the data file and in the feature_states file
     assert set(feature_states.columns) == set(data.columns)
 
-    # sites
+    # objects
     n_sites, n_features = data.shape
     locations = np.zeros((n_sites, 2))
 
@@ -354,9 +354,9 @@ def read_features_from_csv(config):
         locations[i, 1] = float(y[i])
 
         # The order in the list maps to the external names and id
-    sites = {'locations': locations,
-             'id': id_ext,
-             'name': names}
+    objects = {'locations': locations,
+               'id': id_ext,
+               'name': names}
 
     # features
     features, na_number = encode_states(data, feature_states)
@@ -364,7 +364,7 @@ def read_features_from_csv(config):
 
     # confounders
     confounders = dict()
-    for k, v in conf.items():
+    for k, v in confounder_raw.items():
         groups_ordered = np.unique(v.dropna()).tolist()
         n_groups = len(groups_ordered)
 
@@ -376,9 +376,9 @@ def read_features_from_csv(config):
         confounders[k] = {'values': c,
                           'names': groups_ordered}
 
-    log = f"{n_sites} sites with {n_features} features read from {file}. {na_number} NA value(s) found."
+    log = f"{n_sites} objects with {n_features} features read from {file}. {na_number} NA value(s) found."
 
-    return sites, features, confounders, log
+    return objects, features, confounders, log
 
 
 def read_costs_from_csv(file):
