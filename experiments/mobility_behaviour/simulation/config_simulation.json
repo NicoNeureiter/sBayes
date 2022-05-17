@@ -1,0 +1,22 @@
+{
+	"canvas": "canvas_mobility.csv",
+	"results": {
+		"path": "../data/features"
+	},
+	"n_features": 20,
+	"n_states": {
+		"2": 0.4,
+		"3": 0.3,
+		"4": 0.3
+	},
+	"cluster_effect": {
+		"intensity": 2,
+		"concentration": 0.3
+	},
+	"confounding_effects": {
+		"age": {
+			"intensity": 2,
+			"concentration": 0.4
+		}
+	}
+}
