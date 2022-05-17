@@ -126,7 +126,7 @@ class Simulation:
     def run_simulation(self):
 
         # Get sites from canvas file
-        self.sites, self.site_names, self.log_load_canvas = load_canvas(config=self.config)
+        self.sites, self.site_names = load_canvas(config=self.config, logger=self.logger)
 
         # Assign sites to clusters
         self.network = ComputeNetwork(self.sites)

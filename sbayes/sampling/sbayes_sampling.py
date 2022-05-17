@@ -3,127 +3,15 @@
 import logging
 import os
 import random as _random
-from copy import deepcopy
-import tables
 
 import numpy as np
 import scipy.stats as stats
 
 from sbayes.sampling.mcmc import MCMC
 from sbayes.model import normalize_weights, ConfoundingEffectsPrior
+from sbayes.sampling.state import Sample
 from sbayes.util import get_neighbours, normalize, dirichlet_logpdf, get_max_size_list
 from sbayes.preprocessing import sample_categorical
-
-
-class IndexSet(set):
-
-    def __init__(self, all_i=True):
-        super().__init__()
-        self.all = all_i
-
-    def add(self, element):
-        super(IndexSet, self).add(element)
-
-    def clear(self):
-        super(IndexSet, self).clear()
-        self.all = False
-
-    def __bool__(self):
-        return self.all or (len(self) > 0)
-
-    def __copy__(self):
-        other = IndexSet(all_i=self.all)
-        for element in self:
-            other.add(element)
-
-        return other
-
-    def __deepcopy__(self, memo):
-        other = IndexSet(all_i=self.all)
-        for element in self:
-            other.add(deepcopy(element))
-
-        return other
-
-
-class Sample(object):
-    """
-    Attributes:
-        chain (int): index of the the chain for parallel sampling.
-        clusters (np.array): Assignment of sites to clusters.
-            shape: (n_clusters, n_sites)
-        weights (np.array): Weights of the areal effect and each of the i confounding effects
-            shape: (n_features, 1 + n_confounders)
-        cluster_effect (np.array): Probabilities of states in the clusters
-            shape: (n_clusters, n_features, n_states)
-        confounding_effects (dict): Probabilities of states for each of the i confounding effects,
-            each confounding effect [i] with shape: (n_groups[i], n_features, n_states)
-        source (np.array): Assignment of single observations (a feature in an object) to be
-                           the result of the areal effect or one of the i confounding effects
-            shape: (n_sites, n_features, 1 + n_confounders)
-        what_changed (dict): Flags to indicate which parts of the state changed since
-                             the last likelihood/prior evaluation.
-        observation_lhs (np.array): The likelihood of each observation, given the state of
-                                    the sample.
-            shape: (n_sites, n_features)
-
-    """
-
-    def __init__(self, clusters, weights, cluster_effect, confounding_effects, source=None, chain=0):
-        self.clusters = clusters
-        self.weights = weights
-        self.cluster_effect = cluster_effect
-        self.confounding_effects = confounding_effects
-        self.source = source
-        self.chain = chain
-
-        # The sample contains information about which of its parameters was changed in the last MCMC step
-        self.what_changed = {}
-        self.everything_changed()
-
-        # Store the likelihood of each observation (language and feature) for logging
-        self.observation_lhs = None
-
-    @classmethod
-    def empty_sample(cls, conf):
-
-        initial_sample = cls(clusters=None, weights=None, cluster_effect=None,
-                             confounding_effects={k: None for k in conf})
-        initial_sample.everything_changed()
-        return initial_sample
-
-    def everything_changed(self):
-
-        self.what_changed = {
-            'lh': {'clusters': IndexSet(), 'weights': True, 'cluster_effect': IndexSet(),
-                   'confounding_effects': {k: IndexSet() for k in self.confounding_effects}},
-            'prior': {'clusters': IndexSet(), 'weights': True, 'cluster_effect': IndexSet(),
-                      'confounding_effects': {k: IndexSet() for k in self.confounding_effects}}}
-
-    def copy(self):
-        clusters_copied = deepcopy(self.clusters)
-        weights_copied = deepcopy(self.weights)
-        what_changed_copied = deepcopy(self.what_changed)
-
-        def maybe_copy(obj):
-            if obj is not None:
-                return obj.copy()
-
-        cluster_effect_copied = maybe_copy(self.cluster_effect)
-        confounding_effects_copied = dict()
-
-        for k, v in self.confounding_effects.items():
-            confounding_effects_copied[k] = maybe_copy(v)
-
-        source_copied = maybe_copy(self.source)
-
-        new_sample = Sample(chain=self.chain, clusters=clusters_copied, weights=weights_copied,
-                            cluster_effect=cluster_effect_copied, confounding_effects=confounding_effects_copied,
-                            source=source_copied)
-
-        new_sample.what_changed = what_changed_copied
-
-        return new_sample
 
 
 class ClusterMCMC(MCMC):
@@ -177,29 +65,6 @@ class ClusterMCMC(MCMC):
         self.var_proposal_weight = 10
         self.var_proposal_cluster_effect = 20
         self.var_proposal_confounding_effects = 10
-
-        self.logged_likelihood_array = None
-
-    def generate_samples(self, *args, **kwargs):
-        # Create the likelihood file (for model comparison)
-        if self.sample_from_prior:
-            super().generate_samples(*args, **kwargs)
-        else:
-            likelihood_path = self.data.path_results / f'K{self.n_clusters}' / 'likelihood.h5'
-            os.makedirs(likelihood_path.parent, exist_ok=True)
-            with tables.open_file(likelihood_path, mode='w') as likelihood_file:
-
-                # Create the likelihood array
-                self.logged_likelihood_array = likelihood_file.create_earray(
-                    where=likelihood_file.root,
-                    name='likelihood',
-                    atom=tables.Float32Col(),
-                    filters=tables.Filters(complevel=9, complib='blosc:zlib', bitshuffle=True, fletcher32=True),
-                    shape=(0, self.n_sites*self.n_features)
-                )
-
-                # Run the sampler
-                super().generate_samples(*args, **kwargs)
 
     def get_groups_per_confounder(self):
         n_groups = dict()
@@ -708,8 +573,6 @@ class ClusterMCMC(MCMC):
             lh_per_component = likelihood.update_component_likelihoods(sample=sample, caching=False)
             weights = likelihood.update_weights(sample=sample)
             source_posterior = normalize(lh_per_component * weights, axis=-1)
-            # q_per_observation = np.sum(sample.source * source_posterior, axis=2)
-            # log_q_back_s = np.sum(np.log(q_per_observation))
             is_source = np.where(sample.source.ravel())
             log_q_back_s = np.sum(np.log(source_posterior.ravel()[is_source]))
 
@@ -1207,17 +1070,19 @@ class ClusterMCMC(MCMC):
         """
         a_test = []
 
+        GIBBSISH_CLUSTER_STEPS = False
+
         op_weights = {
-            'shrink_cluster': {'weight': operators_raw['clusters'] * 0.4,
+            'shrink_cluster': {'weight': operators_raw['clusters'] * (0 if GIBBSISH_CLUSTER_STEPS else 0.4),
                                'function': getattr(self, "shrink_cluster"),
                                'additional_parameters': None},
-            'grow_cluster': {'weight': operators_raw['clusters'] * 0.4,
+            'grow_cluster': {'weight': operators_raw['clusters'] * (0 if GIBBSISH_CLUSTER_STEPS else 0.4),
                              'function': getattr(self, "grow_cluster"),
                              'additional_parameters': None},
-            'swap_cluster': {'weight': operators_raw['clusters'] * 0.2,
+            'swap_cluster': {'weight': operators_raw['clusters'] * (0 if GIBBSISH_CLUSTER_STEPS else 0.2),
                              'function': getattr(self, "swap_cluster"),
                              'additional_parameters': None},
-            'gibbsish_sample_clusters': {'weight': operators_raw['clusters'] * 0.0,
+            'gibbsish_sample_clusters': {'weight': operators_raw['clusters'] * (1.0 if GIBBSISH_CLUSTER_STEPS else 0),
                                          'function': getattr(self, "gibbsish_sample_clusters"),
                                          'additional_parameters': None}
         }
@@ -1264,11 +1129,6 @@ class ClusterMCMC(MCMC):
                 })
 
         return op_weights
-
-    def log_sample_statistics(self, sample, c, sample_id):
-        super(ClusterMCMC, self).log_sample_statistics(sample, c, sample_id)
-        if not self.sample_from_prior:
-            self.logged_likelihood_array.append(sample.observation_lhs[None, ...])
 
 
 class ClusterMCMCWarmup(ClusterMCMC):

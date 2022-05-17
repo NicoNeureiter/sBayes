@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 import itertools
+import typing
 from enum import Enum
 from typing import List
 
@@ -9,8 +10,11 @@ import numpy as np
 import scipy.stats as stats
 from scipy.sparse.csgraph import minimum_spanning_tree, csgraph_from_dense
 
-from sbayes.util import (compute_delaunay, n_smallest_distances,
-                         log_multinom, dirichlet_logpdf)
+from sbayes.sampling.state import Sample
+from sbayes.util import (compute_delaunay, n_smallest_distances, log_binom, log_multinom,
+                         counts_to_dirichlet, inheritance_counts_to_dirichlet,
+                         dirichlet_logpdf, log_expit)
+
 EPS = np.finfo(float).eps
 
 
@@ -543,6 +547,7 @@ class ConfoundingEffectsPrior(DirichletPrior):
             # todo: reactivate
             # elif config[family]['type'] == 'dirichlet':
             #     self.concentration[i_fam] = self.load_concentration(config[family])
+
             else:
                 raise ValueError(self.invalid_prior_message(self.config['type']))
 
@@ -555,7 +560,15 @@ class ConfoundingEffectsPrior(DirichletPrior):
         else:
             return False
 
-    def __call__(self, sample):
+    def __call__(self, sample: Sample) -> float:
+        """"Calculate the log PDF of the confounding effects prior.
+
+        Args:
+            sample (Sample): Current MCMC sample.
+
+        Returns:
+            float: Logarithm of the prior probability density.
+        """
 
         what_changed = sample.what_changed['prior']['confounding_effects'][self.conf]
         if not self.is_outdated(sample):
@@ -774,11 +787,18 @@ class ClusterSizePrior(object):
     #         raise NotImplementedError()
 
 
+
 class GeoPrior(object):
 
     class TYPES(Enum):
         UNIFORM = 'uniform'
         COST_BASED = 'cost_based'
+
+    AGGREGATORS = {
+        'mean': np.mean,
+        'sum': np.sum,
+        'max': np.max,
+    }
 
     def __init__(self, config, cost_matrix=None, initial_counts=1.):
         self.config = config
@@ -786,7 +806,11 @@ class GeoPrior(object):
         self.initial_counts = initial_counts
 
         self.prior_type = None
+        self.covariance = None
         self.cost_matrix = None
+        self.aggregator = None
+        self.aggregation_policy = None
+        self.probability_function = None
         self.scale = None
         self.cached = None
         self.aggregation = None
@@ -805,16 +829,46 @@ class GeoPrior(object):
             self.prior_type = self.TYPES.COST_BASED
             self.cost_matrix = self.cost_matrix
             self.scale = config['rate']
-            self.aggregation = config['aggregation']
-            self.linkage = config['linkage']
+            self.aggregation_policy = config['aggregation']
+            assert self.aggregation_policy in ['mean', 'sum', 'max']
+            self.aggregator = self.AGGREGATORS.get(self.aggregation_policy)
+            if self.aggregator is None:
+                raise ValueError(f'Unknown aggregation policy "{self.aggregation_policy}" in geo prior.')
 
+            assert config['probability_function'] in ['exponential', 'sigmoid']
+            self.probability_function = self.parse_prob_function(
+                prob_function_type=config['probability_function'],
+                scale=self.scale,
+                inflection_point=config.get('inflection_point', None)
+            )
         else:
             raise ValueError('Geo prior not supported')
 
-    def is_outdated(self, sample):
+    @staticmethod
+    def parse_prob_function(
+            prob_function_type: str,
+            scale: float,
+            inflection_point: typing.Optional[float] = None
+    ) -> callable:
+
+        if prob_function_type == 'exponential':
+            return lambda x: -x / scale
+            # == log(e^(-x/scale))
+
+        elif prob_function_type == 'sigmoid':
+            assert inflection_point is not None
+
+            x0 = inflection_point
+            return lambda x: log_expit(-(x - x0) / scale) - log_expit(x0 / scale)
+            # The last term `- log_expit(x0/scale)` scales the sigmoid to be 1 at distance 0
+
+        else:
+            raise ValueError(f'Unknown probability_function `{prob_function_type}`')
+
+    def is_outdated(self, sample: Sample) -> bool:
         return self.cached is None or sample.what_changed['prior']['clusters']
 
-    def __call__(self, sample):
+    def __call__(self, sample: Sample):
         """Compute the geo-prior of the current cluster (or load from cache).
         Args:
             sample (Sample): Current MCMC sample
@@ -829,8 +883,8 @@ class GeoPrior(object):
                 geo_prior = compute_cost_based_geo_prior(
                     clusters=sample.clusters,
                     cost_mat=self.cost_matrix,
-                    scale=self.scale,
-                    aggregation=self.aggregation
+                    aggregator=self.aggregator,
+                    probability_function=self.probability_function,
                 )
             else:
                 raise ValueError('geo_prior must be either \"uniform\" or \"cost_based\".')
@@ -847,15 +901,25 @@ class GeoPrior(object):
         """Compile a set-up message for logging."""
         msg = f'Geo-prior: {self.prior_type.value}\n'
         if self.prior_type == self.TYPES.COST_BASED:
+            prob_fun = self.config["probability_function"]
+            msg += f'\tProbability function: {prob_fun}\n'
+            msg += f'\tAggregation policy: {self.aggregation_policy}\n'
             msg += f'\tScale: {self.scale}\n'
+            if self.config['probability_function'] == 'sigmoid':
+                msg += f'\tInflection point: {self.config["inflection_point"]}\n'
             if self.config['costs'] == 'from_data':
                 msg += '\tCost-matrix inferred from geo-locations.\n'
             else:
                 msg += f'\tCost-matrix file: {self.config["costs"]}\n'
+
         return msg
 
 
-def compute_gaussian_geo_prior(cluster: np.array, network: dict, cov: np.array):
+def compute_gaussian_geo_prior(
+        cluster: np.array,
+        network: dict,
+        cov: np.array,
+) -> float:
     """
     This function computes the two-dimensional Gaussian geo-prior for all edges in the zone
     Args:
@@ -896,30 +960,20 @@ def compute_gaussian_geo_prior(cluster: np.array, network: dict, cov: np.array):
 def compute_cost_based_geo_prior(
         clusters: np.array,
         cost_mat: np.array,
-        scale: float,
-        aggregation: str
-):
+        aggregator: callable,
+        probability_function: callable,
+) -> float:
     """ This function computes the geo prior for the sum of all distances of the mst of a zone
     Args:
-        clusters (np.array): The current cluster (boolean array)
-        cost_mat (np.array): The cost matrix between locations
-        scale (float): The scale parameter of an exponential distribution
-        aggregation (str): The aggregation policy, defining how the single edge
+        clusters: The current cluster (boolean array)
+        cost_mat: The cost matrix between locations
+        aggregator: The aggregation policy, defining how the single edge
             costs are combined into one joint cost for the area.
+        probability_function: Function mapping aggregate distances to log-probabilities
 
     Returns:
         float: the log geo-prior of the cluster
     """
-    AGGREGATORS = {
-        'mean': np.mean,
-        'sum': np.sum,
-        'max': np.min,  # sic: max distance == min log-likelihood
-    }
-    if aggregation in AGGREGATORS:
-        aggregator = AGGREGATORS[aggregation]
-    else:
-        raise ValueError(f'Unknown aggregation policy "{aggregation}" in geo prior.')
-
     log_prior = 0.0
     for z in clusters:
         cost_mat_z = cost_mat[z][:, z]
@@ -937,42 +991,9 @@ def compute_cost_based_geo_prior(
         else:
             raise ValueError("Too few locations to compute distance.")
 
-        log_prior_per_edge = stats.expon.logpdf(distances, loc=0, scale=scale)
-        log_prior += aggregator(log_prior_per_edge)
-
+        agg_distance = aggregator(distances)
+        log_prior += probability_function(agg_distance)
     return log_prior
-
-
-# def prior_p_global_dirichlet(p_global, concentration, applicable_states, outdated_features,
-#                              cached_prior=None):
-#     """" This function evaluates the prior for p_families
-#     Args:
-#         p_global (np.array): p_global from the sample
-#         concentration (list): list of Dirichlet concentration parameters
-#         applicable_states (list): list of available categories per feature
-#         outdated_features (IndexSet): The features which changed and need to be updated.
-#     Kwargs:
-#         cached_prior (list):
-#
-#     Returns:
-#         float: the prior for p_global
-#     """
-#     _, n_feat, n_cat = p_global.shape
-#
-#     if outdated_features.all:
-#         outdated_features = range(n_feat)
-#         log_prior = np.zeros(n_feat)
-#     else:
-#         log_prior = cached_prior
-#
-#     for f in outdated_features:
-#         states_f = applicable_states[f]
-#         log_prior[f] = dirichlet_logpdf(
-#             x=p_global[0, f, states_f],
-#             alpha=concentration[f]
-#         )
-#
-#     return log_prior
 
 
 def compute_confounding_effects_prior(confounding_effect, concentration, applicable_states,
@@ -998,7 +1019,6 @@ def compute_confounding_effects_prior(confounding_effect, concentration, applica
         log_prior = cached_prior
 
     for group, f in outdated_indices:
-
         if broadcast:
             # One prior is applied to all groups
             concentration_group = concentration[f]

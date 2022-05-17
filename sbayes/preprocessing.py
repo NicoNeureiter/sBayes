@@ -19,11 +19,12 @@ from sbayes.util import (compute_delaunay,
 EPS = np.finfo(float).eps
 
 
-def load_canvas(config):
+def load_canvas(config, logger=None):
     """ This function reads sites from a csv, with the following columns:
         x: the x-coordinate
         y: the y-coordinate
         all other expected columns are defined in the config file
+        logger: Logger object for info messages.
     Args:
         config(dict): config file for the simulation
     Returns:
@@ -80,9 +81,10 @@ def load_canvas(config):
 
     site_names = {'external': identifier,
                   'internal': list(range(0, len(identifier)))}
+    if logger:
+        logger.info(str(len(identifier)) + " locations read from " + str(config['canvas']))
 
-    log = str(len(identifier)) + " locations read from " + str(config['canvas'])
-    return sites, site_names, log
+    return sites, site_names
 
 
 class ComputeNetwork:
@@ -430,7 +432,7 @@ def simulate_assignment_probabilities(config, clusters, confounders):
     return p
 
 
-def read_geo_cost_matrix(site_names, file):
+def read_geo_cost_matrix(site_names, file, logger=None):
     """ This is a helper function to import the geographical cost matrix.
 
     Args:
@@ -440,7 +442,7 @@ def read_geo_cost_matrix(site_names, file):
     Returns:
 
     """
-    costs, log = read_costs_from_csv(file)
+    costs = read_costs_from_csv(file, logger=logger)
     assert set(costs.columns) == set(site_names['external'])
 
     # Sort the data by site names
@@ -451,9 +453,10 @@ def read_geo_cost_matrix(site_names, file):
     # Check if matrix is symmetric, if not make symmetric
     if not np.allclose(cost_matrix, cost_matrix.T):
         cost_matrix = (cost_matrix + cost_matrix.T)/2
-        log += f".The cost matrix is not symmetric. It was made symmetric by averaging the original" \
-               f" costs along the upper and lower triangle."
-    return cost_matrix, log
+        if logger:
+            logger.info("The cost matrix is not symmetric. It was made symmetric by "
+                        "averaging the original costs in the upper and lower triangle.")
+    return cost_matrix
 
 
 

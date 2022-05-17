@@ -4,13 +4,13 @@ import os
 from itertools import compress
 from statistics import median
 from pathlib import Path
+import typing as tp
 
 try:
     import importlib.resources as pkg_resources     # PYTHON >= 3.7
 except ImportError:
     import importlib_resources as pkg_resources     # PYTHON < 3.7
 
-import pandas as pd
 import geopandas as gpd
 import matplotlib as mpl
 import matplotlib.pyplot as plt
@@ -32,6 +32,7 @@ from shapely import geometry
 from shapely.ops import cascaded_union, polygonize
 
 from sbayes.postprocessing import compute_dic
+from sbayes.results import Results
 from sbayes.util import add_edge, compute_delaunay
 from sbayes.util import fix_default_config, fix_relative_path
 from sbayes.util import gabriel_graph_from_delaunay
@@ -56,9 +57,8 @@ class Plot:
         self.path_features = None
         self.path_feature_states = None
         self.path_plots = None
-
-        self.path_areas = None
-        self.path_stats = None
+        self.cluster_path = None
+        self.stats_path = None
 
         # Input sites, site_names, locations, ...
         self.sites = None
@@ -69,7 +69,7 @@ class Plot:
         self.family_names = None
 
         # Dictionary with all the MCMC results
-        self.results = {}
+        self.results: tp.Optional[Results] = None
 
         # Needed for the weights and parameters plotting
         plt.style.use('seaborn-paper')
@@ -111,12 +111,13 @@ class Plot:
         self.path_features = fix_relative_path(self.config['data']['features'], self.base_directory)
         self.path_feature_states = fix_relative_path(self.config['data']['feature_states'], self.base_directory)
 
-        self.path_areas = [fix_relative_path(i, self.base_directory) for i in self.config['results']['path_in']['areas']]
-        self.path_stats = [fix_relative_path(i, self.base_directory) for i in self.config['results']['path_in']['stats']]
+        input_paths = self.config['results']['path_in']
+        self.all_cluster_paths = [fix_relative_path(i, self.base_directory) for i in input_paths['clusters']]
+        self.all_stats_paths = [fix_relative_path(i, self.base_directory) for i in input_paths['stats']]
+
 
         if not os.path.exists(self.path_plots):
             os.makedirs(self.path_plots)
-
 
     @staticmethod
     def convert_config(d):
@@ -141,7 +142,7 @@ class Plot:
     # Read the data and the results
     ####################################
 
-    # Functions related to the current scenario (run in a loop over scenarios, i.e. n_zones)
+    # Functions related to the current scenario (run in a loop over scenarios, i.e. n_clusters)
     # Set the results path for the current scenario
     # def set_scenario_path(self, current_scenario):
     #     current_run_path = f"{self.path_plots}/n{self.config['input']['run']}_{current_scenario}/"
@@ -159,26 +160,26 @@ class Plot:
             read_features_from_csv(self.path_features, self.path_feature_states)
         self.locations = self.sites['locations']
 
-    # Read areas
+    # Read clusters
     # Read the data from the files:
-    # <experiment_path>/areas_<scenario>.txt
+    # <experiment_path>/clusters_<scenario>.txt
     @staticmethod
-    def read_areas(txt_path):
+    def read_clusters(txt_path):
         result = []
 
         with open(txt_path, 'r') as f_sample:
 
-            # This makes len(result) = number of areas (flipped array)
+            # This makes len(result) = number of clusters (flipped array)
 
             # Split the sample
             # len(byte_results) equals the number of samples
             byte_results = (f_sample.read()).split('\n')
 
-            # Get the number of areas
-            n_areas = len(byte_results[0].split('\t'))
+            # Get the number of clusters
+            n_clusters = len(byte_results[0].split('\t'))
 
-            # Append empty arrays to result, so that len(result) = n_areas
-            for i in range(n_areas):
+            # Append empty arrays to result, so that len(result) = n_clusters
+            for i in range(n_clusters):
                 result.append([])
 
             # Process each sample
@@ -188,11 +189,11 @@ class Plot:
                 if len(sample) > 0:
 
                     # Parse each sample
-                    # len(parsed_result) equals the number of areas
-                    # parse_cluster_columns.shape equals (n_areas, n_sites)
+                    # len(parsed_result) equals the number of clusters
+                    # parse_cluster_columns.shape equals (n_clusters, n_sites)
                     parsed_sample = parse_cluster_columns(sample)
 
-                    # Add each item in parsed_area_columns to the corresponding array in result
+                    # Add each item in parsed_cluster_columns to the corresponding array in result
                     for j in range(len(parsed_sample)):
                         result[j].append(parsed_sample[j])
 
@@ -209,81 +210,23 @@ class Plot:
 
         return param_dict
 
-    # Helper function for read_stats
-    # Bind all statistics together into the dictionary self.results
-    def bind_stats(self, sample_id, posterior, likelihood, prior,
-                   weights, alpha, beta, gamma,
-                   posterior_single_areas, likelihood_single_areas, prior_single_areas, feature_names):
-        self.results['sample_id'] = sample_id
-        self.results['posterior'] = posterior
-        self.results['likelihood'] = likelihood
-        self.results['prior'] = prior
-        self.results['weights'] = weights
-        self.results['alpha'] = alpha
-        self.results['beta'] = beta
-        self.results['gamma'] = gamma
-        self.results['posterior_single_cluster'] = posterior_single_areas
-        self.results['likelihood_single_cluster'] = likelihood_single_areas
-        self.results['prior_single_cluster'] = prior_single_areas
-        self.results['feature_names'] = feature_names
-
-    def read_stats(self, txt_path):
-        """Read stats for results files (<experiment_path>/stats_<scenario>.txt).
-
-        Args:
-            txt_path: path to results file
-        """
-        sample_id = None
-        # Load the stats using pandas
-        df_stats = pd.read_csv(txt_path, delimiter='\t')
-
-        # Read scalar parameters from the dataframe
-        if 'Sample' in df_stats:
-            sample_id = df_stats['Sample'].to_numpy(dtype=int)
-        posterior = df_stats['posterior'].to_numpy(dtype=float)
-        likelihood = df_stats['likelihood'].to_numpy(dtype=float)
-        prior = df_stats['prior'].to_numpy(dtype=float)
-
-        # Read multivalued parameters from the dataframe into dicts
-        weights = Plot.read_dictionary(df_stats, 'w_')
-        alpha = Plot.read_dictionary(df_stats, 'alpha_')
-        beta = Plot.read_dictionary(df_stats, 'beta_')
-        gamma = Plot.read_dictionary(df_stats, 'gamma_')
-        posterior_single_areas = Plot.read_dictionary(df_stats, 'post_')
-        likelihood_single_areas = Plot.read_dictionary(df_stats, 'lh_')
-        prior_single_areas = Plot.read_dictionary(df_stats, 'prior_')
-
-        # Names of distinct features
-        feature_names = []
-        for key in weights:
-            if 'universal' in key:
-                feature_names.append(str(key).rsplit('_', 1)[1])
-
-        # Bind all statistics together into the dictionary self.results
-        self.bind_stats(sample_id, posterior, likelihood, prior, weights, alpha, beta, gamma,
-                        posterior_single_areas, likelihood_single_areas, prior_single_areas, feature_names)
+    def iterate_over_models(self) -> str:
+        for path_clusters, path_stats in zip(sorted(self.all_cluster_paths),
+                                          sorted(self.all_stats_paths)):
+            last_part = str(path_clusters).replace('\\', '/').rsplit('/', 1)[-1]
+            model_name = str(last_part).rsplit('_')[1]
+            self.path_clusters = path_clusters
+            self.path_stats = path_stats
+            yield model_name
 
     # Read results
     # Call all the previous functions
     # Bind the results together into the results dictionary
-    def read_results(self, model=None):
-
-        self.results = {}
-        if model is None:
-            print('Reading results...')
-            path_areas = self.path_areas
-            path_stats = self.path_stats
-
-        else:
-            print('Reading results of model %s...' % model)
-            path_areas = [p for p in self.path_areas if 'areas_' + str(model) + '_' in str(p)][0]
-            path_stats = [p for p in self.path_stats if 'stats_' + str(model) + '_' in str(p)][0]
-
-        self.results['areas'] = self.read_areas(path_areas)
-        self.read_stats(path_stats)
+    def read_results(self):
+        self.results = Results.from_csv_files(self.path_clusters, self.path_stats)
 
     def get_model_names(self):
-        last_part = [str(p).replace('\\', '/').rsplit('/', 1)[-1] for p in self.path_areas]
+        last_part = [str(p).replace('\\', '/').rsplit('/', 1)[-1] for p in self.path_clusters]
         name = [str(p).rsplit('_')[1] for p in last_part]
         return name
 
@@ -334,16 +277,8 @@ class Plot:
 
     @staticmethod
     def compute_bbox(extent):
-
         bbox = geometry.box(extent['x_min'], extent['y_min'],
                             extent['x_max'], extent['y_max'])
-
-        # bbox = geometry.Polygon([(extent['x_min'], extent['y_min']),
-        #                          (extent['x_max'], extent['y_min']),
-        #                          (extent['x_max'], extent['y_max']),
-        #                          (extent['x_min'], extent['y_max']),
-        #                          (extent['x_min'], extent['y_min'])])
-        bbox
         return bbox
 
     @staticmethod
@@ -362,7 +297,7 @@ class Plot:
 
         """Compute the alpha shape (concave hull) of a set of sites
         Args:
-            points (np.array): subset of locations around which to create the alpha shapes (e.g. family, area, ...)
+            points (np.array): subset of locations around which to create the alpha shapes (e.g. family, cluster, ...)
             alpha_shape (float): parameter controlling the convexity of the alpha shape
         Returns:
             (polygon): the alpha shape"""
@@ -407,34 +342,34 @@ class Plot:
         return polygon
 
     @staticmethod
-    def areas_to_graph(area, locations_map_crs, cfg_content):
+    def clusters_to_graph(cluster, locations_map_crs, cfg_content):
 
         # exclude burn-in
-        end_bi = math.ceil(len(area) * cfg_content['burn_in'])
-        area = area[end_bi:]
+        end_bi = math.ceil(len(cluster) * cfg_content['burn_in'])
+        cluster = cluster[end_bi:]
 
-        # compute frequency of each point in area
-        area = np.asarray(area)
-        n_samples = area.shape[0]
+        # compute frequency of each point in cluster
+        cluster = np.asarray(cluster)
+        n_samples = cluster.shape[0]
 
         # Plot a density map or consensus map?
         if cfg_content['type'] == 'density_map':
-            in_graph = np.ones(area.shape[1], dtype=bool)
+            in_graph = np.ones(cluster.shape[1], dtype=bool)
 
         else:
-            area_freq = np.sum(area, axis=0) / n_samples
-            in_graph = area_freq >= cfg_content['min_posterior_frequency']
+            cluster_freq = np.sum(cluster, axis=0) / n_samples
+            in_graph = cluster_freq >= cfg_content['min_posterior_frequency']
 
         locations = locations_map_crs[in_graph]
         n_graph = len(locations)
 
-        # getting indices of points in area
-        area_indices = np.argwhere(in_graph)
+        # getting indices of points in cluster
+        cluster_indices = np.argwhere(in_graph)
 
         # For density map: plot all edges
         if cfg_content['type'] == 'density_map':
 
-            a = np.arange(area.shape[1])
+            a = np.arange(cluster.shape[1])
             b = np.array(np.meshgrid(a, a))
             c = b.T.reshape(-1, 2)
             graph_connections = c[c[:, 0] < c[:, 1]]
@@ -459,11 +394,11 @@ class Plot:
         line_weights = []
 
         for index in graph_connections:
-            # count how often p0 and p1 are together in the posterior of the area
-            p = [area_indices[index[0]][0], area_indices[index[1]][0]]
-            together_in_area = np.sum(np.all(area[:, p], axis=1)) / n_samples
+            # count how often p0 and p1 are together in the posterior of the cluster
+            p = [cluster_indices[index[0]][0], cluster_indices[index[1]][0]]
+            together_in_cluster = np.sum(np.all(cluster[:, p], axis=1)) / n_samples
             lines.append(locations_map_crs[[*p]])
-            line_weights.append(together_in_area)
+            line_weights.append(together_in_cluster)
 
         return in_graph, lines, line_weights
 
@@ -490,7 +425,17 @@ class Plot:
         ax.scatter(*locations.T, s=cfg_graphic['languages']['size'],
                    color=cfg_graphic['languages']['color'], linewidth=0)
 
-    def add_labels(self, cfg_content, locations_map_crs, area_labels, area_colors, extent, ax):
+    @staticmethod
+    def get_cluster_colors(n_clusters: int, custom_colors=None):
+        cm = plt.get_cmap('gist_rainbow')
+        if custom_colors is None:
+            return list(cm(np.linspace(0, 1, n_clusters, endpoint=False)))
+        else:
+            provided = np.array([colors.to_rgba(c) for c in custom_colors])
+            additional = cm(np.linspace(0, 1, n_clusters - len(custom_colors), endpoint=False))
+            return list(np.concatenate((provided, additional), axis=0))
+
+    def add_labels(self, cfg_content, locations_map_crs, cluster_labels, cluster_colors, extent, ax):
         """Add labels to languages"""
 
         all_loc = list(range(locations_map_crs.shape[0]))
@@ -502,15 +447,15 @@ class Plot:
         # Label languages
         for i in all_loc:
             label_color = "black"
-            in_area = False
-            for j in range(len(area_labels)):
-                if i in area_labels[j]:
+            in_cluster = False
+            for j in range(len(cluster_labels)):
+                if i in cluster_labels[j]:
                     # Recolor labels (only for consensus_map)
                     if cfg_content['type'] == 'consensus_map':
-                        label_color = area_colors[j]
-                    in_area = True
+                        label_color = cluster_colors[j]
+                    in_cluster = True
 
-            if cfg_content['labels'] == 'in_area' and not in_area:
+            if cfg_content['labels'] == 'in_cluster' and not in_cluster:
                 pass
             else:
                 self.annotate_label(xy=locations_map_crs[i], label=i + 1, color=label_color,
@@ -523,82 +468,79 @@ class Plot:
         anno_opts = dict(xy=(x, y), fontsize=10, color=color)
         ax.annotate(label, **anno_opts)
 
-    def visualize_areas(self, locations_map_crs, cfg_content, cfg_graphic, cfg_legend, ax):
-        area_labels = []
-        # If log-likelihood is displayed: add legend entries with likelihood information per area
-        if cfg_legend['areas']['add'] and cfg_legend['areas']['log-likelihood']:
-            area_labels_legend, legend_areas = self.add_log_likelihood_legend()
+    def visualize_clusters(self, locations_map_crs, cfg_content, cfg_graphic, cfg_legend, ax):
+        cluster_labels = []
+        # If log-likelihood is displayed: add legend entries with likelihood information per cluster
+        if cfg_legend['clusters']['add'] and cfg_legend['clusters']['log-likelihood']:
+            cluster_labels_legend, legend_clusters = self.add_log_likelihood_legend()
 
         else:
-            area_labels_legend = []
-            legend_areas = []
-            for i, _ in enumerate(self.results['areas']):
-                area_labels_legend.append(f'$Z_{i + 1}$')
+            cluster_labels_legend = []
+            legend_clusters = []
+            for i, _ in enumerate(self.results['clusters']):
+                cluster_labels_legend.append(f'$Z_{i + 1}$')
 
-        # Color areas
-        cm = plt.get_cmap('gist_rainbow')
-
-        if len(cfg_graphic['areas']['color']) == 0:
-            print(f'No colors for areas provided in map>graphic>areas>color '
+        # Color clusters
+        if len(cfg_graphic['clusters']['color']) == 0:
+            print(f'No colors for clusters provided in map>graphic>clusters>color '
                   f'in the config plot file ({self.config_file}). I am using default colors instead.')
 
-            area_colors = list(cm(np.linspace(0, 1, len(self.results['areas']))))
+            cluster_colors = self.get_cluster_colors(n_clusters=len(self.results['clusters']))
 
-        elif len(cfg_graphic['areas']['color']) < len(self.results['areas']):
+        elif len(cfg_graphic['clusters']['color']) < len(self.results['clusters']):
 
-            print(f"Too few colors for areas ({len(cfg_graphic['areas']['color'])} provided, "
-                  f"{len(self.results['areas'])} needed) in map>graphic>areas>color in the config plot "
+            print(f"Too few colors for clusters ({len(cfg_graphic['clusters']['color'])} provided, "
+                  f"{len(self.results['clusters'])} needed) in map>graphic>clusters>color in the config plot "
                   f"file ({self.config_file}). I am adding default colors.")
-            provided = np.array([colors.to_rgba(c) for c in cfg_graphic['areas']['color']])
-            additional = cm(np.linspace(0, 1, len(self.results['areas']) - len(cfg_graphic['areas']['color'])))
-            area_colors = list(np.concatenate((provided, additional), axis=0))
+            cluster_colors = self.get_cluster_colors(n_clusters=len(self.results['clusters']),
+                                               custom_colors=cfg_graphic['clusters']['color'])
 
         else:
-            area_colors = list(cfg_graphic['areas']['color'])
+            cluster_colors = list(cfg_graphic['clusters']['color'])
 
-        for i, area in enumerate(self.results['areas']):
+        for i, cluster in enumerate(self.results['clusters']):
 
             # This function computes a Gabriel graph for all points which are in the posterior with at least p_freq
-            in_area, lines, line_w = self.areas_to_graph(area, locations_map_crs, cfg_content)
+            in_cluster, lines, line_w = self.clusters_to_graph(cluster, locations_map_crs, cfg_content)
 
-            current_color = area_colors[i]
+            current_color = cluster_colors[i]
 
             if cfg_content['type'] == 'density_map':
 
                 for li in range(len(lines)):
-                    ax.plot(*lines[li].T, color=current_color, lw=line_w[li] * cfg_graphic['areas']['width'],
-                            alpha=line_w[li]*cfg_graphic['areas']['alpha'])
+                    ax.plot(*lines[li].T, color=current_color, lw=line_w[li] * cfg_graphic['clusters']['width'],
+                            alpha=line_w[li]*cfg_graphic['clusters']['alpha'])
 
             else:
-                ax.scatter(*locations_map_crs[in_area].T, s=cfg_graphic['areas']['size'], color=current_color)
+                ax.scatter(*locations_map_crs[in_cluster].T, s=cfg_graphic['clusters']['size'], color=current_color)
                 for li in range(len(lines)):
                     ax.plot(*lines[li].T, color=current_color,
-                            lw=line_w[li] * cfg_graphic['areas']['width'], alpha=cfg_graphic['areas']['alpha'])
+                            lw=line_w[li] * cfg_graphic['clusters']['width'], alpha=cfg_graphic['clusters']['alpha'])
 
-            # This adds small lines to the legend (one legend entry per area)
+            # This adds small lines to the legend (one legend entry per cluster)
             line_legend = Line2D([0], [0], color=current_color, lw=6, linestyle='-')
-            legend_areas.append(line_legend)
+            legend_clusters.append(line_legend)
 
-            # Label the languages in the areas
+            # Label the languages in the clusters
             if cfg_graphic['languages']['label']:
 
                 # Use neutral color for density map labels
                 if cfg_content['type'] == 'density_map':
                     current_color = "black"
 
-                area_labels.append(list(compress(self.sites['id'], in_area)))
+                cluster_labels.append(list(compress(self.sites['id'], in_cluster)))
 
-        if cfg_legend['areas']['add']:
+        if cfg_legend['clusters']['add']:
             # add to legend
-            legend_areas = ax.legend(legend_areas, area_labels_legend, title_fontsize=18, title='Contact areas',
+            legend_clusters = ax.legend(legend_clusters, cluster_labels_legend, title_fontsize=18, title='Contact clusters',
                                      frameon=True, edgecolor='#ffffff', framealpha=1, fontsize=16, ncol=1,
                                      columnspacing=1, loc='upper left',
-                                     bbox_to_anchor=cfg_legend['areas']['position'])
+                                     bbox_to_anchor=cfg_legend['clusters']['position'])
 
-            legend_areas._legend_box.align = "left"
-            ax.add_artist(legend_areas)
+            legend_clusters._legend_box.align = "left"
+            ax.add_artist(legend_clusters)
 
-        return area_labels, area_colors
+        return cluster_labels, cluster_colors
 
     @staticmethod
     def lighten_color(color, amount=0.2):
@@ -622,7 +564,7 @@ class Plot:
         elif len(cfg_graphic['families']['color']) < len(self.families):
 
             print(f"Too few colors for families ({len(cfg_graphic['families']['color'])} provided, "
-                  f"{len(self.families)} needed) in map>graphic>areas>color in the config plot "
+                  f"{len(self.families)} needed) in map>graphic>clusters>color in the config plot "
                   f"file ({self.config_file}). I am adding default colors.")
             provided = [colors.to_rgba(c) for c in cfg_graphic['families']['color']]
             additional = cm(np.linspace(0, 0.8, len(self.families) - len(cfg_graphic['families']['color'])))
@@ -691,7 +633,7 @@ class Plot:
         for k in line_width:
             # Create line
             line = Line2D([0], [0], color="black", linestyle='-',
-                          lw=cfg_graphic['areas']['width'] * k)
+                          lw=cfg_graphic['clusters']['width'] * k)
 
             leg_line_width.append(line)
 
@@ -765,20 +707,20 @@ class Plot:
 
     def add_log_likelihood_legend(self):
 
-        # Legend for area labels
-        area_labels = ["      log-likelihood per area"]
+        # Legend for cluster labels
+        cluster_labels = ["      log-likelihood per cluster"]
 
-        lh_per_area = np.array(list(self.results['likelihood_single_areas'].values()), dtype=float)
-        to_rank = np.mean(lh_per_area, axis=1)
+        lh_per_cluster = np.array(list(self.results.likelihood_single_clusters.values()), dtype=float)
+        to_rank = np.mean(lh_per_cluster, axis=1)
         p = to_rank[np.argsort(-to_rank)]
 
         for i, lh in enumerate(p):
-            area_labels.append(f'$Z_{i + 1}: \, \;\;\; {int(lh)}$')
+            cluster_labels.append(f'$Z_{i + 1}: \, \;\;\; {int(lh)}$')
 
         extra = patches.Rectangle((0, 0), 1, 1, fc="w", fill=False, edgecolor='none', linewidth=0)
         # Line2D([0], [0], color=None, lw=6, linestyle='-')
 
-        return area_labels, [extra]
+        return cluster_labels, [extra]
 
     def add_background_map(self, bbox, cfg_geo, cfg_graphic, ax):
         # Adds the geojson polygon geometries provided by the user as a background map
@@ -851,7 +793,7 @@ class Plot:
             else:
                 self.add_rivers(cfg_geo, cfg_graphic, ax)
 
-    def add_correspondence_table(self, area_labels, area_colors, cfg_legend, ax_c):
+    def add_correspondence_table(self, cluster_labels, cluster_colors, cfg_legend, ax_c):
         """ Which language belongs to which number? This table will tell you more"""
 
         sites_id = []
@@ -861,11 +803,11 @@ class Plot:
         for i in range(len(self.sites['id'])):
             label_added = False
 
-            for s in range(len(area_labels)):
-                if self.sites['id'][i] in area_labels[s]:
+            for s in range(len(cluster_labels)):
+                if self.sites['id'][i] in cluster_labels[s]:
                     sites_id.append(self.sites['id'][i])
                     sites_names.append(self.sites['names'][i])
-                    sites_color.append(area_colors[s])
+                    sites_color.append(cluster_colors[s])
                     label_added = True
 
             if not label_added:
@@ -962,12 +904,12 @@ class Plot:
         # Add a base map
         self.visualize_base_map(extent, cfg_geo, cfg_graphic, ax)
 
-        # Iterates over all areas in the posterior and plots each with a different color
-        area_labels, area_colors = self.visualize_areas(locations_map_crs, cfg_content,
+        # Iterates over all clusters in the posterior and plots each with a different color
+        cluster_labels, cluster_colors = self.visualize_clusters(locations_map_crs, cfg_content,
                                                         cfg_graphic, cfg_legend, ax)
 
-        if cfg_content['labels'] == 'all' or cfg_content['labels'] == 'in_area':
-            self.add_labels(cfg_content, locations_map_crs, area_labels, area_colors, extent, ax)
+        if cfg_content['labels'] == 'all' or cfg_content['labels'] == 'in_cluster':
+            self.add_labels(cfg_content, locations_map_crs, cluster_labels, cluster_colors, extent, ax)
 
         # Visualizes language families
         if cfg_content['plot_families']:
@@ -980,7 +922,7 @@ class Plot:
         # # Places additional legend entries on the map
         #
         # if self.legend_config['overview']['add_to_legend'] or\
-        #     self.legend_config['areas']['add_to_legend'] or\
+        #     self.legend_config['clusters']['add_to_legend'] or\
         #         self.legend_config['families']['add_to_legend']:
         #
         #     self.add_secondary_legend()
@@ -992,10 +934,10 @@ class Plot:
 
         if cfg_legend['correspondence']['add'] and cfg_graphic['languages']['label']:
             if cfg_content['type'] == "density_map":
-                area_labels = [self.sites['id']]
+                cluster_labels = [self.sites['id']]
 
-            if any(len(labels) > 0 for labels in area_labels):
-                self.add_correspondence_table(area_labels, area_colors, cfg_legend, ax)
+            if any(len(labels) > 0 for labels in cluster_labels):
+                self.add_correspondence_table(cluster_labels, cluster_colors, cfg_legend, ax)
 
         # Save the plot
         file_format = cfg_output['format']
@@ -1341,7 +1283,7 @@ class Plot:
 
     # This is not changed yet
     def plot_preferences(self, file_name):
-        """Creates preference plots for universal, areas and families
+        """Creates preference plots for universal, clusters and families
 
        Args:
            file_name (str): name of the output file
@@ -1371,7 +1313,7 @@ class Plot:
             for p in cfg_preference['content']['preference']:
                 if p == 'universal':
                     available_preferences.append("alpha")
-                elif "area" in p:
+                elif "cluster" in p:
                     gamma = "gamma_a" + p.split('_')[1]
                     if gamma not in available_gamma_keys:
                         continue
@@ -1661,8 +1603,8 @@ class Plot:
         x_ticks_offset = x_ticks[1] / 2
         x_ticks = [x_tick - x_ticks_offset for x_tick in x_ticks if x_tick > 0]
         ax.set_xticks(x_ticks)
-        x_ticklabels = [f'{x_ticklabel:.0f} areas' for x_ticklabel in np.linspace(1, n_models, n_models)]
-        x_ticklabels[0] = '1 area'
+        x_ticklabels = [f'{x_ticklabel:.0f} clusters' for x_ticklabel in np.linspace(1, n_models, n_models)]
+        x_ticklabels[0] = '1 cluster'
         ax.set_xticklabels(x_ticklabels, fontsize=6)
 
         minor_locator = AutoMinorLocator(2)
@@ -1688,16 +1630,16 @@ class Plot:
         print('Plotting pie charts ...')
         cfg_pie = self.config['pie_plot']
 
-        areas = np.array(self.results['areas'])
-        n_areas = areas.shape[0]
-        end_bi = math.ceil(areas.shape[1] * cfg_pie['content']['burn_in'])
+        clusters = np.array(self.results['clusters'])
+        n_clusters = clusters.shape[0]
+        end_bi = math.ceil(clusters.shape[1] * cfg_pie['content']['burn_in'])
 
-        samples = areas[:, end_bi:, ]
+        samples = clusters[:, end_bi:, ]
 
         n_plots = samples.shape[2]
         n_samples = samples.shape[1]
 
-        samples_per_area = np.sum(samples, axis=1)
+        samples_per_cluster = np.sum(samples, axis=1)
 
         # Grid
         n_col = 3
@@ -1708,29 +1650,23 @@ class Plot:
 
         fig, axs = plt.subplots(n_row, n_col, figsize=(width * n_col, height * n_row))
 
-        cm = plt.get_cmap('gist_rainbow')
-
-        if len(self.config['map']['graphic']['areas']['color']) == 0:
+        if len(self.config['map']['graphic']['clusters']['color']) == 0:
             print(f'I tried to color the pie charts the same as the map, but no colors were provided in '
-                  f'map>graphic>areas>color in the config plot file ({self.config_file}). '
+                  f'map>graphic>clusters>color in the config plot file ({self.config_file}). '
                   f'I am using default colors instead.')
 
-            all_colors = list(cm(np.linspace(0, 1, n_areas)))
+            all_colors = self.get_cluster_colors(n_clusters=n_clusters)
 
-        elif len(self.config['map']['graphic']['areas']['color']) < n_areas:
+        elif len(self.config['map']['graphic']['clusters']['color']) < n_clusters:
 
             print(f'I tried to color the pie charts the same as the map, but not enough colors were provided in '
-                  f'map>graphic>areas>color in the config plot file ({self.config_file}). '
+                  f'map>graphic>clusters>color in the config plot file ({self.config_file}). '
                   f'I am adding default colors.')
-
-            provided = np.array([colors.to_rgba(c) for c in self.config['map']['graphic']['areas']['color']])
-            additional = cm(np.linspace(0, 1, n_areas - len(self.config['map']['graphic']['areas']['color'])))
-            all_colors = list(np.concatenate((provided, additional), axis=0))
-
+            all_colors = self.get_cluster_colors(n_clusters, custom_colors=self.config['map']['graphic']['clusters']['color'])
         else:
-            print(f'I am using the colors in map>graphic>areas>color '
+            print(f'I am using the colors in map>graphic>clusters>color '
                   f'in the config plot file ({self.config_file}) to color the pie charts.')
-            all_colors = list(self.config['map']['graphic']['areas']['color'])
+            all_colors = list(self.config['map']['graphic']['clusters']['color'])
 
         for l in range(n_col*n_row):
 
@@ -1738,14 +1674,14 @@ class Plot:
             ax_row = l - n_row * ax_col
 
             if l < n_plots:
-                per_lang = samples_per_area[:, l]
-                no_area = n_samples - per_lang.sum()
+                per_lang = samples_per_cluster[:, l]
+                no_cluster = n_samples - per_lang.sum()
 
                 x = per_lang.tolist()
                 col = all_colors[:len(x)]
 
-                # Append samples that are not in an area
-                x.append(no_area)
+                # Append samples that are not in an cluster
+                x.append(no_cluster)
                 col.append("lightgrey")
 
                 axs[ax_row, ax_col].pie(x, colors=col, radius=15)
@@ -1801,22 +1737,18 @@ def main(config, plot_types=None):
     plot.load_config(config_file=config)
     plot.read_data()
 
-    # Get model names
-    names = plot.get_model_names()
-
     def should_be_plotted(plot_type):
         """A plot type should only be generated if it
             1) is specified in the config file and
             2) is in the requested list of plot types."""
         return (plot_type in plot.config) and (plot_type in plot_types)
-        # return (plot_type in plot.config['plots']) and (plot_type in plot_types)
 
-    for m in names:
+    for m in plot.iterate_over_models():
         # Read results for model ´m´
-        plot.read_results(model=m)
+        plot.read_results()
         print('Plotting model', m)
 
-        # Plot the reconstructed areas on a map
+        # Plot the reconstructed clusters on a map
         if should_be_plotted('map'):
             plot_map(plot, m)
 
@@ -1828,8 +1760,8 @@ def main(config, plot_types=None):
         if should_be_plotted('preference_plot'):
             plot.plot_preferences(file_name=f'prob_grid_{m}')
 
-        # Plot the reconstructed areas in pie-charts
-        # (one per language, showing how likely the language is to be in each area)
+        # Plot the reconstructed clusters in pie-charts
+        # (one per language, showing how likely the language is to be in each cluster)
         if should_be_plotted('pie_plot'):
             plot.plot_pies(file_name= 'plot_pies_' + m)
 
@@ -1842,18 +1774,19 @@ def main(config, plot_types=None):
 
 def plot_map(plot, m):
     config_map = plot.config['map']
-    # config_map = plot.config['plots']['map']
     map_type = config_map['content']['type']
 
     if map_type == config_map['content']['type'] == 'density_map':
         plot.posterior_map(file_name='posterior_map_' + m)
 
     elif map_type == config_map['content']['type'] == 'consensus_map':
-        iterate_or_run(
-            x=config_map['content']['min_posterior_frequency'],
-            config_setter=lambda x: config_map['content'].__setitem__('min_posterior_frequency', x),
-            function=lambda x: plot.posterior_map(file_name=f'posterior_map_{m}_{x}')
-        )
+        min_posterior_frequency = config_map['content']['min_posterior_frequency']
+        if min_posterior_frequency in [tuple, list, set]:
+            for mpf in min_posterior_frequency:
+                config_map['content'].__setitem__('min_posterior_frequency', mpf)
+                plot.posterior_map(file_name=f'posterior_map_{m}_{mpf}')
+        else:
+            plot.posterior_map(file_name=f'posterior_map_{m}_{min_posterior_frequency}')
     else:
         raise ValueError(f'Unknown map type: {map_type}  (in the config file "map" -> "content" -> "type")')
 
@@ -1866,13 +1799,10 @@ if __name__ == '__main__':
     parser.add_argument('type', nargs='?', type=str, help='The type of plot to generate')
     args = parser.parse_args()
 
-    config = args.config
-
+    plot_types = None
     if args.type is not None:
         if args.type not in ALL_PLOT_TYPES:
             raise ValueError('Unknown plot type: ' + args.type)
         plot_types = [args.type]
-    else:
-        plot_types = None
 
-    main(config, plot_types=plot_types)
+    main(args.config, plot_types=plot_types)

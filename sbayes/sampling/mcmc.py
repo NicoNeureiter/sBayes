@@ -1,18 +1,22 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-from __future__ import absolute_import, division, print_function, \
-    unicode_literals
+import logging
 import math as _math
 import abc as _abc
 import random as _random
 import time as _time
 import numpy as _np
 from copy import copy
+from typing import List
 
 from collections import defaultdict
 
+from sbayes.model import Model
+from sbayes.load_data import Data
+from sbayes.sampling.loggers import ResultsLogger
 
-class MCMC(metaclass=_abc.ABCMeta):
+
+class MCMC(_abc.ABC):
 
     """Base-class for MCMC samplers for generative model. Instantiable sub-classes have to implement
     some methods, like propose_step() and likelihood().
@@ -29,10 +33,22 @@ class MCMC(metaclass=_abc.ABCMeta):
     Q_REJECT = 0
     Q_BACK_REJECT = -_np.inf
 
-    def __init__(self, model, data, operators, n_chains=1,
-                 sample_from_prior=False, show_screen_log=False,
-                 logger=None, **kwargs):
 
+    def __init__(
+            self,
+            model: Model,
+            data: Data,
+            operators: dict,
+            sample_loggers: List[ResultsLogger],
+            n_chains: int = 1,
+            mc3: bool = False,
+            swap_period: int = None,
+            chain_swaps: int = None,
+            sample_from_prior: bool = False,
+            show_screen_log: bool = False,
+            logger: logging.Logger = None,
+            **kwargs
+    ):
         # The model and data defining the posterior distribution
         self.model = model
         self.data = data
@@ -44,6 +60,9 @@ class MCMC(metaclass=_abc.ABCMeta):
 
         # Operators
         self.callable_operators = self.get_operators(operators)
+
+        # Loggers to write results to files
+        self.sample_loggers = sample_loggers
 
         # Initialize statistics
         self.statistics = {'sample_id': [],
@@ -90,6 +109,7 @@ class MCMC(metaclass=_abc.ABCMeta):
             log_prior_stable = self.posterior_per_chain[chain].prior(sample=sample)
             assert log_prior == log_prior_stable, f'{log_prior} != {log_prior_stable}'
 
+        sample.last_prior = log_prior
         return log_prior
 
     def likelihood(self, sample, chain):
@@ -113,6 +133,7 @@ class MCMC(metaclass=_abc.ABCMeta):
             log_lh_stable = self.posterior_per_chain[chain].likelihood(sample=sample, caching=False)
             assert log_lh == log_lh_stable, f'{log_lh} != {log_lh_stable}'
 
+        sample.last_lh = log_lh
         return log_lh
 
     @_abc.abstractmethod
@@ -197,6 +218,7 @@ class MCMC(metaclass=_abc.ABCMeta):
                 # Generate samples for each chain
                 for c in self.chain_idx:
                     sample[c] = self.step(sample[c], c)
+                    sample[c].i_step = i_step
 
                 # Log samples at fixed intervals
                 if i_step % steps_per_sample == 0:
@@ -218,6 +240,9 @@ class MCMC(metaclass=_abc.ABCMeta):
             self.statistics['time_per_sample'] = (t_end - t_start) / n_samples
             self.statistics['acceptance_ratio'] = (self.statistics['accepted_steps'] / n_steps)
 
+        # Close files of all sample_loggers
+        for logger in self.sample_loggers:
+            logger.close()
 
     def step(self, sample, c):
         """This function performs a full MH step: first, a new candidate sample is proposed
@@ -301,18 +326,8 @@ class MCMC(metaclass=_abc.ABCMeta):
             c (int): The current chain
             sample_id (int): Index of the logged sample.
         """
-        self.statistics['sample_id'].append(sample_id)
-        self.statistics['sample_clusters'].append(sample.clusters)
-        self.statistics['sample_weights'].append(sample.weights)
-        self.statistics['sample_cluster_effect'].append(sample.cluster_effect)
-        self.statistics['sample_likelihood'].append(self._ll[c])
-        self.statistics['sample_prior'].append(self._prior[c])
-        for k, v in self.statistics['sample_confounding_effects'].items():
-            v.append(sample.confounding_effects[k])
-
-        if self.show_screen_log:
-            print('Log-likelihood: %.2f' % self._ll[c])
-            print('Accepted steps: %i' % self.statistics['accepted_steps'])
+        for logger in self.sample_loggers:
+            logger.write_sample(sample)
 
     def log_last_sample(self, last_sample):
         """ This function logs the last sample of the first chain of an MCMC run.
@@ -331,15 +346,14 @@ class MCMC(metaclass=_abc.ABCMeta):
         time_str = '%i seconds / million steps' % time_per_million
 
         print(i_step_str + likelihood_str + time_str)
-        # print('size0 =', 'sum(sample[self.chain_idx[0]].clusters[0]))
 
-    def print_statistics(self, samples):
+    def print_statistics(self):
         self.logger.info("\n")
         self.logger.info("MCMC STATISTICS")
         self.logger.info("##########################################")
         self.logger.info(log_operator_statistics_header())
-        for k, v in self.callable_operators.items():
-            self.logger.info(log_operator_statistics(k, samples))
+        for operator_name in self.callable_operators:
+            self.logger.info(log_operator_statistics(operator_name, self.statistics))
 
 
 COL_WIDTHS = [20, 8, 8, 8, 10]

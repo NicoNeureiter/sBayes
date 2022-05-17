@@ -5,13 +5,11 @@
 
 import pyproj
 from dataclasses import dataclass
-import typing as t
+import typing as typ
 try:
     from typing import Literal
 except ImportError:
     from typing_extensions import Literal
-
-import logging
 
 
 from sbayes.util import read_features_from_csv
@@ -38,12 +36,14 @@ class Data:
         self.confounders = None
         self.network = None
 
-        # Logs
-        self.log_load_features = None
-        self.log_load_geo_cost_matrix = None
+        # Priors to be imported
+        self.prior_confounders = {}
+        self.geo_prior = {}
+
+        self.logger = experiment.logger
 
     def load_features(self):
-        self.objects, self.features, self.confounders, self.log_load_features = read_features_from_csv(config=self.config)
+        self.objects, self.features, self.confounders = read_features_from_csv(config=self.config, logger=self.logger)
         self.network = ComputeNetwork(self.objects, crs=self.crs)
 
     def load_geo_cost_matrix(self):
@@ -61,27 +61,17 @@ class Data:
 
         else:
             # Read cost matrix from data
-            geo_cost_matrix, self.log_load_geo_cost_matrix =\
-                read_geo_cost_matrix(site_names=self.objects,
-                                     file=geo_prior_cfg['costs'])
+            geo_cost_matrix = read_geo_cost_matrix(site_names=self.objects,
+                                                   file=geo_prior_cfg['costs'],
+                                                   logger=self.logger)
 
         self.geo_prior = {'cost_matrix': geo_cost_matrix}
-
-    def log_loading(self):
-        log_path = self.path_results / 'experiment.log'
-        logging.basicConfig(format='%(message)s', filename=log_path, level=logging.DEBUG)
-        logging.info("\n")
-        logging.info("DATA IMPORT")
-        logging.info("##########################################")
-        logging.info(self.log_load_features)
-        logging.info(self.log_load_geo_cost_matrix)
-
 
 
 @dataclass
 class Prior:
-    counts: t.Any
-    states: t.Any
+    counts: typ.Any
+    states: typ.Any
 
     def __getitem__(self, item: Literal["counts", "states"]):
         if item == "counts":
@@ -93,7 +83,7 @@ class Prior:
                 f"{item:} is no valid attribute of a count prior"
             )
 
-    def __setitem__(self, item: Literal["counts", "states"], value: t.Any):
+    def __setitem__(self, item: Literal["counts", "states"], value: typ.Any):
         if item == "counts":
             self.counts = value
         elif item == "states":
@@ -105,9 +95,9 @@ class Prior:
 
 @dataclass
 class Sites:
-    id: t.Any
-    locations: t.Tuple[float, float]
-    names: t.Any
+    id: typ.Any
+    locations: typ.Tuple[float, float]
+    names: typ.Any
 
     def __getitem__(self, item: Literal["id"]):
         if item == "id":
@@ -121,7 +111,7 @@ class Sites:
                 f"{item:} is no valid attribute of Sites"
             )
 
-    def __setitem__(self, item: Literal["id"], value: t.Any):
+    def __setitem__(self, item: Literal["id"], value: typ.Any):
         if item == "id":
             self.id = value
         elif item == "locations":

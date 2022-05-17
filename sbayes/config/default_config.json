@@ -11,7 +11,8 @@
 		"prior": {
 			"geo": {
 				"type": "uniform",
-				"aggregation": "mean"
+				"aggregation": "mean",
+				"probability_function": "exponential"
 			},
 			"objects_per_cluster": {
 				"type": "<REQUIRED>",

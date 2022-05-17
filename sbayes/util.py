@@ -5,14 +5,17 @@ import time
 import csv
 import os
 from pathlib import Path
+from functools import lru_cache
 from math import sqrt, floor, ceil
-from itertools import combinations
-import typing as t
+from itertools import combinations, permutations
+import typing as typ
 
 import numpy as np
+import numpy.typing as nptyp
 import pandas as pd
+import scipy
 import scipy.spatial as spatial
-from scipy.special import betaln
+from scipy.special import betaln, expit
 import scipy.stats as stats
 from scipy.sparse import csr_matrix
 import matplotlib.pyplot as plt
@@ -31,24 +34,24 @@ class FamilyError(Exception):
     pass
 
 
-def encode_cluster(cluster):
+def encode_cluster(cluster: nptyp.NDArray[bool]) -> str:
     """Format the given cluster as a compact bit-string."""
     cluster_s = cluster.astype(int).astype(str)
     return ''.join(cluster_s)
 
 
-def decode_cluster(cluster_str):
+def decode_cluster(cluster_str: str) -> nptyp.NDArray[bool]:
     """Read a bit-string and parse it into an area array."""
     return np.array(list(cluster_str)).astype(int).astype(bool)
 
 
-def format_cluster_columns(clusters):
+def format_cluster_columns(clusters: nptyp.NDArray[bool]) -> str:
     """Format the given array of clusters as tab separated strings."""
     clusters_encoded = map(encode_cluster, clusters)
     return '\t'.join(clusters_encoded)
 
 
-def parse_cluster_columns(clusters_encoded):
+def parse_cluster_columns(clusters_encoded: str) -> nptyp.NDArray[bool]:
     """Read tab-separated area encodings into a two-dimensional area array."""
     clusters_decoded = map(decode_cluster, clusters_encoded.split('\t'))
     return np.array(list(clusters_decoded))
@@ -303,12 +306,20 @@ def normalize_str(s):
     return str.strip(s)
 
 
-def read_features_from_csv(config):
+def read_features_from_csv(
+        config: dict,
+        logger: typ.Optional['Logger'] = None,
+) -> (dict, dict, dict):
     """This is a helper function to import data (objects, features, confounders) from a csv file
     Args:
-        config (dict): the config file
+        config: the config file
+        logger: A Logger object for writing log messages.
+
     Returns:
-        (dict) : The features for all objects
+        dict: The object dictionary with
+        dict: The features dictionary for all objects
+        dict: The confounders dictionary with group names in "names" and assignment array
+            in "values".
     """
     file = config['data']['features']
     data = pd.read_csv(file, dtype=str)
@@ -374,24 +385,28 @@ def read_features_from_csv(config):
         confounders[k] = {'values': c,
                           'names': groups_ordered}
 
-    log = f"{n_sites} objects with {n_features} features read from {file}. {na_number} NA value(s) found."
+    if logger:
+        logger.info(f"{n_sites} sites with {n_features} features read from {file}.")
+        logger.info(f"{na_number} NA value(s) found.")
+        logger.info(f"The maximum number of states in a single feature was {feature_states.shape[0]}.")
 
-    return objects, features, confounders, log
+    return objects, features, confounders
 
 
-def read_costs_from_csv(file):
+def read_costs_from_csv(file: str, logger=None):
     """This is a helper function to read the cost matrix from a csv file
         Args:
-            file (str): file location of the csv file
+            file: file location of the csv file
+            logger: Logger objects for printing info message.
 
         Returns:
             pd.DataFrame: cost matrix
-            str: log message
         """
 
     data = pd.read_csv(file, dtype=str, index_col=0)
-    log = f"Geographical cost matrix read from {file}."
-    return data, log
+    if logger:
+        logger.info(f"Geographical cost matrix read from {file}.")
+    return data
 
 
 def write_languages_to_csv(features, sites, families, file):
@@ -552,7 +567,13 @@ def scale_counts(counts, scale_to, prior_inheritance=False):
     return counts * scale_factor[..., None]
 
 
-def counts_to_dirichlet(counts: t.Sequence[t.Sequence[int]], states: t.Sequence[int], prior='uniform', outdated_features=None, dirichlet=None):
+def counts_to_dirichlet(
+        counts: typ.Sequence[typ.Sequence[int]],
+        states: typ.Sequence[int],
+        prior='uniform',
+        outdated_features=None,
+        dirichlet=None
+):
     """This is a helper function to transform counts of categorical data
     to parameters of a dirichlet distribution.
 
@@ -975,7 +996,7 @@ def round_int(n, mode='up', offset=0):
     n = int(n) if isinstance(n, float) else n
     convertor = 10 ** (len(str(offset)) - 1)
 
-    if n > offset: # number is larger than offset (must be positive)
+    if n > offset:  # number is larger than offset (must be positive)
         if mode == 'up':
             n_rounded = ceil(n / convertor) * convertor
             n_rounded += offset
@@ -984,7 +1005,7 @@ def round_int(n, mode='up', offset=0):
             n_rounded -= offset
         else:
             raise Exception('unkown mode')
-    else: # number is smaller than offset (can be negative)
+    else:  # number is smaller than offset (can be negative)
         if n >= 0:
             n_rounded = offset + convertor if mode == 'up' else -offset
         else:
@@ -996,7 +1017,7 @@ def round_int(n, mode='up', offset=0):
     return n_rounded
 
 
-def colorline(ax, x, y, z=None, cmap=plt.get_cmap('copper'), norm=plt.Normalize(0.0, 1.0), linewidth=3, alpha=1.0):
+def colorline(ax, x, y, z=None, cmap=plt.get_cmap('copper'), norm=plt.Normalize(0.0, 1.0), linewidth=3):
     """
     Plot a colored line with coordinates x and y
     Optionally specify colors in the array z
@@ -1287,6 +1308,32 @@ def timeit(func):
         return result
 
     return timed_func
+
+
+@lru_cache(maxsize=128)
+def get_permutations(n: int) -> typ.List[typ.Tuple[int]]:
+    return list(permutations(range(n)))
+
+
+def get_best_permutation(
+        areas: nptyp.NDArray[bool],  # shape = (n_areas, n_sites)
+        prev_area_sum: nptyp.NDArray[int],  # shape = (n_areas, n_sites)
+) -> typ.Tuple[int]:
+    """Return a permutation of areas that would align the areas in the new sample with previous ones."""
+    def clustering_agreement(p):
+        """In how many sites does permutation `p` previous samples?"""
+        return np.sum(prev_area_sum * areas[p, :])
+
+    all_permutations = get_permutations(areas.shape[0])
+    return max(all_permutations, key=clustering_agreement)
+
+
+if scipy.__version__ >= '1.8.0':
+    log_expit = scipy.special.log_expit
+else:
+    def log_expit(*args, **kwargs):
+        return np.log(expit(*args, **kwargs))
+
 
 if __name__ == "__main__":
     import doctest

@@ -1,8 +1,9 @@
-from itertools import permutations
-import numpy as np
 import math
-from scipy.special import logsumexp
-from sbayes.sampling.sbayes_sampling import Sample
+
+import numpy as np
+
+from sbayes.sampling.state import Sample
+from sbayes.util import get_best_permutation
 
 
 def compute_dic(lh, burn_in):
@@ -31,29 +32,15 @@ def match_clusters(samples):
     Returns:
         matched_samples(list): Resulting matching.
     """
-
     cluster_samples = np.array([np.array(s) for s in samples['sample_clusters']])
-    cluster_samples = np.swapaxes(cluster_samples, 1, 2)
-
-    n_samples, n_sites, n_clusters = cluster_samples.shape
-    s_sum = np.zeros((n_sites, n_clusters))
+    n_samples, n_clusters, n_sites = cluster_samples.shape
+    s_sum = np.zeros((n_clusters, n_sites))
 
     # All potential permutations of cluster labels
-    perm = list(permutations(range(n_clusters)))
     matching_list = []
     for s in cluster_samples:
-
-        def clustering_agreement(p):
-
-            """In how many sites does the permutation 'p'
-            match the previous sample?
-            """
-
-            return np.sum(s_sum * s[:, p])
-
-        best_match = max(perm, key=clustering_agreement)
-        matching_list.append(list(best_match))
-        s_sum += s[:, best_match]
+        permutation = get_best_permutation(s, s_sum)
+        s_sum += s[permutation, :]
 
     # Reorder chains according to matching
     reordered_clusters = []
