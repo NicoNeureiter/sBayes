@@ -6,7 +6,7 @@ import numpy.typing as npt
 import tables
 
 from sbayes.load_data import Data
-from sbayes.util import format_area_columns, get_best_permutation
+from sbayes.util import format_cluster_columns, get_best_permutation
 from sbayes.model import Model
 
 Sample = "sbayes.sampling.zone_sampling.Sample"
@@ -52,36 +52,36 @@ class ResultsLogger(ABC):
 class ParametersCSVLogger(ResultsLogger):
 
     """The ParametersCSVLogger collects all real-valued parameters (weights, alpha, beta,
-    gamma) and some statistics (area size, likelihood, prior, posterior) and continually
+    gamma) and some statistics (cluster size, likelihood, prior, posterior) and continually
     writes them to a tab-separated text-file."""
 
     def __init__(
         self,
         *args,
-        log_contribution_per_area: bool = True,
+        log_contribution_per_cluster: bool = True,
         float_format: str = "%.12g",
-        match_areas: bool = True,
+        match_clusters: bool = True,
     ):
         super().__init__(*args)
         self.float_format = float_format
-        self.log_contribution_per_area = log_contribution_per_area
-        self.match_areas = match_areas
-        self.area_sum: Optional[npt.NDArray[int]] = None
+        self.log_contribution_per_cluster = log_contribution_per_cluster
+        self.match_clusters = match_clusters
+        self.cluster_sum: Optional[npt.NDArray[int]] = None
 
     def write_header(self, sample):
-        feature_names = self.data.feature_names["external"]
-        state_names = self.data.state_names["external"]
+        feature_names = self.data.features["names"]
+        state_names = self.data.features["state_names"]
         column_names = ["Sample", "posterior", "likelihood", "prior"]
 
-        # No need for matching if only 1 area (or no areas at all)
-        if sample.n_areas <= 1:
-            self.match_areas = False
+        # No need for matching if only 1 cluster (or no clusters at all)
+        if sample.n_clusters <= 1:
+            self.match_clusters = False
 
-        # Initialize area_sum array for matching
-        self.area_sum = np.zeros((sample.n_areas, sample.n_sites), dtype=np.int)
+        # Initialize cluster_sum array for matching
+        self.cluster_sum = np.zeros((sample.n_clusters, sample.n_sites), dtype=np.int)
 
-        # Area sizes
-        for i in range(sample.n_areas):
+        # Cluster sizes
+        for i in range(sample.n_clusters):
             column_names.append(f"size_a{i}")
 
         # weights
@@ -98,24 +98,23 @@ class ParametersCSVLogger(ResultsLogger):
                 column_names.append(col_name)
 
         # gamma
-        for a in range(sample.n_areas):
+        for a in range(sample.n_clusters):
             for i_feat, feat_name in enumerate(feature_names):
                 for i_state, state_name in enumerate(state_names[i_feat]):
                     col_name = f"gamma_a{(a + 1)}_{feat_name}_{state_name}"
                     column_names.append(col_name)
 
         # beta
-        if sample.inheritance:
-            family_names = self.data.family_names["external"]
-            for i_fam, fam_name in enumerate(family_names):
-                for i_feat, feat_name in enumerate(feature_names):
-                    for i_state, state_name in enumerate(state_names[i_feat]):
-                        col_name = f"beta_{fam_name}_{feat_name}_{state_name}"
+        for k, v in self.data.confounders.items():
+            for group in :
+                for f in feature_names:
+                    for s in state_names[f]:
+                        col_name = f"beta_{group}_{f}_{s}"
                         column_names += [col_name]
 
         # lh, prior, posteriors
-        if self.log_contribution_per_area:
-            for i in range(sample.n_areas):
+        if self.log_contribution_per_cluster:
+            for i in range(sample.n_clusters):
                 column_names += [f"post_a{i}", f"lh_a{i}", f"prior_a{i}"]
 
         # Store the column names in an attribute (important to keep order consistent)
@@ -128,16 +127,16 @@ class ParametersCSVLogger(ResultsLogger):
         feature_names = self.data.feature_names["external"]
         state_names = self.data.state_names["external"]
 
-        if self.match_areas:
+        if self.match_clusters:
             # Compute the best matching permutation
-            permutation = get_best_permutation(sample.zones, self.area_sum)
+            permutation = get_best_permutation(sample.zones, self.cluster_sum)
 
             # Permute parameters
             p_zones = sample.p_zones[permutation, :, :]
             zones = sample.zones[permutation, :]
 
-            # Update area_sum for matching future samples
-            self.area_sum += zones
+            # Update cluster_sum for matching future samples
+            self.cluster_sum += zones
         else:
             # Unpermuted parameters
             p_zones = sample.p_zones
@@ -150,10 +149,10 @@ class ParametersCSVLogger(ResultsLogger):
             "prior": sample.last_prior,
         }
 
-        # Area sizes
-        for i, area in enumerate(zones):
+        # Cluster sizes
+        for i, cluster in enumerate(zones):
             col_name = f"size_a{i}"
-            row[col_name] = np.count_nonzero(area)
+            row[col_name] = np.count_nonzero(cluster)
 
         # weights
         for i_feat, feat_name in enumerate(feature_names):
@@ -173,7 +172,7 @@ class ParametersCSVLogger(ResultsLogger):
                 row[col_name] = sample.p_global[0, i_feat, i_state]
 
         # gamma
-        for a in range(sample.n_areas):
+        for a in range(sample.n_clusters):
             for i_feat, feat_name in enumerate(feature_names):
                 for i_state, state_name in enumerate(state_names[i_feat]):
                     col_name = f"gamma_a{(a + 1)}_{feat_name}_{state_name}"
@@ -189,14 +188,14 @@ class ParametersCSVLogger(ResultsLogger):
                         row[col_name] = sample.p_families[i_fam][i_feat][i_state]
 
         # lh, prior, posteriors
-        if self.log_contribution_per_area:
-            sample_single_area: Sample = sample.copy()
+        if self.log_contribution_per_cluster:
+            sample_single_cluster: Sample = sample.copy()
 
-            for i in range(sample.n_areas):
-                sample_single_area.zones = zones[[i]]
-                sample_single_area.everything_changed()
-                lh = self.model.likelihood(sample_single_area, caching=False)
-                prior = self.model.prior(sample_single_area)
+            for i in range(sample.n_clusters):
+                sample_single_cluster.zones = zones[[i]]
+                sample_single_cluster.everything_changed()
+                lh = self.model.likelihood(sample_single_cluster, caching=False)
+                prior = self.model.prior(sample_single_cluster)
                 row[f"lh_a{i}"] = lh
                 row[f"prior_a{i}"] = prior
                 row[f"post_a{i}"] = lh + prior
@@ -205,41 +204,41 @@ class ParametersCSVLogger(ResultsLogger):
         self.file.write(row_str + "\n")
 
 
-class AreasLogger(ResultsLogger):
+class ClustersLogger(ResultsLogger):
 
-    """The AreasLogger encodes each area in a bit-string and continually writes multiple
-    areas to a tab-separated text file."""
+    """The ClustersLogger encodes each cluster in a bit-string and continually writes multiple
+    clusters to a tab-separated text file."""
 
     def __init__(
         self,
         *args,
-        match_areas: bool = True,
+        match_clusters: bool = True,
     ):
         super().__init__(*args)
-        self.match_areas = match_areas
-        self.area_sum: Optional[npt.NDArray[int]] = None
+        self.match_clusters = match_clusters
+        self.cluster_sum: Optional[npt.NDArray[int]] = None
 
     def write_header(self, sample: Sample):
-        if sample.n_areas <= 1:
+        if sample.n_clusters <= 1:
             # Nothing to match
-            self.match_areas = False
+            self.match_clusters = False
 
-        self.area_sum = np.zeros((sample.n_areas, sample.n_sites), dtype=np.int)
+        self.cluster_sum = np.zeros((sample.n_clusters, sample.n_sites), dtype=np.int)
 
     def _write_sample(self, sample):
-        if self.match_areas:
+        if self.match_clusters:
             # Compute best matching perm
-            permutation = get_best_permutation(sample.zones, self.area_sum)
+            permutation = get_best_permutation(sample.zones, self.cluster_sum)
 
             # Permute zones
             zones = sample.zones[permutation, :]
 
-            # Update area_sum for matching future samples
-            self.area_sum += zones
+            # Update cluster_sum for matching future samples
+            self.cluster_sum += zones
         else:
             zones = sample.zones
 
-        row = format_area_columns(zones)
+        row = format_cluster_columns(zones)
         self.file.write(row + "\n")
 
 

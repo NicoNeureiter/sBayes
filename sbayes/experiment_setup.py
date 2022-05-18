@@ -52,10 +52,11 @@ class Experiment:
         self.base_directory = None
         self.path_results = None
 
+        self.logger = self.init_logger()
+
         if config_file is not None:
             self.load_config(config_file, custom_settings=custom_settings)
 
-        self.logger = self.init_logger()
         if log:
             self.log_experiment()
 
@@ -69,7 +70,6 @@ class Experiment:
         # Read the user specified config file
         with open(self.config_file, 'r') as f:
             self.config = json.load(f)
-
 
         # Load defaults
         set_defaults(self.config, DEFAULT_CONFIG)
@@ -148,7 +148,7 @@ class Experiment:
 
             # Confounding effects
             if key == "confounding_effects":
-                for k, v in self.config['model']['confounding_effects'].items():
+                for k, v in self.config['model']['confounders'].items():
                     if k not in self.config['model']['prior']['confounding_effects']:
                         raise NameError(f"Prior for \'{k}\' is not defined in {self.config_file}.")
 

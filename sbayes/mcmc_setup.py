@@ -8,7 +8,7 @@ import typing as tp
 from sbayes.sampling.sbayes_sampling import ClusterMCMC, ClusterMCMCWarmup
 from sbayes.sampling.state import Sample
 from sbayes.model import Model
-from sbayes.sampling.loggers import ResultsLogger, ParametersCSVLogger, AreasLogger, LikelihoodLogger
+from sbayes.sampling.loggers import ResultsLogger, ParametersCSVLogger, ClustersLogger, LikelihoodLogger
 
 
 class MCMCSetup:
@@ -110,7 +110,7 @@ Ratio of confounding_effects steps (changing probabilities in confounders): {mcm
 
         sample_loggers = [
             ParametersCSVLogger(params_path, self.data, self.model),
-            AreasLogger(clusters_path, self.data, self.model),
+            ClustersLogger(clusters_path, self.data, self.model),
         ]
         if not self.config['mcmc']['sample_from_prior']:
             sample_loggers.append(LikelihoodLogger(likelihood_path, self.data, self.model))

@@ -38,7 +38,7 @@ class Data:
 
         # Priors to be imported
         self.prior_confounders = {}
-        self.geo_prior = {}
+        self.geo_cost_matrix = None
 
         self.logger = experiment.logger
 
@@ -57,15 +57,13 @@ class Data:
 
         if geo_prior_cfg['costs'] == 'from_data':
             # No cost-matrix given. Use distance matrix as costs
-            geo_cost_matrix = self.network['dist_mat']
+            self.geo_cost_matrix = self.network['dist_mat']
 
         else:
             # Read cost matrix from data
-            geo_cost_matrix = read_geo_cost_matrix(site_names=self.objects,
+            self.geo_cost_matrix = read_geo_cost_matrix(site_names=self.objects,
                                                    file=geo_prior_cfg['costs'],
                                                    logger=self.logger)
-
-        self.geo_prior = {'cost_matrix': geo_cost_matrix}
 
 
 @dataclass

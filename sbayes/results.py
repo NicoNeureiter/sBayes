@@ -5,7 +5,7 @@ import numpy as np
 import numpy.typing as npt
 import pandas as pd
 
-from sbayes.util import parse_area_columns
+from sbayes.util import parse_cluster_columns
 
 
 T = tp.TypeVar("T", bound="Results")
@@ -132,7 +132,7 @@ class Results:
                     continue
 
                 # Parse each sample
-                parsed_sample = parse_area_columns(sample)
+                parsed_sample = parse_cluster_columns(sample)
                 # shape: (n_areas, n_sites)
 
                 # Add each item in parsed_area_columns to the corresponding array in result

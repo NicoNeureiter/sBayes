@@ -7,13 +7,78 @@ import random as _random
 import time as _time
 import numpy as _np
 from copy import copy
-from typing import List
+import typing as typ
+from dataclasses import dataclass
 
 from collections import defaultdict
 
 from sbayes.model import Model
 from sbayes.load_data import Data
 from sbayes.sampling.loggers import ResultsLogger
+
+
+@dataclass
+class OperatorStats:
+
+    """Log statistics for one operator."""
+
+    # TODO: Once we make operators into classes this can be part of the `Operator` class
+
+    operator_name: str
+    accepts: int = 0
+    rejects: int = 0
+
+    @property
+    def total(self) -> int:
+        return self.accepts + self.rejects
+
+    @property
+    def acceptance_rate(self) -> float:
+        return self.accepts / self.total
+
+    """Methods for formatting the log message after an MCMC run."""
+
+    COL_WIDTHS = [20, 8, 8, 8, 10]
+
+    @classmethod
+    def get_log_message_header(cls) -> str:
+        name_header = str.ljust('OPERATOR', cls.COL_WIDTHS[0])
+        acc_header = str.ljust('ACCEPTS', cls.COL_WIDTHS[1])
+        rej_header = str.ljust('REJECTS', cls.COL_WIDTHS[2])
+        total_header = str.ljust('TOTAL', cls.COL_WIDTHS[3])
+        acc_rate_header = 'ACC. RATE'
+
+        return '\t'.join([name_header, acc_header, rej_header, total_header, acc_rate_header])
+
+    def get_log_message_row(self) -> str:
+        if self.total == 0:
+            row_strings = [self.operator_name, '-', '-', '-', '-']
+            return '\t'.join([str.ljust(x, self.COL_WIDTHS[i]) for i, x in enumerate(row_strings)])
+
+        name_str = str.ljust(self.operator_name, self.COL_WIDTHS[0])
+        acc_str = str.ljust(str(self.accepts), self.COL_WIDTHS[1])
+        rej_str = str.ljust(str(self.rejects), self.COL_WIDTHS[2])
+        total_str = str.ljust(str(self.total), self.COL_WIDTHS[3])
+        acc_rate_str = '%.2f%%' % (100 * self.acceptance_rate)
+
+        return '\t'.join([name_str, acc_str, rej_str, total_str, acc_rate_str])
+
+
+@dataclass
+class MCMCStats:
+    operator_stats: typ.Dict[str, OperatorStats]
+    total_accepts: int = 0
+    sampling_time: float = 0.0
+    n_samples: int = 0
+    last_sample = None
+
+    @property
+    def time_per_sample(self) -> float:
+        return self.sampling_time / self.n_samples
+
+    @property
+    def acceptance_rate(self) -> float:
+        return self.total_accepts / self.n_samples
 
 
 class MCMC(_abc.ABC):
@@ -39,7 +104,7 @@ class MCMC(_abc.ABC):
             model: Model,
             data: Data,
             operators: dict,
-            sample_loggers: List[ResultsLogger],
+            sample_loggers: typ.List[ResultsLogger],
             n_chains: int = 1,
             mc3: bool = False,
             swap_period: int = None,
@@ -65,18 +130,9 @@ class MCMC(_abc.ABC):
         self.sample_loggers = sample_loggers
 
         # Initialize statistics
-        self.statistics = {'sample_id': [],
-                           'sample_likelihood': [],
-                           'sample_prior': [],
-                           'sample_clusters': [],
-                           'sample_weights': [],
-                           'sample_cluster_effect': [],
-                           'sample_confounding_effects': {k: [] for k in model.confounders},
-                           'last_sample': [],
-                           'acceptance_ratio': _math.nan,
-                           'accepted_steps': 0,
-                           'accept_operator': defaultdict(int),
-                           'reject_operator': defaultdict(int)}
+        self.statistics = MCMCStats(
+            operator_stats={name: OperatorStats(name) for name in self.callable_operators}
+        )
 
         # State attributes
         self._ll = _np.full(self.n_chains, -_np.inf)
@@ -233,12 +289,11 @@ class MCMC(_abc.ABC):
 
                 # Log the last sample of the first chain
                 if i_step % (n_steps-1) == 0 and i_step != 0:
-                    self.log_last_sample(sample[self.chain_idx[0]])
+                    self.statistics.last_sample = sample[self.chain_idx[0]]
 
             t_end = _time.time()
-            self.statistics['sampling_time'] = t_end - t_start
-            self.statistics['time_per_sample'] = (t_end - t_start) / n_samples
-            self.statistics['acceptance_ratio'] = (self.statistics['accepted_steps'] / n_steps)
+            self.statistics.sampling_time = t_end - t_start
+            self.statistics.n_samples = n_samples
 
         # Close files of all sample_loggers
         for logger in self.sample_loggers:
@@ -290,10 +345,10 @@ class MCMC(_abc.ABC):
             sample = candidate
             self._ll[c] = ll_candidate
             self._prior[c] = prior_candidate
-            self.statistics['accepted_steps'] += 1
-            self.statistics['accept_operator'][step_name] += 1
+            self.statistics.total_accepts += 1
+            self.statistics.operator_stats[step_name].accepts += 1
         else:
-            self.statistics['reject_operator'][step_name] += 1
+            self.statistics.operator_stats[step_name].rejects += 1
 
         return sample
 
@@ -329,13 +384,6 @@ class MCMC(_abc.ABC):
         for logger in self.sample_loggers:
             logger.write_sample(sample)
 
-    def log_last_sample(self, last_sample):
-        """ This function logs the last sample of the first chain of an MCMC run.
-        Args:
-            last_sample (Sample): A Sample object consisting of clusters and parameters
-        """
-        self.statistics['last_sample'] = last_sample
-
     def print_screen_log(self, i_step, sample):
         i_step_str = str.ljust(str(i_step), 12)
 
@@ -351,37 +399,6 @@ class MCMC(_abc.ABC):
         self.logger.info("\n")
         self.logger.info("MCMC STATISTICS")
         self.logger.info("##########################################")
-        self.logger.info(log_operator_statistics_header())
-        for operator_name in self.callable_operators:
-            self.logger.info(log_operator_statistics(operator_name, self.statistics))
-
-
-COL_WIDTHS = [20, 8, 8, 8, 10]
-
-
-def log_operator_statistics_header():
-    name_header = str.ljust('OPERATOR', COL_WIDTHS[0])
-    acc_header = str.ljust('ACCEPTS', COL_WIDTHS[1])
-    rej_header = str.ljust('REJECTS', COL_WIDTHS[2])
-    total_header = str.ljust('TOTAL', COL_WIDTHS[3])
-    acc_rate_header = 'ACC. RATE'
-
-    return '\t'.join([name_header, acc_header, rej_header, total_header, acc_rate_header])
-
-
-def log_operator_statistics(operator_name, mcmc_stats):
-    acc = mcmc_stats['accept_operator'][operator_name]
-    rej = mcmc_stats['reject_operator'][operator_name]
-    total = acc + rej
-
-    if total == 0:
-        row_strings = [operator_name, '-', '-', '-', '-']
-        return '\t'.join([str.ljust(x, COL_WIDTHS[i]) for i, x in enumerate(row_strings)])
-
-    name_str = str.ljust(operator_name, COL_WIDTHS[0])
-    acc_str = str.ljust(str(acc), COL_WIDTHS[1])
-    rej_str = str.ljust(str(rej), COL_WIDTHS[2])
-    total_str = str.ljust(str(total), COL_WIDTHS[3])
-    acc_rate_str = '%.2f%%' % (100*acc/total)
-
-    return '\t'.join([name_str, acc_str, rej_str, total_str, acc_rate_str])
+        self.logger.info(OperatorStats.get_log_message_header())
+        for op_stats in self.statistics.operator_stats.values():
+            self.logger.info(op_stats.get_log_message_row())

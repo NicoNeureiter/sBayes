@@ -1,31 +1,49 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+import dataclasses
 import itertools
-import typing
+import typing as typ
 from enum import Enum
-from typing import List
+from dataclasses import dataclass
 
 import numpy as np
+import numpy.typing as nptyp
 
 import scipy.stats as stats
 from scipy.sparse.csgraph import minimum_spanning_tree, csgraph_from_dense
 
-from sbayes.sampling.state import Sample
-from sbayes.util import (compute_delaunay, n_smallest_distances, log_binom, log_multinom,
-                         counts_to_dirichlet, inheritance_counts_to_dirichlet,
+from sbayes.sampling.state import Sample, IndexSet
+from sbayes.util import (compute_delaunay, n_smallest_distances, log_multinom,
                          dirichlet_logpdf, log_expit)
 
 EPS = np.finfo(float).eps
 
 
-class Model(object):
+@dataclass
+class ModelShapes:
+    n_clusters: int
+    n_sites: int
+    n_features: int
+    n_states: int
+    states_per_feature: nptyp.NDArray[bool]
+
+    @property
+    def n_states_per_feature(self):
+        return [sum(applicable) for applicable in self.states_per_feature]
+
+    def __getitem__(self, key):
+        """Getter for backwards compatibility with dict-notation."""
+        return getattr(self, key)
+
+
+class Model:
     """The sBayes model: posterior distribution of clusters and parameters.
 
     Attributes:
         data (Data): The data used in the likelihood
         config (dict): A dictionary containing configuration parameters of the model
         confounders (dict): A ict of all confounders and group names
-        shapes (dict): A dictionary with shape information for building the Likelihood and Prior objects
+        shapes (ModelShapes): A dictionary with shape information for building the Likelihood and Prior objects
         likelihood (Likelihood): The likelihood of the model
         prior (Prior): Rhe prior of the model
 
@@ -33,19 +51,20 @@ class Model(object):
     def __init__(self, data, config):
         self.data = data
         self.config = config
-        self.confounders = config['confounding_effects']
+        self.confounders = config['confounders']
         self.n_clusters = config['clusters']
         self.min_size = config['prior']['objects_per_cluster']['min']
         self.max_size = config['prior']['objects_per_cluster']['max']
         self.sample_source = config['sample_source']
         n_sites, n_features, n_states = self.data.features['values'].shape
 
-        self.shapes = {
-            'n_sites': n_sites,
-            'n_features': n_features,
-            'n_states': n_states,
-            'states_per_feature': self.data.features['states']
-        }
+        self.shapes = ModelShapes(
+            n_clusters=self.n_clusters,
+            n_sites=n_sites,
+            n_features=n_features,
+            n_states=n_states,
+            states_per_feature=self.data.features['states']
+        )
 
         # Create likelihood and prior objects
         self.likelihood = Likelihood(data=self.data,
@@ -86,7 +105,7 @@ class Likelihood(object):
             shape: (n_sites, n_features, n_categories)
         confounders (dict): Assignment of objects to confounders. For each confounder (c) one np.array
             with shape: (n_groups(c), n_sites)
-        shapes (dict): A dictionary with shape information for building the Likelihood and Prior objects
+        shapes (ModelShapes): A dataclass with shape information for building the Likelihood and Prior objects
         has (dict): Indicates if objects are in a cluster, have a confounder or are affected by a mixture component
         lh_components (dict): A dictionary of cached likelihood values for each site and feature
         weights (np.array): The cached normalized weights of each component in the final likelihood for each feature
@@ -400,7 +419,7 @@ class Prior(object):
         self.size_prior = ClusterSizePrior(config=self.config['objects_per_cluster'],
                                            shapes=self.shapes)
         self.geo_prior = GeoPrior(config=self.config['geo'],
-                                  cost_matrix=data.geo_prior['cost_matrix'])
+                                  cost_matrix=data.geo_cost_matrix)
         self.prior_weights = WeightsPrior(config=self.config['weights'],
                                           shapes=self.shapes)
         self.prior_cluster_effect = ClusterEffectPrior(config=self.config['cluster_effect'],
@@ -478,14 +497,14 @@ class DirichletPrior(object):
         self.parse_attributes()
 
     # todo: reactivate
-    # def load_concentration(self, config: dict) -> List[np.ndarray]:
+    # def load_concentration(self, config: dict) -> typ.List[np.ndarray]:
     #     if 'file' in config:
     #         return self.parse_concentration_json(config['file'])
     #     elif 'parameters' in config:
     #         return self.parse_concentration_dict(config['parameters'])
 
     # todo: reactivate
-    # def parse_concentration_json(self, json_path: str) -> List[np.ndarray]:
+    # def parse_concentration_json(self, json_path: str) -> typ.List[np.ndarray]:
     #     # Read the concentration parameters from the JSON file
     #     with open(json_path, 'r') as f:
     #         concentration_dict = json.load(f)
@@ -494,7 +513,7 @@ class DirichletPrior(object):
     #     return self.parse_concentration_dict(concentration_dict)
 
     # todo: reactivate
-    # def parse_concentration_dict(self, concentration_dict: dict) -> List[np.ndarray]:
+    # def parse_concentration_dict(self, concentration_dict: dict) -> typ.List[np.ndarray]:
     #     # Get feature_names and state_names lists to put parameters in the right order
     #     feature_names = self.data.feature_names['external']
     #     state_names = self.data.state_names['external']
@@ -508,11 +527,11 @@ class DirichletPrior(object):
     #
     #     return concentration
 
-    def get_uniform_concentration(self) -> List[np.ndarray]:
+    def get_uniform_concentration(self) -> typ.List[np.ndarray]:
         concentration = []
-        for state_names_f in self.shapes['states_per_feature']:
+        for state_names_f in self.shapes.n_states_per_feature:
             concentration.append(
-                np.ones(shape=len(state_names_f))
+                np.ones(shape=np.sum(state_names_f))
             )
         return concentration
 
@@ -578,7 +597,7 @@ class ConfoundingEffectsPrior(DirichletPrior):
 
         prior = compute_confounding_effects_prior(confounding_effect=sample.confounding_effects[self.conf],
                                                   concentration=current_concentration,
-                                                  applicable_states=self.shapes['states_per_feature'],
+                                                  applicable_states=self.shapes.states_per_feature,
                                                   outdated_indices=what_changed,
                                                   cached_prior=self.cached,
                                                   broadcast=False)
@@ -787,6 +806,9 @@ class ClusterSizePrior(object):
     #         raise NotImplementedError()
 
 
+Aggregator = typ.Callable[[typ.Sequence[float]], float]
+"""A type describing functions that aggregate costs in the geo-prior."""
+
 
 class GeoPrior(object):
 
@@ -794,7 +816,7 @@ class GeoPrior(object):
         UNIFORM = 'uniform'
         COST_BASED = 'cost_based'
 
-    AGGREGATORS = {
+    AGGREGATORS: typ.Dict[str, Aggregator] = {
         'mean': np.mean,
         'sum': np.sum,
         'max': np.max,
@@ -848,7 +870,7 @@ class GeoPrior(object):
     def parse_prob_function(
             prob_function_type: str,
             scale: float,
-            inflection_point: typing.Optional[float] = None
+            inflection_point: typ.Optional[float] = None
     ) -> callable:
 
         if prob_function_type == 'exponential':
@@ -920,8 +942,8 @@ def compute_gaussian_geo_prior(
         network: dict,
         cov: np.array,
 ) -> float:
-    """
-    This function computes the two-dimensional Gaussian geo-prior for all edges in the zone
+    """This function computes the 2D Gaussian geo-prior for all edges in the cluster.
+
     Args:
         cluster (np.array): boolean array representing the current zone
         network (dict): network containing the graph, location,...
@@ -960,8 +982,8 @@ def compute_gaussian_geo_prior(
 def compute_cost_based_geo_prior(
         clusters: np.array,
         cost_mat: np.array,
-        aggregator: callable,
-        probability_function: callable,
+        aggregator: Aggregator,
+        probability_function: typ.Callable[[float], float],
 ) -> float:
     """ This function computes the geo prior for the sum of all distances of the mst of a zone
     Args:
@@ -984,31 +1006,42 @@ def compute_cost_based_geo_prior(
 
             # When there are zero costs between languages the MST might be 0
             if mst.nnz > 0:
-
                 distances = mst.tocsr()[mst.nonzero()]
             else:
-                distances = 0
+                distances = [0.0]
         else:
             raise ValueError("Too few locations to compute distance.")
 
         agg_distance = aggregator(distances)
         log_prior += probability_function(agg_distance)
+
     return log_prior
 
 
-def compute_confounding_effects_prior(confounding_effect, concentration, applicable_states,
-                                      outdated_indices, cached_prior=None, broadcast=False):
+def compute_confounding_effects_prior(
+        confounding_effect: nptyp.NDArray[float],
+        concentration: typ.List[np.array],
+        applicable_states: typ.List[np.array],
+        outdated_indices: IndexSet,
+        cached_prior: nptyp.NDArray[float] = None,
+        broadcast: bool = False
+) -> nptyp.NDArray[float]:
     """" This function evaluates the prior for p_families
     Args:
         confounding_effect (np.array): The confounding effect [i] from the sample
-        concentration (list): List of Dirichlet concentration parameters
+            shape: (n_groups, n_features, n_states)
+        concentration (list): List of Dirichlet concentration parameters.
+            shape: (n_applicable_states[f],) for f in features
         applicable_states (list): List of available states per feature
+            shape: (n_applicable_states[f],) for f in features
         outdated_indices (IndexSet): The features which need to be updated in each group
         cached_prior (np.array): The cached prior for confound effect [i]
+            shape: (n_groups, n_features)
         broadcast (bool): Apply the same prior for all groups (TRUE)?
 
     Returns:
-        float: the prior for confounding effect [i]
+        np.array: the prior log-pdf of the confounding effect for each group and feature
+            shape: (n_groups, n_features)
     """
     n_groups, n_features, n_states = confounding_effect.shape
 

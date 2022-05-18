@@ -1072,7 +1072,7 @@ class ClusterMCMC(MCMC):
 
         GIBBSISH_CLUSTER_STEPS = False
 
-        op_weights = {
+        operators = {
             'shrink_cluster': {'weight': operators_raw['clusters'] * (0 if GIBBSISH_CLUSTER_STEPS else 0.4),
                                'function': getattr(self, "shrink_cluster"),
                                'additional_parameters': None},
@@ -1082,13 +1082,13 @@ class ClusterMCMC(MCMC):
             'swap_cluster': {'weight': operators_raw['clusters'] * (0 if GIBBSISH_CLUSTER_STEPS else 0.2),
                              'function': getattr(self, "swap_cluster"),
                              'additional_parameters': None},
-            'gibbsish_sample_clusters': {'weight': operators_raw['clusters'] * (1.0 if GIBBSISH_CLUSTER_STEPS else 0),
+            'gibbsish_sample_clusters': {'weight': operators_raw['clusters'] * (1.0 if GIBBSISH_CLUSTER_STEPS else 0.0),
                                          'function': getattr(self, "gibbsish_sample_clusters"),
                                          'additional_parameters': None}
         }
 
         if self.model.sample_source:
-            op_weights.update({
+            operators.update({
                 'gibbs_sample_sources': {'weight': operators_raw['source'],
                                          'function': getattr(self, "gibbs_sample_sources"),
                                          'additional_parameters': None},
@@ -1103,14 +1103,14 @@ class ClusterMCMC(MCMC):
             r = float(1 / len(self.model.confounders))
             for k in self.model.confounders:
                 op_name = "gibbs_sample_confounding_effects_" + str(k)
-                op_weights.update({
+                operators.update({
                     op_name: {'weight': operators_raw['confounding_effects'] * r,
                               'function': getattr(self, "gibbs_sample_confounding_effects"),
                               'additional_parameters': {'confounder': k}}
                 })
 
         else:
-            op_weights.update({
+            operators.update({
                 'alter_weights': {'weight': operators_raw['weights'],
                                   'function': getattr(self, "alter_weights"),
                                   'additional_parameters': None},
@@ -1122,13 +1122,20 @@ class ClusterMCMC(MCMC):
             r = float(1 / len(self.model.confounders))
             for k in self.model.confounders:
                 op_name = "alter_confounding_effects_" + str(k)
-                op_weights.update({
+                operators.update({
                     op_name: {'weight': operators_raw['confounding_effects'] * r,
                               'function': getattr(self, "alter_confounding_effects"),
                               'confounder': k, 'additional_parameters': {'confounder': k}}
                 })
 
-        return op_weights
+        normalize_operator_weights(operators)
+        return operators
+
+
+def normalize_operator_weights(operators: dict):
+    total = sum(op['weight'] for op in operators.values())
+    for op in operators.values():
+        op['weight'] /= total
 
 
 class ClusterMCMCWarmup(ClusterMCMC):

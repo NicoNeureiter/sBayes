@@ -338,7 +338,7 @@ def read_features_from_csv(
     except KeyError:
         names = id_ext
 
-    for c in config['model']['confounding_effects']:
+    for c in config['model']['confounders']:
         try:
             confounder_raw[c] = data.pop(c)
         except KeyError:
@@ -1277,7 +1277,7 @@ def decompose_config_path(config_path):
     return base_directory, abs_config_path.replace("\\", "/")
 
 
-def fix_relative_path(base_directory, path):
+def fix_relative_path(path, base_directory):
     """Make sure that the provided path is either absolute or relative to the config file directory.
 
     Args:
