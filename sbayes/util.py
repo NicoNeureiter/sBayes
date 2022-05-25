@@ -30,6 +30,10 @@ dirichlet_logpdf = stats.dirichlet._logpdf if FAST_DIRICHLET else stats.dirichle
 dirichlet_pdf = stats.dirichlet.pdf
 
 
+PathLike = typ.Union[str, Path]
+"""Convenience type for cases where `str` or `Path` are acceptable types."""
+
+
 class FamilyError(Exception):
     pass
 
@@ -300,97 +304,14 @@ def encode_states(features_raw, feature_states):
     return features, na_number
 
 
-def normalize_str(s):
+def normalize_str(s: str) -> str:
     if pd.isna(s):
         return s
     return str.strip(s)
 
 
-def read_features_from_csv(
-        config: dict,
-        logger: typ.Optional['Logger'] = None,
-) -> (dict, dict, dict):
-    """This is a helper function to import data (objects, features, confounders) from a csv file
-    Args:
-        config: the config file
-        logger: A Logger object for writing log messages.
-
-    Returns:
-        dict: The object dictionary with
-        dict: The features dictionary for all objects
-        dict: The confounders dictionary with group names in "names" and assignment array
-            in "values".
-    """
-    file = config['data']['features']
-    data = pd.read_csv(file, dtype=str)
-    data = data.applymap(normalize_str)
-
-    confounder_raw = dict()
-    try:
-        x = data.pop('x')
-        y = data.pop('y')
-        id_ext = data.pop('id')
-    except KeyError:
-        raise KeyError("The csv must contain columns `x`, `y` and `id`")
-
-    try:
-        names = data.pop('name')
-    except KeyError:
-        names = id_ext
-
-    for c in config['model']['confounders']:
-        try:
-            confounder_raw[c] = data.pop(c)
-        except KeyError:
-            raise KeyError(f"The config file lists `\'{c}'\' as a confounder. Remove confounder or include "
-                           f"`\'{c}\'` in the features.csv file.")
-
-    # Load the valid features-states
-    feature_states = pd.read_csv(config['data']['feature_states'], dtype=str)
-    feature_states = feature_states.applymap(normalize_str)
-    feature_names_ext = feature_states.columns.to_numpy()
-
-    # Make sure the same features are specified in the data file and in the feature_states file
-    assert set(feature_states.columns) == set(data.columns)
-
-    # objects
-    n_sites, n_features = data.shape
-    locations = np.zeros((n_sites, 2))
-
-    for i in range(n_sites):
-        # Define location tuples
-        locations[i, 0] = float(x[i])
-        locations[i, 1] = float(y[i])
-
-        # The order in the list maps to the external names and id
-    objects = {'locations': locations,
-               'id': id_ext,
-               'names': names}
-
-    # features
-    features, na_number = encode_states(data, feature_states)
-    features['names'] = feature_names_ext
-
-    # confounders
-    confounders = dict()
-    for k, v in confounder_raw.items():
-        groups_ordered = np.unique(v.dropna()).tolist()
-        n_groups = len(groups_ordered)
-
-        c = np.zeros((n_groups, n_sites), dtype=bool)
-
-        for g in range(n_groups):
-            c[g, np.where(v == groups_ordered[g])] = True
-
-        confounders[k] = {'values': c,
-                          'names': groups_ordered}
-
-    if logger:
-        logger.info(f"{n_sites} sites with {n_features} features read from {file}.")
-        logger.info(f"{na_number} NA value(s) found.")
-        logger.info(f"The maximum number of states in a single feature was {feature_states.shape[0]}.")
-
-    return objects, features, confounders
+def read_data_csv(csv_path: typ.Union[Path, str]) -> pd.DataFrame:
+    return pd.read_csv(csv_path, dtype=str).applymap(normalize_str)
 
 
 def read_costs_from_csv(file: str, logger=None):
@@ -680,7 +601,7 @@ def collect_gt_for_writing(samples, data, config):
             gt[feature_name] = samples['true_p_global'][0][f][st]
 
     # gamma
-    for a in range(len(data.areas)):
+    for a in range(len(data.clusters)):
         for f in range(len(data.feature_names['external'])):
             for st in range(len(data.state_names['external'][f])):
                 feature_name = 'gamma_' + 'a' + str(a + 1) \
@@ -703,7 +624,7 @@ def collect_gt_for_writing(samples, data, config):
                     gt[feature_name] = samples['true_p_families'][fam][f][st]
     # Single areas
     if 'true_lh_single_cluster' in samples.keys():
-        for a in range(len(data.areas)):
+        for a in range(len(data.clusters)):
             lh_name = 'lh_a' + str(a + 1)
             prior_name = 'prior_a' + str(a + 1)
             posterior_name = 'post_a' + str(a + 1)
@@ -1277,7 +1198,10 @@ def decompose_config_path(config_path):
     return base_directory, abs_config_path.replace("\\", "/")
 
 
-def fix_relative_path(path, base_directory):
+def fix_relative_path(
+        path: typ.Union[Path, str],
+        base_directory: typ.Union[Path, str],
+):
     """Make sure that the provided path is either absolute or relative to the config file directory.
 
     Args:

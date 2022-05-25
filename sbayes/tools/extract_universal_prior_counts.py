@@ -7,7 +7,7 @@ import argparse
 import tkinter as tk
 from tkinter import filedialog
 
-from sbayes.util import read_features_from_csv
+from load_data import read_features_from_csv
 from sbayes.util import scale_counts
 
 

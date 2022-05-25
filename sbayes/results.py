@@ -1,14 +1,13 @@
-import typing as tp
-from itertools import permutations
+from typing import List, Dict, Sequence, TypeVar
 
 import numpy as np
-import numpy.typing as npt
+from numpy.typing import NDArray
 import pandas as pd
 
-from sbayes.util import parse_cluster_columns
+from sbayes.util import PathLike, parse_cluster_columns
 
 
-T = tp.TypeVar("T", bound="Results")
+TResults = TypeVar("TResults", bound="Results")
 
 
 class Results:
@@ -17,39 +16,55 @@ class Results:
     Class for reading, storing, summarizing results of a sBayes analysis.
 
     Attributes:
-        areas (npt.NDArray[bool]): Array containing samples of areas.
-            shape: (n_areas, n_samples, n_sites)
+        clusters (NDArray[bool]): Array containing samples of clusters.
+            shape: (n_clusters, n_samples, n_sites)
         parameters (pd.DataFrame): Data-frame containing sample information about parameters
                                    and likelihood, prior and posterior probabilities.
     """
 
-    def __init__(self, areas: npt.NDArray[bool], parameters: pd.DataFrame):
-        self.areas = areas
+    @staticmethod
+    def drop_burnin(clusters, parameters, burn_in):
+        # Translate burn_in fraction to index
+        n_total_samples = clusters.shape[1]
+        burn_in_index = int(burn_in * n_total_samples)
+
+        # Drop burnin samples from both arrays
+        clusters = clusters[:, burn_in_index:, :]
+        parameters = parameters.iloc[burn_in_index:]
+
+        return clusters, parameters
+
+    def __init__(
+        self,
+        clusters: NDArray[bool],
+        parameters: pd.DataFrame,
+        burn_in: float = 0.1,
+    ):
+        clusters, parameters = self.drop_burnin(clusters, parameters, burn_in)
+        self.clusters = clusters
         self.parameters = parameters
 
-        # Cached properties
-        self._inheritance = None
+        self.groups_by_confounders = self.get_groups_by_confounder(parameters.columns)
+        self.cluster_names = self.get_cluster_names(parameters.columns)
 
         # Parse feature, state, family and area names
-        self.feature_names, self.feature_states = extract_features_and_states(parameters)
-        self.family_names = self.get_family_names(parameters.columns)
-        self.area_names = self.get_area_names(parameters.columns)
-
-        # Parse parameters from the parameters dataframe
+        self.feature_names, self.feature_states = extract_features_and_states(
+            parameters=parameters, prefix=f"areal_{self.cluster_names[0]}"
+        )
 
         # The sample index
         self.sample_id = self.parameters["Sample"].to_numpy(dtype=int)
 
         # Model parameters
-        # self.weights = self.parse_weights(self.parameters)
-        # self.alpha = self.parse_universal_probs(self.parameters)
-        # self.beta = self.parse_family_probs(self.parameters)
-        # self.gamma = self.parse_area_probs(self.parameters)
-        self.weights = Results.read_dictionary(self.parameters, 'w_')
-        self.alpha = Results.read_dictionary(self.parameters, 'alpha_')
-        if self.inheritance:
-            self.beta = Results.read_dictionary(self.parameters, 'beta_')
-        self.gamma = Results.read_dictionary(self.parameters, 'gamma_')
+        self.weights = self.parse_weights(self.parameters)
+        self.areal_effect = self.parse_areal_effect(self.parameters)
+        self.confounding_effects = self.parse_confounding_effects(self.parameters)
+        # self.weights = Results.read_dictionary(self.parameters, "w_")
+        # self.areal_effect = Results.read_dictionary(self.parameters, "areal_")
+        # self.confounding_effects = {
+        #     conf: Results.read_dictionary(self.parameters, f"{conf}_")
+        #     for conf in self.groups_by_confounders
+        # }
 
         # Posterior, likelihood, prior
         self.posterior = self.parameters["posterior"].to_numpy(dtype=float)
@@ -57,37 +72,43 @@ class Results:
         self.prior = self.parameters["prior"].to_numpy(dtype=float)
 
         # Posterior, likelihood, prior contribution per area
-        self.posterior_single_areas = Results.read_dictionary(self.parameters, 'post_')
-        self.likelihood_single_areas = Results.read_dictionary(self.parameters, 'lh_')
-        self.prior_single_areas = Results.read_dictionary(self.parameters, 'prior_')
-
-    @property
-    def inheritance(self):
-        if self._inheritance is None:
-            self._inheritance = any(k.startswith('gamma_') for k in self.parameters.columns)
-        return self._inheritance
+        self.posterior_single_clusters = Results.read_dictionary(
+            self.parameters, "post_"
+        )
+        self.likelihood_single_clusters = Results.read_dictionary(
+            self.parameters, "lh_"
+        )
+        self.prior_single_clusters = Results.read_dictionary(self.parameters, "prior_")
 
     @property
     def n_features(self):
         return len(self.feature_names)
 
     @property
-    def n_areas(self):
-        return self.areas.shape[0]
+    def n_clusters(self):
+        return self.clusters.shape[0]
 
     @property
     def n_samples(self):
-        return self.areas.shape[1]
+        return self.clusters.shape[1]
 
     @property
-    def n_sites(self):
-        return self.areas.shape[2]
+    def n_objects(self):
+        return self.clusters.shape[2]
+
+    @property
+    def confounders(self):
+        return list(self.groups_by_confounders.keys())
+
+    @property
+    def n_confounders(self):
+        return len(self.groups_by_confounders)
 
     def __getitem__(self, item):
         if item in [
             "feature_names",
             "sample_id",
-            "areas",
+            "clusters",
             "weights",
             "alpha",
             "beta",
@@ -95,36 +116,46 @@ class Results:
             "posterior",
             "likelihood",
             "prior",
-            "posterior_single_areas",
-            "likelihood_single_areas",
-            "prior_single_areas",
+            "posterior_single_clusters",
+            "likelihood_single_clusters",
+            "prior_single_clusters",
         ]:
             return getattr(self, item)
         else:
             raise ValueError(f"Unknown parameter name ´{item}´")
 
     @classmethod
-    def from_csv_files(cls: tp.Type[T], areas_path: str, parameters_path: str) -> T:
-        areas = cls.read_areas(areas_path)
+    def from_csv_files(
+        cls, clusters_path: PathLike, parameters_path: PathLike, burn_in: float = 0.1
+    ) -> TResults:
+        clusters = cls.read_clusters(clusters_path)
         parameters = cls.read_stats(parameters_path)
-        return cls(areas, parameters)
+        return cls(clusters, parameters, burn_in=burn_in)
 
     @staticmethod
-    def read_areas(txt_path: str) -> npt.NDArray[bool]:
-        areas_list = []
+    def read_clusters(txt_path: PathLike) -> NDArray[bool]:
+        """
+
+        Args:
+            txt_path:
+
+        Returns:
+            Boolean clusters array of shape (n_clusters, n_samples, n_sites)
+        """
+        clusters_list = []
         with open(txt_path, "r") as f_sample:
-            # This makes len(result) = number of areas (flipped array)
+            # This makes len(result) = number of clusters (flipped array)
 
             # Split the sample
             # len(byte_results) equals the number of samples
             byte_results = (f_sample.read()).split("\n")
 
-            # Get the number of areas
-            n_areas = len(byte_results[0].split("\t"))
+            # Get the number of clusters
+            n_clusters = len(byte_results[0].split("\t"))
 
-            # Append empty arrays to result, so that len(result) = n_areas
-            for i in range(n_areas):
-                areas_list.append([])
+            # Append empty arrays to result, so that len(result) = n_clusters
+            for i in range(n_clusters):
+                clusters_list.append([])
 
             # Process each sample
             for sample in byte_results:
@@ -133,16 +164,16 @@ class Results:
 
                 # Parse each sample
                 parsed_sample = parse_cluster_columns(sample)
-                # shape: (n_areas, n_sites)
+                # shape: (n_clusters, n_sites)
 
                 # Add each item in parsed_area_columns to the corresponding array in result
                 for j in range(len(parsed_sample)):
-                    areas_list[j].append(parsed_sample[j])
+                    clusters_list[j].append(parsed_sample[j])
 
-        return np.array(areas_list, dtype=bool)
+        return np.array(clusters_list, dtype=bool)
 
     @staticmethod
-    def read_stats(txt_path: str) -> pd.DataFrame:
+    def read_stats(txt_path: PathLike) -> pd.DataFrame:
         """Read stats for results files (<experiment_path>/stats_<scenario>.txt).
 
         Args:
@@ -162,179 +193,193 @@ class Results:
 
         return param_dict
 
-    def parse_weights(self, parameters: pd.DataFrame) -> tp.Dict[str, npt.NDArray]:
-        inheritance = f"w_inheritance_{self.feature_names[0]}" in parameters.columns
+    def parse_weights(self, parameters: pd.DataFrame) -> Dict[str, NDArray]:
+        """Parse weights array for each feature in a dictionary from the parameters
+        data-frame.
+
+        Args:
+            parameters:
+
+        Returns:
+            dictionary mapping feature names to corresponding weights arrays. Each weights
+                array has shape (n_samples, 1 + n_confounders).
+
+        """
+        # The components include the areal effect and all confounding effects and define
+        # the dimensions of weights for each feature.
+        components = ["areal"] + list(self.groups_by_confounders.keys())
+
+        # Collect weights by feature
         weights = {}
         for f in self.feature_names:
-            w_univ = parameters[f"w_universal_{f}"].to_numpy(dtype=np.float)
-            w_cont = parameters[f"w_contact_{f}"].to_numpy(dtype=np.float)
-            if inheritance:
-                w_inhe = parameters[f"w_inheritance_{f}"].to_numpy(dtype=np.float)
-                weights[f] = np.array([w_univ, w_cont, w_inhe])
-            else:
-                weights[f] = np.array([w_univ, w_cont])
+            weights[f] = np.column_stack(
+                [parameters[f"w_{c}_{f}"].to_numpy(dtype=np.float) for c in components]
+            )
 
         return weights
 
     def parse_probs(
         self,
         parameters: pd.DataFrame,
-        param_name: str,
-    ) -> tp.Dict[str, npt.NDArray]:
+        prefix: str,
+    ) -> Dict[str, NDArray[float]]:
+        """Parse a categorical probabilities for each feature. The probabilities are
+        specified in the columns starting with `prefix` in the `parameters` data-frame.
+
+        Args:
+            parameters: The data-frame of all logged parameters from a sbayes analysis.
+            prefix: The prefix identifying the parameter to be parsed.
+
+        Returns:
+            The parsed dictionary mapping feature names to probability arrays.
+                shape for each feature f: (n_states_f,)
+        """
 
         param = {}
         for i_f, f in enumerate(self.feature_names):
-            param[f] = np.array(
-                [parameters[f"{param_name}_{f}_{s}"] for s in self.feature_states[i_f]]
+            param[f] = np.column_stack(
+                [parameters[f"{prefix}_{f}_{s}"] for s in self.feature_states[i_f]]
             )
 
-        f0 = self.feature_names[0]
-        assert param[f0].shape == (len(self.feature_states[0]), self.n_samples)
         assert len(param) == self.n_features
-
         return param
 
-    def parse_universal_probs(self, parameters: pd.DataFrame) -> tp.Dict:
-        return self.parse_probs(parameters, 'alpha')
+    def parse_areal_effect(self, parameters: pd.DataFrame) -> Dict[str, dict]:
+        """Parse a categorical probabilities for each feature in each cluster. The
+         probabilities are specified in the columns starting with `areal_` in the
+         `parameters` data-frame.
 
-    def parse_family_probs(self, parameters: pd.DataFrame) -> tp.Dict:
-        beta = {}
-        for fam in self.family_names:
-            beta[fam] = self.parse_probs(self.parameters, f'beta_{fam}')
-        return beta
+        Args:
+            parameters: The data-frame of all logged parameters from a sbayes analysis.
 
-    def parse_area_probs(self) -> tp.Dict:
-        gamma = {}
-        for area in self.area_names:
-            gamma[area] = self.parse_probs(self.parameters, f'gamma_{area}')
-        return gamma
+        Returns:
+            Nested dictionary of form {cluster_name: {feature_name: probabilities}}.
+                shape for each cluster and each feature f: (n_states_f,)
+        """
+        areal_effect = {
+            cluster: self.parse_probs(parameters, f"areal_{cluster}")
+            for cluster in self.cluster_names
+        }
+        return areal_effect
+
+    def parse_confounding_effects(
+        self, parameters: pd.DataFrame
+    ) -> Dict[str, dict]:
+        """Parse a categorical probabilities for each feature in each confounder. The
+         probabilities are specified in the `parameters` data-frame in columns starting
+         with `{c}_` for a confounder c.
+
+        Args:
+            parameters: The data-frame of all logged parameters from a sbayes analysis.
+
+        Returns:
+            Nested dictionary of form {confounder_name: {feature_name: probabilities}}.
+                shape for each cluster and each feature f: (n_states_f,)
+        """
+        conf_effects = {
+            conf: {g: self.parse_probs(parameters, f"{conf}_{g}") for g in groups}
+            for conf, groups in self.groups_by_confounders.items()
+        }
+        return conf_effects
 
     @staticmethod
-    def get_family_names(column_names) -> tp.List[str]:
+    def get_family_names(column_names) -> List[str]:
         family_names = []
         for key in column_names:
-            if not key.startswith('beta_'):
+            if not key.startswith("beta_"):
                 continue
-            _, fam, _, _ = key.split('_')
+            _, fam, _, _ = key.split("_")
             if fam not in family_names:
                 family_names.append(fam)
         return family_names
 
     @staticmethod
-    def get_area_names(column_names) -> tp.List[str]:
+    def get_groups_by_confounder(
+        column_names: Sequence[str],
+    ) -> Dict[str, List[str]]:
+        """Create a dictionary containing all confounder names as keys and a list of
+        corresponding group names as values. The dictionary is extracted from the column
+        names in a csv file of logged sbayes parameters."""
+
+        groups_by_confounder = {}
+
+        # We use to weights columns to find confounder names
+        for key in column_names:
+            # Skip if not a weights column
+            if not key.startswith("w_"):
+                continue
+
+            # Second part of key in weights columns defines the confounder name
+            _, conf, _ = key.split("_", maxsplit=2)
+
+            # Skip areal effects
+            if conf == "areal":
+                continue
+
+            # Skip already added
+            if conf in groups_by_confounder:
+                continue
+
+            # Otherwise, remember the confounder name and initialize the group name list
+            groups_by_confounder[conf] = []
+
+        # Collect the group names from the parameter columns of each confounder
+        for conf in groups_by_confounder:
+            for key in column_names:
+                # Skip columns that are not on this confounder
+                if not key.startswith(f"{conf}_"):
+                    continue
+
+                # Second part of key contains the group name
+                _, group, _ = key.split("_", maxsplit=2)
+
+                # Skip if already added
+                if group in groups_by_confounder[conf]:
+                    continue
+
+                # Otherwise, remember the group name
+                groups_by_confounder[conf].append(group)
+
+        return groups_by_confounder
+
+    @staticmethod
+    def get_cluster_names(column_names) -> List[str]:
         area_names = []
         for key in column_names:
-            if not key.startswith('gamma_'):
+            if not key.startswith("areal_"):
                 continue
-            _, area, _ = key.split('_', maxsplit=2)
+            _, area, _ = key.split("_", maxsplit=2)
             if area not in area_names:
                 area_names.append(area)
         return area_names
 
-    # def rank_areas(self):
-    #     post_per_area = self.likelihood_single_areas
-    #     to_rank = np.mean(post_per_area, axis=0)
-    #     ranked = np.argsort(-to_rank)
-    #
-    #     # probability per area in log-space
-    #     # p_total = logsumexp(to_rank)
-    #     # p = to_rank[np.argsort(-to_rank)] - p_total
-    #
-    #     ranked_areas = []
-    #     ranked_lh = []
-    #     ranked_prior = []
-    #     ranked_posterior = []
-    #     ranked_p_areas = []
-    #
-    #     print("Ranking areas ...")
-    #     for s in range(len(samples["sample_zones"])):
-    #         ranked_areas.append(samples["sample_zones"][s][ranked])
-    #     samples["sample_zones"] = ranked_areas
-    #
-    #     print("Ranking lh areas ...")
-    #     for s in range(len(samples["sample_lh_single_zones"])):
-    #         ranked_lh.append([samples["sample_lh_single_zones"][s][r] for r in ranked])
-    #     samples["sample_lh_single_zones"] = ranked_lh
-    #
-    #     print("Ranking prior areas ...")
-    #     for s in range(len(samples["sample_prior_single_zones"])):
-    #         ranked_prior.append(
-    #             [samples["sample_prior_single_zones"][s][r] for r in ranked]
-    #         )
-    #     samples["sample_prior_single_zones"] = ranked_prior
-    #
-    #     print("Ranking posterior areas ...")
-    #     for s in range(len(samples["sample_posterior_single_zones"])):
-    #         ranked_posterior.append(
-    #             [samples["sample_posterior_single_zones"][s][r] for r in ranked]
-    #         )
-    #     samples["sample_posterior_single_zones"] = ranked_posterior
-    #
-    #     print("Ranking p areas ...")
-    #     for s in range(len(samples["sample_p_zones"])):
-    #         ranked_p_areas.append(samples["sample_p_zones"][s][ranked])
-    #     samples["sample_p_zones"] = ranked_p_areas
-    #
-    #     return samples
-    #
-    # def match_areas(self):
-    #     n_areas, n_samples, n_sites = self.areas.shape
-    #
-    #     # n_samples, n_sites, n_areas = area_samples.shape
-    #     s_sum = np.zeros((n_sites, n_areas))
-    #
-    #     # All potential permutations of cluster labels
-    #     perm = list(permutations(range(n_areas)))
-    #     matching_list = []
-    #     for i_sample in range(n_samples):
-    #         s = self.areas[:, i_sample, :].T
-    #
-    #         def clustering_agreement(p):
-    #             """How many sites match the previous sample for permutation `p`?"""
-    #             return np.sum(s_sum * s[:, p])
-    #
-    #         best_match = max(perm, key=clustering_agreement)
-    #         matching_list.append(list(best_match))
-    #         s_sum += s[:, best_match]
-    #
-    #     # Reorder chains according to matching
-    #     reordered_zones = []
-    #     reordered_p_zones = []
-    #     reordered_lh = []
-    #     reordered_prior = []
-    #     reordered_posterior = []
-    #
-    #     print("Matching areas ...")
-    #     for s in range(n_samples):
-    #         self.areas[:, s, :] = self.areas[matching_list[s], s, :]
-    #         x = self.alpha
-    #         reordered_p_zones.append(samples["sample_p_zones"][s][matching_list[s]])
-    #         reordered_lh.append(
-    #             [samples["sample_lh_single_zones"][s][i] for i in matching_list[s]]
-    #         )
-    #         reordered_prior.append(
-    #             [samples["sample_prior_single_zones"][s][i] for i in matching_list[s]]
-    #         )
-    #         reordered_posterior.append(
-    #             [
-    #                 samples["sample_posterior_single_zones"][s][i]
-    #                 for i in matching_list[s]
-    #             ]
-    #         )
-    #
-    #     return samples
+    def get_states_for_feature_name(self, f: str) -> List[str]:
+        return self.feature_states[self.feature_names.index(f)]
 
 
-def extract_features_and_states(parameters: pd.DataFrame):
+def extract_features_and_states(
+        parameters: pd.DataFrame,
+        prefix: str
+) -> (List[str], List[List[str]]):
+    """Extract features names and state names of the given data-set.
+
+    Args:
+        parameters: The data-frame of all logged parameters from a sbayes analysis.
+        prefix: The prefix identifying columns to be used.
+
+    Returns:
+        list of feature names and nested list of state names for each feature.
+    """
     feature_names = []
     state_names = []
 
     # We look at all ´alpha´ columns, since they contain each feature-state exactly once.
-    alpha_columns = [c for c in parameters.columns if c.startswith("alpha_")]
+    columns = [c for c in parameters.columns if c.startswith(f"{prefix}_")]
 
-    for c in alpha_columns:
-        # Column name format is 'alpha_{featurename}_{statename}'
-        f, _, s = c[6:].rpartition('_')
+    for c in columns:
+        # Column name format is '{prefix}_{featurename}_{statename}'
+        f_s = c[len(prefix) + 1 :]
+        f, _, s = f_s.partition("_")
 
         # Add the feature name to the list (if not present)
         if f not in feature_names:

@@ -1,10 +1,13 @@
 import json
+import logging
 import math
 import os
 from itertools import compress
 from statistics import median
 from pathlib import Path
-import typing as tp
+import typing as typ
+
+import pandas as pd
 
 try:
     import importlib.resources as pkg_resources     # PYTHON >= 3.7
@@ -16,6 +19,7 @@ import matplotlib as mpl
 import matplotlib.pyplot as plt
 import matplotlib.ticker as mtick
 import numpy as np
+import numpy.typing as nptyp
 import seaborn as sns
 import colorsys
 
@@ -36,8 +40,10 @@ from sbayes.results import Results
 from sbayes.util import add_edge, compute_delaunay
 from sbayes.util import fix_default_config, fix_relative_path
 from sbayes.util import gabriel_graph_from_delaunay
-from sbayes.util import parse_cluster_columns, read_features_from_csv
-from sbayes.cli import iterate_or_run
+from sbayes.util import parse_cluster_columns
+from sbayes.util import read_data_csv
+from sbayes.util import PathLike
+from sbayes.load_data import Objects
 from sbayes.experiment_setup import REQUIRED, set_defaults
 from sbayes import config as config_package
 from sbayes import maps as maps_package
@@ -61,7 +67,7 @@ class Plot:
         self.stats_path = None
 
         # Input sites, site_names, locations, ...
-        self.sites = None
+        self.objects = None
         self.site_names = None
         self.locations = None
 
@@ -69,7 +75,7 @@ class Plot:
         self.family_names = None
 
         # Dictionary with all the MCMC results
-        self.results: tp.Optional[Results] = None
+        self.results: typ.Dict[str, Results] = {}
 
         # Needed for the weights and parameters plotting
         plt.style.use('seaborn-paper')
@@ -115,7 +121,6 @@ class Plot:
         self.all_cluster_paths = [fix_relative_path(i, self.base_directory) for i in input_paths['clusters']]
         self.all_stats_paths = [fix_relative_path(i, self.base_directory) for i in input_paths['stats']]
 
-
         if not os.path.exists(self.path_plots):
             os.makedirs(self.path_plots)
 
@@ -154,11 +159,10 @@ class Plot:
 
     # Read sites, site_names, network
     def read_data(self):
-
         print('Reading input data...')
-        self.sites, self.site_names, _, _, _, _, self.families, self.family_names, _ =\
-            read_features_from_csv(self.path_features, self.path_feature_states)
-        self.locations = self.sites['locations']
+        data = read_data_csv(self.path_features)
+        self.objects = Objects.from_dataframe(data)
+        self.locations = self.objects.locations
 
     # Read clusters
     # Read the data from the files:
@@ -199,10 +203,9 @@ class Plot:
 
         return result
 
-    # Helper function for read_stats
-    # Used for reading: weights, alpha, beta, gamma
     @staticmethod
-    def read_dictionary(dataframe, search_key):
+    def read_dictionary(dataframe: pd.DataFrame, search_key: str) -> typ.Dict[str, nptyp.NDArray]:
+        """Helper function for read_stats. Used for reading weights and preferences. """
         param_dict = {}
         for column_name in dataframe.columns:
             if column_name.startswith(search_key):
@@ -211,22 +214,23 @@ class Plot:
         return param_dict
 
     def iterate_over_models(self) -> str:
-        for path_clusters, path_stats in zip(sorted(self.all_cluster_paths),
+        for clusters_path, stats_path in zip(sorted(self.all_cluster_paths),
                                           sorted(self.all_stats_paths)):
-            last_part = str(path_clusters).replace('\\', '/').rsplit('/', 1)[-1]
+            last_part = str(clusters_path).replace('\\', '/').rsplit('/', 1)[-1]
             model_name = str(last_part).rsplit('_')[1]
-            self.path_clusters = path_clusters
-            self.path_stats = path_stats
-            yield model_name
+            results = Results.from_csv_files(
+                clusters_path=clusters_path,
+                parameters_path=stats_path,
+                burn_in=self.config['map']['content']['burn_in'],
+                # TODO move burn_in to results section of config
+            )
 
-    # Read results
-    # Call all the previous functions
-    # Bind the results together into the results dictionary
-    def read_results(self):
-        self.results = Results.from_csv_files(self.path_clusters, self.path_stats)
+            self.results[model_name] = results
+
+            yield model_name, results
 
     def get_model_names(self):
-        last_part = [str(p).replace('\\', '/').rsplit('/', 1)[-1] for p in self.path_clusters]
+        last_part = [str(p).replace('\\', '/').rsplit('/', 1)[-1] for p in self.all_cluster_paths]
         name = [str(p).rsplit('_')[1] for p in last_part]
         return name
 
@@ -468,16 +472,18 @@ class Plot:
         anno_opts = dict(xy=(x, y), fontsize=10, color=color)
         ax.annotate(label, **anno_opts)
 
-    def visualize_clusters(self, locations_map_crs, cfg_content, cfg_graphic, cfg_legend, ax):
+    def visualize_clusters(self, results: Results, locations_map_crs, cfg_content, cfg_graphic, cfg_legend, ax):
         cluster_labels = []
         # If log-likelihood is displayed: add legend entries with likelihood information per cluster
         if cfg_legend['clusters']['add'] and cfg_legend['clusters']['log-likelihood']:
-            cluster_labels_legend, legend_clusters = self.add_log_likelihood_legend()
+            cluster_labels_legend, legend_clusters = self.add_log_likelihood_legend(
+                results.likelihood_single_clusters
+            )
 
         else:
             cluster_labels_legend = []
             legend_clusters = []
-            for i, _ in enumerate(self.results['clusters']):
+            for i, _ in enumerate(results.clusters):
                 cluster_labels_legend.append(f'$Z_{i + 1}$')
 
         # Color clusters
@@ -485,20 +491,20 @@ class Plot:
             print(f'No colors for clusters provided in map>graphic>clusters>color '
                   f'in the config plot file ({self.config_file}). I am using default colors instead.')
 
-            cluster_colors = self.get_cluster_colors(n_clusters=len(self.results['clusters']))
+            cluster_colors = self.get_cluster_colors(n_clusters=len(results.clusters))
 
-        elif len(cfg_graphic['clusters']['color']) < len(self.results['clusters']):
+        elif len(cfg_graphic['clusters']['color']) < len(results.clusters):
 
             print(f"Too few colors for clusters ({len(cfg_graphic['clusters']['color'])} provided, "
-                  f"{len(self.results['clusters'])} needed) in map>graphic>clusters>color in the config plot "
+                  f"{len(results.clusters)} needed) in map>graphic>clusters>color in the config plot "
                   f"file ({self.config_file}). I am adding default colors.")
-            cluster_colors = self.get_cluster_colors(n_clusters=len(self.results['clusters']),
+            cluster_colors = self.get_cluster_colors(n_clusters=len(results.clusters),
                                                custom_colors=cfg_graphic['clusters']['color'])
 
         else:
             cluster_colors = list(cfg_graphic['clusters']['color'])
 
-        for i, cluster in enumerate(self.results['clusters']):
+        for i, cluster in enumerate(results.clusters):
 
             # This function computes a Gabriel graph for all points which are in the posterior with at least p_freq
             in_cluster, lines, line_w = self.clusters_to_graph(cluster, locations_map_crs, cfg_content)
@@ -528,7 +534,7 @@ class Plot:
                 if cfg_content['type'] == 'density_map':
                     current_color = "black"
 
-                cluster_labels.append(list(compress(self.sites['id'], in_cluster)))
+                cluster_labels.append(list(compress(self.objects.indices, in_cluster)))
 
         if cfg_legend['clusters']['add']:
             # add to legend
@@ -548,76 +554,77 @@ class Plot:
         c = colorsys.rgb_to_hls(*color)
         return colorsys.hls_to_rgb(c[0], 1 - amount * (1 - c[1]), c[2])
 
-    def color_families(self, locations_maps_crs, cfg_graphic, cfg_legend, ax):
-        family_array = self.family_names['external']
-        families = self.families
-        cm = plt.get_cmap('gist_rainbow')
-
-        if len(cfg_graphic['families']['color']) == 0:
-            print(f'No colors for families provided in map>graphic>families>color '
-                  f'in the config plot file ({self.config_file}). I am using default colors instead.')
-            family_colors = cm(np.linspace(0.0, 0.8, len(self.families)))
-
-            # lighten colors up a bit
-            family_colors = [self.lighten_color(c[:3]) for c in family_colors]
-
-        elif len(cfg_graphic['families']['color']) < len(self.families):
-
-            print(f"Too few colors for families ({len(cfg_graphic['families']['color'])} provided, "
-                  f"{len(self.families)} needed) in map>graphic>clusters>color in the config plot "
-                  f"file ({self.config_file}). I am adding default colors.")
-            provided = [colors.to_rgba(c) for c in cfg_graphic['families']['color']]
-            additional = cm(np.linspace(0, 0.8, len(self.families) - len(cfg_graphic['families']['color'])))
-            family_colors = provided + [self.lighten_color(c[:3]) for c in additional]
-
-        else:
-            family_colors = cfg_graphic['families']['color']
-
-        # Initialize empty legend handle
-        handles = []
-
-        # Iterate over all family names
-        for i, family in enumerate(family_array):
-
-            family_color = family_colors[i]
-
-            # Find all languages belonging to a family
-            is_in_family = families[i] == 1
-            family_locations = locations_maps_crs[is_in_family, :]
-
-            # Adds a color overlay for each language in a family
-            ax.scatter(*family_locations.T, s=cfg_graphic['families']['size'],
-                       color=family_color, linewidth=0, zorder=-i, label=family)
-
-            # For languages with more than three members combine several languages in an alpha shape (a polygon)
-            if np.count_nonzero(is_in_family) > 3:
-                try:
-                    alpha_shape = self.compute_alpha_shapes(points=family_locations,
-                                                            alpha_shape=cfg_graphic['families']['shape'])
-
-                    # making sure that the alpha shape is not empty
-                    if not alpha_shape.is_empty:
-                        smooth_shape = alpha_shape.buffer(cfg_graphic['families']['buffer'], resolution=16,
-                                                          cap_style=1, join_style=1,
-                                                          mitre_limit=5.0)
-                        patch = PolygonPatch(smooth_shape, fc=family_color, ec=family_color,
-                                             lw=1, ls='-', fill=True, zorder=-i)
-                        ax.add_patch(patch)
-                # When languages in the same family have identical locations, alpha shapes cannot be computed
-                except ZeroDivisionError:
-                    pass
-
-            # Add legend handle
-            handle = Patch(facecolor=family_color, edgecolor=family_color, label=family)
-            handles.append(handle)
-
-        if cfg_legend['families']['add']:
-
-            legend_families = ax.legend(handles=handles, title='Language family', title_fontsize=18,
-                                        fontsize=16, frameon=True, edgecolor='#ffffff', framealpha=1,
-                                        ncol=1, columnspacing=1, loc='upper left',
-                                        bbox_to_anchor=cfg_legend['families']['position'])
-            ax.add_artist(legend_families)
+    # TODO: generalize to confounders, make a special case or remove
+    # def color_families(self, locations_maps_crs, cfg_graphic, cfg_legend, ax):
+    #     family_array = self.family_names['external']
+    #     families = self.families
+    #     cm = plt.get_cmap('gist_rainbow')
+    #
+    #     if len(cfg_graphic['families']['color']) == 0:
+    #         print(f'No colors for families provided in map>graphic>families>color '
+    #               f'in the config plot file ({self.config_file}). I am using default colors instead.')
+    #         family_colors = cm(np.linspace(0.0, 0.8, len(self.families)))
+    #
+    #         # lighten colors up a bit
+    #         family_colors = [self.lighten_color(c[:3]) for c in family_colors]
+    #
+    #     elif len(cfg_graphic['families']['color']) < len(self.families):
+    #
+    #         print(f"Too few colors for families ({len(cfg_graphic['families']['color'])} provided, "
+    #               f"{len(self.families)} needed) in map>graphic>clusters>color in the config plot "
+    #               f"file ({self.config_file}). I am adding default colors.")
+    #         provided = [colors.to_rgba(c) for c in cfg_graphic['families']['color']]
+    #         additional = cm(np.linspace(0, 0.8, len(self.families) - len(cfg_graphic['families']['color'])))
+    #         family_colors = provided + [self.lighten_color(c[:3]) for c in additional]
+    #
+    #     else:
+    #         family_colors = cfg_graphic['families']['color']
+    #
+    #     # Initialize empty legend handle
+    #     handles = []
+    #
+    #     # Iterate over all family names
+    #     for i, family in enumerate(family_array):
+    #
+    #         family_color = family_colors[i]
+    #
+    #         # Find all languages belonging to a family
+    #         is_in_family = families[i] == 1
+    #         family_locations = locations_maps_crs[is_in_family, :]
+    #
+    #         # Adds a color overlay for each language in a family
+    #         ax.scatter(*family_locations.T, s=cfg_graphic['families']['size'],
+    #                    color=family_color, linewidth=0, zorder=-i, label=family)
+    #
+    #         # For languages with more than three members combine several languages in an alpha shape (a polygon)
+    #         if np.count_nonzero(is_in_family) > 3:
+    #             try:
+    #                 alpha_shape = self.compute_alpha_shapes(points=family_locations,
+    #                                                         alpha_shape=cfg_graphic['families']['shape'])
+    #
+    #                 # making sure that the alpha shape is not empty
+    #                 if not alpha_shape.is_empty:
+    #                     smooth_shape = alpha_shape.buffer(cfg_graphic['families']['buffer'], resolution=16,
+    #                                                       cap_style=1, join_style=1,
+    #                                                       mitre_limit=5.0)
+    #                     patch = PolygonPatch(smooth_shape, fc=family_color, ec=family_color,
+    #                                          lw=1, ls='-', fill=True, zorder=-i)
+    #                     ax.add_patch(patch)
+    #             # When languages in the same family have identical locations, alpha shapes cannot be computed
+    #             except ZeroDivisionError:
+    #                 pass
+    #
+    #         # Add legend handle
+    #         handle = Patch(facecolor=family_color, edgecolor=family_color, label=family)
+    #         handles.append(handle)
+    #
+    #     if cfg_legend['families']['add']:
+    #
+    #         legend_families = ax.legend(handles=handles, title='Language family', title_fontsize=18,
+    #                                     fontsize=16, frameon=True, edgecolor='#ffffff', framealpha=1,
+    #                                     ncol=1, columnspacing=1, loc='upper left',
+    #                                     bbox_to_anchor=cfg_legend['families']['position'])
+    #         ax.add_artist(legend_families)
 
     @staticmethod
     def add_legend_lines(cfg_graphic, cfg_legend, ax):
@@ -705,12 +712,12 @@ class Plot:
         a = x / 10 ** b
         return '%.2f \cdot 10^{%i}' % (a, b)
 
-    def add_log_likelihood_legend(self):
+    def add_log_likelihood_legend(self, likelihood_single_clusters: dict):
 
         # Legend for cluster labels
         cluster_labels = ["      log-likelihood per cluster"]
 
-        lh_per_cluster = np.array(list(self.results.likelihood_single_clusters.values()), dtype=float)
+        lh_per_cluster = np.array(list(likelihood_single_clusters.values()), dtype=float)
         to_rank = np.mean(lh_per_cluster, axis=1)
         p = to_rank[np.argsort(-to_rank)]
 
@@ -793,27 +800,33 @@ class Plot:
             else:
                 self.add_rivers(cfg_geo, cfg_graphic, ax)
 
-    def add_correspondence_table(self, cluster_labels, cluster_colors, cfg_legend, ax_c):
+    def add_correspondence_table(
+            self,
+            cluster_labels: typ.List[typ.List[str]],
+            cluster_colors: typ.List,
+            cfg_legend: dict,
+            ax_c: plt.axis
+    ):
         """ Which language belongs to which number? This table will tell you more"""
-
+        plt.gca()
         sites_id = []
         sites_names = []
         sites_color = []
 
-        for i in range(len(self.sites['id'])):
+        for obj_id, obj_name  in zip(self.objects.indices, self.objects.names):
             label_added = False
 
             for s in range(len(cluster_labels)):
-                if self.sites['id'][i] in cluster_labels[s]:
-                    sites_id.append(self.sites['id'][i])
-                    sites_names.append(self.sites['names'][i])
+                if obj_id in cluster_labels[s]:
+                    sites_id.append(obj_id)
+                    sites_names.append(obj_name)
                     sites_color.append(cluster_colors[s])
                     label_added = True
 
             if not label_added:
                 if cfg_legend['correspondence']['show_all']:
-                    sites_id.append(self.sites['id'][i])
-                    sites_names.append(self.sites['names'][i])
+                    sites_id.append(obj_id)
+                    sites_names.append(obj_name)
                     sites_color.append("black")
 
         n_col = cfg_legend['correspondence']['n_columns']
@@ -859,7 +872,7 @@ class Plot:
         for key, cell in table.get_celld().items():
             cell.set_linewidth(0)
 
-    def posterior_map(self, file_name='mst_posterior'):
+    def posterior_map(self, results: Results, file_name='mst_posterior'):
 
         """ This function creates a scatter plot of all sites in the posterior distribution.
 
@@ -882,13 +895,6 @@ class Plot:
 
         fig, ax = plt.subplots(figsize=(cfg_output['width'],
                                         cfg_output['height']), constrained_layout=True)
-        #     ax_c = []
-        #
-        # else:
-        #     fig, (ax, ax_c) = plt.subplots(nrows=2, figsize=(cfg_output['width'],
-        #                                                      cfg_output['height']*2),
-        #                                    gridspec_kw={'height_ratios': [4, 1]},
-        #                                    constrained_layout=True)
 
         locations_map_crs = self.reproject_to_map_crs(cfg_geo['map_projection'])
 
@@ -905,15 +911,22 @@ class Plot:
         self.visualize_base_map(extent, cfg_geo, cfg_graphic, ax)
 
         # Iterates over all clusters in the posterior and plots each with a different color
-        cluster_labels, cluster_colors = self.visualize_clusters(locations_map_crs, cfg_content,
-                                                        cfg_graphic, cfg_legend, ax)
+        cluster_labels, cluster_colors = self.visualize_clusters(
+            results=results,
+            locations_map_crs=locations_map_crs,
+            cfg_content=cfg_content,
+            cfg_graphic=cfg_graphic,
+            cfg_legend=cfg_legend,
+            ax=ax
+        )
 
         if cfg_content['labels'] == 'all' or cfg_content['labels'] == 'in_cluster':
             self.add_labels(cfg_content, locations_map_crs, cluster_labels, cluster_colors, extent, ax)
 
         # Visualizes language families
         if cfg_content['plot_families']:
-            self.color_families(locations_map_crs, cfg_graphic, cfg_legend, ax)
+            logging.warning('plotting families is not currently supported.')
+            # self.color_families(locations_map_crs, cfg_graphic, cfg_legend, ax)
 
         # Add main legend
         if cfg_legend['lines']['add']:
@@ -934,7 +947,7 @@ class Plot:
 
         if cfg_legend['correspondence']['add'] and cfg_graphic['languages']['label']:
             if cfg_content['type'] == "density_map":
-                cluster_labels = [self.sites['id']]
+                cluster_labels = [self.objects.indices]
 
             if any(len(labels) > 0 for labels in cluster_labels):
                 self.add_correspondence_table(cluster_labels, cluster_colors, cfg_legend, ax)
@@ -968,6 +981,9 @@ class Plot:
             ax = plt.gca()
 
         n_corners = polygon.shape[0]
+        if n_corners <= 2:
+            raise ValueError('Can only plot polygons with >2 corners')
+
         i_left = np.argmin(polygon[:, 0])
         i_right = np.argmax(polygon[:, 0])
 
@@ -994,80 +1010,82 @@ class Plot:
         plt.fill_between(top_x, ymax, top_y, color=color)
 
     # Transform weights into needed format
-    def transform_weights(self, feature, b_in):
-
-        universal_array = []
-        contact_array = []
-        inheritance_array = []
-        sample_dict = self.results['weights']
-        for key in sample_dict:
-            split_key = key.split("_")
-            if 'w' == split_key[0]:
-                if 'universal' == split_key[1] and str(feature) == split_key[2]:
-                    universal_array = sample_dict[key][b_in:]
-                elif 'contact' == split_key[1] and str(feature) == split_key[2]:
-                    contact_array = sample_dict[key][b_in:]
-                elif 'inheritance' == split_key[1] and str(feature) == split_key[2]:
-                    inheritance_array = sample_dict[key][b_in:]
-
-        sample = np.column_stack([universal_array, contact_array, inheritance_array]).astype(np.float)
-        return sample
-
-    def transform_probability_vectors(self, feature, parameter, b_in):
-
-        if "alpha" in parameter:
-            sample_dict = self.results['alpha']
-        elif "beta" in parameter:
-            sample_dict = self.results['beta']
-        elif "gamma" in parameter:
-            sample_dict = self.results['gamma']
-        else:
-            raise ValueError("parameter must be alpha, beta or gamma")
-
-        p_dict = {}
-        states = []
-
-        for key in sample_dict:
-            if key.startswith(parameter + '_' + feature + '_'):
-                state = str(key).rsplit('_', 1)[1]
-                p_dict[state] = sample_dict[key][b_in:]
-                states.append(state)
-
-        sample = np.column_stack([p_dict[s] for s in p_dict]).astype(np.float)
-        return sample, states
-
-    # Get preferences or weights from relevant features
-    def get_parameters(self, b_in, features, parameter="weights"):
-
-        par = {}
-        states = {}
-        # if features is empty, get parameters for all features
-        if not features:
-            feature_names = self.results['feature_names']
-        else:
-            feature_names = list(self.results['feature_names'][i-1] for i in features)
-
-        # get samples
-        for i in feature_names:
-
-            if parameter == "weights":
-                p = self.transform_weights(feature=i, b_in=b_in)
-                par[i] = p
-
-            elif "alpha" in parameter or "beta" in parameter or "gamma" in parameter:
-                p, state = self.transform_probability_vectors(feature=i, parameter=parameter, b_in=b_in)
-
-                par[i] = p
-                states[i] = state
-
-        return par, states
-
-    def sort_by_weights(self, w):
-        sort_by = {}
-        for i in self.results['feature_names']:
-            sort_by[i] = median(w[i][:, 1])
-        ordering = sorted(sort_by, key=sort_by.get, reverse=True)
-        return ordering
+    # def transform_weights(self, feature, b_in):
+    #
+    #     universal_array = []
+    #     contact_array = []
+    #     inheritance_array = []
+    #     sample_dict = self.results['weights']
+    #     for key in sample_dict:
+    #         split_key = key.split("_")
+    #         if 'w' == split_key[0]:
+    #             if 'universal' == split_key[1] and str(feature) == split_key[2]:
+    #                 universal_array = sample_dict[key][b_in:]
+    #             elif 'contact' == split_key[1] and str(feature) == split_key[2]:
+    #                 contact_array = sample_dict[key][b_in:]
+    #             elif 'inheritance' == split_key[1] and str(feature) == split_key[2]:
+    #                 inheritance_array = sample_dict[key][b_in:]
+    #
+    #     sample = np.column_stack([universal_array, contact_array, inheritance_array]).astype(np.float)
+    #     # Shape: n_samples * 3
+    #     return sample
+    #
+    # def transform_probability_vectors(self, feature, parameter, b_in):
+    #
+    #     if "alpha" in parameter:
+    #         sample_dict = self.results['alpha']
+    #     elif "beta" in parameter:
+    #         sample_dict = self.results['beta']
+    #     elif "gamma" in parameter:
+    #         sample_dict = self.results['gamma']
+    #     else:
+    #         raise ValueError("parameter must be alpha, beta or gamma")
+    #
+    #     p_dict = {}
+    #     states = []
+    #
+    #     for key in sample_dict:
+    #         if key.startswith(parameter + '_' + feature + '_'):
+    #             state = str(key).rsplit('_', 1)[1]
+    #             p_dict[state] = sample_dict[key][b_in:]
+    #             states.append(state)
+    #
+    #     sample = np.column_stack([p_dict[s] for s in p_dict]).astype(np.float)
+    #     return sample, states
+    #
+    # # Get preferences or weights from relevant features
+    # def get_parameters(self, b_in, features, parameter="weights"):
+    #
+    #     par = {}
+    #     states = {}
+    #     # if features is empty, get parameters for all features
+    #     if not features:
+    #         feature_names = self.current_results.feature_names
+    #     else:
+    #         feature_names = list(self.current_results.feature_names[i-1] for i in features)
+    #
+    #     # get samples
+    #     for f in feature_names:
+    #
+    #         if parameter == "weights":
+    #             # p = self.transform_weights(feature=feat_name, b_in=b_in)
+    #             p = self.current_results.weights[f]
+    #             par[f] = p
+    #
+    #         elif "alpha" in parameter or "beta" in parameter or "gamma" in parameter:
+    #             p, state = self.transform_probability_vectors(feature=f, parameter=parameter, b_in=b_in)
+    #
+    #             par[f] = p
+    #             states[f] = state
+    #
+    #     return par, states
+    #
+    # def sort_by_weights(self, w):
+    #     sort_by = {}
+    #     for f in self.current_results.feature_names:
+    #         sort_by[f] = median(w[f][:, 1])
+    #     ordering = sorted(sort_by, key=sort_by.get, reverse=True)
+    #     return ordering
 
     # Probability simplex (for one feature)
     @staticmethod
@@ -1230,18 +1248,27 @@ class Plot:
 
         plt.plot()
 
-    def plot_weights(self, file_name):
+    @staticmethod
+    def filter_weights(
+            weights: typ.Dict[str, nptyp.NDArray[float]],
+            features_subset: typ.Optional[list] = None,
+    ):
+        """Return the subset of weights specificied by the features in `features_subset`.
+        If no features_subset is specified, return all weights
+        """
+        if not features_subset:
+            return weights
+        else:
+            return {f: weights[f] for f in features_subset}
 
+    def plot_weights(self, results: Results, file_name: PathLike):
         print('Plotting weights...')
+
         cfg_weights = self.config['weight_plot']
-        burn_in = int(len(self.results['posterior']) * cfg_weights['content']['burn_in'])
-
-        weights, _ = self.get_parameters(parameter="weights", b_in=burn_in,
-                                         features=cfg_weights['content']['features'])
-
-        # Todo: reactivate?
-        # ordering = self.sort_by_weights(weights)
-        # features = ordering[:n_plots]
+        weights = self.filter_weights(
+            weights=results.weights,
+            features_subset=[results.feature_names[i-1] for i in cfg_weights['content']['features']],
+        )
 
         features = weights.keys()
         n_plots = len(features)
@@ -1256,16 +1283,11 @@ class Plot:
         n_empty = n_row * n_col - n_plots
 
         for e in range(1, n_empty + 1):
-            if len(axs.shape) == 1:
-                axs[-e].axis('off')
-            else:
-                axs[-1, -e].axis('off')
+            axs.flatten()[-e].axis('off')
 
         for f in features:
             plt.subplot(n_row, n_col, position)
-
             self.plot_weight(weights[f], feature=f, cfg_legend=cfg_weights['legend'], mean_weights=True)
-
             print(position, "of", n_plots, "plots finished")
             position += 1
 
@@ -1282,15 +1304,16 @@ class Plot:
         plt.close(fig)
 
     # This is not changed yet
-    def plot_preferences(self, file_name):
+    def plot_preferences(self, results: Results, file_name):
         """Creates preference plots for universal, clusters and families
 
        Args:
-           file_name (str): name of the output file
+           results: the results from a sbayes run.
+           file_name: name of the output file
        """
         print('Plotting preferences...')
         cfg_preference = self.config['preference_plot']
-        burn_in = int(len(self.results['posterior']) * cfg_preference['content']['burn_in'])
+        # burn_in = int(len(self.results['posterior']) * cfg_preference['content']['burn_in'])
 
         width = cfg_preference['output']['width_subplot']
         height = cfg_preference['output']['height_subplot']
@@ -1299,64 +1322,49 @@ class Plot:
         width_spacing = 0.2
         height_spacing = 0.2
 
+        n_plots = results.n_features
+        n_col = cfg_preference['output']['n_columns']
+        n_row = math.ceil(n_plots / n_col)
+
         file_format = cfg_preference['output']['format']
         resolution = cfg_preference['output']['resolution']
 
-        gk = self.results['gamma'].keys()
-        ugk = list(set([k.split('_')[1] for k in gk]))
-        available_gamma_keys = ['gamma_' + u for u in ugk]
+        # Combine all preferences into one dictionary of structure
+        #   {component: {feature: state_probabilities}}
+        # where `component` is a cluster or a confounder group.
+        preferences = {**results.areal_effect}
+        for conf_name, conf_effect in results.confounding_effects.items():
+            for group, preference in conf_effect.items():
+                preferences[f'{conf_name}_{group}'] = preference
 
-        if not cfg_preference['content']['preference']:
-            available_preferences = available_gamma_keys
-        else:
-            available_preferences = []
-            for p in cfg_preference['content']['preference']:
-                if p == 'universal':
-                    available_preferences.append("alpha")
-                elif "cluster" in p:
-                    gamma = "gamma_a" + p.split('_')[1]
-                    if gamma not in available_gamma_keys:
-                        continue
-                    else:
-                        available_preferences.append(gamma)
-                else:
-                    beta = "beta_" + p
-                    available_preferences.append(beta)
+        # Only show the specified list of preferences, if present in the config
+        which_prefs = cfg_preference['content']['preference']
+        if which_prefs:
+            preferences = {k: v for k, v in preferences.items() if k in which_prefs}
 
-        for p in available_preferences:
-
-            preferences, states = \
-                self.get_parameters(parameter=p, b_in=burn_in,
-                                    features=cfg_preference['content']['features'])
-            features = preferences.keys()
-
-            n_plots = len(features)
-            n_col = cfg_preference['output']['n_columns']
-            n_row = math.ceil(n_plots / n_col)
-
+        # Plot each preference in a separate plot
+        for component, pref_by_feat in preferences.items():
             fig, axs = plt.subplots(n_row, n_col, figsize=(width * n_col, height * n_row), )
             n_empty = n_row * n_col - n_plots
 
             for e in range(1, n_empty + 1):
-                if len(axs.shape) == 1:
-                    axs[-e].axis('off')
-                else:
-                    axs[-1, -e].axis('off')
+                axs.flatten()[-e].axis('off')
 
             position = 1
 
-            for f in features:
+            for f, pref in pref_by_feat.items():
                 plt.subplot(n_row, n_col, position)
 
-                self.plot_preference(preferences[f], feature=f, label_names=states[f],
+                states = results.get_states_for_feature_name(f)
+                self.plot_preference(pref, feature=f, label_names=states,
                                      cfg_legend=cfg_preference['legend'])
 
-                print(p, ": ", position, "of", n_plots, "plots finished")
+                print(component, ": ", position, "of", n_plots, "plots finished")
                 position += 1
 
             plt.subplots_adjust(wspace=width_spacing, hspace=height_spacing)
-            fig.savefig(self.path_plots / f'{file_name}_{p}.{file_format}', bbox_inches='tight',
-                        dpi=resolution, format=file_format)
+            fig.savefig(self.path_plots / f'{file_name}_{component}.{file_format}',
+                        bbox_inches='tight', dpi=resolution, format=file_format)
             plt.close(fig)
 
     def plot_dic(self, models, file_name):
@@ -1428,10 +1436,11 @@ class Plot:
         fig.savefig(self.path_plots / f'{file_name}.{file_format}', bbox_inches='tight',
                     dpi=resolution, format=file_format)
 
-    def plot_trace(self, file_name="trace", show_every_k_sample=1, file_format="pdf"):
+    def plot_trace(self, results: Results, file_name="trace", show_every_k_sample=1, file_format="pdf"):
         """
         Function to plot the trace of a parameter
         Args:
+            results: the results from a sbayes run.
             file_name (str): a path followed by a the name of the file
             file_format (str): format of the output file
             show_every_k_sample (int): show every 1, 1+k,1+2k sample and skip over the rest
@@ -1442,9 +1451,9 @@ class Plot:
                                         self.config['plot_trace']['output']['fig_height']))
         parameter = self.config['plot_trace']['parameter']
         if parameter == 'recall_and_precision':
-            y = self.results['recall'][::show_every_k_sample]
-            y2 = self.results['precision'][::show_every_k_sample]
-            x = self.results['sample_id'][::show_every_k_sample]
+            y = results['recall'][::show_every_k_sample]
+            y2 = results['precision'][::show_every_k_sample]
+            x = results.sample_id[::show_every_k_sample]
             ax.plot(x, y, lw=0.5, color=self.config['plot_trace']['color'][0], label="recall")
             ax.plot(x, y2, lw=0.5, color=self.config['plot_trace']['color'][1], label="precision")
             y_min = 0
@@ -1452,13 +1461,13 @@ class Plot:
 
         else:
             try:
-                y = self.results[parameter][::show_every_k_sample]
+                y = results[parameter][::show_every_k_sample]
 
             except KeyError:
                 raise ValueError("Cannot compute trace. " + self.config['plot_trace']['parameter']
                                  + " is not a valid parameter.")
 
-            x = self.results['sample_id'][::show_every_k_sample]
+            x = results.sample_id[::show_every_k_sample]
             ax.plot(x, y, lw=0.5, color=self.config['plot_trace']['color'][0], label=parameter)
             y_min, y_max = min(y), max(y)
 
@@ -1503,12 +1512,13 @@ class Plot:
                     dpi=400, format=file_format, bbox_inches='tight')
         plt.close(fig)
 
-    def plot_trace_lh_prior(self, burn_in=0.2, fname="trace", show_every_k_sample=1, lh_lim=None, prior_lim=None):
+    def plot_trace_lh_prior(self, results: Results, burn_in=0.2, fname="trace",
+                            show_every_k_sample=1, lh_lim=None, prior_lim=None):
         fig, ax1 = plt.subplots(figsize=(10, 8))
 
-        lh = self.results['likelihood'][::show_every_k_sample]
-        prior = self.results['prior'][::show_every_k_sample]
-        x = self.results['sample_id'][::show_every_k_sample]
+        lh = results.likelihood[::show_every_k_sample]
+        prior = results.prior[::show_every_k_sample]
+        x = results.sample_id[::show_every_k_sample]
 
         # Plot lh on axis 1
         ax1.plot(x, lh, lw=0.5, color='#e41a1c', label='likelihood')
@@ -1625,12 +1635,12 @@ class Plot:
                     dpi=400, format=file_format, bbox_inches='tight')
         plt.close(fig)
 
-    def plot_pies(self, file_name):
+    def plot_pies(self, results: Results, file_name: PathLike):
 
         print('Plotting pie charts ...')
         cfg_pie = self.config['pie_plot']
 
-        clusters = np.array(self.results['clusters'])
+        clusters = np.array(results.clusters)
         n_clusters = clusters.shape[0]
         end_bi = math.ceil(clusters.shape[1] * cfg_pie['content']['burn_in'])
 
@@ -1686,7 +1696,7 @@ class Plot:
 
                 axs[ax_row, ax_col].pie(x, colors=col, radius=15)
 
-                label = str(self.sites['names'][l])
+                label = str(self.objects['names'][l])
 
                 # break long labels
                 if (" " in label or "-" in label) and len(label) > 10:
@@ -1698,7 +1708,7 @@ class Plot:
                     elif "-" in label:
                         label = label[:break_label] + '-\n' + label[break_label+1:]
 
-                axs[ax_row, ax_col].text(0.20, 0.5,  str(self.sites['id'][l] + 1), size=15, va='center', ha="right",
+                axs[ax_row, ax_col].text(0.20, 0.5, str(self.objects.indices[l] + 1), size=15, va='center', ha="right",
                                          transform=axs[ax_row, ax_col].transAxes)
 
                 axs[ax_row, ax_col].text(0.25, 0.5, label, size=15, va='center', ha="left",
@@ -1731,8 +1741,6 @@ def main(config, plot_types=None):
     if plot_types is None:
         plot_types = ALL_PLOT_TYPES
 
-    results_per_model = {}
-
     plot = Plot()
     plot.load_config(config_file=config)
     plot.read_data()
@@ -1743,50 +1751,46 @@ def main(config, plot_types=None):
             2) is in the requested list of plot types."""
         return (plot_type in plot.config) and (plot_type in plot_types)
 
-    for m in plot.iterate_over_models():
-        # Read results for model ´m´
-        plot.read_results()
+    for m, results in plot.iterate_over_models():
         print('Plotting model', m)
 
         # Plot the reconstructed clusters on a map
         if should_be_plotted('map'):
-            plot_map(plot, m)
+            plot_map(plot, results, m)
 
         # Plot the reconstructed mixture weights in simplex plots
         if should_be_plotted('weights_plot'):
-            plot.plot_weights(file_name='weights_grid_' + m)
+            plot.plot_weights(results, file_name='weights_grid_' + m)
 
         # Plot the reconstructed probability vectors in simplex plots
         if should_be_plotted('preference_plot'):
-            plot.plot_preferences(file_name=f'prob_grid_{m}')
+            plot.plot_preferences(results, file_name=f'prob_grid_{m}')
 
         # Plot the reconstructed clusters in pie-charts
         # (one per language, showing how likely the language is to be in each cluster)
         if should_be_plotted('pie_plot'):
-            plot.plot_pies(file_name= 'plot_pies_' + m)
-
-        results_per_model[m] = plot.results
+            plot.plot_pies(results, file_name= 'plot_pies_' + m)
 
     # Plot DIC over all models
     if should_be_plotted('dic_plot'):
-        plot.plot_dic(results_per_model, file_name='dic')
+        plot.plot_dic(plot.results, file_name='dic')
 
 
-def plot_map(plot, m):
+def plot_map(plot: Plot, results: Results, m: str):
     config_map = plot.config['map']
     map_type = config_map['content']['type']
 
     if map_type == config_map['content']['type'] == 'density_map':
-        plot.posterior_map(file_name='posterior_map_' + m)
+        plot.posterior_map(results, file_name='posterior_map_' + m)
 
     elif map_type == config_map['content']['type'] == 'consensus_map':
         min_posterior_frequency = config_map['content']['min_posterior_frequency']
         if min_posterior_frequency in [tuple, list, set]:
             for mpf in min_posterior_frequency:
                 config_map['content'].__setitem__('min_posterior_frequency', mpf)
-                plot.posterior_map(file_name=f'posterior_map_{m}_{mpf}')
+                plot.posterior_map(results, file_name=f'posterior_map_{m}_{mpf}')
         else:
-            plot.posterior_map(file_name=f'posterior_map_{m}_{min_posterior_frequency}')
+            plot.posterior_map(results, file_name=f'posterior_map_{m}_{min_posterior_frequency}')
     else:
         raise ValueError(f'Unknown map type: {map_type}  (in the config file "map" -> "content" -> "type")')
 

@@ -9,7 +9,6 @@ from tkinter import filedialog
 from sbayes.experiment_setup import Experiment, update_recursive
 from sbayes.load_data import Data
 from sbayes.mcmc_setup import MCMCSetup
-from sbayes.simulation import Simulation
 
 
 def run_experiment(
@@ -31,7 +30,7 @@ def run_experiment(
     mcmc.sample(run=i_run)
 
     # Use the last sample as the new initial sample
-    return mcmc.samples['last_sample']
+    return mcmc.samples.last_sample
 
 
 def main(
@@ -46,19 +45,9 @@ def main(
                             custom_settings=custom_settings,
                             log=True)
 
-    if experiment.is_simulation():
-        # The data is defined by a ´Simulation´ object
-        data = Simulation(experiment=experiment)
-        data.run_simulation()
-        data.log_simulation()
-
-    else:
-        # Experiment based on a specified (in config) data-set
-        data = Data(experiment=experiment)
-        data.load_features()
-
-        # Counts for priors
-        data.load_geo_cost_matrix()
+    # Experiment based on a specified (in config) data-set
+    data = Data.from_experiment(experiment)
+    data.load_geo_cost_matrix()
 
     # Rerun experiment to check for consistency
     i_run_range = list(range(experiment.config['mcmc']['runs']))

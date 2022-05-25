@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+import typing as typ
 try:
     from typing import Literal
 except ImportError:
@@ -10,6 +11,7 @@ import sys
 import random
 
 import numpy as np
+import numpy.typing as nptyp
 import pyproj
 
 from sbayes.model import normalize_weights
@@ -88,6 +90,7 @@ def load_canvas(config, logger=None):
 
 
 class ComputeNetwork:
+
     def __init__(
             self,
             sites,
@@ -99,7 +102,7 @@ class ComputeNetwork:
         subset go into the network.
 
         Args:
-            sites(dict): a dict of sites with keys "locations", "id"
+            sites(typ.Union[dict, 'Objects']): a dict of sites with keys "locations", "id"
         Returns:
             dict: a network
 
@@ -432,21 +435,21 @@ def simulate_assignment_probabilities(config, clusters, confounders):
     return p
 
 
-def read_geo_cost_matrix(site_names, file, logger=None):
+def read_geo_cost_matrix(object_names: list, file: str, logger=None) -> nptyp.NDArray[float]:
     """ This is a helper function to import the geographical cost matrix.
 
     Args:
-        site_names (dict): the names of the sites or languages (external and internal)
+        object_names: the names of the objects or languages (external and internal)
         file: path to the file location
 
     Returns:
-
+        The symmetric cost matrix between objects.
     """
     costs = read_costs_from_csv(file, logger=logger)
-    assert set(costs.columns) == set(site_names['external'])
+    assert set(costs.columns) == set(object_names)
 
-    # Sort the data by site names
-    sorted_costs = costs.loc[site_names['external'], site_names['external']]
+    # Sort the data by object names
+    sorted_costs = costs.loc[object_names, object_names]
 
     cost_matrix = np.asarray(sorted_costs).astype(float)
 

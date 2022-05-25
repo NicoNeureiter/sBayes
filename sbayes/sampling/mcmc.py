@@ -141,7 +141,7 @@ class MCMC(_abc.ABC):
         self.show_screen_log = show_screen_log
         self.t_start = _time.time()
 
-        self.posterior_per_chain = [copy(model) for _ in range(self.n_chains)]
+        self.posterior_per_chain: typ.List[Model] = [copy(model) for _ in range(self.n_chains)]
 
         if logger is None:
             import logging

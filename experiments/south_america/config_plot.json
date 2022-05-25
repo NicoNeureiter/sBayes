@@ -25,7 +25,7 @@
 		"geo": {
 			"map_projection": "epsg:4326",
 			"base_map": {
-				"add": true,
+				"add": true
 			},
 			"extent": {
 				"x": [],

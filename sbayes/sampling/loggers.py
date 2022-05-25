@@ -8,8 +8,7 @@ import tables
 from sbayes.load_data import Data
 from sbayes.util import format_cluster_columns, get_best_permutation
 from sbayes.model import Model
-
-Sample = "sbayes.sampling.zone_sampling.Sample"
+from sbayes.sampling.state import Sample
 
 
 class ResultsLogger(ABC):
@@ -69,8 +68,9 @@ class ParametersCSVLogger(ResultsLogger):
         self.cluster_sum: Optional[npt.NDArray[int]] = None
 
     def write_header(self, sample):
-        feature_names = self.data.features["names"]
-        state_names = self.data.features["state_names"]
+        feature_names = self.data.features.names
+        state_names = self.data.features.state_names
+
         column_names = ["Sample", "posterior", "likelihood", "prior"]
 
         # No need for matching if only 1 cluster (or no clusters at all)
@@ -85,32 +85,34 @@ class ParametersCSVLogger(ResultsLogger):
             column_names.append(f"size_a{i}")
 
         # weights
-        for i_feat, feat_name in enumerate(feature_names):
-            column_names.append(f"w_universal_{feat_name}")
-            column_names.append(f"w_contact_{feat_name}")
-            if sample.inheritance:
-                column_names.append(f"w_inheritance_{feat_name}")
+        for i_f, f in enumerate(feature_names):
+            # Areal effect
+            w_areal = f"w_areal_{f}"
+            column_names += [w_areal]
+            # index of areal = 0
+            # todo: use source_index instead of remembering the order
 
-        # alpha
-        for i_feat, feat_name in enumerate(feature_names):
-            for i_state, state_name in enumerate(state_names[i_feat]):
-                col_name = f"alpha_{feat_name}_{state_name}"
-                column_names.append(col_name)
+            # Confounding effects
+            for i_conf, conf in enumerate(self.data.confounders.values()):
+                w_conf = f"w_{conf.name}_{f}"
+                column_names += [w_conf]
+                # todo: use source_index instead of remembering the order
+                # index of confounding effect starts with 1
 
-        # gamma
-        for a in range(sample.n_clusters):
-            for i_feat, feat_name in enumerate(feature_names):
-                for i_state, state_name in enumerate(state_names[i_feat]):
-                    col_name = f"gamma_a{(a + 1)}_{feat_name}_{state_name}"
-                    column_names.append(col_name)
+        # Areal effect
+        for i_a in range(sample.n_clusters):
+            for i_f, f in enumerate(feature_names):
+                for i_s, s in enumerate(state_names[i_f]):
+                    col_name = f"areal_a{i_a+1}_{f}_{s}"
+                    column_names += [col_name]
 
-        # beta
-        for k, v in self.data.confounders.items():
-            for group in :
-                for f in feature_names:
-                    for s in state_names[f]:
-                        col_name = f"beta_{group}_{f}_{s}"
-                        column_names += [col_name]
+        # Confounding effects
+        for conf in self.data.confounders.values():
+            for i_g, g in enumerate(conf.group_names):
+                for i_f, f in enumerate(feature_names):
+                    for i_s, s in enumerate(state_names[i_f]):
+                        feature_name = f"{conf.name}_{g}_{f}_{s}"
+                        column_names += [feature_name]
 
         # lh, prior, posteriors
         if self.log_contribution_per_cluster:
@@ -124,23 +126,23 @@ class ParametersCSVLogger(ResultsLogger):
         self.file.write("\t".join(column_names) + "\n")
 
     def _write_sample(self, sample: Sample):
-        feature_names = self.data.feature_names["external"]
-        state_names = self.data.state_names["external"]
+        feature_names = self.data.features.names
+        state_names = self.data.features.state_names
 
         if self.match_clusters:
             # Compute the best matching permutation
-            permutation = get_best_permutation(sample.zones, self.cluster_sum)
+            permutation = get_best_permutation(sample.clusters, self.cluster_sum)
 
             # Permute parameters
-            p_zones = sample.p_zones[permutation, :, :]
-            zones = sample.zones[permutation, :]
+            p_clusters = sample.cluster_effect[permutation, :, :]
+            clusters = sample.clusters[permutation, :]
 
             # Update cluster_sum for matching future samples
-            self.cluster_sum += zones
+            self.cluster_sum += clusters
         else:
             # Unpermuted parameters
-            p_zones = sample.p_zones
-            zones = sample.zones
+            p_clusters = sample.cluster_effect
+            clusters = sample.clusters
 
         row = {
             "Sample": sample.i_step,
@@ -150,49 +152,47 @@ class ParametersCSVLogger(ResultsLogger):
         }
 
         # Cluster sizes
-        for i, cluster in enumerate(zones):
+        for i, cluster in enumerate(clusters):
             col_name = f"size_a{i}"
             row[col_name] = np.count_nonzero(cluster)
 
-        # weights
-        for i_feat, feat_name in enumerate(feature_names):
-            w_universal_name = f"w_universal_{feat_name}"
-            w_contact_name = f"w_contact_{feat_name}"
-            w_inheritance_name = f"w_inheritance_{feat_name}"
+        # Weights
+        for i_f, f in enumerate(feature_names):
 
-            row[w_universal_name] = sample.weights[i_feat, 0]
-            row[w_contact_name] = sample.weights[i_feat, 1]
-            if sample.inheritance:
-                row[w_inheritance_name] = sample.weights[i_feat, 2]
+            # Areal effect weights
+            w_areal = f"w_areal_{f}"
+            # index of areal = 0
+            # todo: use source_index instead of remembering the order
+            row[w_areal] = sample.weights[i_f, 0]
 
-        # alpha
-        for i_feat, feat_name in enumerate(feature_names):
-            for i_state, state_name in enumerate(state_names[i_feat]):
-                col_name = f"alpha_{feat_name}_{state_name}"
-                row[col_name] = sample.p_global[0, i_feat, i_state]
+            # Confounding effects weights
+            for i_conf, conf in enumerate(self.data.confounders.values(), start=1):
+                w_conf = f"w_{conf.name}_{f}"
+                # todo: use source_index instead of remembering the order
+                # index of confounding effect starts with 1
+                row[w_conf] = sample.weights[i_f, i_conf]
 
-        # gamma
-        for a in range(sample.n_clusters):
-            for i_feat, feat_name in enumerate(feature_names):
-                for i_state, state_name in enumerate(state_names[i_feat]):
-                    col_name = f"gamma_a{(a + 1)}_{feat_name}_{state_name}"
-                    row[col_name] = p_zones[a][i_feat][i_state]
+        # Areal effect
+        for i_a in range(sample.n_clusters):
+            for i_f, f in enumerate(feature_names):
+                for i_s, s in enumerate(state_names[i_f]):
+                    col_name = f"areal_a{i_a+1}_{f}_{s}"
+                    row[col_name] = sample.cluster_effect[i_a, i_f, i_s]
 
-        # beta
-        if sample.inheritance:
-            family_names = self.data.family_names["external"]
-            for i_fam, fam_name in enumerate(family_names):
-                for i_feat, feat_name in enumerate(feature_names):
-                    for i_state, state_name in enumerate(state_names[i_feat]):
-                        col_name = f"beta_{fam_name}_{feat_name}_{state_name}"
-                        row[col_name] = sample.p_families[i_fam][i_feat][i_state]
+        # Confounding effects
+        for conf in self.data.confounders.values():
+            for i_g, g in enumerate(conf.group_names):
+                for i_f, f in enumerate(feature_names):
+                    for i_s, s in enumerate(state_names[i_f]):
+                        col_name = f"{conf.name}_{g}_{f}_{s}"
+                        row[col_name] = sample.confounding_effects[conf.name][i_g, i_f, i_s]
 
         # lh, prior, posteriors
         if self.log_contribution_per_cluster:
             sample_single_cluster: Sample = sample.copy()
 
             for i in range(sample.n_clusters):
-                sample_single_cluster.zones = zones[[i]]
+                sample_single_cluster.clusters = clusters[[i]]
                 sample_single_cluster.everything_changed()
                 lh = self.model.likelihood(sample_single_cluster, caching=False)
                 prior = self.model.prior(sample_single_cluster)
@@ -228,17 +228,17 @@ class ClustersLogger(ResultsLogger):
     def _write_sample(self, sample):
         if self.match_clusters:
             # Compute best matching perm
-            permutation = get_best_permutation(sample.zones, self.cluster_sum)
+            permutation = get_best_permutation(sample.clusters, self.cluster_sum)
 
-            # Permute zones
-            zones = sample.zones[permutation, :]
+            # Permute clusters
+            clusters = sample.clusters[permutation, :]
 
             # Update cluster_sum for matching future samples
-            self.cluster_sum += zones
+            self.cluster_sum += clusters
         else:
-            zones = sample.zones
+            clusters = sample.clusters
 
-        row = format_cluster_columns(zones)
+        row = format_cluster_columns(clusters)
         self.file.write(row + "\n")
 
 

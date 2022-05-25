@@ -78,7 +78,7 @@ class Sample(object):
         self.i_step = 0
 
     @property
-    def n_areas(self):
+    def n_clusters(self):
         return self.clusters.shape[0]
 
     @property

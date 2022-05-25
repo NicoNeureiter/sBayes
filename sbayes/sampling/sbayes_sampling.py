@@ -37,8 +37,8 @@ class ClusterMCMC(MCMC):
         self.n_sites = self.features.shape[0]
 
         # Locations and network
-        self.locations = self.data.network['locations']
-        self.adj_mat = self.data.network['adj_mat']
+        self.locations = self.data.network.locations
+        self.adj_mat = self.data.network.adj_mat
 
         # Sampling
         self.p_grow_connected = p_grow_connected
