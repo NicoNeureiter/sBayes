@@ -7,7 +7,7 @@ from enum import Enum
 from dataclasses import dataclass
 
 import numpy as np
-import numpy.typing as nptyp
+from numpy.typing import NDArray
 
 import scipy.stats as stats
 from scipy.sparse.csgraph import minimum_spanning_tree, csgraph_from_dense
@@ -15,6 +15,7 @@ from scipy.sparse.csgraph import minimum_spanning_tree, csgraph_from_dense
 from sbayes.sampling.state import Sample, IndexSet
 from sbayes.util import (compute_delaunay, n_smallest_distances, log_multinom,
                          dirichlet_logpdf, log_expit)
+from sbayes.config.config import ModelConfig, PriorConfig
 
 EPS = np.finfo(float).eps
 
@@ -25,7 +26,7 @@ class ModelShapes:
     n_sites: int
     n_features: int
     n_states: int
-    states_per_feature: nptyp.NDArray[bool]
+    states_per_feature: NDArray[bool]
 
     @property
     def n_states_per_feature(self):
@@ -41,21 +42,21 @@ class Model:
 
     Attributes:
         data (Data): The data used in the likelihood
-        config (dict): A dictionary containing configuration parameters of the model
+        config (ModelConfig): A dictionary containing configuration parameters of the model
         confounders (dict): A ict of all confounders and group names
         shapes (ModelShapes): A dictionary with shape information for building the Likelihood and Prior objects
         likelihood (Likelihood): The likelihood of the model
         prior (Prior): Rhe prior of the model
 
     """
-    def __init__(self, data, config):
+    def __init__(self, data: 'Data', config: ModelConfig):
         self.data = data
         self.config = config
-        self.confounders = config['confounders']
-        self.n_clusters = config['clusters']
-        self.min_size = config['prior']['objects_per_cluster']['min']
-        self.max_size = config['prior']['objects_per_cluster']['max']
-        self.sample_source = config['sample_source']
+        self.confounders = config.confounders
+        self.n_clusters = config.clusters
+        self.min_size = config.prior.objects_per_cluster.min
+        self.max_size = config.prior.objects_per_cluster.max
+        self.sample_source = config.sample_source
         n_sites, n_features, n_states = self.data.features['values'].shape
 
         self.shapes = ModelShapes(
@@ -63,7 +64,7 @@ class Model:
             n_sites=n_sites,
             n_features=n_features,
             n_states=n_states,
-            states_per_feature=self.data.features['states']
+            states_per_feature=self.data.features.states
         )
 
         # Create likelihood and prior objects
@@ -71,7 +72,7 @@ class Model:
                                      shapes=self.shapes)
         self.prior = Prior(
             shapes=self.shapes,
-            config=self.config['prior'],
+            config=self.config.prior,
             data=data
         )
 
@@ -89,9 +90,9 @@ class Model:
         setup_msg = "\n"
         setup_msg += "Model\n"
         setup_msg += "##########################################\n"
-        setup_msg += f"Number of clusters: {self.config['clusters']}\n"
-        setup_msg += f"Clusters have a minimum size of {self.config['prior']['objects_per_cluster']['min']} " \
-                     f"and a maximum size of {self.config['prior']['objects_per_cluster']['max']}\n"
+        setup_msg += f"Number of clusters: {self.config.clusters}\n"
+        setup_msg += f"Clusters have a minimum size of {self.config.prior.objects_per_cluster.min} " \
+                     f"and a maximum size of {self.config.prior.objects_per_cluster.max}\n"
         setup_msg += self.prior.get_setup_message()
         return setup_msg
 
@@ -114,9 +115,9 @@ class Likelihood(object):
             shape: (n_sites, n_features)
     """
 
-    def __init__(self, data, shapes):
+    def __init__(self, data: 'Data', shapes: ModelShapes):
 
-        self.features = data.features['values']
+        self.features = data.features.values
         self.confounders = data.confounders
 
         self.shapes = shapes
@@ -305,7 +306,7 @@ def compute_cluster_effect_lh(features, clusters, shapes, cluster_effect=None,
             shape: (n_clusters, n_sites)
         cluster_effect(np.array): The areal effect in the current sample
             shape: (n_clusters, n_features, n_sites)
-        shapes (dict): A dictionary with shape information for building the Likelihood and Prior objects
+        shapes (ModelShapes): A dictionary with shape information for building the Likelihood and Prior objects
         outdated_indices (IndexSet): Set of outdated (cluster, feature) index-pairs
         outdated_clusters (IndexSet): Set of indices, where the cluster changed (=> update across features)
         cached_lh (np.array): The cached set of likelihood values (to be updated where outdated).
@@ -318,7 +319,7 @@ def compute_cluster_effect_lh(features, clusters, shapes, cluster_effect=None,
     n_clusters = len(clusters)
 
     if cached_lh is None:
-        lh_cluster_effect = np.zeros((shapes['n_sites'], shapes['n_features']))
+        lh_cluster_effect = np.zeros((shapes.n_sites, shapes.n_features))
         assert outdated_indices.all
     else:
         lh_cluster_effect = cached_lh
@@ -337,35 +338,41 @@ def compute_cluster_effect_lh(features, clusters, shapes, cluster_effect=None,
     return lh_cluster_effect
 
 
-def compute_confounding_effects_lh(features, groups, shapes, confounding_effect,
-                                   outdated_indices=None, cached_lh=None):
+def compute_confounding_effects_lh(
+        features: NDArray[bool],
+        groups: NDArray[bool],
+        shapes: ModelShapes,
+        confounding_effect: NDArray[float],
+        outdated_indices: IndexSet = None,
+        cached_lh: NDArray[float] = None,
+) -> NDArray[float]:
     """Computes the confounding effects lh that is the likelihood per site and feature given confounder[i]
 
     Args:
-        features(np.array or 'SparseMatrix'): The feature values for all sites and features
+        features: The feature values for all sites and features
             shape: (n_sites, n_features, n_categories)
-        groups(np.array): Binary arrays indicating the assignment of a site to each group of the confounder[i]
+        groups: Binary arrays indicating the assignment of a site to each group of the confounder[i]
             shape: (n_groups, n_sites)
-        confounding_effect(np.array): The confounding effect of confounder[i] in the current sample
+        confounding_effect: The confounding effect of confounder[i] in the current sample
             shape: (n_clusters, n_features, n_sites)
-        shapes (dict): A dictionary with shape information for building the Likelihood and Prior objects
-        outdated_indices (IndexSet): Set of outdated (group, feature) index-pairs
-        cached_lh (np.array): The cached set of likelihood values (to be updated where outdated).
+        shapes: A dictionary with shape information for building the Likelihood and Prior objects
+        outdated_indices: Set of outdated (group, feature) index-pairs
+        cached_lh: The cached set of likelihood values (to be updated where outdated).
 
     Returns:
-        (np.array): the family likelihood per site and feature
+        The family likelihood per site and feature
             shape: (n_sites, n_features)
     """
 
     n_groups = len(groups)
     if cached_lh is None:
-        lh_confounding_effect = np.zeros((shapes['n_sites'], shapes['n_features']))
+        lh_confounding_effect = np.zeros((shapes.n_sites, shapes.n_features))
         assert outdated_indices.all
     else:
         lh_confounding_effect = cached_lh
 
     if outdated_indices.all:
-        outdated_indices = itertools.product(range(n_groups), range(shapes['n_features']))
+        outdated_indices = itertools.product(range(n_groups), range(shapes.n_features))
 
     for g, i_f in outdated_indices:
         # Compute the feature likelihood vector (for all sites in family)
@@ -401,7 +408,7 @@ def normalize_weights(weights, has_components):
     return weights_per_site / weights_per_site.sum(axis=2, keepdims=True)
 
 
-class Prior(object):
+class Prior:
     """The joint prior of all parameters in the sBayes model.
 
     Attributes:
@@ -412,30 +419,30 @@ class Prior(object):
         prior_confounding_effects (ConfoundingEffectsPrior): prior on all confounding effects
     """
 
-    def __init__(self, shapes, config, data):
+    def __init__(self, shapes: ModelShapes, config: PriorConfig, data: 'Data'):
         self.shapes = shapes
         self.config = config
+        self.data = data
 
-        self.size_prior = ClusterSizePrior(config=self.config['objects_per_cluster'],
+        self.size_prior = ClusterSizePrior(config=self.config.objects_per_cluster,
                                            shapes=self.shapes)
-        self.geo_prior = GeoPrior(config=self.config['geo'],
+        self.geo_prior = GeoPrior(config=self.config.geo,
                                   cost_matrix=data.geo_cost_matrix)
-        self.prior_weights = WeightsPrior(config=self.config['weights'],
+        self.prior_weights = WeightsPrior(config=self.config.weights,
                                           shapes=self.shapes)
-        self.prior_cluster_effect = ClusterEffectPrior(config=self.config['cluster_effect'],
+        self.prior_cluster_effect = ClusterEffectPrior(config=self.config.cluster_effect,
                                                        shapes=self.shapes)
-        self.prior_confounding_effects = dict()
-        for k, v in self.config['confounding_effects'].items():
-            self.prior_confounding_effects[k] = ConfoundingEffectsPrior(config=v,
-                                                                        shapes=self.shapes,
-                                                                        conf=k)
+        self.prior_confounding_effects = {
+            k: ConfoundingEffectsPrior(config=v, shapes=self.shapes, conf=k)
+            for k, v in self.config.confounding_effects.items()
+        }
 
-    def __call__(self, sample):
+    def __call__(self, sample: Sample) -> float:
         """Compute the prior of the current sample.
         Args:
-            sample (Sample): A Sample object consisting of clusters, weights, areal and confounding effects
+            sample: A Sample object consisting of clusters, weights, areal and confounding effects
         Returns:
-            float: The (log)prior of the current sample
+            The (log)prior of the current sample
         """
         log_prior = 0
 
@@ -473,10 +480,11 @@ class Prior(object):
 
     def __copy__(self):
         return Prior(shapes=self.shapes,
-                     config=self.config['prior'])
+                     config=self.config,
+                     data=self.data)
 
 
-class DirichletPrior(object):
+class DirichletPrior:
 
     class TYPES(Enum):
         UNIFORM = 'uniform'
@@ -615,7 +623,7 @@ class ConfoundingEffectsPrior(DirichletPrior):
             elif self.config[group]['type'] == 'dirichlet':
                 msg += f'\tDirichlet prior for confounder {self.conf} = {group}.\n'
             else:
-                raise ValueError(self.invalid_prior_message(self.config['type']))
+                raise ValueError(self.invalid_prior_message(self.config.type))
         return msg
 
 
@@ -626,7 +634,7 @@ class ClusterEffectPrior(DirichletPrior):
 
     def parse_attributes(self):
 
-        if self.config['type'] == 'uniform':
+        if self.config.type == 'uniform':
             self.prior_type = self.TYPES.UNIFORM
             self.counts = np.full(shape=(self.shapes['n_features'], self.shapes['n_states']),
                                   fill_value=self.initial_counts)
@@ -1019,13 +1027,13 @@ def compute_cost_based_geo_prior(
 
 
 def compute_confounding_effects_prior(
-        confounding_effect: nptyp.NDArray[float],
+        confounding_effect: NDArray[float],
         concentration: typ.List[np.array],
         applicable_states: typ.List[np.array],
         outdated_indices: IndexSet,
-        cached_prior: nptyp.NDArray[float] = None,
+        cached_prior: NDArray[float] = None,
         broadcast: bool = False
-) -> nptyp.NDArray[float]:
+) -> NDArray[float]:
     """" This function evaluates the prior for p_families
     Args:
         confounding_effect (np.array): The confounding effect [i] from the sample

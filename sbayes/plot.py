@@ -37,14 +37,13 @@ from shapely.ops import cascaded_union, polygonize
 
 from sbayes.postprocessing import compute_dic
 from sbayes.results import Results
-from sbayes.util import add_edge, compute_delaunay
-from sbayes.util import fix_default_config, fix_relative_path
+from sbayes.util import add_edge, compute_delaunay, set_defaults
+from sbayes.util import fix_relative_path
 from sbayes.util import gabriel_graph_from_delaunay
 from sbayes.util import parse_cluster_columns
 from sbayes.util import read_data_csv
 from sbayes.util import PathLike
 from sbayes.load_data import Objects
-from sbayes.experiment_setup import REQUIRED, set_defaults
 from sbayes import config as config_package
 from sbayes import maps as maps_package
 
@@ -80,9 +79,6 @@ class Plot:
         # Needed for the weights and parameters plotting
         plt.style.use('seaborn-paper')
         # plt.tight_layout()
-
-        # Path to all default configs
-        self.config_default = "config/plotting"
 
     ####################################
     # Configure the parameters
@@ -239,19 +235,6 @@ class Plot:
     # Copy-pasted functions needed for plot_posterior_map
     ##############################################################
     # Load default config parameters
-    def add_config_default(self):
-
-        self.config_default = fix_default_config(self.config_default)
-
-        with open(self.config_default, 'r') as f:
-            new_config = json.load(f)
-
-            # If the key already exists
-            for key in new_config:
-                if key in self.config:
-                    self.config[key].update(new_config[key])
-                else:
-                    self.config[key] = new_config[key]
 
     @staticmethod
     def get_extent(cfg_geo, locations):

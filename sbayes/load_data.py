@@ -158,14 +158,11 @@ class Data:
 
     """Container and loading functionality for different types of data involved in a
     sBayes analysis.
-
-    Attributes:
-        path_results:
     """
 
     path_results: PathLike
     experiment_name: str
-    config: dict
+    config: 'SBayesConfig'
     crs: Optional[pyproj.CRS]
     objects: Objects
     features: Features
@@ -173,16 +170,16 @@ class Data:
     network: ComputeNetwork
     prior_confounders: ...
     geo_cost_matrix: Optional[NDArray[float]]
-    logger: 'logging.Logger'
+    logger: Logger
 
     def __init__(
             self,
             path_results: PathLike,
             experiment_name: str,
-            config: dict,
+            config: 'SBayesConfig',
             crs: Optional[pyproj.CRS],
             geo_cost_matrix: Optional[NDArray[float]] = None,
-            logger: 'logging.Logger' = None,
+            logger: Logger = None,
     ):
         self.path_results = path_results
         self.experiment_name = experiment_name
@@ -195,9 +192,9 @@ class Data:
 
         # Attributes that are loaded based on config
         self.objects, self.features, self.confounders = read_features_from_csv(
-            data_path=self.config['data']['features'],
-            feature_states_path=self.config['data']['feature_states'],
-            groups_by_confounder=self.config['model']['confounders'],
+            data_path=self.config.data.features,
+            feature_states_path=self.config.data.feature_states,
+            groups_by_confounder=self.config.model.confounders,
             logger=self.logger)
 
         self.network = ComputeNetwork(self.objects, crs=self.crs)
@@ -205,8 +202,8 @@ class Data:
         self.prior_confounders = None  # TODO Load the confounder priors
 
     @classmethod
-    def from_experiment(cls, experiment: 'sbayes.experiment_setup.Experiment'):
-        proj4_string = experiment.config['data'].get('projection')
+    def from_experiment(cls, experiment: 'Experiment') -> 'Data':
+        proj4_string = experiment.config.data.projection
         if proj4_string is None:
             crs = None
         else:
@@ -226,22 +223,22 @@ class Data:
         pass
 
     def load_geo_cost_matrix(self):
-        geo_prior_cfg = self.config['model']['prior']['geo']
-        if geo_prior_cfg['type'] != 'cost_based':
+        geo_prior_cfg = self.config.model.prior.geo
+        if geo_prior_cfg.type != 'cost_based':
             # Geo prior is not cost-based -> nothing to do
             return
 
         if 'costs' not in geo_prior_cfg:
-            geo_prior_cfg['costs'] = 'from_data'
+            geo_prior_cfg.costs = 'from_data'
 
-        if geo_prior_cfg['costs'] == 'from_data':
+        if geo_prior_cfg.costs == 'from_data':
             # No cost-matrix given. Use distance matrix as costs
             self.geo_cost_matrix = self.network.dist_mat
 
         else:
             # Read cost matrix from data
             self.geo_cost_matrix = read_geo_cost_matrix(object_names=self.objects.names,
-                                                        file=geo_prior_cfg['costs'],
+                                                        file=geo_prior_cfg.costs,
                                                         logger=self.logger)
 
 
@@ -262,11 +259,13 @@ def read_features_from_csv(
 ) -> (Objects, Features, Dict[str, Confounder]):
     """This is a helper function to import data (objects, features, confounders) from a csv file
     Args:
-        config: the config file
-        logger: A Logger object for writing log messages.
+        data_path: path to the data csv file.
+        feature_states_path: path to the feature states csv file.
+        groups_by_confounder: dict mapping confounder name to list of corresponding groups
+        logger: A Logger instance for writing log messages.
 
     Returns:
-        Objects, Features, Dict[str, Confounder]: The parsed data objects.
+        The parsed data objects (objects, features and confounders).
     """
     # Load the data and features-states
     data = read_data_csv(data_path)

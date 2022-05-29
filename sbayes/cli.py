@@ -6,7 +6,8 @@ from pathlib import Path
 import tkinter as tk
 from tkinter import filedialog
 
-from sbayes.experiment_setup import Experiment, update_recursive
+from sbayes.experiment_setup import Experiment
+from sbayes.util import PathLike
 from sbayes.load_data import Data
 from sbayes.mcmc_setup import MCMCSetup
 
@@ -18,7 +19,7 @@ def run_experiment(
         custom_settings: dict = None,
 ):
     if custom_settings is not None:
-        update_recursive(experiment.config, custom_settings)
+        experiment.config.update(custom_settings)
 
     mcmc = MCMCSetup(data=data, experiment=experiment)
     mcmc.log_setup()
@@ -34,7 +35,7 @@ def run_experiment(
 
 
 def main(
-        config: Path,
+        config: PathLike,
         experiment_name: str = None,
         custom_settings: dict = None,
         processes: int = 1,

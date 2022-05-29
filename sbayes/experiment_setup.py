@@ -8,7 +8,8 @@ import os
 from pathlib import Path
 from typing import Optional
 
-from sbayes.util import set_experiment_name, fix_relative_path
+from sbayes.util import set_experiment_name, decompose_config_path, fix_relative_path, iter_items_recursive
+from sbayes.config.config import SBayesConfig, BaseConfig, RelativeFilePath
 from sbayes import config
 
 try:
@@ -64,31 +65,33 @@ class Experiment:
                     config_file: Path,
                     custom_settings: Optional[dict] = None):
 
-        # Get parameters from config_file
-        self.base_directory, self.config_file = decompose_config_path(config_file)
+        # # Get parameters from config_file
+        # self.base_directory, self.config_file = decompose_config_path(config_file)
+        # RelativeFilePath.BASE_DIR = self.base_directory
+        #
+        # # Read the user specified config file
+        # with open(self.config_file, 'r') as f:
+        #     self.config = SBayesConfig(**json.load(f))
+        #
+        self.config = SBayesConfig.from_config_file(config_file)
 
-        # Read the user specified config file
-        with open(self.config_file, 'r') as f:
-            self.config = json.load(f)
+        # [should not be needed anymore]
+        # # Load defaults
+        # set_defaults(self.config, DEFAULT_CONFIG)
 
-        # Load defaults
-        set_defaults(self.config, DEFAULT_CONFIG)
+        # TODO: make a method in config class
+        # if custom_settings is not None:
+        #     update_recursive(self.config, custom_settings)
 
-        if custom_settings is not None:
-            update_recursive(self.config, custom_settings)
-
-        # Verify config
-        self.verify_config()
+        # [should not be needed anymore]
+        # # Verify config
+        # self.verify_config()
 
         # Set results path
+        self.path_results = self.config.results.path / self.experiment_name
 
-        self.path_results = '{path}/{experiment}/'.format(
-            path=self.config['results']['path'],
-            experiment=self.experiment_name
-        )
-
-        # Compile relative paths, to be relative to config file
-        self.path_results = fix_relative_path(self.path_results, self.base_directory)
+        # # Compile relative paths, to be relative to config file
+        # self.path_results = fix_relative_path(self.path_results, self.base_directory)
 
         if not os.path.exists(self.path_results):
             os.makedirs(self.path_results)
@@ -217,79 +220,6 @@ class Experiment:
     def log_experiment(self):
         self.logger.info("Experiment: %s", self.experiment_name)
         self.logger.info("File location for results: %s", self.path_results)
-
-
-def decompose_config_path(config_path):
-    abs_config_path = Path(config_path).absolute()
-    base_directory = abs_config_path.parent
-    return base_directory, abs_config_path
-
-
-def set_defaults(cfg: dict, default_cfg: dict):
-    """Iterate through a recursive config dictionary and set all fields that are not
-    present in cfg to the default values from default_cfg.
-
-    == Usage ===
-    >>> set_defaults(cfg={0:0, 1:{1:0}, 2:{2:1}},
-    ...              default_cfg={1:{1:1}, 2:{1:1, 2:2}})
-    {0: 0, 1: {1: 0}, 2: {2: 1, 1: 1}}
-    >>> set_defaults(cfg={0:0, 1:1, 2:2},
-    ...              default_cfg={1:{1:1}, 2:{1:1, 2:2}})
-    {0: 0, 1: 1, 2: 2}
-    """
-    for key in default_cfg:
-        if key not in cfg:
-            # Field ´key´ is not defined in cfg -> use default
-            cfg[key] = default_cfg[key]
-
-        else:
-            # Field ´key´ is defined in cfg
-            # -> update recursively if the field is a dictionary
-            if isinstance(default_cfg[key], dict) and isinstance(cfg[key], dict):
-                set_defaults(cfg[key], default_cfg[key])
-
-    return cfg
-
-
-def update_recursive(cfg: dict, new_cfg: dict):
-    """Iterate through a recursive config dictionary and update cfg in all fields that are specified in new_cfg.
-
-    == Usage ===
-    >>> update_recursive(cfg={0:0, 1:{1:0}, 2:{2:1}},
-    ...                  new_cfg={1:{1:1}, 2:{1:1, 2:2}})
-    {0: 0, 1: {1: 1}, 2: {2: 2, 1: 1}}
-    >>> update_recursive(cfg={0:0, 1:1, 2:2},
-    ...                  new_cfg={1:{1:1}, 2:{1:1, 2:2}})
-    {0: 0, 1: {1: 1}, 2: {1: 1, 2: 2}}
-    """
-    for key in new_cfg:
-        if (key in cfg) and isinstance(new_cfg[key], dict) and isinstance(cfg[key], dict):
-            # Both dictionaries have another layer -> update recursively
-            update_recursive(cfg[key], new_cfg[key])
-        else:
-            cfg[key] = new_cfg[key]
-
-    return cfg
-
-
-def iter_items_recursive(cfg: dict, loc=tuple()):
-    """Recursively iterate through all key-value pairs in ´cfg´ and sub-dictionaries.
-
-    Args:
-        cfg (dict): Config dictionary, potentially containing sub-dictionaries.
-        loc (tuple): Specifies the sequene of keys that lead to the current sub-dictionary.
-    Yields:
-        tuple: key-value pairs of the bottom level dictionaries
-
-    == Usage ===
-    >>> list(iter_items_recursive({0: 0, 1: {1: 0}, 2: {2: 1, 1: 1}}))
-    [(0, 0, ()), (1, 0, (1,)), (2, 1, (2,)), (1, 1, (2,))]
-    """
-    for key, value in cfg.items():
-        if isinstance(value, dict):
-            yield from iter_items_recursive(value, loc + (key, ))
-        else:
-            yield key, value, loc
 
 
 if __name__ == '__main__':

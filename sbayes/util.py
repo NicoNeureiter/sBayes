@@ -1153,65 +1153,24 @@ def log_multinom(n, ks):
     return m
 
 
-
-# Fix path for default config files (in the folder sbayes/sbayes/config)
-def fix_default_config(default_config_path):
-    default_config_path = default_config_path.strip()
-    if os.path.isabs(default_config_path):
-        abs_config_path = default_config_path
-        return abs_config_path
-    else:
-
-        # Get the beginning of the path, before "experiments"
-        abs_config_path = ''
-        path_elements = os.path.abspath(default_config_path).split('/')
-
-        # For Windows
-        if len(path_elements) == 1:
-            path_elements = os.path.abspath(default_config_path).split("\\")
-
-        for element in path_elements:
-            if element == 'sbayes':
-                break
-            else:
-                abs_config_path += element + '/'
-
-        # Add the part that will be always there
-        abs_config_path += 'sbayes/sbayes/' + \
-                           '/'.join([os.path.dirname(default_config_path),
-                                     os.path.basename(default_config_path)])
-
-        return abs_config_path.replace("\\", "/")
+def decompose_config_path(config_path: PathLike) -> (Path, Path):
+    """Extract the base directory of `config_path` and return the path itself as an
+    absolute path."""
+    abs_config_path = Path(config_path).absolute()
+    base_directory = abs_config_path.parent
+    return base_directory, abs_config_path
 
 
-# These two functions are copy pasted from experiment_setup.py, but they are not used yet
-# todo: use them in the plotting classes
-def decompose_config_path(config_path):
-    config_path = config_path.strip()
-    if os.path.isabs(config_path):
-        abs_config_path = config_path
-    else:
-        abs_config_path = os.path.abspath(config_path)
-
-    base_directory = os.path.dirname(abs_config_path)
-
-    return base_directory, abs_config_path.replace("\\", "/")
-
-
-def fix_relative_path(
-        path: typ.Union[Path, str],
-        base_directory: typ.Union[Path, str],
-):
+def fix_relative_path(path: PathLike, base_directory: PathLike) -> Path:
     """Make sure that the provided path is either absolute or relative to the config file directory.
 
     Args:
-        path (Path or str): The original path (absolute or relative).
-        base_directory (str): The base directory
+        path: The original path (absolute or relative).
+        base_directory: The base directory
 
     Returns:
-        Path: The fixed path.
+        The fixed path.
     """
-
     path = Path(path)
     if path.is_absolute():
         return path
@@ -1257,6 +1216,73 @@ if scipy.__version__ >= '1.8.0':
 else:
     def log_expit(*args, **kwargs):
         return np.log(expit(*args, **kwargs))
+
+
+def set_defaults(cfg: dict, default_cfg: dict):
+    """Iterate through a recursive config dictionary and set all fields that are not
+    present in cfg to the default values from default_cfg.
+
+    == Usage ===
+    >>> set_defaults(cfg={0:0, 1:{1:0}, 2:{2:1}},
+    ...              default_cfg={1:{1:1}, 2:{1:1, 2:2}})
+    {0: 0, 1: {1: 0}, 2: {2: 1, 1: 1}}
+    >>> set_defaults(cfg={0:0, 1:1, 2:2},
+    ...              default_cfg={1:{1:1}, 2:{1:1, 2:2}})
+    {0: 0, 1: 1, 2: 2}
+    """
+    for key in default_cfg:
+        if key not in cfg:
+            # Field ´key´ is not defined in cfg -> use default
+            cfg[key] = default_cfg[key]
+
+        else:
+            # Field ´key´ is defined in cfg
+            # -> update recursively if the field is a dictionary
+            if isinstance(default_cfg[key], dict) and isinstance(cfg[key], dict):
+                set_defaults(cfg[key], default_cfg[key])
+
+    return cfg
+
+
+def update_recursive(cfg: dict, new_cfg: dict):
+    """Iterate through a recursive config dictionary and update cfg in all fields that are specified in new_cfg.
+
+    == Usage ===
+    >>> update_recursive(cfg={0:0, 1:{1:0}, 2:{2:1}},
+    ...                  new_cfg={1:{1:1}, 2:{1:1, 2:2}})
+    {0: 0, 1: {1: 1}, 2: {2: 2, 1: 1}}
+    >>> update_recursive(cfg={0:0, 1:1, 2:2},
+    ...                  new_cfg={1:{1:1}, 2:{1:1, 2:2}})
+    {0: 0, 1: {1: 1}, 2: {1: 1, 2: 2}}
+    """
+    for key in new_cfg:
+        if (key in cfg) and isinstance(new_cfg[key], dict) and isinstance(cfg[key], dict):
+            # Both dictionaries have another layer -> update recursively
+            update_recursive(cfg[key], new_cfg[key])
+        else:
+            cfg[key] = new_cfg[key]
+
+    return cfg
+
+
+def iter_items_recursive(cfg: dict, loc=tuple()):
+    """Recursively iterate through all key-value pairs in ´cfg´ and sub-dictionaries.
+
+    Args:
+        cfg (dict): Config dictionary, potentially containing sub-dictionaries.
+        loc (tuple): Specifies the sequene of keys that lead to the current sub-dictionary.
+    Yields:
+        tuple: key-value pairs of the bottom level dictionaries
+
+    == Usage ===
+    >>> list(iter_items_recursive({0: 0, 1: {1: 0}, 2: {2: 1, 1: 1}}))
+    [(0, 0, ()), (1, 0, (1,)), (2, 1, (2,)), (1, 1, (2,))]
+    """
+    for key, value in cfg.items():
+        if isinstance(value, dict):
+            yield from iter_items_recursive(value, loc + (key, ))
+        else:
+            yield key, value, loc
 
 
 if __name__ == "__main__":
