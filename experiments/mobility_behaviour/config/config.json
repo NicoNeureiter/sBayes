@@ -1,8 +1,7 @@
 {
 	"data": {
 		"features": "../data/features/simulated_features.csv",
-		"feature_states": "../data/features/simulated_feature_states.csv",
-		"projection": "todo"
+		"feature_states": "../data/features/simulated_feature_states.csv"
 	},
 	"model": {
 		"clusters": 2,
@@ -52,7 +51,7 @@
 		"operators": {
 			"clusters": 5,
 			"weights": 40,
-			"areal_effect": 30,
+			"cluster_effect": 30,
 			"confounding_effects": 30,
 			"source": 10
 		},

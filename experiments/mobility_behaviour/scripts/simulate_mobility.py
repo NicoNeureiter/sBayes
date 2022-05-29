@@ -8,5 +8,4 @@ if __name__ == '__main__':
 
     # Simulate mobility behaviour
     sim.run_simulation()
-#    sim.log_simulation()
     sim.write_to_csv()
