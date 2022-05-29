@@ -14,8 +14,9 @@ import os
 import csv
 import itertools
 
-from sbayes.experiment_setup import (set_defaults, decompose_config_path,
-                                     fix_relative_path, iter_items_recursive)
+from sbayes.experiment_setup import (fix_relative_path)
+from sbayes.util import set_defaults, iter_items_recursive, PathLike
+from sbayes.util import decompose_config_path
 
 from sbayes.preprocessing import (ComputeNetwork, load_canvas,
                                   simulate_assignment_probabilities,
@@ -196,3 +197,29 @@ class Simulation:
 
             # writing the data rows
             csvwriter.writerows(list(itertools.zip_longest(*available_states)))
+
+
+def main(config_path: PathLike):
+    """Main interface for sBayes simulation"""
+    sim = Simulation()
+    sim.load_config_simulation(config_file=config_path)
+
+    # Simulate mobility behaviour
+    sim.run_simulation()
+    sim.write_to_csv()
+
+
+def cli():
+    """Interface allowing to run sBayes simulations from the command line using:
+        python -m sbayes.simulation <path_to_config_file>
+    """
+    import argparse
+    parser = argparse.ArgumentParser(description='Simulations for sBayes')
+    parser.add_argument('config', type=Path, help='The JSON configuration file')
+    args = parser.parse_args()
+
+    main(config_path=args.config)
+
+
+if __name__ == '__main__':
+    cli()
