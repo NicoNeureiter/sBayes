@@ -55,8 +55,29 @@ class TestLikelihood(unittest.TestCase):
         N_FEATURES = 5
         N_CATEGORIES = 3
 
+        from sbayes.model import ModelShapes
+        from sbayes.load_data import Data, Features
+
+        shapes = ModelShapes(
+            n_clusters=1,
+            n_sites=N_SITES,
+            n_states=N_CATEGORIES,
+            n_features=N_FEATURES,
+            states_per_feature=np.ones((N_FEATURES, N_CATEGORIES), dtype=bool)
+        )
+
         # Generate features from one shared distribution
-        features = generate_features((N_SITES, N_FEATURES), N_CATEGORIES)
+        feature_values = generate_features((N_SITES, N_FEATURES), N_CATEGORIES),
+        feature_states = [[f's{i}' for i in range(N_CATEGORIES)] for _ in range(N_FEATURES)]
+        features = Features(
+            values=feature_values,
+            names=np.array([f'f{i}' for i in range(N_FEATURES)]),
+            states=shapes.states_per_feature,
+            state_names=feature_states,
+            na_number=0,
+        )
+
+
 
         # Define area and family
         areas = np.array([[1, 1, 1, 1, 0, 0, 0, 0, 0, 0]], dtype=bool)
@@ -69,18 +90,25 @@ class TestLikelihood(unittest.TestCase):
         weights_with_family = broadcast_weights([0.4, 0.3, 0.3], N_FEATURES)
         weights_without_family = broadcast_weights([0.4, 0.6], N_FEATURES)
 
-        sample_with_family = Sample(areas, weights_with_family,
-                                    p_global=p_global, p_zones=p_areas, p_families=p_families)
-        sample_without_family = Sample(areas, weights_without_family,
-                                       p_global=p_global, p_zones=p_areas, p_families=None)
+        sample_with_family = Sample(
+            clusters=areas,
+            weights=weights_with_family,
+            confounding_effects={'universal': p_global, 'family': p_families},
+            cluster_effect=p_areas,
+        )
+        sample_without_family = Sample(
+            clusters=areas,
+            weights=weights_without_family,
+            confounding_effects={'universal': p_global},
+            cluster_effect=p_areas,
+        )
 
         # Dummy ´Data´ class to pass features and families to the likelihood
-        Data = namedtuple('Data', ['features', 'families'])
         data = Data(features=features, families=families)
 
-        likelihood = Likelihood(data=data, inheritance=True)
+        likelihood = Likelihood(data=data, shapes=shapes)
         lh_with_family = likelihood(sample_with_family, caching=False)
-        likelihood = Likelihood(data=data, inheritance=False)
+        likelihood = Likelihood(data=data, shapes=shapes)
         lh_without_family = likelihood(sample_without_family, caching=False)
         self.assertAlmostEqual(lh_with_family, lh_without_family)
 
