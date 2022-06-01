@@ -1,15 +1,18 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-import numpy as np
-from collections import namedtuple
 import unittest
 
-from sbayes.model import Likelihood
+import numpy as np
+import numpy.testing
+from numpy.typing import NDArray
+
+from sbayes.model import Likelihood, ModelShapes
 from sbayes.sampling.state import Sample
 from sbayes.util import log_multinom
+from sbayes.load_data import Data, Objects, Features, Confounder
 
 
-def binary_encoding(data, n_categories=None):
+def binary_encoding(data, n_categories=None) -> np.array:
     if n_categories is None:
         n_categories = np.max(data) + 1
     else:
@@ -19,7 +22,7 @@ def binary_encoding(data, n_categories=None):
     return onehot_vectors[data]
 
 
-def generate_features(shape, n_categories, p=None):
+def generate_features(shape, n_categories, p=None) -> np.array:
     if p is None:
         alpha = np.ones(n_categories)
         p = np.random.dirichlet(alpha)
@@ -34,7 +37,9 @@ def generate_features(shape, n_categories, p=None):
 
         features_int = np.zeros(shape, dtype=int)
         for i in range(n_features):
-            features_int[..., i] = np.random.choice(a=n_categories, size=shape[:-1], p=p[i, :])
+            features_int[..., i] = np.random.choice(
+                a=n_categories, size=shape[:-1], p=p[i, :]
+            )
 
     else:
         raise ValueError
@@ -46,79 +51,229 @@ def broadcast_weights(w, n_features):
     return np.repeat([w], n_features, axis=0)
 
 
+def dummy_features_from_values(values: NDArray[bool]) -> Features:
+    n_objects, n_features, n_states = values.shape
+    feature_names = np.array([f"f{i}" for i in range(n_features)])
+    applicable_states = np.ones((n_features, n_states), dtype=bool)
+    feature_states = [[f"s{i}" for i in range(n_states)]] * n_features
+    return Features(
+        values=values,
+        names=feature_names,
+        states=applicable_states,
+        state_names=feature_states,
+        na_number=0,
+    )
+
+
+def dummy_applicable_states(n_features: int, n_states: int) -> NDArray[bool]:
+    return np.ones((n_features, n_states), dtype=bool)
+
+
+def dummy_objects(n_objects: int) -> Objects:
+    return Objects(
+        id=np.arange(n_objects),
+        locations=np.random.random((n_objects, 2)),
+        names=np.arange(n_objects).astype(str),
+    )
+
+
+def dummy_universal_confounder(n_objects: int) -> Confounder:
+    return Confounder(
+        name="universal",
+        group_assignment=np.ones((1, n_objects), dtype=bool),
+        group_names=["<ALL>"],
+    )
+
+
+def dummy_family_confounder(families: NDArray[bool]) -> Confounder:
+    n_families = families.shape[0]
+    return Confounder(
+        name="family",
+        group_assignment=families,
+        group_names=[f"fam_{i}" for i in range(n_families)],
+    )
+
+
 class TestLikelihood(unittest.TestCase):
 
     """Test correctness of the model likelihood."""
 
-    def test_family_cluster_overlap(self):
-        N_SITES = 10
-        N_FEATURES = 5
-        N_CATEGORIES = 3
+    def test_minimal_example(self):
+        """Test the likelihood of a minimal example. The minimal example only contains
+        three objects, and a single fixed binary feature.
+        """
 
-        from sbayes.model import ModelShapes
-        from sbayes.load_data import Data, Features
-
+        # Define the data shapes
+        n_objects = 3
+        n_features = 1
+        n_states = 2
         shapes = ModelShapes(
             n_clusters=1,
-            n_sites=N_SITES,
-            n_states=N_CATEGORIES,
-            n_features=N_FEATURES,
-            states_per_feature=np.ones((N_FEATURES, N_CATEGORIES), dtype=bool)
+            n_sites=n_objects,
+            n_features=n_features,
+            n_states=n_states,
+            states_per_feature=dummy_applicable_states(n_features, n_states),
         )
 
-        # Generate features from one shared distribution
-        feature_values = generate_features((N_SITES, N_FEATURES), N_CATEGORIES),
-        feature_states = [[f's{i}' for i in range(N_CATEGORIES)] for _ in range(N_FEATURES)]
-        features = Features(
-            values=feature_values,
-            names=np.array([f'f{i}' for i in range(N_FEATURES)]),
-            states=shapes.states_per_feature,
-            state_names=feature_states,
-            na_number=0,
+        # Simple checks on the shapes object
+        assert shapes.n_clusters == 1
+        assert shapes.n_sites == n_objects
+        assert np.all(np.array(shapes.n_states_per_feature) == n_states)
+
+        # Create the data
+        feature_values = np.array([[[1, 0]], [[0, 1]], [[0, 1]]])
+        features = dummy_features_from_values(feature_values)
+        objects = dummy_objects(n_objects)
+        universal = dummy_universal_confounder(n_objects)
+        confounders = {universal.name: universal}
+        data = Data(objects=objects, features=features, confounders=confounders)
+
+        # Make sure dimensions match
+        assert data.features.values.shape == (n_objects, n_features, n_states)
+        assert data.features.names.shape == (n_features,)
+        assert data.features.states.shape == (n_features, n_states)
+        assert len(data.objects.names) == n_objects
+
+        # Create a simple sample
+        p_cluster = broadcast_weights([0.0, 1.0], n_features)[np.newaxis,...]
+        p_global = np.full(shape=(1, n_features, n_states), fill_value=0.5)
+        source = np.zeros((n_objects, n_features, 2), dtype=bool)
+        sample = Sample(
+            clusters=np.ones((1, n_objects),  dtype=np.bool),
+            weights=broadcast_weights([0.5, 0.5], n_features),
+            cluster_effect=p_cluster,
+            confounding_effects={"universal": p_global},
+            source=source,
         )
 
+        """Comment on analytical solutions:
+        
+        Since weights are fixed at 0.5, the source probability is fixed at :
+            P( source | weights ) = 2 ^ (- n_objects * n_features) = 0.125 
+        
+        The cluster is fixed to include all languages, but we vary the `source` array. We 
+        will go through the different cases: 
+        """
+        source_lh = 0.125
+
+        """1. no areal effect means that the likelihood is simply 50/50 for each feature."""
+        data_lh = 0.125
+        source[..., 0] = 0  # index 0 is the area component
+        source[..., 1] = 1  # index 1 is the universal component (first confounder)
+        sample.everything_changed()
+        likelihood_sbayes = Likelihood(data=data, shapes=shapes)(sample, caching=False)
+        np.testing.assert_almost_equal(likelihood_sbayes, np.log(source_lh*data_lh))
+
+        """2. assigning the observation of the second object to the cluster effect means 
+        that this observation is perfectly explained, increasing the likelihood by a
+        factor of 2."""
+        data_lh = 0.25
+        source[1, :, :] = [[1, 0]]  # switch object 1 to the cluster effect
+        sample.everything_changed()
+        likelihood_sbayes = Likelihood(data=data, shapes=shapes)(sample, caching=False)
+        np.testing.assert_almost_equal(likelihood_sbayes, np.log(source_lh * data_lh))
+
+        """3. assigning the second object to the cluster effect increases the likelihood
+        by another factor of 2."""
+        data_lh = 0.5
+        source[2, :, :] = [[1, 0]]  # switch object 2 to the cluster effect
+        sample.everything_changed()
+        likelihood_sbayes = Likelihood(data=data, shapes=shapes)(sample, caching=False)
+        np.testing.assert_almost_equal(likelihood_sbayes, np.log(source_lh * data_lh))
+
+        """4. assigning the first object to the cluster effect results in a likelihood of 
+        zero, i.e. a log-likelihood of -inf."""
+        data_lh = 0.0
+        source[0, :, :] = [[1, 0]]  # switch object 1 to the cluster effect
+        sample.everything_changed()
+        likelihood_sbayes = Likelihood(data=data, shapes=shapes)(sample, caching=False)
+        np.testing.assert_almost_equal(likelihood_sbayes, np.log(source_lh * data_lh))
+
+        """5. Integrating over source (setting it to None) averages the component 
+        likelihoods for each observation."""
+        lh = 0.25 * 0.75 * 0.75
+        sample.source = None
+        sample.everything_changed()
+        likelihood_sbayes = Likelihood(data=data, shapes=shapes)(sample, caching=False)
+        np.testing.assert_almost_equal(likelihood_sbayes, np.log(lh))
 
 
-        # Define area and family
-        areas = np.array([[1, 1, 1, 1, 0, 0, 0, 0, 0, 0]], dtype=bool)
-        families = areas.copy()
-
-        p_global = np.random.dirichlet(np.ones(N_CATEGORIES), size=(1, N_FEATURES))
-        p_areas = np.random.dirichlet(np.ones(N_CATEGORIES), size=(1, N_FEATURES))
-        p_families = p_areas.copy()
-
-        weights_with_family = broadcast_weights([0.4, 0.3, 0.3], N_FEATURES)
-        weights_without_family = broadcast_weights([0.4, 0.6], N_FEATURES)
-
-        sample_with_family = Sample(
-            clusters=areas,
-            weights=weights_with_family,
-            confounding_effects={'universal': p_global, 'family': p_families},
-            cluster_effect=p_areas,
-        )
-        sample_without_family = Sample(
-            clusters=areas,
-            weights=weights_without_family,
-            confounding_effects={'universal': p_global},
-            cluster_effect=p_areas,
-        )
-
-        # Dummy ´Data´ class to pass features and families to the likelihood
-        data = Data(features=features, families=families)
-
-        likelihood = Likelihood(data=data, shapes=shapes)
-        lh_with_family = likelihood(sample_with_family, caching=False)
-        likelihood = Likelihood(data=data, shapes=shapes)
-        lh_without_family = likelihood(sample_without_family, caching=False)
-        self.assertAlmostEqual(lh_with_family, lh_without_family)
-
-        # Direct LH computation
-        p_mixed = 0.4*p_global + 0.6*p_areas
-        p_per_feature = np.repeat(p_global, N_SITES, axis=0)
-        p_per_feature[areas[0]] = np.repeat(p_mixed, np.count_nonzero(areas), axis=0)
-        lh_direct = np.sum(np.log(p_per_feature[features]))
-
-        self.assertAlmostEqual(lh_with_family, lh_direct)
+# def test_family_cluster_overlap(self):
+    #     n_objects = 10
+    #     n_features = 5
+    #     n_states = 3
+    #
+    #     shapes = ModelShapes(
+    #         n_clusters=1,
+    #         n_sites=n_objects,
+    #         n_features=n_features,
+    #         n_states=n_states,
+    #         states_per_feature=dummy_applicable_states(n_features, n_states),
+    #     )
+    #     objects = dummy_objects(n_objects)
+    #
+    #     # Generate features from one shared distribution
+    #     feature_values = generate_features((n_objects, n_features), n_states)
+    #     features = dummy_features_from_values(feature_values)
+    #
+    #     # Define area and family
+    #     areas = np.array([[1, 1, 1, 1, 0, 0, 0, 0, 0, 0]], dtype=bool)
+    #     families = areas.copy()
+    #
+    #     confounder_universal = dummy_universal_confounder(n_objects)
+    #
+    #     confounder_families = dummy_family_confounder(families)
+    #
+    #     # Dummy ´Data´ class to pass features and families to the likelihood
+    #     data_with_family = Data(
+    #         objects=objects,
+    #         features=features,
+    #         confounders={
+    #             "universal": confounder_universal,
+    #             "family": confounder_families,
+    #         },
+    #     )
+    #
+    #     data_without_family = Data(
+    #         objects=objects,
+    #         features=features,
+    #         confounders={"universal": confounder_universal},
+    #     )
+    #
+    #     p_global = np.random.dirichlet(np.ones(n_states), size=(1, n_features))
+    #     p_areas = np.random.dirichlet(np.ones(n_states), size=(1, n_features))
+    #     p_families = p_areas.copy()
+    #
+    #     weights_with_family = broadcast_weights([0.4, 0.3, 0.3], n_features)
+    #     weights_without_family = broadcast_weights([0.4, 0.6], n_features)
+    #
+    #     sample_with_family = Sample(
+    #         clusters=areas,
+    #         weights=weights_with_family,
+    #         confounding_effects={"universal": p_global, "family": p_families},
+    #         cluster_effect=p_areas,
+    #     )
+    #     sample_without_family = Sample(
+    #         clusters=areas,
+    #         weights=weights_without_family,
+    #         confounding_effects={"universal": p_global},
+    #         cluster_effect=p_areas,
+    #     )
+    #
+    #     # Compute likelihood with and without family
+    #     likelihood = Likelihood(data=data_with_family, shapes=shapes)
+    #     lh_with_family = likelihood(sample_with_family, caching=False)
+    #     likelihood = Likelihood(data=data_without_family, shapes=shapes)
+    #     lh_without_family = likelihood(sample_without_family, caching=False)
+    #     # self.assertAlmostEqual(lh_with_family, lh_without_family)
+    #
+    #     # Direct LH computation
+    #     p_mixed = 0.4 * p_global + 0.6 * p_areas
+    #     p_per_feature = np.repeat(p_global, n_objects, axis=0)
+    #     p_per_feature[areas[0]] = np.repeat(p_mixed, np.count_nonzero(areas), axis=0)
+    #     lh_direct = np.sum(np.log(p_per_feature[features.values]))
+    #
+    #     self.assertAlmostEqual(lh_without_family, lh_direct)
 
 
 class TestSizePrior(unittest.TestCase):
@@ -126,11 +281,10 @@ class TestSizePrior(unittest.TestCase):
     """Test correctness of the geo prior."""
 
     def test_symmetry(self):
-        clusters = np.array([
-            [1, 1, 1, 0, 0, 0, 0],
-            [0, 0, 0, 1, 1, 0, 0],
-            [0, 0, 0, 0, 0, 1, 0]
-        ], dtype=bool)
+        clusters = np.array(
+            [[1, 1, 1, 0, 0, 0, 0], [0, 0, 0, 1, 1, 0, 0], [0, 0, 0, 0, 0, 1, 0]],
+            dtype=bool,
+        )
 
         n_clusters, n_sites = clusters.shape
         print(clusters.shape)
@@ -143,5 +297,5 @@ class TestSizePrior(unittest.TestCase):
             assert logp == -log_multinom(n_sites, sizes)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main()
