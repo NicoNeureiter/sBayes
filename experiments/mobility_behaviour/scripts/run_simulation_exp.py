@@ -7,18 +7,11 @@ from pathlib import Path
 if __name__ == '__main__':
 
     # Initialize the experiment
-    exp = Experiment()
-    exp.load_config(config_file=Path("experiments/mobility_behaviour/config/config.json"))
+    exp = Experiment(config_file="experiments/mobility_behaviour/config.json")
     exp.log_experiment()
 
     # Load Data
-    dat = Data(experiment=exp)
-    # Features
-    dat.load_features()
-
-    # Log
-    dat.log_loading()
-
+    dat = Data.from_experiment(experiment=exp)
     mc = MCMCSetup(data=dat, experiment=exp)
     mc.log_setup()
 
@@ -29,4 +22,3 @@ if __name__ == '__main__':
     # Save samples to file
     mc.log_statistics()
     mc.save_samples()
-    #

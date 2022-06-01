@@ -1,7 +1,7 @@
 {
 	"data": {
-		"features": "../data/features/simulated_features.csv",
-		"feature_states": "../data/features/simulated_feature_states.csv"
+		"features": "data/features/simulated_features.csv",
+		"feature_states": "data/features/simulated_feature_states.csv"
 	},
 	"model": {
 		"clusters": 2,
@@ -41,7 +41,7 @@
 				}
 			}
 		},
-		"sample_source": false
+		"sample_source": true
 	},
 	"mcmc": {
 		"steps": 10000,

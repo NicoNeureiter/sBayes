@@ -203,6 +203,9 @@ class Data:
 
     @classmethod
     def from_config(cls, config: "SBayesConfig", logger=None) -> "Data":
+        if logger:
+            cls.log_loading(logger)
+
         # Load objects, features, confounders
         objects, features, confounders = read_features_from_csv(
             data_path=config.data.features,
@@ -234,6 +237,12 @@ class Data:
         # Empty function for backwards compatibility. Loading now happens in initialization
         # TODO remove
         pass
+
+    @staticmethod
+    def log_loading(logger):
+        logger.info("\n")
+        logger.info("DATA IMPORT")
+        logger.info("##########################################")
 
 
 @dataclass
