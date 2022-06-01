@@ -190,6 +190,7 @@ class ParametersCSVLogger(ResultsLogger):
         # lh, prior, posteriors
         if self.log_contribution_per_cluster:
             sample_single_cluster: Sample = sample.copy()
+            sample_single_cluster.source = None
 
             for i in range(sample.n_clusters):
                 sample_single_cluster.clusters = clusters[[i]]
