@@ -1,7 +1,6 @@
-import types
 from pathlib import Path
 from enum import Enum
-from typing import Union, List, Dict, Literal, Optional, Any
+from typing import Union, List, Dict, Literal, Optional
 import warnings
 import json
 
@@ -11,17 +10,17 @@ from pydantic import FilePath, DirectoryPath
 from pydantic import PositiveInt, PositiveFloat, confloat
 
 from sbayes.util import fix_relative_path, decompose_config_path, PathLike
+from sbayes.util import update_recursive
 
 
 class RelativePath:
 
-    BASE_DIR = '.'
+    BASE_DIR: DirectoryPath = "."
 
 
 class RelativeFilePath(FilePath, RelativePath):
-
     @classmethod
-    def __get_validators__(cls) -> 'CallableGenerator':
+    def __get_validators__(cls) -> "CallableGenerator":
         yield cls.fix_path
         yield from super(RelativeFilePath, cls).__get_validators__()
 
@@ -31,9 +30,8 @@ class RelativeFilePath(FilePath, RelativePath):
 
 
 class RelativeDirectoryPath(DirectoryPath, RelativePath):
-
     @classmethod
-    def __get_validators__(cls) -> 'CallableGenerator':
+    def __get_validators__(cls) -> "CallableGenerator":
         yield cls.fix_path
         yield from super(RelativeDirectoryPath, cls).__get_validators__()
 
@@ -75,23 +73,25 @@ class GeoPriorConfig(BaseConfig):
     """Config for the geo-prior."""
 
     class Types(str, Enum):
-        UNIFORM = 'uniform'
-        COST_BASED = 'cost_based'
+        UNIFORM = "uniform"
+        COST_BASED = "cost_based"
 
     class AggregationStrategies(str, Enum):
-        MEAN = 'mean'
-        SUM = 'sum'
-        MAX = 'max'
+        MEAN = "mean"
+        SUM = "sum"
+        MAX = "max"
 
     type: Types = Types.UNIFORM
     rate: PositiveFloat = None
     aggregation: AggregationStrategies = AggregationStrategies.MEAN
-    costs: Union[FilePath, Literal['from_data']] = 'from_data'
+    costs: Union[FilePath, Literal["from_data"]] = "from_data"
 
     @root_validator
     def validate_dirichlet_parameters(cls, values):
-        if (values.get('type') == 'cost_based') and (values.get('rate') is None):
-            raise ValidationError('Field `rate` is required for geo-prior of type `cost_based`.')
+        if (values.get("type") == "cost_based") and (values.get("rate") is None):
+            raise ValidationError(
+                "Field `rate` is required for geo-prior of type `cost_based`."
+            )
         return values
 
 
@@ -99,9 +99,9 @@ class ClusterSizePriorConfig(BaseConfig):
     """Config for area size prior."""
 
     class Types(str, Enum):
-        UNIFORM_AREA = 'uniform_area'
-        UNIFORM_SIZE = 'uniform_size'
-        QUADRATIC_SIZE = 'quadratic'
+        UNIFORM_AREA = "uniform_area"
+        UNIFORM_SIZE = "uniform_size"
+        QUADRATIC_SIZE = "quadratic"
 
     type: Types
     min: PositiveInt = 2
@@ -109,10 +109,9 @@ class ClusterSizePriorConfig(BaseConfig):
 
 
 class DirichletPriorConfig(BaseConfig):
-
     class Types(str, Enum):
-        UNIFORM = 'uniform'
-        DIRICHLET = 'dirichlet'
+        UNIFORM = "uniform"
+        DIRICHLET = "dirichlet"
 
     type: Types = Types.UNIFORM
     file: Optional[FilePath] = None
@@ -120,28 +119,32 @@ class DirichletPriorConfig(BaseConfig):
 
     @root_validator(pre=True)
     def warn_when_using_default_type(cls, values):
-        if 'type' not in values:
-            warnings.warn(f'No `type` defined for `{cls.__name__}`. Using `uniform` as a default.')
+        if "type" not in values:
+            warnings.warn(
+                f"No `type` defined for `{cls.__name__}`. Using `uniform` as a default."
+            )
         return values
 
     @root_validator(pre=True)
     def validate_dirichlet_parameters(cls, values):
-        if values.get('type') == 'dirichlet':
-            if (values.get('file') is None) and (values.get('parameters') is None):
-                raise ValidationError(f'Provide `file` or `parameters` for `{cls.__name__}` of type `dirichlet`.')
+        if values.get("type") == "dirichlet":
+            if (values.get("file") is None) and (values.get("parameters") is None):
+                raise ValidationError(
+                    f"Provide `file` or `parameters` for `{cls.__name__}` of type `dirichlet`."
+                )
         return values
 
     def dict(self, *args, **kwargs):
         """A custom dict method to hide non-applicable attributes depending on prior type."""
         self_dict = super().dict(*args, **kwargs)
         if self.type is self.Types.UNIFORM:
-            self_dict.pop('file')
-            self_dict.pop('parameters')
+            self_dict.pop("file")
+            self_dict.pop("parameters")
         else:
             if self.file is not None:
-                self_dict.pop('parameters')
+                self_dict.pop("parameters")
             elif self.parameters is not None:
-                self_dict.pop('file')
+                self_dict.pop("file")
 
         return self_dict
 
@@ -260,7 +263,9 @@ class DataConfig(BaseConfig):
 
 class ResultsConfig(BaseConfig):
 
-    path: RelativeDirectoryPath = Field(default_factory=lambda: RelativeDirectoryPath.fix_path('results'))
+    path: RelativeDirectoryPath = Field(
+        default_factory=lambda: RelativeDirectoryPath.fix_path("results")
+    )
     """Path to the results directory."""
 
     log_file: bool = True
@@ -286,18 +291,27 @@ class SBayesConfig(BaseConfig):
     settings_for_linguists: SettingsForLinguists = SettingsForLinguists()
 
     @classmethod
-    def from_config_file(cls, path: PathLike) -> 'SBayesConfig':
-        # Get parameters from config_file
+    def from_config_file(
+        cls, path: PathLike, custom_settings: Optional[dict] = None
+    ) -> "SBayesConfig":
+        """Create an instance of SBayesConfig from a JSON config file."""
+
+        # Prepare RelativePath class to allow paths relative to the config file location
         base_directory, config_file = decompose_config_path(path)
         RelativePath.BASE_DIR = base_directory
 
-        with open(path, 'r') as f:
-            config = SBayesConfig(**json.load(f))
+        # Load a config dictionary from the json file
+        with open(path, "r") as f:
+            config_dict = json.load(f)
 
-        return config
+        # Update the config dictionary with custom_settings
+        if custom_settings:
+            update_recursive(config_dict, custom_settings)
+
+        # Create SBayesConfig instance from the dictionary
+        return SBayesConfig(**config_dict)
 
     def update(self, other: dict):
-        from sbayes.util import update_recursive
         new_dict = update_recursive(self.dict(), other)
         return type(self)(**new_dict)
 
@@ -312,31 +326,30 @@ def make_default_dict(cfg: type):
                 d[key] = make_default_dict(field.type_)
         return d
     else:
-        return '<REQUIRED>'
+        return "<REQUIRED>"
 
 
-if __name__ == '__main__':
-    cfg_1 = SBayesConfig(**{
-        'data': {
-            'features': 'config.py',
-            'feature_states': 'config.py',
-        },
-        'model': {
-            'prior': {
-                'geo': {},
-                'objects_per_cluster': {
-                    'type': 'uniform_size',
-                },
-                'weights': {},
-                'confounding_effects': {},
-                'cluster_effect': {},
+if __name__ == "__main__":
+    cfg_1 = SBayesConfig(
+        **{
+            "data": {
+                "features": "config.py",
+                "feature_states": "config.py",
             },
-        },
-        'mcmc': {
+            "model": {
+                "prior": {
+                    "geo": {},
+                    "objects_per_cluster": {
+                        "type": "uniform_size",
+                    },
+                    "weights": {},
+                    "confounding_effects": {},
+                    "cluster_effect": {},
+                },
+            },
+            "mcmc": {},
+            "results": {},
+        }
+    )
 
-        },
-        'results': {
-        },
-    })
-
-    print(cfg_1['model'])
+    print(cfg_1["model"])

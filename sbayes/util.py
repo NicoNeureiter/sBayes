@@ -8,10 +8,11 @@ from pathlib import Path
 from functools import lru_cache
 from math import sqrt, floor, ceil
 from itertools import combinations, permutations
-import typing as typ
+from typing import List, Dict, Sequence, Tuple, Union, Optional
 
 import numpy as np
-import numpy.typing as nptyp
+from numpy.typing import NDArray
+
 import pandas as pd
 import scipy
 import scipy.spatial as spatial
@@ -30,7 +31,7 @@ dirichlet_logpdf = stats.dirichlet._logpdf if FAST_DIRICHLET else stats.dirichle
 dirichlet_pdf = stats.dirichlet.pdf
 
 
-PathLike = typ.Union[str, Path]
+PathLike = Union[str, Path]
 """Convenience type for cases where `str` or `Path` are acceptable types."""
 
 
@@ -38,24 +39,24 @@ class FamilyError(Exception):
     pass
 
 
-def encode_cluster(cluster: nptyp.NDArray[bool]) -> str:
+def encode_cluster(cluster: NDArray[bool]) -> str:
     """Format the given cluster as a compact bit-string."""
     cluster_s = cluster.astype(int).astype(str)
     return ''.join(cluster_s)
 
 
-def decode_cluster(cluster_str: str) -> nptyp.NDArray[bool]:
+def decode_cluster(cluster_str: str) -> NDArray[bool]:
     """Read a bit-string and parse it into an area array."""
     return np.array(list(cluster_str)).astype(int).astype(bool)
 
 
-def format_cluster_columns(clusters: nptyp.NDArray[bool]) -> str:
+def format_cluster_columns(clusters: NDArray[bool]) -> str:
     """Format the given array of clusters as tab separated strings."""
     clusters_encoded = map(encode_cluster, clusters)
     return '\t'.join(clusters_encoded)
 
 
-def parse_cluster_columns(clusters_encoded: str) -> nptyp.NDArray[bool]:
+def parse_cluster_columns(clusters_encoded: str) -> NDArray[bool]:
     """Read tab-separated area encodings into a two-dimensional area array."""
     clusters_decoded = map(decode_cluster, clusters_encoded.split('\t'))
     return np.array(list(clusters_decoded))
@@ -127,8 +128,11 @@ def compute_delaunay(locations):
         (np.array) sparse matrix of Delaunay triangulation
             shape (n_edges, n_edges)
     """
-
     n = len(locations)
+
+    if n < 4:
+        # scipy's Delaunay triangulation fails for <3. Return a fully connected graph:
+        return csr_matrix(1-np.eye(n, dtype=int))
 
     delaunay = spatial.Delaunay(locations, qhull_options="QJ Pp")
 
@@ -310,7 +314,7 @@ def normalize_str(s: str) -> str:
     return str.strip(s)
 
 
-def read_data_csv(csv_path: typ.Union[Path, str]) -> pd.DataFrame:
+def read_data_csv(csv_path: Union[Path, str]) -> pd.DataFrame:
     return pd.read_csv(csv_path, dtype=str).applymap(normalize_str)
 
 
@@ -489,8 +493,8 @@ def scale_counts(counts, scale_to, prior_inheritance=False):
 
 
 def counts_to_dirichlet(
-        counts: typ.Sequence[typ.Sequence[int]],
-        states: typ.Sequence[int],
+        counts: Sequence[Sequence[int]],
+        states: Sequence[int],
         prior='uniform',
         outdated_features=None,
         dirichlet=None
@@ -1194,14 +1198,14 @@ def timeit(func):
 
 
 @lru_cache(maxsize=128)
-def get_permutations(n: int) -> typ.List[typ.Tuple[int]]:
+def get_permutations(n: int) -> List[Tuple[int]]:
     return list(permutations(range(n)))
 
 
 def get_best_permutation(
-        areas: nptyp.NDArray[bool],  # shape = (n_areas, n_sites)
-        prev_area_sum: nptyp.NDArray[int],  # shape = (n_areas, n_sites)
-) -> typ.Tuple[int]:
+        areas: NDArray[bool],  # shape = (n_areas, n_sites)
+        prev_area_sum: NDArray[int],  # shape = (n_areas, n_sites)
+) -> Tuple[int]:
     """Return a permutation of areas that would align the areas in the new sample with previous ones."""
     def clustering_agreement(p):
         """In how many sites does permutation `p` previous samples?"""
@@ -1283,6 +1287,24 @@ def iter_items_recursive(cfg: dict, loc=tuple()):
             yield from iter_items_recursive(value, loc + (key, ))
         else:
             yield key, value, loc
+
+
+def categorical_log_probability(x: NDArray[bool], p: NDArray[float]) -> NDArray[float]:
+    """Compute the log-probability of observations `x` under categorical distribution `p`.
+
+    Args:
+        x: observations in one-hot encoding. Each column (on last axis) contains exactly one 1.
+            shape: (*distr_shape, n_categories)
+        p: probability of each state in each dimension of the distribution. Last axis is
+                normalised to one.
+            shape: (*distr_shape, n_categories)
+
+    Returns:
+        The log-probability for each observation elementwise.
+            shape: distr_shape
+
+    """
+    return np.log(np.sum(x*p, axis=-1))
 
 
 if __name__ == "__main__":

@@ -171,7 +171,6 @@ class Likelihood(object):
             Returns:
                 float: The joint likelihood of the current sample
             """
-
         if not caching:
             self.reset_cache()
 
@@ -947,23 +946,23 @@ class GeoPrior(object):
 
 def compute_gaussian_geo_prior(
         cluster: np.array,
-        network: dict,
+        network: 'ComputeNetwork',
         cov: np.array,
 ) -> float:
     """This function computes the 2D Gaussian geo-prior for all edges in the cluster.
 
     Args:
-        cluster (np.array): boolean array representing the current zone
-        network (dict): network containing the graph, location,...
-        cov (np.array): Covariance matrix of the multivariate gaussian (estimated from the data)
+        cluster: boolean array representing the current zone
+        network: network containing the graph, location,...
+        cov: Covariance matrix of the multivariate gaussian (estimated from the data)
 
     Returns:
         float: the log geo-prior of the clusters
     """
     log_prior = np.ndarray([])
     for z in cluster:
-        dist_mat = network['dist_mat'][z][:, z]
-        locations = network['locations'][z]
+        dist_mat = network.dist_mat[z][:, z]
+        locations = network.locations[z]
 
         if len(locations) > 3:
 

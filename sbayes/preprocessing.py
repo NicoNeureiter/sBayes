@@ -9,14 +9,14 @@ except ImportError:
 import csv
 import sys
 import random
+from typing import Sequence, Dict, Union
 
 import numpy as np
-import numpy.typing as nptyp
+from numpy.typing import NDArray
 import pyproj
 
 from sbayes.model import normalize_weights
-from sbayes.util import (compute_delaunay,
-                         read_costs_from_csv)
+from sbayes.util import compute_delaunay, read_costs_from_csv, PathLike
 
 EPS = np.finfo(float).eps
 
@@ -435,7 +435,7 @@ def simulate_assignment_probabilities(config, clusters, confounders):
     return p
 
 
-def read_geo_cost_matrix(object_names: list, file: str, logger=None) -> nptyp.NDArray[float]:
+def read_geo_cost_matrix(object_names: Sequence[str], file: PathLike, logger=None) -> NDArray[float]:
     """ This is a helper function to import the geographical cost matrix.
 
     Args:
