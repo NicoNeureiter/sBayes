@@ -65,33 +65,10 @@ class Experiment:
                     config_file: Path,
                     custom_settings: Optional[dict] = None):
 
-        # # Get parameters from config_file
-        # self.base_directory, self.config_file = decompose_config_path(config_file)
-        # RelativeFilePath.BASE_DIR = self.base_directory
-        #
-        # # Read the user specified config file
-        # with open(self.config_file, 'r') as f:
-        #     self.config = SBayesConfig(**json.load(f))
-        #
-        self.config = SBayesConfig.from_config_file(config_file)
-
-        # [should not be needed anymore]
-        # # Load defaults
-        # set_defaults(self.config, DEFAULT_CONFIG)
-
-        # TODO: make a method in config class
-        # if custom_settings is not None:
-        #     update_recursive(self.config, custom_settings)
-
-        # [should not be needed anymore]
-        # # Verify config
-        # self.verify_config()
+        self.config = SBayesConfig.from_config_file(config_file, custom_settings)
 
         # Set results path
         self.path_results = self.config.results.path / self.experiment_name
-
-        # # Compile relative paths, to be relative to config file
-        # self.path_results = fix_relative_path(self.path_results, self.base_directory)
 
         if not os.path.exists(self.path_results):
             os.makedirs(self.path_results)
