@@ -1,8 +1,11 @@
 from pathlib import Path
 from enum import Enum
-from typing import Union, List, Dict, Literal, Optional
+from typing import Union, List, Dict, Literal, Optional, Any
 import warnings
 import json
+import io
+import ruamel.yaml
+
 
 from pydantic import BaseModel, Extra, Field
 from pydantic import validator, root_validator, ValidationError
@@ -48,19 +51,14 @@ class BaseConfig(BaseModel):
     def __getitem__(self, key):
         return self.__getattribute__(key)
 
-    # def update(self, other: dict):
-    #     for k, v in other.items():
-    #         k_type = self.__annotations__[k]
-    #         print(k_type)
-    #         if isinstance(k_type, type) and issubclass(k_type, BaseConfig):
-    #             getattr(self, k).update(v)
-    #         else:
-    #             setattr(self, k, v)
+    @classmethod
+    def get_attr_doc(cls, attr: str) -> str:
+        return cls.__attrdocs__.get(attr)
 
     class Config:
 
         extra = Extra.forbid
-        """Don't allow unexpected keys to be defined in a config-file."""
+        """Do not allow unexpected keys to be defined in a config-file."""
 
         allow_mutation = True
         """Make config objects immutable."""
@@ -70,11 +68,13 @@ class BaseConfig(BaseModel):
 
 
 class GeoPriorConfig(BaseConfig):
-    """Config for the geo-prior."""
+
+    """Configuration of the geo-prior."""
 
     class Types(str, Enum):
         UNIFORM = "uniform"
         COST_BASED = "cost_based"
+        GAUSSIAN = "gaussian"
 
     class AggregationStrategies(str, Enum):
         MEAN = "mean"
@@ -82,9 +82,17 @@ class GeoPriorConfig(BaseConfig):
         MAX = "max"
 
     type: Types = Types.UNIFORM
-    rate: PositiveFloat = None
+    """Type of prior distribution (`uniform`, `cost_based` or `gaussian`)."""
+
+    rate: Optional[PositiveFloat]
+    """Rate at which the prior probability decreases for a cost_based geo-prior."""
+
     aggregation: AggregationStrategies = AggregationStrategies.MEAN
-    costs: Union[FilePath, Literal["from_data"]] = "from_data"
+    """Policy defining how costs of single edges are aggregated (`mean`, `sum` or `max`)."""
+
+    costs: Union[RelativeFilePath, Literal["from_data"]] = "from_data"
+    """Source of the geographic costs used for cost_based geo-prior. Either `from_data` 
+    (derive geodesic distances from locations) or path to a CSV file."""
 
     @root_validator
     def validate_dirichlet_parameters(cls, values):
@@ -96,7 +104,7 @@ class GeoPriorConfig(BaseConfig):
 
 
 class ClusterSizePriorConfig(BaseConfig):
-    """Config for area size prior."""
+    """Configuration of the area size prior."""
 
     class Types(str, Enum):
         UNIFORM_AREA = "uniform_area"
@@ -104,8 +112,13 @@ class ClusterSizePriorConfig(BaseConfig):
         QUADRATIC_SIZE = "quadratic"
 
     type: Types
+    """Type of prior distribution (`uniform_area`, `uniform_size` or `quadratic`)."""
+
     min: PositiveInt = 2
+    """Minimum cluster size."""
+
     max: PositiveInt = 10000
+    """Maximum cluster size."""
 
 
 class DirichletPriorConfig(BaseConfig):
@@ -114,8 +127,13 @@ class DirichletPriorConfig(BaseConfig):
         DIRICHLET = "dirichlet"
 
     type: Types = Types.UNIFORM
-    file: Optional[FilePath] = None
+    """Type of prior distribution (`uniform` or `dirichlet`)."""
+
+    file: Optional[RelativeFilePath] = None
+    """Path to the parameters of the Dirichlet distribution."""
+
     parameters: Optional[dict] = None
+    """Parameters of the Dirichlet distribution."""
 
     @root_validator(pre=True)
     def warn_when_using_default_type(cls, values):
@@ -148,35 +166,45 @@ class DirichletPriorConfig(BaseConfig):
 
         return self_dict
 
+    @classmethod
+    def get_attr_doc(cls, attr):
+        doc = super().get_attr_doc(attr)
+        if not doc:
+            return DirichletPriorConfig.__attrdocs__.get(attr)
 
 class WeightsPriorConfig(DirichletPriorConfig):
-    """Config for prion on the weights of the mixture components."""
+    """Configuration of the prion on the weights of the mixture components."""
 
 
 class ConfoundingEffectPriorConfig(DirichletPriorConfig):
-    """Config for prior on the parameters of the confounding-effects."""
+    """Configuration of the prior on the parameters of the confounding-effects."""
 
 
 class ClusterEffectConfig(DirichletPriorConfig):
-    """Config for prior on the parameters of the cluster-effect."""
+    """Configuration of the prior on the parameters of the cluster-effect."""
 
 
 class PriorConfig(BaseConfig):
-    """Config for all priors of a sBayes model."""
 
+    """Configuration of all priors of a sBayes model."""
+
+    confounding_effects: Dict[str, Dict[str, ConfoundingEffectPriorConfig]]
+    """The priors for the confounding_effects in each group of each confounder."""
+
+    cluster_effect: ClusterEffectConfig
     geo: GeoPriorConfig
     objects_per_cluster: ClusterSizePriorConfig
     weights: WeightsPriorConfig
-    confounding_effects: Dict[str, Dict[str, ConfoundingEffectPriorConfig]]
-    cluster_effect: ClusterEffectConfig
 
 
 class ModelConfig(BaseConfig):
 
+    """Configuration of the sBayes model."""
+
     clusters: Union[int, List[int]] = 1
     """The number of clusters to be inferred."""
 
-    confounders: Dict[str, List[str]] = Field(default_factory=list)
+    confounders: Dict[str, List[str]] = Field(default_factory=dict)
     """Dictionary with confounders as keys and lists of corresponding groups as values."""
 
     sample_source: bool = True
@@ -185,25 +213,40 @@ class ModelConfig(BaseConfig):
     prior: PriorConfig
     """The config section defining the priors of the model"""
 
+    @root_validator(pre=True)
+    def validate_confounder_priors(cls, values):
+        for conf, groups in values['confounders'].items():
+
+            # Ensure a prior for the confounder is defined
+            if conf not in values['prior']['confounding_effects']:
+                raise NameError(f"Prior for the confounder \'{conf}\' is not defined in the config file.")
+
+            # Ensure a prior for each group in the confounder is defined
+            for g in groups:
+                if g not in values['prior']['confounding_effects'][conf]:
+                    raise NameError(f"Prior for group `{g}` of confounder `{conf}` is not defined in the config file.")
+
+        return values
+
 
 class OperatorsConfig(BaseConfig):
 
     """The frequency of each MCMC operator. Will be normalized to 1.0 at runtime."""
 
     clusters: PositiveFloat = 45.0
-    """Frequency of MCMC operators changing the assignment of objects to clusters."""
+    """Frequency at which the assignment of objects to clusters is changed."""
 
     weights: PositiveFloat = 15.0
-    """..."""
+    """Frequency at which mixture weights are changed."""
 
     cluster_effect: PositiveFloat = 5.0
-    """..."""
+    """Frequency at which cluster effect parameters are changed."""
 
     confounding_effects: PositiveFloat = 15.0
-    """..."""
+    """Frequency at which confounding effects parameters are changed."""
 
     source: PositiveFloat = 10.0
-    """..."""
+    """Frequency at which the assignments of observations to mixture components are changed."""
 
 
 class WarmupConfig(BaseConfig):
@@ -219,37 +262,40 @@ class WarmupConfig(BaseConfig):
 
 class MCMCConfig(BaseConfig):
 
-    """Config section specifying the MCMC parameters."""
+    """Configuration of MCMC parameters."""
 
     steps: PositiveInt = 1000000
     """The total number of iterations in the MCMC chain."""
 
     samples: PositiveInt = 1000
-    """The number of samples to be generated. Higher number of samples result in a lower 
-    sampling interval, meaning that consecutive samples may be more correlated."""
+    """The number of samples to be generated (more samples implies lower sampling interval)."""
 
     runs: PositiveInt = 1
-    """The number of times the MCMC chain is repeated (resulting in new output files each
-     time)."""
+    """The number of times the sampling is repeated (with new output files for each run)."""
 
     sample_from_prior: bool = False
-    """Setting this to `True` will tell the MCMC to ignore the data and sample parameters 
-    from the prior distribution."""
+    """If `true`, the MCMC ignores the data and samples parameters from the prior distribution."""
 
     init_objects_per_cluster: PositiveInt = 5
     """The number of objects in the initial clusters at the start of an MCMC run."""
 
     grow_to_adjacent: confloat(ge=0, le=1) = 0.8
-    """The fraction of grow-steps that only considers adjacent languages (in the Delauny 
-    graph) as possible candidates to be added to the area."""
+    """The fraction of grow-steps that only propose adjacent languages as candidates to be added to an area."""
 
     operators: OperatorsConfig = Field(default_factory=OperatorsConfig)
     warmup: WarmupConfig = Field(default_factory=WarmupConfig)
 
+    @root_validator
+    def validate_sample_spacing(cls, values):
+        # Tracer does not like unevenly spaced samples
+        spacing = values['steps'] % values['samples']
+        if spacing != 0.:
+            raise ValueError("Inconsistent spacing between samples. Set ´steps´ to be a multiple of ´samples´.")
+        return values
 
 class DataConfig(BaseConfig):
 
-    """Config storing information on the data for an sBayes analysis."""
+    """Information on the data for an sBayes analysis."""
 
     features: RelativeFilePath
     """Path to the CSV file with features used for the analysis."""
@@ -258,18 +304,20 @@ class DataConfig(BaseConfig):
     """Path to the CSV file defining the possible states for each feature."""
 
     projection: str = "epsg:4326"
-    """String identifies of the projection in which locations are given."""
+    """String identifier of the projection in which locations are given."""
 
 
 class ResultsConfig(BaseConfig):
 
+    """Information on where and how results are written."""
+
     path: RelativeDirectoryPath = Field(
-        default_factory=lambda: RelativeDirectoryPath.fix_path("results")
+        default_factory=lambda: RelativeDirectoryPath.fix_path("./results")
     )
     """Path to the results directory."""
 
     log_file: bool = True
-    """Whether or not to write log-messages to a file."""
+    """Whether to write log-messages to a file."""
 
 
 class SettingsForLinguists(BaseConfig):
@@ -287,14 +335,21 @@ class SBayesConfig(BaseConfig):
     data: DataConfig
     model: ModelConfig
     mcmc: MCMCConfig
-    results: ResultsConfig = ResultsConfig()
-    settings_for_linguists: SettingsForLinguists = SettingsForLinguists()
+    results: ResultsConfig = Field(default_factory=ResultsConfig)
+    # settings_for_linguists: SettingsForLinguists = Field(default_factory=SettingsForLinguists)
+
+    @root_validator(pre=True)
+    def validate_operators(cls, values):
+        # Do not use source operators if sampling from source is disabled
+        if not values['model']['sample_source']:
+            values['mcmc']['operators']['source'] = 0.0
+        return values
 
     @classmethod
     def from_config_file(
         cls, path: PathLike, custom_settings: Optional[dict] = None
     ) -> "SBayesConfig":
-        """Create an instance of SBayesConfig from a JSON config file."""
+        """Create an instance of SBayesConfig from a YAML or JSON config file."""
 
         # Prepare RelativePath class to allow paths relative to the config file location
         base_directory, config_file = decompose_config_path(path)
@@ -302,7 +357,11 @@ class SBayesConfig(BaseConfig):
 
         # Load a config dictionary from the json file
         with open(path, "r") as f:
-            config_dict = json.load(f)
+            path_str = str(path).lower()
+            if path_str.endswith(".yaml"):
+                config_dict = ruamel.yaml.load(f, Loader=ruamel.yaml.Loader)
+            else:
+                config_dict = json.load(f)
 
         # Update the config dictionary with custom_settings
         if custom_settings:
@@ -316,40 +375,162 @@ class SBayesConfig(BaseConfig):
         return type(self)(**new_dict)
 
 
-def make_default_dict(cfg: type):
-    if isinstance(cfg, type) and issubclass(cfg, BaseConfig):
-        d = {}
-        for key, field in cfg.__fields__.items():
-            if field.default:
-                d[key] = field.default
+#
+
+# ...black magic starts here...
+
+#
+
+
+
+def ruaml_yaml_dumps(thing):
+    yaml = ruamel.yaml.YAML()
+    yaml.indent(mapping=4, sequence=4, offset=4)
+    out = io.StringIO()
+    yaml.dump(thing, stream=out)
+    out.seek(0)
+    return out.read()
+
+
+def generate_template():
+    import ast
+    import re
+
+    def is_config_class(obj: Any) -> bool:
+        """Check whether the given object is a subtype of BaseConfig"""
+        return isinstance(obj, type) and issubclass(obj, BaseConfig)
+
+    def could_be_a_docstring(node) -> bool:
+        """Check whether the AST node is a string constant, i.e. could be a doc-string."""
+        return isinstance(node, ast.Expr) and isinstance(node.value, ast.Constant)
+
+    def analyze_class_docstrings(modulefile: str) -> dict:
+        """Collect all doc-strings of attributes in each class in a nested dictionary
+        of the following structure:
+            {class_name: {attribute_name: doc_string}}.
+
+        Args:
+            modulefile: the name of the python module to be analysed
+
+        Returns:
+            The nested dictionary with attribute doc-strings
+
+        """
+        with open(modulefile) as fp:
+            root = ast.parse(fp.read())
+
+        alldocs = {}
+        for child in root.body:
+            if not isinstance(child, ast.ClassDef):
+                continue
+
+            alldocs[child.name] = docs = {}
+            last = None
+            for childchild in child.body:
+                if could_be_a_docstring(childchild):
+                    if last:  # Skip class doc string
+                        s = childchild.value.s
+                        # replace multiple spaces and linebreaks by single space.
+                        s = re.sub('\\s+', ' ', s)
+                        docs[last] = s
+                elif isinstance(childchild, ast.AnnAssign):
+                    last = childchild.target.id
+                else:
+                    last = None
+
+        return alldocs
+
+    for class_name, docs in analyze_class_docstrings(__file__).items():
+        cls: type = globals()[class_name]
+        cls.__attrdocs__ = docs
+
+    # all_docs = analyze_class_docstrings(__file__)
+    # for cls in filter(globals().values, is_config_class):
+    #     if issubclass(cls, DirichletPriorConfig):
+    #         all_docs[cls].set_defaults(all_docs[DirichletPriorConfig])
+    #
+    # def get_docstring(cls: type, attr: str):
+    #     if not issubclass(cls, BaseConfig):
+    #         return None
+    #     cls_docs = all_docs.get(cls.__name__, {})
+    #     attr_doc = cls_docs.get(attr)
+    #     return attr_doc
+
+    schema = SBayesConfig.schema()
+    definitions = schema.pop('definitions')
+    definitions['SBayesConfig'] = schema
+
+    def template_literal(field: Field, type_annotation: type):
+        print(field)
+        print('\t', field.default)
+
+        # If there is a default, use it:
+        if field.default is not None:
+            if isinstance(field.default, Enum):
+                return field.default.value
             else:
-                d[key] = make_default_dict(field.type_)
+                return field.default
+
+        if field.default_factory and field.default_factory() is not None:
+            factory = field.default_factory
+            if isinstance(factory, type):
+                if issubclass(factory, BaseConfig):
+                    # if the default factory is itself a Config, return the template
+                    return template(factory)
+                if issubclass(factory, list) or issubclass(factory, dict):
+                    return factory()
+            else:
+                return str(factory())
+            # return field.default_factory()
+
+        # Otherwise it may be optional or required:
+        if 'NoneType' in str(type_annotation):
+            assert not field.required
+            return '<OPTIONAL>'
+        else:
+            assert field.required, field
+            return '<REQUIRED>'
+
+    def template(cfg: type(BaseConfig)):
+        d = ruamel.yaml.CommentedMap()
+        for key, field in cfg.__fields__.items():
+            if is_config_class(field.type_):
+                d[key] = template(field.type_)
+            else:
+                d[key] = template_literal(field, cfg.__annotations__[key])
+
+                docstring = cfg.get_attr_doc(key)
+                if docstring:
+                    d.yaml_add_eol_comment(key=key, comment=docstring, column=40)
+
+        if cfg.__doc__:
+            d.yaml_set_start_comment(cfg.__doc__)
+
         return d
-    else:
-        return "<REQUIRED>"
+
+    def get_indent(line):
+        return len(line) - len(str.lstrip(line))
+
+    d = template(SBayesConfig)
+    print(d)
+    s = ruaml_yaml_dumps(d)
+    lines = []
+    for line in s.split('\n'):
+        if line.startswith('#'):
+            indent = ' ' * (4 + get_indent(lines[-1]))
+            line = indent + line
+        elif line.endswith(':'):
+            lines.append('')
+
+        lines.append(line)
+        # lines.append('')
+
+    yaml = '\n'.join(lines)
+    return yaml
 
 
 if __name__ == "__main__":
-    cfg_1 = SBayesConfig(
-        **{
-            "data": {
-                "features": "config.py",
-                "feature_states": "config.py",
-            },
-            "model": {
-                "prior": {
-                    "geo": {},
-                    "objects_per_cluster": {
-                        "type": "uniform_size",
-                    },
-                    "weights": {},
-                    "confounding_effects": {},
-                    "cluster_effect": {},
-                },
-            },
-            "mcmc": {},
-            "results": {},
-        }
-    )
+    template_str = generate_template()
+    with open('config_template.yaml', 'w') as yaml_file:
+        yaml_file.write(template_str)
 
-    print(cfg_1["model"])
