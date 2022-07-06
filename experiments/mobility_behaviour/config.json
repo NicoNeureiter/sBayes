@@ -64,8 +64,5 @@
 	"results": {
 		"path": "results",
 		"log_file": true
-	},
-	"settings_for_linguists": {
-		"isolates_as_universal": true
 	}
 }
