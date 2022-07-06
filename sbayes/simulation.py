@@ -14,9 +14,8 @@ import os
 import csv
 import itertools
 
-from sbayes.experiment_setup import (fix_relative_path)
 from sbayes.util import set_defaults, iter_items_recursive, PathLike
-from sbayes.util import decompose_config_path
+from sbayes.util import decompose_config_path, fix_relative_path
 
 from sbayes.preprocessing import (ComputeNetwork, load_canvas,
                                   simulate_assignment_probabilities,
