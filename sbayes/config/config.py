@@ -1,3 +1,4 @@
+import os
 from pathlib import Path
 from enum import Enum
 from typing import Union, List, Dict, Literal, Optional, Any
@@ -20,27 +21,31 @@ class RelativePath:
 
     BASE_DIR: DirectoryPath = "."
 
+    @classmethod
+    def fix_path(cls, value: PathLike) -> Path:
+        return fix_relative_path(value, cls.BASE_DIR)
+
 
 class RelativeFilePath(FilePath, RelativePath):
+
     @classmethod
-    def __get_validators__(cls) -> "CallableGenerator":
+    def __get_validators__(cls):
         yield cls.fix_path
         yield from super(RelativeFilePath, cls).__get_validators__()
 
-    @classmethod
-    def fix_path(cls, value: PathLike) -> Path:
-        return fix_relative_path(value, cls.BASE_DIR)
-
 
 class RelativeDirectoryPath(DirectoryPath, RelativePath):
-    @classmethod
-    def __get_validators__(cls) -> "CallableGenerator":
-        yield cls.fix_path
-        yield from super(RelativeDirectoryPath, cls).__get_validators__()
 
     @classmethod
-    def fix_path(cls, value: PathLike) -> Path:
-        return fix_relative_path(value, cls.BASE_DIR)
+    def __get_validators__(cls):
+        yield cls.fix_path
+        yield cls.initialize_directory
+        yield from super(RelativeDirectoryPath, cls).__get_validators__()
+
+    @staticmethod
+    def initialize_directory(path: PathLike):
+        os.makedirs(path, exist_ok=True)
+        return path
 
 
 class BaseConfig(BaseModel):
