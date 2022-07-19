@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+from __future__ import annotations
 import logging
 import math as _math
 import abc as _abc
@@ -10,11 +11,30 @@ from copy import copy
 import typing as typ
 from dataclasses import dataclass
 
-from collections import defaultdict
+import numpy as np
 
 from sbayes.model import Model
 from sbayes.load_data import Data
 from sbayes.sampling.loggers import ResultsLogger
+from sbayes.config.config import OperatorsConfig
+
+from sbayes.sampling.state import Sample
+
+
+class Operator(typ.Protocol):
+    """The concrete implementation of operators is defined in sbayes.sample.operators. At
+    this point we only require an operator to have an evaluation function."""
+
+    def function(self, sample: Sample, **kwargs) -> tuple[Sample, float, float]:
+        ...
+
+
+class OperatorSchedule(typ.Protocol):
+    """The concrete implementation of the operator schedule is defined in
+    sbayes.sample.operators. At this point we only require a draw_operators function."""
+
+    def draw_operators(self) -> Operator:
+        ...
 
 
 @dataclass
@@ -98,12 +118,13 @@ class MCMC(_abc.ABC):
     Q_REJECT = 0
     Q_BACK_REJECT = -_np.inf
 
+    CHECK_CACHING = False
 
     def __init__(
             self,
             model: Model,
             data: Data,
-            operators: dict,
+            operators: OperatorsConfig,
             sample_loggers: typ.List[ResultsLogger],
             n_chains: int = 1,
             mc3: bool = False,
@@ -123,8 +144,11 @@ class MCMC(_abc.ABC):
         self.chain_idx = list(range(self.n_chains))
         self.sample_from_prior = sample_from_prior
 
+        # Copy posterior instance for each chain
+        self.posterior_per_chain: typ.List[Model] = [copy(model) for _ in range(self.n_chains)]
+
         # Operators
-        self.callable_operators = self.get_operators(operators)
+        self.callable_operators: dict[str, Operator] = self.get_operators(operators)
 
         # Loggers to write results to files
         self.sample_loggers = sample_loggers
@@ -140,8 +164,6 @@ class MCMC(_abc.ABC):
 
         self.show_screen_log = show_screen_log
         self.t_start = _time.time()
-
-        self.posterior_per_chain: typ.List[Model] = [copy(model) for _ in range(self.n_chains)]
 
         if logger is None:
             import logging
@@ -159,10 +181,10 @@ class MCMC(_abc.ABC):
         # Compute the prior
         log_prior = self.posterior_per_chain[chain].prior(sample=sample)
 
-        check_caching = False
-        if check_caching:
-            sample.everything_changed()
-            log_prior_stable = self.posterior_per_chain[chain].prior(sample=sample)
+        if self.CHECK_CACHING:
+            # sample.everything_changed()
+            # log_prior_stable = self.posterior_per_chain[chain].prior(sample=sample)
+            log_prior_stable = self.posterior_per_chain[chain].prior(sample=sample, caching=False)
             assert log_prior == log_prior_stable, f'{log_prior} != {log_prior_stable}'
 
         sample.last_prior = log_prior
@@ -178,14 +200,14 @@ class MCMC(_abc.ABC):
             float: (log)likelihood of x
         """
         if self.sample_from_prior:
+            sample.last_lh = 0.
             return 0.
 
         # Compute the likelihood
         log_lh = self.posterior_per_chain[chain].likelihood(sample=sample)
 
-        check_caching = False
-        if check_caching:
-            sample.everything_changed()
+        if self.CHECK_CACHING:
+            # sample.everything_changed()
             log_lh_stable = self.posterior_per_chain[chain].likelihood(sample=sample, caching=False)
             assert log_lh == log_lh_stable, f'{log_lh} != {log_lh_stable}'
 
@@ -202,11 +224,11 @@ class MCMC(_abc.ABC):
         pass
 
     @_abc.abstractmethod
-    def get_operators(self, operators):
+    def get_operators(self, operators: OperatorsConfig):
         """Get relevant operators and weights for proposing MCMC update steps
 
         Args:
-            operators (dict): dictionary with names of all operators (keys) and their weights (values)
+            operators: dictionary with names of all operators (keys) and their weights (values)
         Returns:
             list, list: the operators (callable), their weights (float)
         """
@@ -299,6 +321,17 @@ class MCMC(_abc.ABC):
         for logger in self.sample_loggers:
             logger.close()
 
+    def choose_operator(self) -> dict:
+        # Randomly choose one operator to propose a new sample
+        step_weights = [w['weight'] for w in self.callable_operators.values()]
+        possible_steps = list(self.callable_operators.keys())
+        operator_name = _np.random.choice(possible_steps, 1, p=step_weights)[0]
+
+        operator = self.callable_operators[operator_name]
+        operator['name'] = operator_name
+        # print(operator_name)
+        return operator
+
     def step(self, sample, c):
         """This function performs a full MH step: first, a new candidate sample is proposed
         for either the clusters or the other parameters. Then the candidate is evaluated against the current sample
@@ -308,19 +341,10 @@ class MCMC(_abc.ABC):
             c(int): the current chain
         Returns:
             Sample: A Sample object consisting of clusters, weights, areal and confounding effects"""
+        operator = self.choose_operator()
+        step_function = operator['function']
 
-        # Randomly choose one operator to propose a new sample
-        step_weights = [w['weight'] for w in self.callable_operators.values()]
-        possible_steps = list(self.callable_operators.keys())
-        step_name = _np.random.choice(possible_steps, 1, p=step_weights)[0]
-
-        step_function = self.callable_operators[step_name]['function']
-        additional_parameters = self.callable_operators[step_name]['additional_parameters']
-
-        if self.IS_WARMUP:
-            candidate, log_q, log_q_back = step_function(sample, c=c, additional_parameters=additional_parameters)
-        else:
-            candidate, log_q, log_q_back = step_function(sample, additional_parameters=additional_parameters)
+        candidate, log_q, log_q_back = step_function(sample, c=c, additional_parameters=operator['additional_parameters'])
 
         # Compute the log-likelihood of the candidate
         ll_candidate = self.likelihood(candidate, c)
@@ -346,9 +370,9 @@ class MCMC(_abc.ABC):
             self._ll[c] = ll_candidate
             self._prior[c] = prior_candidate
             self.statistics.total_accepts += 1
-            self.statistics.operator_stats[step_name].accepts += 1
+            self.statistics.operator_stats[operator['name']].accepts += 1
         else:
-            self.statistics.operator_stats[step_name].rejects += 1
+            self.statistics.operator_stats[operator['name']].rejects += 1
 
         return sample
 
