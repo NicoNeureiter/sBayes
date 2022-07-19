@@ -27,15 +27,13 @@ class TestExperiment(unittest.TestCase):
     }
 
     @staticmethod
-    def test_mobility_simulation():
-        """Test whether mobility simulation is running without errors."""
+    def test_mobility_simulation_and_run():
+        """Test whether 1) mobility simulation is running without errors and 2) mobility
+        behaviour analysis on simulated data is running without errors."""
+
         simulation_main('experiments/mobility_behaviour/simulation/config_simulation.json')
         print('Mobility simulation passed\n')
 
-    @staticmethod
-    def test_mobility_run():
-        """Test whether mobility behaviour analysis on simulated data is running
-        without errors."""
         custom_settings = TestExperiment.CUSTOM_SETTINGS
         sbayes_main(
             config='experiments/mobility_behaviour/config.json',
