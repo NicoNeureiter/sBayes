@@ -7,7 +7,7 @@ import pyproj
 from dataclasses import dataclass
 from logging import Logger
 from collections import OrderedDict
-from typing import List, Dict, Optional, Union, Sequence
+from typing import List, Dict, Optional, Union, Sequence, TypeVar, Type
 
 
 try:
@@ -20,6 +20,11 @@ from numpy.typing import NDArray
 
 from sbayes.preprocessing import ComputeNetwork, read_geo_cost_matrix
 from sbayes.util import PathLike, read_data_csv, encode_states
+from sbayes.config.config import SBayesConfig
+from sbayes.experiment_setup import Experiment
+
+
+S = TypeVar('S')  # Self type
 
 
 @dataclass
@@ -44,7 +49,7 @@ class Objects:
         return self._indices
 
     @classmethod
-    def from_dataframe(cls, data: pd.DataFrame) -> "Objects":
+    def from_dataframe(cls: Type[S], data: pd.DataFrame) -> S:
         n_sites = data.shape[0]
         try:
             x = data["x"]
@@ -205,7 +210,7 @@ class Data:
         self.prior_confounders = None  # TODO Load the confounder priors
 
     @classmethod
-    def from_config(cls, config: "SBayesConfig", logger=None) -> "Data":
+    def from_config(cls, config: SBayesConfig, logger=None) -> "Data":
         if logger:
             cls.log_loading(logger)
 
@@ -228,7 +233,7 @@ class Data:
         )
 
     @classmethod
-    def from_experiment(cls, experiment: "Experiment") -> "Data":
+    def from_experiment(cls, experiment: Experiment) -> "Data":
         return cls.from_config(experiment.config, logger=experiment.logger)
 
     def load_features(self):
