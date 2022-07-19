@@ -8,7 +8,7 @@ import tables
 from sbayes.load_data import Data
 from sbayes.util import format_cluster_columns, get_best_permutation
 from sbayes.model import Model
-from sbayes.sampling.state import Sample
+from sbayes.sampling.state import Sample, ModelCache
 
 
 class ResultsLogger(ABC):
@@ -67,7 +67,7 @@ class ParametersCSVLogger(ResultsLogger):
         self.match_clusters = match_clusters
         self.cluster_sum: Optional[npt.NDArray[int]] = None
 
-    def write_header(self, sample):
+    def write_header(self, sample: Sample):
         feature_names = self.data.features.names
         state_names = self.data.features.state_names
 
@@ -78,7 +78,7 @@ class ParametersCSVLogger(ResultsLogger):
             self.match_clusters = False
 
         # Initialize cluster_sum array for matching
-        self.cluster_sum = np.zeros((sample.n_clusters, sample.n_sites), dtype=np.int)
+        self.cluster_sum = np.zeros((sample.n_clusters, sample.n_objects), dtype=np.int)
 
         # Cluster sizes
         for i in range(sample.n_clusters):
@@ -131,18 +131,18 @@ class ParametersCSVLogger(ResultsLogger):
 
         if self.match_clusters:
             # Compute the best matching permutation
-            permutation = get_best_permutation(sample.clusters, self.cluster_sum)
+            permutation = get_best_permutation(sample.clusters.value, self.cluster_sum)
 
             # Permute parameters
-            p_clusters = sample.cluster_effect[permutation, :, :]
-            clusters = sample.clusters[permutation, :]
+            p_clusters = sample.cluster_effect.value[permutation, :, :]
+            clusters = sample.clusters.value[permutation, :]
 
             # Update cluster_sum for matching future samples
             self.cluster_sum += clusters
         else:
             # Unpermuted parameters
-            p_clusters = sample.cluster_effect
-            clusters = sample.clusters
+            p_clusters = sample.cluster_effect.value
+            clusters = sample.clusters.value
 
         row = {
             "Sample": sample.i_step,
@@ -163,21 +163,21 @@ class ParametersCSVLogger(ResultsLogger):
             w_areal = f"w_areal_{f}"
             # index of areal = 0
             # todo: use source_index instead of remembering the order
-            row[w_areal] = sample.weights[i_f, 0]
+            row[w_areal] = sample.weights.value[i_f, 0]
 
             # Confounding effects weights
             for i_conf, conf in enumerate(self.data.confounders.values(), start=1):
                 w_conf = f"w_{conf.name}_{f}"
                 # todo: use source_index instead of remembering the order
                 # index of confounding effect starts with 1
-                row[w_conf] = sample.weights[i_f, i_conf]
+                row[w_conf] = sample.weights.value[i_f, i_conf]
 
         # Areal effect
         for i_a in range(sample.n_clusters):
             for i_f, f in enumerate(feature_names):
                 for i_s, s in enumerate(state_names[i_f]):
                     col_name = f"areal_a{i_a+1}_{f}_{s}"
-                    row[col_name] = sample.cluster_effect[i_a, i_f, i_s]
+                    row[col_name] = sample.cluster_effect.value[i_a, i_f, i_s]
 
         # Confounding effects
         for conf in self.data.confounders.values():
@@ -185,18 +185,19 @@ class ParametersCSVLogger(ResultsLogger):
                 for i_f, f in enumerate(feature_names):
                     for i_s, s in enumerate(state_names[i_f]):
                         col_name = f"{conf.name}_{g}_{f}_{s}"
-                        row[col_name] = sample.confounding_effects[conf.name][i_g, i_f, i_s]
+                        row[col_name] = sample.confounding_effects[conf.name].value[i_g, i_f, i_s]
 
         # lh, prior, posteriors
         if self.log_contribution_per_cluster:
-            sample_single_cluster: Sample = sample.copy()
-            sample_single_cluster.source = None
+            sample_single_cluster = sample.copy()
+            sample_single_cluster.source._value = None
 
             for i in range(sample.n_clusters):
-                sample_single_cluster.clusters = clusters[[i]]
-                sample_single_cluster.everything_changed()
+                sample_single_cluster.clusters._value = clusters[[i], :]
+                sample_single_cluster.cluster_effect._value = sample.cluster_effect.value[[i],...]
+                sample_single_cluster.cache = ModelCache(sample_single_cluster)
                 lh = self.model.likelihood(sample_single_cluster, caching=False)
-                prior = self.model.prior(sample_single_cluster)
+                prior = self.model.prior(sample_single_cluster, caching=False)
                 row[f"lh_a{i}"] = lh
                 row[f"prior_a{i}"] = prior
                 row[f"post_a{i}"] = lh + prior
@@ -224,20 +225,20 @@ class ClustersLogger(ResultsLogger):
             # Nothing to match
             self.match_clusters = False
 
-        self.cluster_sum = np.zeros((sample.n_clusters, sample.n_sites), dtype=np.int)
+        self.cluster_sum = np.zeros((sample.n_clusters, sample.n_objects), dtype=np.int)
 
     def _write_sample(self, sample):
         if self.match_clusters:
             # Compute best matching perm
-            permutation = get_best_permutation(sample.clusters, self.cluster_sum)
+            permutation = get_best_permutation(sample.clusters.value, self.cluster_sum)
 
             # Permute clusters
-            clusters = sample.clusters[permutation, :]
+            clusters = sample.clusters.value[permutation, :]
 
             # Update cluster_sum for matching future samples
             self.cluster_sum += clusters
         else:
-            clusters = sample.clusters
+            clusters = sample.clusters.value
 
         row = format_cluster_columns(clusters)
         self.file.write(row + "\n")
@@ -264,7 +265,7 @@ class LikelihoodLogger(ResultsLogger):
             filters=tables.Filters(
                 complevel=9, complib="blosc:zlib", bitshuffle=True, fletcher32=True
             ),
-            shape=(0, sample.n_sites * sample.n_features),
+            shape=(0, sample.n_objects * sample.n_features),
         )
 
     def _write_sample(self, sample: Sample):
