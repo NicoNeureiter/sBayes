@@ -138,18 +138,19 @@ class TestLikelihood(unittest.TestCase):
         p_cluster = broadcast_weights([0.0, 1.0], n_features)[np.newaxis,...]
         p_global = np.full(shape=(1, n_features, n_states), fill_value=0.5)
         source = np.zeros((n_objects, n_features, 2), dtype=bool)
-        sample = Sample(
+        sample = Sample.from_numpy_arrays(
             clusters=np.ones((1, n_objects),  dtype=np.bool),
             weights=broadcast_weights([0.5, 0.5], n_features),
             cluster_effect=p_cluster,
             confounding_effects={"universal": p_global},
+            confounders=confounders,
             source=source,
         )
 
         """Comment on analytical solutions:
         
         Since weights are fixed at 0.5, the source probability is fixed at :
-            P( source | weights ) = 2 ^ (- n_objects * n_features) = 0.125 
+            P( source | weights ) = 2^(- n_objects * n_features) = 0.125 
         
         The cluster is fixed to include all languages, but we vary the `source` array. We 
         will go through the different cases: 
@@ -158,9 +159,9 @@ class TestLikelihood(unittest.TestCase):
 
         """1. no areal effect means that the likelihood is simply 50/50 for each feature."""
         data_lh = 0.125
-        source[..., 0] = 0  # index 0 is the area component
-        source[..., 1] = 1  # index 1 is the universal component (first confounder)
-        sample.everything_changed()
+        with sample.source.edit() as s:
+            s[..., 0] = 0  # index 0 is the area component
+            s[..., 1] = 1  # index 1 is the universal component (first confounder)
         likelihood_sbayes = Likelihood(data=data, shapes=shapes)(sample, caching=False)
         np.testing.assert_almost_equal(likelihood_sbayes, np.log(source_lh*data_lh))
 
@@ -168,32 +169,36 @@ class TestLikelihood(unittest.TestCase):
         that this observation is perfectly explained, increasing the likelihood by a
         factor of 2."""
         data_lh = 0.25
-        source[1, :, :] = [[1, 0]]  # switch object 1 to the cluster effect
-        sample.everything_changed()
+        with sample.source.edit() as s:
+            s[1, :, :] = [[1, 0]]  # switch object 1 to the cluster effect
         likelihood_sbayes = Likelihood(data=data, shapes=shapes)(sample, caching=False)
         np.testing.assert_almost_equal(likelihood_sbayes, np.log(source_lh * data_lh))
 
         """3. assigning the second object to the cluster effect increases the likelihood
         by another factor of 2."""
         data_lh = 0.5
-        source[2, :, :] = [[1, 0]]  # switch object 2 to the cluster effect
-        sample.everything_changed()
+        with sample.source.edit() as s:
+            s[2, :, :] = [[1, 0]]  # switch object 2 to the cluster effect
         likelihood_sbayes = Likelihood(data=data, shapes=shapes)(sample, caching=False)
         np.testing.assert_almost_equal(likelihood_sbayes, np.log(source_lh * data_lh))
 
         """4. assigning the first object to the cluster effect results in a likelihood of 
         zero, i.e. a log-likelihood of -inf."""
         data_lh = 0.0
-        source[0, :, :] = [[1, 0]]  # switch object 1 to the cluster effect
+        with sample.source.edit() as s:
+            s[0, :, :] = [[1, 0]]  # switch object 1 to the cluster effect
         sample.everything_changed()
         likelihood_sbayes = Likelihood(data=data, shapes=shapes)(sample, caching=False)
-        np.testing.assert_almost_equal(likelihood_sbayes, np.log(source_lh * data_lh))
+        with self.assertWarns(RuntimeWarning):
+            # There should be a warning when taking the log of 0 (resulting in -inf)
+            np.testing.assert_almost_equal(likelihood_sbayes, np.log(source_lh * data_lh))
+            np.testing.assert_almost_equal(likelihood_sbayes, -np.inf)
 
         """5. Integrating over source (setting it to None) averages the component 
         likelihoods for each observation."""
         lh = 0.25 * 0.75 * 0.75
-        sample.source = None
-        sample.everything_changed()
+        sample.source._value = None
+        sample.source.version += 1
         likelihood_sbayes = Likelihood(data=data, shapes=shapes)(sample, caching=False)
         np.testing.assert_almost_equal(likelihood_sbayes, np.log(lh))
 
