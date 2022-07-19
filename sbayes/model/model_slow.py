@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 
-from typing import List, Dict, Sequence, Callable, Optional, Any
+from typing import List, Dict, Sequence, Callable, Optional
 from enum import Enum
 from dataclasses import dataclass
 
@@ -15,9 +15,8 @@ from scipy.sparse.csgraph import minimum_spanning_tree, csgraph_from_dense
 from sbayes.sampling.state import Sample
 from sbayes.util import (compute_delaunay, n_smallest_distances, log_multinom,
                          dirichlet_logpdf, log_expit)
-from sbayes.config.config import ModelConfig, PriorConfig, DirichletPriorConfig
-
-EPS = np.finfo(float).eps
+from sbayes.config.config import ModelConfig, PriorConfig
+from sbayes.load_data import Data, ComputeNetwork
 
 
 @dataclass
@@ -49,7 +48,7 @@ class Model:
         prior (Prior): Rhe prior of the model
 
     """
-    def __init__(self, data: 'Data', config: ModelConfig):
+    def __init__(self, data: Data, config: ModelConfig):
         self.data = data
         self.config = config
         self.confounders = config.confounders
@@ -106,7 +105,7 @@ class Likelihood(object):
             shape: (n_objects, n_features)
     """
 
-    def __init__(self, data: 'Data', shapes: ModelShapes):
+    def __init__(self, data: Data, shapes: ModelShapes):
         self.features = data.features.values
         self.confounders = data.confounders
         self.shapes = shapes
@@ -215,7 +214,7 @@ def compute_component_likelihood(
 def update_weights(sample: Sample) -> NDArray[float]:
     return normalize_weights(
         weights=sample.weights.value,
-        has_components=compute_has_components(sample.clusters,sample.confounders)
+        has_components=compute_has_components(sample.clusters, sample.confounders)
     )
 
 
@@ -251,7 +250,7 @@ class Prior:
         prior_confounding_effects (ConfoundingEffectsPrior): prior on all confounding effects
     """
 
-    def __init__(self, shapes: ModelShapes, config: PriorConfig, data: 'Data'):
+    def __init__(self, shapes: ModelShapes, config: PriorConfig, data: Data):
         self.shapes = shapes
         self.config = config
         self.data = data
@@ -309,11 +308,10 @@ class DirichletPrior:
         UNIFORM = 'uniform'
         DIRICHLET = 'dirichlet'
 
-    def __init__(self, config, shapes, conf=None, initial_counts=1.):
+    def __init__(self, config, shapes: ModelShapes, initial_counts=1.):
 
         self.config = config
         self.shapes = shapes
-        self.conf = conf
 
         self.initial_counts = initial_counts
         self.prior_type = None
@@ -373,9 +371,12 @@ class DirichletPrior:
 
 class ConfoundingEffectsPrior(DirichletPrior):
 
+    conf: str
+
     def __init__(self, config, shapes, conf, initial_counts=1.):
-        super(ConfoundingEffectsPrior, self).__init__(config, shapes, conf=conf,
+        super(ConfoundingEffectsPrior, self).__init__(config, shapes,
                                                       initial_counts=initial_counts)
+        self.conf = conf
 
     def parse_attributes(self):
         n_groups = len(self.config)
@@ -704,7 +705,7 @@ class GeoPrior(object):
 
 def compute_gaussian_geo_prior(
         cluster: np.array,
-        network: 'ComputeNetwork',
+        network: ComputeNetwork,
         cov: np.array,
 ) -> float:
     """This function computes the 2D Gaussian geo-prior for all edges in the cluster.

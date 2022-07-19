@@ -1,15 +1,13 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 from __future__ import annotations
-import logging
 import random as _random
 
 import numpy as np
-import scipy.stats as stats
 
 from sbayes.sampling.mcmc import MCMC
-from sbayes.model import normalize_weights, ConfoundingEffectsPrior
-from sbayes.sampling.state import Sample, Clusters, ArrayParameter, GroupedParameters
+from sbayes.model import normalize_weights
+from sbayes.sampling.state import Sample
 from sbayes.sampling.operators import (
     AlterWeights,
     AlterClusterEffect,
@@ -21,8 +19,7 @@ from sbayes.sampling.operators import (
     GibbsSampleClusterEffect,
     GibbsSampleConfoundingEffects,
 )
-from sbayes.util import get_neighbours, normalize, dirichlet_logpdf, get_max_size_list
-from sbayes.preprocessing import sample_categorical
+from sbayes.util import get_neighbours, normalize, get_max_size_list
 from sbayes.config.config import OperatorsConfig
 
 
@@ -102,7 +99,7 @@ class ClusterMCMC(MCMC):
         lh_per_component = likelihood.update_component_likelihoods(sample=sample)
         weights = likelihood.update_weights(sample=sample)
         source_posterior = normalize(lh_per_component[site_subset] * weights[site_subset], axis=-1)
-        is_source = np.where(sample.source.ravel())
+        is_source = np.where(sample.source.value.ravel())
         return np.sum(np.log(source_posterior.ravel()[is_source]))
 
     # todo: fix
@@ -111,7 +108,7 @@ class ClusterMCMC(MCMC):
 
         sample_new = sample.copy()
         likelihood = self.posterior_per_chain[sample.chain].likelihood
-        occupied = np.any(sample.clusters, axis=0)
+        occupied = np.any(sample.clusters.value, axis=0)
 
         # Randomly choose one of the clusters to modify
         i_cluster = np.random.choice(range(sample.clusters.shape[0]))
@@ -178,7 +175,7 @@ class ClusterMCMC(MCMC):
         marginal_lh_without_z = np.prod(feature_lh_without_z, axis=-1)
 
         posterior_cluster = marginal_lh_with_z / (marginal_lh_with_z + marginal_lh_without_z)
-        new_cluster = sample.clusters[i_cluster].copy()
+        new_cluster = sample.clusters.value[i_cluster].copy()
         new_cluster[available] = (np.random.random(n_available) < posterior_cluster)
         sample_new.update_cluster(i_cluster, new_cluster)
 
@@ -527,7 +524,7 @@ class ClusterMCMC(MCMC):
             for k in self.model.confounders:
                 op_name = f"gibbs_sample_confounding_effects_{k}"
                 operators[op_name] = GibbsSampleConfoundingEffects(
-                    weight=operators_config.confounding_effects,
+                    weight=r * operators_config.confounding_effects,
                     confounder=k,
                     source_index=self.source_index['confounding_effects'][k],
                     model_by_chain=self.posterior_per_chain,

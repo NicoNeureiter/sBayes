@@ -15,10 +15,7 @@ import numpy as np
 from numpy.typing import NDArray
 import pyproj
 
-from sbayes.model import normalize_weights
 from sbayes.util import compute_delaunay, read_costs_from_csv, PathLike
-
-EPS = np.finfo(float).eps
 
 
 def load_canvas(config, logger=None):
@@ -208,59 +205,6 @@ def subset_features(features, subset):
     """
     sub = np.array(subset, dtype=bool)
     return features[sub, :, :]
-
-
-def simulate_features(clusters, confounders, probabilities, weights):
-    """Simulate features from the likelihood.
-    Args:
-        clusters (np.array): Binary array indicating the assignment of sites to clusters.
-            shape: (n_clusters, n_sites)
-       confounders (dict): Includes binary arrays indicating the assignment of a site to a confounder
-       probabilities (dict): The probabilities of every state in each cluster and each group of a confounder
-       weights (np.array): The mixture coefficient controlling how much areal and confounding effects explain features
-            shape: (n_features, 1 + n_confounders)
-    Returns:
-        np.array: The sampled categories for all sites, features and states
-            shape:  n_sites, n_features, n_states
-    """
-
-    n_clusters, n_sites = clusters.shape
-    _, n_features, n_states = probabilities['cluster_effect'].shape
-
-    # Are the weights fine?
-    assert np.allclose(a=np.sum(weights, axis=-1), b=1., rtol=EPS)
-
-    # Retrieve the assignment of sites to areal and confounding effects
-    # not all sites need to be assigned to one of the clusters or a confounder
-    assignment = [np.any(clusters, axis=0)]
-    o = 0
-    assignment_order = {"cluster_effect": o}
-
-    for k, v in confounders.items():
-        o += 1
-        assignment.append(np.any(v['membership'], axis=0))
-        assignment_order[k] = o
-
-    # Normalize the weights for each site depending on whether clusters or confounder are relevant for that site
-    normed_weights = normalize_weights(weights, np.array(assignment).T)
-    normed_weights = np.transpose(normed_weights, (1, 0, 2))
-
-    features = np.zeros((n_sites, n_features), dtype=int)
-
-    for feat in range(n_features):
-
-        # Compute the feature likelihood matrix (for all sites and all states)
-        lh_cluster_effect = clusters.T.dot(probabilities['cluster_effect'][:, feat, :]).T
-        lh_feature = normed_weights[feat, :, assignment_order['cluster_effect']] * lh_cluster_effect
-
-        for k, v in confounders.items():
-            lh_confounder = v['membership'].T.dot(probabilities[k][:, feat, :]).T
-            lh_feature += normed_weights[feat, :, assignment_order[k]] * lh_confounder
-
-        # Sample from the categorical distribution defined by lh_feature
-        features[:, feat] = sample_categorical(lh_feature.T)
-
-    return features
 
 
 EYES = {}

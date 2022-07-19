@@ -4,8 +4,7 @@
 """ Defines the class ContactAreasSimulator
     Outputs a simulated contact areas, together with network, features,
     states, families, weights, p_universal (alpha), p_inheritance(beta), p_contact(gamma) """
-
-from __future__ import absolute_import, division, print_function, unicode_literals
+from __future__ import absolute_import, division, print_function, unicode_literals, annotations
 from pathlib import Path
 
 import json
@@ -14,15 +13,21 @@ import os
 import csv
 import itertools
 
+import numpy as np
+
+from sbayes.model import normalize_weights
 from sbayes.util import set_defaults, iter_items_recursive, PathLike
 from sbayes.util import decompose_config_path, fix_relative_path
 
-from sbayes.preprocessing import (ComputeNetwork, load_canvas,
-                                  simulate_assignment_probabilities,
-                                  assign_to_confounders,
-                                  assign_to_cluster,
-                                  simulate_features,
-                                  simulate_weights)
+from sbayes.preprocessing import (
+    ComputeNetwork,
+    load_canvas,
+    simulate_assignment_probabilities,
+    assign_to_confounders,
+    assign_to_cluster,
+    simulate_weights,
+    sample_categorical
+)
 from sbayes import config
 
 try:
@@ -196,6 +201,59 @@ class Simulation:
 
             # writing the data rows
             csvwriter.writerows(list(itertools.zip_longest(*available_states)))
+
+
+def simulate_features(clusters, confounders, probabilities, weights):
+    """Simulate features from the likelihood.
+    Args:
+        clusters (np.array): Binary array indicating the assignment of sites to clusters.
+            shape: (n_clusters, n_sites)
+       confounders (dict): Includes binary arrays indicating the assignment of a site to a confounder
+       probabilities (dict): The probabilities of every state in each cluster and each group of a confounder
+       weights (np.array): The mixture coefficient controlling how much areal and confounding effects explain features
+            shape: (n_features, 1 + n_confounders)
+    Returns:
+        np.array: The sampled categories for all sites, features and states
+            shape:  n_sites, n_features, n_states
+    """
+
+    n_clusters, n_sites = clusters.shape
+    _, n_features, n_states = probabilities['cluster_effect'].shape
+
+    # Are the weights fine?
+    assert np.allclose(a=np.sum(weights, axis=-1), b=1.)
+
+    # Retrieve the assignment of sites to areal and confounding effects
+    # not all sites need to be assigned to one of the clusters or a confounder
+    assignment = [np.any(clusters, axis=0)]
+    o = 0
+    assignment_order = {"cluster_effect": o}
+
+    for k, v in confounders.items():
+        o += 1
+        assignment.append(np.any(v['membership'], axis=0))
+        assignment_order[k] = o
+
+    # Normalize the weights for each site depending on whether clusters or confounder are relevant for that site
+    normed_weights = normalize_weights(weights, np.array(assignment).T)
+    normed_weights = np.transpose(normed_weights, (1, 0, 2))
+
+    features = np.zeros((n_sites, n_features), dtype=int)
+
+    for feat in range(n_features):
+
+        # Compute the feature likelihood matrix (for all sites and all states)
+        lh_cluster_effect = clusters.T.dot(probabilities['cluster_effect'][:, feat, :]).T
+        lh_feature = normed_weights[feat, :, assignment_order['cluster_effect']] * lh_cluster_effect
+
+        for k, v in confounders.items():
+            lh_confounder = v['membership'].T.dot(probabilities[k][:, feat, :]).T
+            lh_feature += normed_weights[feat, :, assignment_order[k]] * lh_confounder
+
+        # Sample from the categorical distribution defined by lh_feature
+        features[:, feat] = sample_categorical(lh_feature.T)
+
+    return features
 
 
 def main(config_path: PathLike):

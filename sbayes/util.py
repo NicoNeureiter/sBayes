@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+from __future__ import annotations
 import datetime
 import time
 import csv
@@ -8,7 +9,7 @@ from pathlib import Path
 from functools import lru_cache
 from math import sqrt, floor, ceil
 from itertools import combinations, permutations
-from typing import List, Dict, Sequence, Tuple, Union, Optional
+from typing import Sequence, Union
 
 import numpy as np
 from numpy.typing import NDArray
@@ -314,7 +315,7 @@ def normalize_str(s: str) -> str:
     return str.strip(s)
 
 
-def read_data_csv(csv_path: Union[Path, str]) -> pd.DataFrame:
+def read_data_csv(csv_path: PathLike) -> pd.DataFrame:
     return pd.read_csv(csv_path, dtype=str).applymap(normalize_str)
 
 
@@ -1078,8 +1079,8 @@ def assess_correlation_probabilities(p_universal, p_contact, p_inheritance, corr
 def get_max_size_list(start, end, n_total, k_groups):
     """Returns a list of maximum cluster sizes between a start and end size
     Entries of the list are later used to vary max_size in different chains during warmup
-    
-    Args: 
+
+    Args:
         start(int): start size
         end(int): end size
         n_total(int): entries in the final list, i.e.number of chains
@@ -1212,14 +1213,14 @@ def timeit(units='s'):
     return timeit_decorator
 
 @lru_cache(maxsize=128)
-def get_permutations(n: int) -> List[Tuple[int]]:
+def get_permutations(n: int) -> list[tuple[int]]:
     return list(permutations(range(n)))
 
 
 def get_best_permutation(
         areas: NDArray[bool],  # shape = (n_areas, n_sites)
         prev_area_sum: NDArray[int],  # shape = (n_areas, n_sites)
-) -> Tuple[int]:
+) -> tuple[int]:
     """Return a permutation of areas that would align the areas in the new sample with previous ones."""
     def clustering_agreement(p):
         """In how many sites does permutation `p` previous samples?"""

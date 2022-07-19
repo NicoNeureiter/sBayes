@@ -8,7 +8,7 @@ import io
 import ruamel.yaml
 
 from pydantic import BaseModel, Extra, Field
-from pydantic import validator, root_validator, ValidationError
+from pydantic import root_validator, ValidationError
 from pydantic import FilePath, DirectoryPath
 from pydantic import PositiveInt, PositiveFloat, confloat, NonNegativeFloat, NonNegativeInt
 
