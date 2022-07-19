@@ -7,11 +7,10 @@ import json
 import io
 import ruamel.yaml
 
-
 from pydantic import BaseModel, Extra, Field
 from pydantic import validator, root_validator, ValidationError
 from pydantic import FilePath, DirectoryPath
-from pydantic import PositiveInt, PositiveFloat, confloat
+from pydantic import PositiveInt, PositiveFloat, confloat, NonNegativeFloat, NonNegativeInt
 
 from sbayes.util import fix_relative_path, decompose_config_path, PathLike
 from sbayes.util import update_recursive
@@ -238,19 +237,19 @@ class OperatorsConfig(BaseConfig):
 
     """The frequency of each MCMC operator. Will be normalized to 1.0 at runtime."""
 
-    clusters: PositiveFloat = 45.0
+    clusters: NonNegativeFloat = 45.0
     """Frequency at which the assignment of objects to clusters is changed."""
 
-    weights: PositiveFloat = 15.0
+    weights: NonNegativeFloat = 15.0
     """Frequency at which mixture weights are changed."""
 
-    cluster_effect: PositiveFloat = 5.0
+    cluster_effect: NonNegativeFloat = 5.0
     """Frequency at which cluster effect parameters are changed."""
 
-    confounding_effects: PositiveFloat = 15.0
+    confounding_effects: NonNegativeFloat = 15.0
     """Frequency at which confounding effects parameters are changed."""
 
-    source: PositiveFloat = 10.0
+    source: NonNegativeFloat = 10.0
     """Frequency at which the assignments of observations to mixture components are changed."""
 
 

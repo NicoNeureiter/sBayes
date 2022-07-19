@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-import typing as typ
+from __future__ import annotations
 try:
     from typing import Literal
 except ImportError:
@@ -9,7 +9,7 @@ except ImportError:
 import csv
 import sys
 import random
-from typing import Sequence, Dict, Union
+from typing import Sequence
 
 import numpy as np
 from numpy.typing import NDArray

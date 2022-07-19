@@ -77,6 +77,7 @@ def match_clusters(samples):
     return samples
 
 
+# TODO: update to generalized sBayes
 def contribution_per_cluster(mcmc_sampler):
     """Evaluate the contribution of each cluster to the lh and the posterior in each sample.
     Args:
@@ -107,8 +108,12 @@ def contribution_per_cluster(mcmc_sampler):
             cluster = stats['sample_clusters'][s][np.newaxis, z]
             cluster_effect = stats['sample_cluster_effect'][s][np.newaxis, z]
 
-            single_cluster = Sample(clusters=cluster, weights=weights,
-                                    p_global=p_global, cluster_effect=cluster_effect, p_families=p_families)
+            single_cluster = Sample.from_numpy_arrays(
+                clusters=cluster,
+                weights=weights,
+                p_global=p_global,
+                cluster_effect=cluster_effect, p_families=p_families
+            )
 
             lh = mcmc_sampler.likelihood(single_cluster, 0)
             prior = mcmc_sampler.prior(single_cluster, 0)

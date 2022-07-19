@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-
 """ Imports the real world data """
+from __future__ import annotations
 import pandas as pd
 import pyproj
 from dataclasses import dataclass
 from logging import Logger
-from pathlib import Path
-from typing import List, Tuple, Dict, Optional, Union, Sequence
+from collections import OrderedDict
+from typing import List, Dict, Optional, Union, Sequence
 
 
 try:
@@ -68,7 +68,7 @@ class Objects:
         return cls(**objects_dict)
 
 
-@dataclass
+@dataclass(frozen=True)
 class Features:
 
     values: NDArray[bool]  # shape: (n_sites, n_features, n_states)
@@ -104,7 +104,7 @@ class Features:
         return cls(**features_dict, na_number=na_number)
 
 
-@dataclass
+@dataclass(frozen=True)
 class Confounder:
     name: str
     group_assignment: NDArray[bool]  # shape: (n_groups, n_sites)
@@ -116,6 +116,9 @@ class Confounder:
         elif key == "values":
             return self.group_assignment
         return getattr(self, key)
+
+    def any_group(self) -> NDArray[bool]:  # shape: (n_groups,)
+        return np.any(self.group_assignment, axis=0)
 
     @property
     def n_groups(self):
@@ -168,7 +171,7 @@ class Data:
 
     objects: Objects
     features: Features
-    confounders: Dict[str, Confounder]
+    confounders: OrderedDict[str, Confounder]
     prior_confounders: ...
     crs: Optional[pyproj.CRS]
     geo_cost_matrix: Optional[NDArray[float]]
@@ -179,7 +182,7 @@ class Data:
         self,
         objects: Objects,
         features: Features,
-        confounders: Dict[str, Confounder],
+        confounders: OrderedDict[str, Confounder],
         projection: Optional[str] = "epsg:4326",
         geo_costs: Union[Literal["from_data"], PathLike] = "from_data",
         logger: Logger = None,
@@ -245,7 +248,7 @@ class Data:
         logger.info("##########################################")
 
 
-@dataclass
+@dataclass(frozen=True)
 class Prior:
     counts: NDArray[int]
     states: List
@@ -259,7 +262,7 @@ def read_features_from_csv(
     feature_states_path: PathLike,
     groups_by_confounder: Dict[str, list],
     logger: Optional[Logger] = None,
-) -> (Objects, Features, Dict[str, Confounder]):
+) -> (Objects, Features, OrderedDict[str, Confounder]):
     """This is a helper function to import data (objects, features, confounders) from a csv file
     Args:
         data_path: path to the data csv file.
@@ -276,10 +279,9 @@ def read_features_from_csv(
 
     features = Features.from_dataframes(data, feature_states)
     objects = Objects.from_dataframe(data)
-    confounders = {
-        c: Confounder.from_dataframe(confounder_name=c, group_names=groups, data=data)
-        for c, groups in groups_by_confounder.items()
-    }
+    confounders = OrderedDict()
+    for c, groups in groups_by_confounder.items():
+        confounders[c] = Confounder.from_dataframe(confounder_name=c, group_names=groups, data=data)
 
     if logger:
         logger.info(

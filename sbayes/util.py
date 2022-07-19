@@ -1127,8 +1127,8 @@ def log_multinom(n, ks):
 
     """
     ks = np.asarray(ks)
-    assert np.all(ks >= 0)
-    assert np.sum(ks) <= n
+    # assert np.all(ks >= 0)
+    # assert np.sum(ks) <= n
 
     # Simple special case
     if np.sum(ks) == 0:
@@ -1149,11 +1149,11 @@ def log_multinom(n, ks):
     # If there are is a remainder in the population, that was not assigned to any of the
     # samples, subtract all permutations of the remainder population.
     rest = n - np.sum(ks)
-    assert rest >= 0
+    # assert rest >= 0
     if rest > 0:
         m -= log_i_cumsum[rest-1]
 
-    assert m >= 0, m
+    # assert m >= 0, m
     return m
 
 
@@ -1182,20 +1182,34 @@ def fix_relative_path(path: PathLike, base_directory: PathLike) -> Path:
         return base_directory / path
 
 
-def timeit(func):
+def timeit(units='s'):
+    SECONDS_PER_UNIT = {
+        'h': 3600.,
+        'm': 60.,
+        's': 1.,
+        'ms': 1E-3,
+        'µs': 1E-6,
+        'ns': 1E-9
+    }
+    unit_scaler = SECONDS_PER_UNIT[units]
 
-    def timed_func(*args, **kwargs):
+    def timeit_decorator(func):
 
-        start = time.time()
-        result = func(*args, **kwargs)
-        end = time.time()
+        def timed_func(*args, **kwargs):
 
-        print('Runtime %s: %.4fs' % (func.__name__, (end - start)))
 
-        return result
+            start = time.time()
+            result = func(*args, **kwargs)
+            end = time.time()
+            passed = (end - start) / unit_scaler
 
-    return timed_func
+            print(f'Runtime {func.__name__}: {passed:.2f}{units}')
 
+            return result
+
+        return timed_func
+
+    return timeit_decorator
 
 @lru_cache(maxsize=128)
 def get_permutations(n: int) -> List[Tuple[int]]:

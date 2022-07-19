@@ -628,8 +628,7 @@ class Plot:
             leg_line_width.append(line)
 
             # Add legend text
-            prop_l = int(k * 100)
-            line_width_label.append(f'{prop_l}%')
+            line_width_label.append(f'{k:.0%}')
 
         # Adds everything to the legend
         legend_line_width = ax.legend(leg_line_width, line_width_label, title_fontsize=18,
