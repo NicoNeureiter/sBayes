@@ -9,6 +9,7 @@ from numpy.typing import NDArray
 import numpy as np
 from pydantic.types import PositiveInt
 
+from sbayes.load_data import Confounder
 
 S = TypeVar('S')
 Value = TypeVar('Value', NDArray, float)
@@ -96,7 +97,8 @@ class GroupedParameters(ArrayParameter):
         elif isinstance(keys, tuple):
             self.group_versions[keys[0]] = self.version
         else:
-            raise RuntimeError(f'`set_items` is not implemented for GroupedParameters. Use `GroupedParameters.edit()` instead.')
+            raise RuntimeError('`set_items` is not implemented for GroupedParameters. '
+                               'Use `GroupedParameters.edit()` instead.')
 
     def set_group(self, i: int, values: NDArray[Value]):
         # if self.shared:
@@ -272,7 +274,7 @@ class CalculationNode(Generic[Value]):
 
 class HasComponents(CalculationNode[NDArray[bool]]):
 
-    def __init__(self, clusters: Clusters, confounders: dict[str, "Confounder"]):
+    def __init__(self, clusters: Clusters, confounders: dict[str, Confounder]):
         # Set up value from clusters and confounders
         has_components = [clusters.any_cluster()]
         for conf in confounders.values():
@@ -388,7 +390,7 @@ class Sample:
         weights: ArrayParameter[float],                     # shape: (n_features, n_components)
         cluster_effect: GroupedParameters[float],           # shape: (n_clusters, n_features, n_states)
         confounding_effects: dict[str, GroupedParameters],  # shape per conf:  (n_groups, n_features, n_states)
-        confounders: dict[str, "Confounder"],
+        confounders: dict[str, Confounder],
         source: Optional[ArrayParameter[bool]] = None,      # shape: (n_objects, n_features, n_components)
         chain: int = 0,
         _other_cache: ModelCache = None,
@@ -422,7 +424,7 @@ class Sample:
         weights: NDArray[float],
         cluster_effect: NDArray[float],
         confounding_effects: dict[str, NDArray[float]],
-        confounders: dict[str, "Confounder"],
+        confounders: dict[str, Confounder],
         source: Optional[NDArray[bool]] = None,
         chain: int = 0,
     ) -> S:

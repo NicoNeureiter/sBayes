@@ -1,7 +1,8 @@
 import numpy as np
 import unittest
 
-from sbayes.sampling.state import ArrayParameter, CalculationNode, GroupedParameters
+from sbayes.sampling.state import CalculationNode, GroupedParameters
+
 
 class TestArrayParameter(unittest.TestCase):
 
@@ -22,7 +23,7 @@ class TestArrayParameter(unittest.TestCase):
         self.param.set_items((1, 2), 1000)
 
         # Validate changes in value and version number
-        self.assertEqual(self.param.value[1,2], 1000)
+        self.assertEqual(self.param.value[1, 2], 1000)
         self.assertEqual(self.param.version, 1)
 
     def test_edit(self):
@@ -31,7 +32,7 @@ class TestArrayParameter(unittest.TestCase):
             value[1, 2] = 1000
 
         # Validate changes in value and version number
-        self.assertEqual(self.param.value[1,2], 1000)
+        self.assertEqual(self.param.value[1, 2], 1000)
         self.assertEqual(self.param.version, 1)
 
     def test_set_value(self):
@@ -41,9 +42,8 @@ class TestArrayParameter(unittest.TestCase):
         self.param.set_value(new_value)
 
         # Validate changes in value and version number
-        self.assertEqual(self.param.value[1,2], 1000)
+        self.assertEqual(self.param.value[1, 2], 1000)
         self.assertEqual(self.param.version, 1)
-
 
 
 if __name__ == '__main__':
