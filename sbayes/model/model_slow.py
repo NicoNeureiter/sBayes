@@ -188,7 +188,7 @@ class Likelihood(object):
     def iterate_components_with_effects(self, sample: Sample) -> Sequence[tuple[NDArray, NDArray]]:
         yield sample.clusters.value, sample.cluster_effect.value
         for c in sample.confounders:
-            yield sample.confounders[c].value, sample.confounding_effects[c].value
+            yield sample.confounders[c].group_assignment, sample.confounding_effects[c].value
 
 
 def compute_has_components(clusters, confounders):
