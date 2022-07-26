@@ -15,7 +15,7 @@ from scipy.sparse.csgraph import minimum_spanning_tree, csgraph_from_dense
 from sbayes.sampling.state import Sample
 from sbayes.util import (compute_delaunay, n_smallest_distances, log_multinom,
                          dirichlet_logpdf, log_expit)
-from sbayes.config.config import ModelConfig, PriorConfig, DirichletPriorConfig
+from sbayes.config.config import ModelConfig, PriorConfig, DirichletPriorConfig, GeoPriorConfig
 from sbayes.load_data import Data, ComputeNetwork
 
 
@@ -788,7 +788,6 @@ class GeoPrior(object):
 
         self.prior_type = None
         self.covariance = None
-        self.cost_matrix = None
         self.aggregator = None
         self.aggregation_policy = None
         self.probability_function = None
@@ -799,16 +798,15 @@ class GeoPrior(object):
 
         self.parse_attributes(config)
 
-    def parse_attributes(self, config):
-        if config['type'] == 'uniform':
+    def parse_attributes(self, config: GeoPriorConfig):
+        if config.type is config.Types.UNIFORM:
             self.prior_type = self.TYPES.UNIFORM
 
-        elif config['type'] == 'cost_based':
+        elif config.type is config.Types.COST_BASED:
             if self.cost_matrix is None:
                 ValueError('`cost_based` geo-prior requires a cost_matrix.')
 
             self.prior_type = self.TYPES.COST_BASED
-            self.cost_matrix = self.cost_matrix
             self.scale = config['rate']
             self.aggregation_policy = config['aggregation']
             assert self.aggregation_policy in ['mean', 'sum', 'max']
