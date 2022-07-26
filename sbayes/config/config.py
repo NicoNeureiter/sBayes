@@ -1,12 +1,17 @@
 import os
 from pathlib import Path
 from enum import Enum
-from typing import Union, List, Dict, Literal, Optional, Any
 import warnings
 import json
 import io
-import ruamel.yaml
+from typing import Union, List, Dict, Optional, Any
 
+try:
+    from typing import Literal
+except ImportError:
+    from typing_extensions import Literal
+
+import ruamel.yaml
 from pydantic import BaseModel, Extra, Field
 from pydantic import root_validator, ValidationError
 from pydantic import FilePath, DirectoryPath
@@ -381,7 +386,11 @@ class SBayesConfig(BaseConfig):
 
 #
 
-# ...black magic starts here...
+# ...BLACK MAGIC STARTS HERE...
+
+# Automatically generating yaml files with comments from the config classes and attribute
+# docstrings requires some code introspection, which is a bit obscure and at this point
+# not well documented.
 
 #
 
