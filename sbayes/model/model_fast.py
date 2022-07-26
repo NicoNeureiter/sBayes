@@ -524,7 +524,7 @@ class ConfoundingEffectsPrior(DirichletPrior):
             #     self.concentration[i_g] = self.load_concentration(self.config[group])
 
             else:
-                raise ValueError(self.invalid_prior_message(self.config['type']))
+                raise ValueError(self.invalid_prior_message(self.config[group]['type']))
 
     def __call__(self, sample: Sample, caching=True) -> float:
         """"Calculate the log PDF of the confounding effects prior.

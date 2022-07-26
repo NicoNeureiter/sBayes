@@ -391,7 +391,7 @@ class ConfoundingEffectsPrior(DirichletPrior):
             #     self.concentration[i_g] = self.load_concentration(self.config[group])
 
             else:
-                raise ValueError(self.invalid_prior_message(self.config['type']))
+                raise ValueError(self.invalid_prior_message(self.config[group]['type']))
 
     def __call__(self, sample: Sample) -> float:
         """"Calculate the log PDF of the confounding effects prior.
@@ -634,7 +634,7 @@ class GeoPrior(object):
             self.probability_function = self.parse_prob_function(
                 prob_function_type=config['probability_function'],
                 scale=self.scale,
-                inflection_point=config.get('inflection_point', None)
+                inflection_point=config.inflection_point
             )
         else:
             raise ValueError('Geo prior not supported')
