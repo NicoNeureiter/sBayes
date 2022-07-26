@@ -820,7 +820,7 @@ class GeoPrior(object):
             self.probability_function = self.parse_prob_function(
                 prob_function_type=config['probability_function'],
                 scale=self.scale,
-                inflection_point=config.get('inflection_point', None)
+                inflection_point=config.inflection_point
             )
         else:
             raise ValueError('Geo prior not supported')

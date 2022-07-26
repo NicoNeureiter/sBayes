@@ -97,8 +97,9 @@ class GeoPriorConfig(BaseConfig):
     type: Types = Types.UNIFORM
     """Type of prior distribution (`uniform`, `cost_based` or `gaussian`)."""
 
-    rate: Optional[PositiveFloat]
-    """Rate at which the prior probability decreases for a cost_based geo-prior."""
+    costs: Union[RelativeFilePath, Literal["from_data"]] = "from_data"
+    """Source of the geographic costs used for cost_based geo-prior. Either `from_data`
+    (derive geodesic distances from locations) or path to a CSV file."""
 
     aggregation: AggregationStrategies = AggregationStrategies.MEAN
     """Policy defining how costs of single edges are aggregated (`mean`, `sum` or `max`)."""
@@ -106,9 +107,11 @@ class GeoPriorConfig(BaseConfig):
     probability_function: ProbabilityFunction = ProbabilityFunction.EXPONENTIAL
     """Monotonic function that defines how costs are mapped to prior probabilities."""
 
-    costs: Union[RelativeFilePath, Literal["from_data"]] = "from_data"
-    """Source of the geographic costs used for cost_based geo-prior. Either `from_data` 
-    (derive geodesic distances from locations) or path to a CSV file."""
+    rate: Optional[PositiveFloat]
+    """Rate at which the prior probability decreases for a cost_based geo-prior."""
+
+    inflection_point: Optional[float]
+    """The point where a sigmoid probability function reaches 0.5."""
 
     @root_validator
     def validate_dirichlet_parameters(cls, values):
