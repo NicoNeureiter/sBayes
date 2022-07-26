@@ -90,6 +90,10 @@ class GeoPriorConfig(BaseConfig):
         SUM = "sum"
         MAX = "max"
 
+    class ProbabilityFunction(str, Enum):
+        EXPONENTIAL = "exponential"
+        SIGMOID = "sigmoid"
+
     type: Types = Types.UNIFORM
     """Type of prior distribution (`uniform`, `cost_based` or `gaussian`)."""
 
@@ -98,6 +102,9 @@ class GeoPriorConfig(BaseConfig):
 
     aggregation: AggregationStrategies = AggregationStrategies.MEAN
     """Policy defining how costs of single edges are aggregated (`mean`, `sum` or `max`)."""
+
+    probability_function: ProbabilityFunction = ProbabilityFunction.EXPONENTIAL
+    """Monotonic function that defines how costs are mapped to prior probabilities."""
 
     costs: Union[RelativeFilePath, Literal["from_data"]] = "from_data"
     """Source of the geographic costs used for cost_based geo-prior. Either `from_data` 
