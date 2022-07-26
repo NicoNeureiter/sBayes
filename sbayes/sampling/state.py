@@ -52,8 +52,8 @@ class ArrayParameter(Parameter[NDArray[DType]]):
         self.shared = False
 
     def set_items(self, keys, values):
-        # if self.shared:
-        #     self.resolve_sharing()
+        if self.shared:
+            self.resolve_sharing()
 
         self._value.flags.writeable = True
         self._value[keys] = values
@@ -62,8 +62,8 @@ class ArrayParameter(Parameter[NDArray[DType]]):
 
     @contextmanager
     def edit(self) -> NDArray[DType]:
-        # if self.shared:
-        #     self.resolve_sharing()
+        if self.shared:
+            self.resolve_sharing()
 
         self._value.flags.writeable = True
         yield self.value
@@ -91,7 +91,6 @@ class GroupedParameters(ArrayParameter):
         super().set_items(keys, values)
 
         # Update version of the changed group
-        # i = keys if isinstance(keys, int) else keys[0]
         if isinstance(keys, int):
             self.group_versions[keys] = self.version
         elif isinstance(keys, tuple):
@@ -101,14 +100,8 @@ class GroupedParameters(ArrayParameter):
                                'Use `GroupedParameters.edit()` instead.')
 
     def set_group(self, i: int, values: NDArray[Value]):
-        # if self.shared:
-        #     self.resolve_sharing()
-
-        self._value.flags.writeable = True
-        self._value[i, ...] = values
-        self._value.flags.writeable = False
-        self.version += 1
-        self.group_versions[i] = self.version
+        with self.edit_group(i) as g:
+            g[...] = values
 
     @property
     def n_groups(self):
@@ -116,8 +109,8 @@ class GroupedParameters(ArrayParameter):
 
     @contextmanager
     def edit_group(self, i) -> NDArray:
-        # if self.shared:
-        #     self.resolve_sharing()
+        if self.shared:
+            self.resolve_sharing()
 
         self._value.flags.writeable = True
         yield self.value[i]
@@ -155,7 +148,7 @@ class Clusters(GroupedParameters):
             c[i_object] = False
 
 
-@lru_cache
+@lru_cache(maxsize=128)
 def outdated_group_version(shape: tuple[int]) -> NDArray[int]:
     """To manually mark the calculation node as outdated we use a constant -1."""
     return -np.ones(shape)
@@ -394,6 +387,7 @@ class Sample:
         source: Optional[ArrayParameter[bool]] = None,      # shape: (n_objects, n_features, n_components)
         chain: int = 0,
         _other_cache: ModelCache = None,
+        _i_step: int = 0
     ):
         self._clusters = clusters
         self._weights = weights
@@ -402,7 +396,7 @@ class Sample:
         self._source = source
         self.chain = chain
         self.confounders = confounders
-        self.i_step = 0
+        self.i_step = _i_step
 
         # Assign or initialize a ModelCache object
         if _other_cache is None:
@@ -442,19 +436,20 @@ class Sample:
         return Sample(
             chain=self.chain,
             #
-            clusters=deepcopy(self._clusters),
-            weights=deepcopy(self.weights),
-            cluster_effect=deepcopy(self.cluster_effect),
-            confounding_effects=deepcopy(self.confounding_effects),
-            source=deepcopy(self.source),
-            # clusters=self._clusters.copy(),
-            # weights=self.weights.copy(),
-            # cluster_effect=self.cluster_effect.copy(),
-            # confounding_effects=self.confounding_effects.copy(),
-            # source=self.source.copy(),
+            # clusters=deepcopy(self._clusters),
+            # weights=deepcopy(self.weights),
+            # cluster_effect=deepcopy(self.cluster_effect),
+            # confounding_effects=deepcopy(self.confounding_effects),
+            # source=deepcopy(self.source),
+            clusters=self._clusters.copy(),
+            weights=self.weights.copy(),
+            cluster_effect=self.cluster_effect.copy(),
+            confounding_effects=self.confounding_effects.copy(),
+            source=self.source.copy(),
             #
             confounders=self.confounders,
-            _other_cache=self.cache
+            _other_cache=self.cache,
+            _i_step=self.i_step,
         )
 
     def everything_changed(self):
