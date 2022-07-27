@@ -16,25 +16,10 @@ import numpy as np
 from sbayes.model import Model
 from sbayes.load_data import Data
 from sbayes.sampling.loggers import ResultsLogger
+from sbayes.sampling.operators import Operator
 from sbayes.config.config import OperatorsConfig
 
 from sbayes.sampling.state import Sample
-
-
-class Operator(typ.Protocol):
-    """The concrete implementation of operators is defined in sbayes.sample.operators. At
-    this point we only require an operator to have an evaluation function."""
-
-    def function(self, sample: Sample, **kwargs) -> tuple[Sample, float, float]:
-        ...
-
-
-class OperatorSchedule(typ.Protocol):
-    """The concrete implementation of the operator schedule is defined in
-    sbayes.sample.operators. At this point we only require a draw_operators function."""
-
-    def draw_operators(self) -> Operator:
-        ...
 
 
 @dataclass
@@ -224,13 +209,13 @@ class MCMC(_abc.ABC):
         pass
 
     @_abc.abstractmethod
-    def get_operators(self, operators: OperatorsConfig):
+    def get_operators(self, operators: OperatorsConfig) -> dict[str, Operator]:
         """Get relevant operators and weights for proposing MCMC update steps
 
         Args:
-            operators: dictionary with names of all operators (keys) and their weights (values)
+            operators: dictionary mapping operator names to operator objects
         Returns:
-            list, list: the operators (callable), their weights (float)
+            The operator objects with a proposal function and weights
         """
 
     def generate_samples(self, n_steps, n_samples, warm_up=False, warm_up_steps=None):
@@ -277,6 +262,7 @@ class MCMC(_abc.ABC):
                     print("warm-up", int(warmup_progress), "%")
                 for c in self.chain_idx:
                     sample[c] = self.step(sample[c], c)
+                    sample[c].i_step = i_warmup
 
             # For the last sample find the best chain (highest posterior)
             posterior_samples = [self._ll[c] + self._prior[c] for c in self.chain_idx]
@@ -321,7 +307,7 @@ class MCMC(_abc.ABC):
         for logger in self.sample_loggers:
             logger.close()
 
-    def choose_operator(self) -> dict:
+    def choose_operator(self) -> Operator:
         # Randomly choose one operator to propose a new sample
         step_weights = [w['weight'] for w in self.callable_operators.values()]
         possible_steps = list(self.callable_operators.keys())
@@ -371,9 +357,10 @@ class MCMC(_abc.ABC):
             self._prior[c] = prior_candidate
             self.statistics.total_accepts += 1
             self.statistics.operator_stats[operator['name']].accepts += 1
+            operator.register_accept()
         else:
             self.statistics.operator_stats[operator['name']].rejects += 1
-
+            operator.register_reject()
         return sample
 
     @staticmethod

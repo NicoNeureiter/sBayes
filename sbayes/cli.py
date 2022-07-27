@@ -20,8 +20,8 @@ def run_experiment(
 ):
     # Initialize the experiment
     experiment = Experiment(
-        experiment_name=experiment_name,
         config_file=config,
+        experiment_name=experiment_name,
         custom_settings=custom_settings,
         log=True,
     )
@@ -61,8 +61,8 @@ def main(
 ):
     # Initialize the experiment
     experiment = Experiment(
-        experiment_name=experiment_name,
         config_file=config,
+        experiment_name=experiment_name,
         custom_settings=custom_settings,
         log=False,
     )
@@ -86,25 +86,6 @@ def main(
     else:
         pool = multiprocessing.Pool(processes=processes)
         pool.map(runner, run_configurations)
-
-
-def iterate_over_parameter(values, config_setter, function, print_message=None):
-    """Iterate over each value in ´values´, apply ´config_setter´ (to update the config
-    dictionary) and run ´function´."""
-    for i, value in enumerate(values):
-        if print_message is not None:
-            print(print_message.format(value=value, i=i))
-        config_setter(value)
-        function(value)
-
-
-def iterate_or_run(x, config_setter, function, print_message=None):
-    """If ´x´ is list, iterate over all values in ´x´ and run ´function´ for each value.
-    Otherwise directly apply ´function´ to ´x´."""
-    if type(x) in [tuple, list, set]:
-        iterate_over_parameter(x, config_setter, function, print_message)
-    else:
-        function(x)
 
 
 def cli():

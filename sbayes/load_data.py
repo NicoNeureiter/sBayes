@@ -9,7 +9,6 @@ from logging import Logger
 from collections import OrderedDict
 from typing import List, Dict, Optional, Union, Sequence, TypeVar, Type
 
-
 try:
     from typing import Literal
 except ImportError:
@@ -33,7 +32,7 @@ class Objects:
     """Container class for a set of objects. Each object describes one sample (a language,
     person, state,...) which has an ID, name and location."""
 
-    id: Sequence[int]
+    id: Sequence[str]
     locations: NDArray[float]  # shape: (n_sites, 2)
     names: Sequence[str]
 
@@ -55,7 +54,7 @@ class Objects:
             x = data["x"]
             y = data["y"]
             id_ext = data["id"].tolist()
-            # id_ext = np.arange(n_sites)
+            # id_ext = np.arange(n_sites).astype(str)
         except KeyError:
             raise KeyError("The csv must contain columns `x`, `y` and `id`")
 
@@ -177,7 +176,7 @@ class Data:
     objects: Objects
     features: Features
     confounders: OrderedDict[str, Confounder]
-    prior_confounders: ...
+    prior_confounders: OrderedDict[str, ...]
     crs: Optional[pyproj.CRS]
     geo_cost_matrix: Optional[NDArray[float]]
     network: ComputeNetwork
@@ -204,7 +203,7 @@ class Data:
             self.geo_cost_matrix = self.network.dist_mat
         else:
             self.geo_cost_matrix = read_geo_cost_matrix(
-                object_names=self.objects.names, file=geo_costs, logger=self.logger
+                object_names=self.objects.id, file=geo_costs, logger=self.logger
             )
 
         self.prior_confounders = None  # TODO Load the confounder priors
@@ -235,16 +234,6 @@ class Data:
     @classmethod
     def from_experiment(cls, experiment: Experiment) -> "Data":
         return cls.from_config(experiment.config, logger=experiment.logger)
-
-    def load_features(self):
-        # Empty function for backwards compatibility. Loading now happens in initialization
-        # TODO remove
-        pass
-
-    def load_geo_cost_matrix(self):
-        # Empty function for backwards compatibility. Loading now happens in initialization
-        # TODO remove
-        pass
 
     @staticmethod
     def log_loading(logger):
