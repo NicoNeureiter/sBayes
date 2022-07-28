@@ -83,7 +83,7 @@ class GeoPriorConfig(BaseConfig):
     class Types(str, Enum):
         UNIFORM = "uniform"
         COST_BASED = "cost_based"
-        GAUSSIAN = "gaussian"
+        # GAUSSIAN = "gaussian"
 
     class AggregationStrategies(str, Enum):
         MEAN = "mean"
@@ -190,6 +190,7 @@ class DirichletPriorConfig(BaseConfig):
         doc = super().get_attr_doc(attr)
         if not doc:
             return DirichletPriorConfig.__attrdocs__.get(attr)
+
 
 class WeightsPriorConfig(DirichletPriorConfig):
     """Configuration of the prion on the weights of the mixture components."""
@@ -484,9 +485,6 @@ def generate_template():
     definitions['SBayesConfig'] = schema
 
     def template_literal(field: Field, type_annotation: type):
-        print(field)
-        print('\t', field.default)
-
         # If there is a default, use it:
         if field.default is not None:
             if isinstance(field.default, Enum):
@@ -535,7 +533,6 @@ def generate_template():
         return len(line) - len(str.lstrip(line))
 
     d = template(SBayesConfig)
-    print(d)
     s = ruaml_yaml_dumps(d)
     lines = []
     for line in s.split('\n'):

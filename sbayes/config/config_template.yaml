@@ -24,9 +24,11 @@ model:
         geo:
             # Configuration of the geo-prior.
             type: uniform               # Type of prior distribution (`uniform`, `cost_based` or `gaussian`).
-            rate: <OPTIONAL>            # Rate at which the prior probability decreases for a cost_based geo-prior.
-            aggregation: mean           # Policy defining how costs of single edges are aggregated (`mean`, `sum` or `max`).
             costs: from_data            # Source of the geographic costs used for cost_based geo-prior. Either `from_data` (derive geodesic distances from locations) or path to a CSV file.
+            aggregation: mean           # Policy defining how costs of single edges are aggregated (`mean`, `sum` or `max`).
+            probability_function: exponential # Monotonic function that defines how costs are mapped to prior probabilities.
+            rate: <OPTIONAL>            # Rate at which the prior probability decreases for a cost_based geo-prior.
+            inflection_point: <OPTIONAL> # The point where a sigmoid probability function reaches 0.5.
 
         objects_per_cluster:
             # Configuration of the area size prior.
