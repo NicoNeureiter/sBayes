@@ -1,7 +1,7 @@
 {
 	"results": {
 		"path_in": {
-			"areas": "<REQUIRED>",
+			"clusters": "<REQUIRED>",
 			"stats": "<REQUIRED>"
 		},
 		"path_out": "./plots"
@@ -15,7 +15,7 @@
 		"content": {
 			"type": "consensus_map",
 			"min_posterior_frequency": 0.5,
-			"labels": "in_area",
+			"labels": "in_cluster",
 			"plot_families": true,
 			"burn_in": 0.2
 		},
@@ -37,7 +37,7 @@
 				"color": "grey",
 				"label": true
 			},
-			"areas": {
+			"clusters": {
 				"size": 20,
 				"color": [],
 				"width": 2,
@@ -62,7 +62,7 @@
 			}
 		},
 		"legend": {
-			"areas": {
+			"clusters": {
 				"add": true,
 				"position": [
 					0.01,
