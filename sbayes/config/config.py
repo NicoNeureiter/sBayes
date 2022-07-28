@@ -10,8 +10,11 @@ try:
     from typing import Literal
 except ImportError:
     from typing_extensions import Literal
+try:
+    import ruamel.yaml as yaml
+except ImportError:
+    import ruamel_yaml as yaml
 
-import ruamel.yaml
 from pydantic import BaseModel, Extra, Field
 from pydantic import root_validator, ValidationError
 from pydantic import FilePath, DirectoryPath
@@ -379,7 +382,7 @@ class SBayesConfig(BaseConfig):
         with open(path, "r") as f:
             path_str = str(path).lower()
             if path_str.endswith(".yaml"):
-                config_dict = ruamel.yaml.load(f, Loader=ruamel.yaml.Loader)
+                config_dict = yaml.load(f, Loader=yaml.Loader)
             else:
                 config_dict = json.load(f)
 
@@ -408,10 +411,10 @@ class SBayesConfig(BaseConfig):
 
 
 def ruaml_yaml_dumps(thing):
-    yaml = ruamel.yaml.YAML()
-    yaml.indent(mapping=4, sequence=4, offset=4)
+    y = yaml.YAML()
+    y.indent(mapping=4, sequence=4, offset=4)
     out = io.StringIO()
-    yaml.dump(thing, stream=out)
+    y.dump(thing, stream=out)
     out.seek(0)
     return out.read()
 
@@ -513,7 +516,7 @@ def generate_template():
             return '<REQUIRED>'
 
     def template(cfg: type(BaseConfig)):
-        d = ruamel.yaml.CommentedMap()
+        d = yaml.CommentedMap()
         for key, field in cfg.__fields__.items():
             if is_config_class(field.type_):
                 d[key] = template(field.type_)
@@ -545,8 +548,8 @@ def generate_template():
         lines.append(line)
         # lines.append('')
 
-    yaml = '\n'.join(lines)
-    return yaml
+    yaml_str = '\n'.join(lines)
+    return yaml_str
 
 
 if __name__ == "__main__":
