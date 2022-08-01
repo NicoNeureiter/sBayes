@@ -313,7 +313,7 @@ class MCMC(_abc.ABC):
 
     def choose_operator(self) -> Operator:
         # Randomly choose one operator to propose a new sample
-        step_weights = [w['weight'] for w in self.callable_operators.values()]
+        step_weights = [w.weight for w in self.callable_operators.values()]
         possible_steps = list(self.callable_operators.keys())
         operator_name = _np.random.choice(possible_steps, 1, p=step_weights)[0]
 

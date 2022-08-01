@@ -132,12 +132,6 @@ class Likelihood(object):
         sample.observation_lhs = observation_lhs
         log_lh = np.sum(np.log(observation_lhs))
 
-        # # Add the probability of observing the sources (if sampled)
-        # if sample.source is not None:
-        #     is_source = np.where(sample.source.value.ravel())
-        #     p_source = weights.ravel()[is_source]
-        #     log_lh += np.sum(np.log(p_source))
-
         return log_lh
 
     @staticmethod
