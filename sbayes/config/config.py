@@ -1,10 +1,12 @@
 import os
+from collections import OrderedDict
 from pathlib import Path
 from enum import Enum
 import warnings
 import json
 import io
 from typing import Union, List, Dict, Optional, Any
+from typing import OrderedDict as OrderedDictType
 
 try:
     from typing import Literal
@@ -227,7 +229,7 @@ class ModelConfig(BaseConfig):
     clusters: Union[int, List[int]] = 1
     """The number of clusters to be inferred."""
 
-    confounders: Dict[str, List[str]] = Field(default_factory=dict)
+    confounders: OrderedDictType[str, List[str]] = Field(default_factory=OrderedDict)
     """Dictionary with confounders as keys and lists of corresponding groups as values."""
 
     sample_source: bool = True

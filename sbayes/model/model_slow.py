@@ -125,12 +125,12 @@ class Likelihood(object):
         weights = update_weights(sample)
 
         # Compute the total log-likelihood
-        observation_lhs = self.get_observation_lhs(component_lhs, weights, sample.source.value)
+        observation_lhs = self.get_observation_lhs(component_lhs, weights, sample.source)
         sample.observation_lhs = observation_lhs
         log_lh = np.sum(np.log(observation_lhs))
 
         # Add the probability of observing the sources (if sampled)
-        if sample.source.value is not None:
+        if sample.source is not None:
             is_source = np.where(sample.source.value.ravel())
             p_source = weights.ravel()[is_source]
             log_lh += np.sum(np.log(p_source))
@@ -149,7 +149,7 @@ class Likelihood(object):
         if source is None:
             return np.sum(weights * all_lh, axis=2).ravel()
         else:
-            is_source = np.where(source.ravel())
+            is_source = np.where(source.value.ravel())
             return all_lh.ravel()[is_source]
 
     def update_component_likelihoods(self, sample: Sample, caching=False) -> NDArray[float]:

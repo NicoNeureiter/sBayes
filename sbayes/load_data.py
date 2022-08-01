@@ -2,18 +2,18 @@
 # -*- coding: utf-8 -*-
 """ Imports the real world data """
 from __future__ import annotations
-import pandas as pd
 import pyproj
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from logging import Logger
 from collections import OrderedDict
-from typing import List, Dict, Optional, Union, Sequence, TypeVar, Type
+from typing import Optional, TypeVar, Type
 
 try:
     from typing import Literal
 except ImportError:
     from typing_extensions import Literal
 
+import pandas as pd
 import numpy as np
 from numpy.typing import NDArray
 
@@ -22,8 +22,14 @@ from sbayes.util import PathLike, read_data_csv, encode_states
 from sbayes.config.config import SBayesConfig
 from sbayes.experiment_setup import Experiment
 
-
+# Type variables and constants
 S = TypeVar('S')  # Self type
+ObjectName = TypeVar('ObjectName', bound=str)
+ObjectID = TypeVar('ObjectID', bound=str)
+FeatureName = TypeVar('FeatureName', bound=str)
+StateName = TypeVar('StateName', bound=str)
+ConfounderName = TypeVar('ConfounderName', bound=str)
+GroupName = TypeVar('GroupName', bound=str)
 
 
 @dataclass
@@ -32,34 +38,38 @@ class Objects:
     """Container class for a set of objects. Each object describes one sample (a language,
     person, state,...) which has an ID, name and location."""
 
-    id: Sequence[str]
-    locations: NDArray[float]  # shape: (n_sites, 2)
-    names: Sequence[str]
+    id: list[ObjectID]
+    locations: NDArray[float]  # shape: (n_objects, 2)
+    names: list[ObjectName]
+    indices: NDArray[int] = field(init=False)  # shape: (n_objects,)
 
-    def __getitem__(self, key):
+    def __post_init__(self):
+        setattr(self, 'indices', np.arange(self.n_objects))
+
+    def __getitem__(self, key) -> list | NDArray:
         return getattr(self, key)
 
     _indices: NDArray[int] = None
 
     @property
-    def indices(self) -> NDArray[int]:
-        if self._indices is None:
-            self._indices = np.arange(len(self.id))
-        return self._indices
+    def n_objects(self):
+        return len(self.id)
+
+    def __len__(self):
+        return len(self.id)
 
     @classmethod
     def from_dataframe(cls: Type[S], data: pd.DataFrame) -> S:
-        n_sites = data.shape[0]
+        n_objects = data.shape[0]
         try:
             x = data["x"]
             y = data["y"]
             id_ext = data["id"].tolist()
-            # id_ext = np.arange(n_sites).astype(str)
         except KeyError:
             raise KeyError("The csv must contain columns `x`, `y` and `id`")
 
-        locations = np.zeros((n_sites, 2))
-        for i in range(n_sites):
+        locations = np.zeros((n_objects, 2))
+        for i in range(n_objects):
             # Define location tuples
             locations[i, 0] = float(x[i])
             locations[i, 1] = float(y[i])
@@ -75,17 +85,25 @@ class Objects:
 @dataclass(frozen=True)
 class Features:
 
-    values: NDArray[bool]  # shape: (n_sites, n_features, n_states)
-    names: NDArray[str]  # shape: (n_features,)
+    values: NDArray[bool]  # shape: (n_objects, n_features, n_states)
+    names: NDArray[FeatureName]  # shape: (n_features,)
     states: NDArray[bool]  # shape: (n_features, n_states)
-    state_names: List[List[str]]  # shape for each feature f: (n_states[f],)
+    state_names: list[list[StateName]]  # shape for each feature f: (n_states[f],)
     na_number: int
 
-    def __getitem__(self, key: str) -> Union[NDArray, List, int]:
+    feature_and_state_names: OrderedDict[FeatureName, list[StateName]] = field(init=False)
+    # TODO This could replace names and state_names
+
+    def __post_init__(self):
+        object.__setattr__(self, 'feature_and_state_names', OrderedDict())
+        for f, states_names_f in self.feature_and_state_names.items():
+            self.feature_and_state_names[f] = states_names_f
+
+    def __getitem__(self, key: str) -> NDArray | list | int:
         return getattr(self, key)
 
     @property
-    def n_sites(self) -> int:
+    def n_objects(self) -> int:
         return self.values.shape[0]
 
     @property
@@ -93,15 +111,15 @@ class Features:
         return self.values.shape[1]
 
     @property
-    def n_states_per_feature(self) -> List[int]:
+    def n_states_per_feature(self) -> list[int]:
         return [sum(applicable) for applicable in self.states]
 
     @classmethod
     def from_dataframes(
-        cls: type,
+        cls: Type[S],
         data: pd.DataFrame,
         feature_states: pd.DataFrame,
-    ):
+    ) -> S:
         feature_data = data.loc[:, feature_states.columns]
         features_dict, na_number = encode_states(feature_data, feature_states)
         features_dict["names"] = feature_states.columns.to_numpy()
@@ -110,11 +128,12 @@ class Features:
 
 @dataclass(frozen=True)
 class Confounder:
-    name: str
-    group_assignment: NDArray[bool]  # shape: (n_groups, n_sites)
-    group_names: NDArray[str]  # shape: (n_groups,)
 
-    def __getitem__(self, key):
+    name: str
+    group_assignment: NDArray[bool]  # shape: (n_groups, n_objects)
+    group_names: NDArray[GroupName]  # shape: (n_groups,)
+
+    def __getitem__(self, key) -> str | NDArray:
         if key == "names":
             return self.group_names
         elif key == "values":
@@ -125,23 +144,23 @@ class Confounder:
         return np.any(self.group_assignment, axis=0)
 
     @property
-    def n_groups(self):
+    def n_groups(self) -> int:
         return len(self.group_names)
 
     @classmethod
     def from_dataframe(
-        cls: type,
+        cls: Type[S],
         confounder_name: str,
-        group_names: List[str],
+        group_names: list[str],
         data: pd.DataFrame,
-    ):
-        n_sites = data.shape[0]
+    ) -> S:
+        n_objects = data.shape[0]
 
         if confounder_name not in data:
             if len(group_names) == 1 and group_names[0] == "<ALL>":
                 # Special case: this effect applies to all objects in the same way and
                 # does not require a separate column in the data file.
-                group_assignment = np.ones((1, n_sites), dtype=bool)
+                group_assignment = np.ones((1, n_objects), dtype=bool)
                 return cls(
                     name=confounder_name,
                     group_assignment=group_assignment,
@@ -156,7 +175,7 @@ class Confounder:
 
         group_names_by_site = data[confounder_name]
         group_names = list(np.unique(group_names_by_site.dropna()))
-        group_assignment = np.zeros((len(group_names), n_sites), dtype=bool)
+        group_assignment = np.zeros((len(group_names), n_objects), dtype=bool)
         for g, g_name in enumerate(group_names):
             group_assignment[g, np.where(group_names_by_site == g_name)] = True
 
@@ -176,7 +195,6 @@ class Data:
     objects: Objects
     features: Features
     confounders: OrderedDict[str, Confounder]
-    prior_confounders: OrderedDict[str, ...]
     crs: Optional[pyproj.CRS]
     geo_cost_matrix: Optional[NDArray[float]]
     network: ComputeNetwork
@@ -188,7 +206,7 @@ class Data:
         features: Features,
         confounders: OrderedDict[str, Confounder],
         projection: Optional[str] = "epsg:4326",
-        geo_costs: Union[Literal["from_data"], PathLike] = "from_data",
+        geo_costs: Literal["from_data"] | PathLike = "from_data",
         logger: Logger = None,
     ):
         self.objects = objects
@@ -206,10 +224,8 @@ class Data:
                 object_names=self.objects.id, file=geo_costs, logger=self.logger
             )
 
-        self.prior_confounders = None  # TODO Load the confounder priors
-
     @classmethod
-    def from_config(cls, config: SBayesConfig, logger=None) -> "Data":
+    def from_config(cls: Type[S], config: SBayesConfig, logger=None) -> S:
         if logger:
             cls.log_loading(logger)
 
@@ -232,7 +248,7 @@ class Data:
         )
 
     @classmethod
-    def from_experiment(cls, experiment: Experiment) -> "Data":
+    def from_experiment(cls: Type[S], experiment: Experiment) -> S:
         return cls.from_config(experiment.config, logger=experiment.logger)
 
     @staticmethod
@@ -242,21 +258,32 @@ class Data:
         logger.info("##########################################")
 
 
-@dataclass(frozen=True)
-class Prior:
-    counts: NDArray[int]
-    states: List
-
-    def __getitem__(self, key):
-        return getattr(self, key)
+# @dataclass(frozen=True)
+# class PriorCounts:
+#     counts: NDArray[int]
+#     states: list[...]
+#
+#     def __getitem__(self, key: str):
+#         return getattr(self, key)
+#
+#
+# def parse_prior_counts(
+#     counts: dict[FeatureName, dict[StateName, int]],
+#     features: Features,
+# ) -> PriorCounts:
+#     ...
+#     return PriorCounts(
+#         counts=...,
+#         states=...,
+#     )
 
 
 def read_features_from_csv(
     data_path: PathLike,
     feature_states_path: PathLike,
-    groups_by_confounder: Dict[str, list],
+    groups_by_confounder: OrderedDict[ConfounderName, list[GroupName]],
     logger: Optional[Logger] = None,
-) -> (Objects, Features, OrderedDict[str, Confounder]):
+) -> (Objects, Features, OrderedDict[ConfounderName, Confounder]):
     """This is a helper function to import data (objects, features, confounders) from a csv file
     Args:
         data_path: path to the data csv file.
@@ -279,7 +306,7 @@ def read_features_from_csv(
 
     if logger:
         logger.info(
-            f"{features.n_sites} sites with {features.n_features} features read from {data_path}."
+            f"{features.n_objects} objects with {features.n_features} features read from {data_path}."
         )
         logger.info(f"{features.na_number} NA value(s) found.")
         logger.info(

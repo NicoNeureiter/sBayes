@@ -2,9 +2,9 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 
-from typing import List, Dict, Sequence, Callable, Optional
-from enum import Enum
+from typing import List, Dict, Sequence, Callable, Optional, OrderedDict
 from dataclasses import dataclass
+import json
 
 import numpy as np
 from numpy.typing import NDArray
@@ -12,11 +12,11 @@ from numpy.typing import NDArray
 import scipy.stats as stats
 from scipy.sparse.csgraph import minimum_spanning_tree, csgraph_from_dense
 
-from sbayes.sampling.state import Sample
+from sbayes.sampling.state import Sample, CalculationNode, ArrayParameter
 from sbayes.util import (compute_delaunay, n_smallest_distances, log_multinom,
-                         dirichlet_logpdf, log_expit)
-from sbayes.config.config import ModelConfig, PriorConfig, DirichletPriorConfig, GeoPriorConfig
-from sbayes.load_data import Data, ComputeNetwork
+                         dirichlet_logpdf, log_expit, PathLike)
+from sbayes.config.config import ModelConfig, PriorConfig, DirichletPriorConfig, GeoPriorConfig, ClusterSizePriorConfig
+from sbayes.load_data import Data, ComputeNetwork, GroupName, ConfounderName, StateName, FeatureName
 
 
 @dataclass
@@ -68,7 +68,7 @@ class Model:
 
         # Create likelihood and prior objects
         self.likelihood = Likelihood(data=self.data, shapes=self.shapes)
-        self.prior = Prior(shapes=self.shapes, config=self.config.prior, data=data)
+        self.prior = Prior(shapes=self.shapes, config=self.config.prior, data=data, sample_source=self.sample_source)
 
     def __call__(self, sample, caching=True):
         """Evaluate the (non-normalized) posterior probability of the given sample."""
@@ -128,17 +128,15 @@ class Likelihood(object):
         weights = update_weights(sample, caching=caching)
 
         # Compute the total log-likelihood
-        observation_lhs = self.get_observation_lhs(component_lhs, weights, sample.source.value)
+        observation_lhs = self.get_observation_lhs(component_lhs, weights, sample.source)
         sample.observation_lhs = observation_lhs
         log_lh = np.sum(np.log(observation_lhs))
 
-        # Add the probability of observing the sources (if sampled)
-        if sample.source.value is not None:
-            is_source = np.where(sample.source.value.ravel())
-            p_source = weights.ravel()[is_source]
-            log_lh += np.sum(np.log(p_source))
-
-        assert not np.isnan(log_lh)
+        # # Add the probability of observing the sources (if sampled)
+        # if sample.source is not None:
+        #     is_source = np.where(sample.source.value.ravel())
+        #     p_source = weights.ravel()[is_source]
+        #     log_lh += np.sum(np.log(p_source))
 
         return log_lh
 
@@ -146,13 +144,13 @@ class Likelihood(object):
     def get_observation_lhs(
         all_lh: NDArray,                # shape: (n_objects, n_features, n_components)
         weights: NDArray[float],        # shape: (n_objects, n_features, n_components)
-        source: NDArray[bool] | None,   # shape: (n_objects, n_features, n_components)
+        source: ArrayParameter | None,   # shape: (n_objects, n_features, n_components)
     ) -> NDArray[float]:                # shape: (n_objects, n_features)
         """Combine likelihood from the selected source distributions."""
         if source is None:
             return np.sum(weights * all_lh, axis=2).ravel()
         else:
-            is_source = np.where(source.ravel())
+            is_source = np.where(source.value.ravel())
             return all_lh.ravel()[is_source]
 
     def update_component_likelihoods(self, sample: Sample, caching=True) -> NDArray[float]:
@@ -215,11 +213,11 @@ class Likelihood(object):
 
 
 def compute_component_likelihood(
-        features: NDArray[bool],
-        probs: NDArray[float],
-        groups: NDArray[bool],  # (n_groups, n_sites)
-        changed_groups: set[int],
-        out: NDArray[float]
+    features: NDArray[bool],
+    probs: NDArray[float],
+    groups: NDArray[bool],  # (n_groups, n_sites)
+    changed_groups: set[int],
+    out: NDArray[float]
 ) -> NDArray[float]:  # shape: (n_sites, n_features)
     out[~groups.any(axis=0), :] = 0.
     for i in changed_groups:
@@ -228,95 +226,6 @@ def compute_component_likelihood(
         p_g = probs[i, :, :]
         out[g, :] = np.einsum('ijk,jk->ij', f_g, p_g)
     return out
-
-
-# def compute_cluster_effect_lh(features, clusters, shapes, cluster_effect,
-#                               outdated_indices=None, outdated_clusters=None, cached_lh=None):
-#     """Computes the areal effect lh, that is the likelihood per site and feature given clusters z1, ... zn
-#     Args:
-#         features(np.array or 'SparseMatrix'): The feature values for all sites and features
-#             shape: (n_sites, n_features, n_categories)
-#         clusters(np.array): Binary arrays indicating the assignment of a site to the current clusters
-#             shape: (n_clusters, n_sites)
-#         cluster_effect(np.array): The areal effect in the current sample
-#             shape: (n_clusters, n_features, n_sites)
-#         shapes (ModelShapes): A dictionary with shape information for building the Likelihood and Prior objects
-#         outdated_indices (IndexSet): Set of outdated (cluster, feature) index-pairs
-#         outdated_clusters (IndexSet): Set of indices, where the cluster changed (=> update across features)
-#         cached_lh (np.array): The cached set of likelihood values (to be updated where outdated).
-#
-#     Returns:
-#         (np.array): the areal effect likelihood per site and feature
-#             shape: (n_sites, n_features)
-#     """
-#
-#     n_clusters = len(clusters)
-#
-#     if cached_lh is None:
-#         lh_cluster_effect = np.zeros((shapes.n_sites, shapes.n_features))
-#         assert outdated_indices.all
-#     else:
-#         lh_cluster_effect = cached_lh
-#
-#     if (outdated_indices is None) or outdated_indices.all:
-#         outdated_clusters = range(n_clusters)
-#     else:
-#         outdated_clusters = set.union(outdated_clusters,
-#                                       {i_cluster for (i_cluster, i_feat) in outdated_indices})
-#
-#     for z in outdated_clusters:
-#         f_z = features[clusters[z], :, :]
-#         p_z = cluster_effect[z, :, :]
-#         lh_cluster_effect[clusters[z], :] = np.einsum('ijk,jk->ij', f_z, p_z)
-#
-#     return lh_cluster_effect
-#
-#
-# def compute_confounding_effects_lh(
-#         features: NDArray[bool],
-#         groups: NDArray[bool],
-#         shapes: ModelShapes,
-#         confounding_effect: NDArray[float],
-#         outdated_indices: IndexSet = None,
-#         cached_lh: NDArray[float] = None,
-# ) -> NDArray[float]:
-#     """Computes the confounding effects lh that is the likelihood per site and feature given confounder[i]
-#
-#     Args:
-#         features: The feature values for all sites and features
-#             shape: (n_sites, n_features, n_categories)
-#         groups: Binary arrays indicating the assignment of a site to each group of the confounder[i]
-#             shape: (n_groups, n_sites)
-#         confounding_effect: The confounding effect of confounder[i] in the current sample
-#             shape: (n_clusters, n_features, n_sites)
-#         shapes: A dictionary with shape information for building the Likelihood and Prior objects
-#         outdated_indices: Set of outdated (group, feature) index-pairs
-#         cached_lh: The cached set of likelihood values (to be updated where outdated).
-#
-#     Returns:
-#         The family likelihood per site and feature
-#             shape: (n_sites, n_features)
-#     """
-#
-#     n_groups = len(groups)
-#     if cached_lh is None:
-#         lh_confounding_effect = np.zeros((shapes.n_sites, shapes.n_features))
-#         assert outdated_indices.all
-#     else:
-#         lh_confounding_effect = cached_lh
-#
-#     # print(outdated_indices.all, outdated_indices)
-#
-#     if outdated_indices.all:
-#         outdated_indices = itertools.product(range(n_groups), range(shapes.n_features))
-#
-#     for g, i_f in outdated_indices:
-#         # Compute the feature likelihood vector (for all sites in family)
-#         f = features[groups[g], i_f, :]
-#         p = confounding_effect[g, i_f, :]
-#         lh_confounding_effect[groups[g], i_f] = f.dot(p)
-#
-#     return lh_confounding_effect
 
 
 def update_weights(sample: Sample, caching=True) -> NDArray[float]:
@@ -369,23 +278,35 @@ class Prior:
         prior_confounding_effects (ConfoundingEffectsPrior): prior on all confounding effects
     """
 
-    def __init__(self, shapes: ModelShapes, config: PriorConfig, data: Data):
+    def __init__(self, shapes: ModelShapes, config: PriorConfig, data: Data, sample_source: bool):
         self.shapes = shapes
         self.config = config
         self.data = data
+        self.sample_source = sample_source
 
         self.size_prior = ClusterSizePrior(config=self.config.objects_per_cluster,
                                            shapes=self.shapes)
         self.geo_prior = GeoPrior(config=self.config.geo,
                                   cost_matrix=data.geo_cost_matrix)
         self.prior_weights = WeightsPrior(config=self.config.weights,
-                                          shapes=self.shapes)
+                                          shapes=self.shapes,
+                                          feature_names=data.features.feature_and_state_names)
         self.prior_cluster_effect = ClusterEffectPrior(config=self.config.cluster_effect,
-                                                       shapes=self.shapes)
-        self.prior_confounding_effects = {
-            k: ConfoundingEffectsPrior(config=v, shapes=self.shapes, conf=k)
-            for k, v in self.config.confounding_effects.items()
-        }
+                                                       shapes=self.shapes,
+                                                       feature_names=data.features.feature_and_state_names)
+        self.prior_confounding_effects = {}
+        for k, v in self.config.confounding_effects.items():
+            self.prior_confounding_effects[k] = ConfoundingEffectsPrior(
+                config=v,
+                shapes=self.shapes,
+                conf=k,
+                feature_names=data.features.feature_and_state_names
+            )
+
+        if self.sample_source:
+            self.source_prior = SourcePrior()
+        else:
+            self.source_prior = lambda *args, **kwargs: 0.0
 
     def __call__(self, sample: Sample, caching=True) -> float:
         """Compute the prior of the current sample.
@@ -404,14 +325,12 @@ class Prior:
         for k, v in self.prior_confounding_effects.items():
             log_prior += v(sample, caching=caching)
 
-        # CHECK_CACHING = True
-        # if CHECK_CACHING:
-        #     assert self.size_prior(sample, caching=True) == self.size_prior(sample, caching=False)
-        #     assert self.geo_prior(sample, caching=True) == self.geo_prior(sample, caching=False)
-        #     assert self.prior_weights(sample, caching=True) == self.prior_weights(sample, caching=False)
-        #     assert self.prior_cluster_effect(sample, caching=True) == self.prior_cluster_effect(sample, caching=False)
-        #     for k, v in self.prior_confounding_effects.items():
-        #         assert v(sample, caching=True) == v(sample, caching=False)
+        if self.sample_source:
+            assert sample.source is not None
+            log_prior += self.source_prior(sample, caching=caching)
+        else:
+            assert sample.source is None
+            pass
 
         return log_prior
 
@@ -427,66 +346,82 @@ class Prior:
         return setup_msg
 
     def __copy__(self):
-        return Prior(shapes=self.shapes, config=self.config, data=self.data)
+        return Prior(
+            shapes=self.shapes,
+            config=self.config,
+            data=self.data,
+            sample_source=self.sample_source,
+        )
+
+
+Concentration = List[NDArray[float]]
 
 
 class DirichletPrior:
 
-    class TYPES(Enum):
-        UNIFORM = 'uniform'
-        DIRICHLET = 'dirichlet'
+    PriorType = DirichletPriorConfig.Types
 
-    config: DirichletPriorConfig | dict[str, DirichletPriorConfig]
+    config: DirichletPriorConfig | dict[GroupName, DirichletPriorConfig]
     shapes: ModelShapes
     initial_counts: float
-    prior_type: Optional[TYPES]
-    counts: Optional[NDArray[float]]
-    concentration: Optional[list[NDArray[float]]]
+    prior_type: Optional[PriorType]
+    concentration: Concentration | dict[GroupName, Concentration]
 
-    def __init__(self, config, shapes, initial_counts=1.):
+    def __init__(
+        self,
+        config: DirichletPriorConfig | dict[GroupName, DirichletPriorConfig],
+        shapes: ModelShapes,
+        feature_names: OrderedDict[FeatureName, list[StateName]],
+        initial_counts=1.
+    ):
         self.config = config
         self.shapes = shapes
         self.initial_counts = initial_counts
+        self.feature_names = feature_names
         self.prior_type = None
-        self.counts = None
         self.concentration = None
 
         self.parse_attributes()
 
-    # todo: reactivate
-    # def load_concentration(self, config: DirichletPriorConfig) -> List[np.ndarray]:
-    #     if config.file:
-    #         return self.parse_concentration_json(config['file'])
-    #     elif 'parameters' in config:
-    #         return self.parse_concentration_dict(config['parameters'])
-    #
-    # def parse_concentration_json(self, json_path: str) -> List[np.ndarray]:
-    #     # Read the concentration parameters from the JSON file
-    #     with open(json_path, 'r') as f:
-    #         concentration_dict = json.load(f)
-    #
-    #     # Parse the resulting dictionary
-    #     return self.parse_concentration_dict(concentration_dict)
-    #
-    # def parse_concentration_dict(self, concentration_dict: dict) -> List[np.ndarray]:
-    #     # Get feature_names and state_names lists to put parameters in the right order
-    #     feature_names = self.data.feature_names['external']
-    #     state_names = self.data.state_names['external']
-    #     assert len(state_names) == len(feature_names) == self.n_features
-    #
-    #     # Compile the array with concentration parameters
-    #     concentration = []
-    #     for f, state_names_f in zip(feature_names, state_names):
-    #         conc_f = [concentration_dict[f][s] for s in state_names_f]
-    #         concentration.append(np.array(conc_f))
-    #
-    #     return concentration
+    @property
+    def n_features(self):
+        return len(self.feature_names)
+
+    def load_concentration(self, config: DirichletPriorConfig) -> List[np.ndarray]:
+        if config.file:
+            return self.parse_concentration_json(config.file)
+        elif config.parameters:
+            return self.parse_concentration_dict(config.parameters)
+        else:
+            raise ValueError('DirichletPrior requires a file or parameters.')
+
+    def parse_concentration_json(self, json_path: PathLike) -> List[np.ndarray]:
+        # Read the concentration parameters from the JSON file
+        with open(json_path, 'r') as f:
+            concentration_dict = json.load(f)
+
+        # Parse the resulting dictionary
+        return self.parse_concentration_dict(concentration_dict)
+
+    def parse_concentration_dict(
+        self,
+        concentration_dict: dict[FeatureName, dict[StateName, float]]
+    ) -> List[np.ndarray]:
+        """Compile the array with concentration parameters"""
+        concentration = []
+        for f, state_names_f in self.feature_names.items():
+            conc_f = [
+                self.initial_counts + concentration_dict[f][s]
+                for s in state_names_f
+            ]
+            concentration.append(np.array(conc_f))
+        return concentration
 
     def get_uniform_concentration(self) -> List[np.ndarray]:
         concentration = []
-        for state_names_f in self.shapes.n_states_per_feature:
+        for n_states_f in self.shapes.n_states_per_feature:
             concentration.append(
-                np.ones(shape=np.sum(state_names_f))
+                np.ones(shape=n_states_f)
             )
         return concentration
 
@@ -498,33 +433,29 @@ class DirichletPrior:
 
     def invalid_prior_message(self, s):
         name = self.__class__.__name__
-        valid_types = ','.join([str(t.value) for t in self.TYPES])
+        valid_types = ', '.join(self.PriorType)
         return f'Invalid prior type {s} for {name} (choose from [{valid_types}]).'
 
 
 class ConfoundingEffectsPrior(DirichletPrior):
 
-    conf: str
+    conf: ConfounderName
 
-    def __init__(self, config, shapes, conf, initial_counts=1.):
-        super(ConfoundingEffectsPrior, self).__init__(config, shapes,
-                                                      initial_counts=initial_counts)
+    def __init__(self, *args, conf: ConfounderName, **kwargs):
+        super(ConfoundingEffectsPrior, self).__init__(*args, **kwargs)
         self.conf = conf
 
     def parse_attributes(self):
-        n_groups = len(self.config)
+        self.concentration = {}
+        for group in self.config.keys():
+            if self.config[group].type is self.PriorType.UNIFORM:
+                self.concentration[group] = self.get_uniform_concentration()
 
-        self.concentration = [np.empty(0) for _ in range(n_groups)]
-        for i_g, group in enumerate(self.config):
-            if self.config[group]['type'] == 'uniform':
-                self.concentration[i_g] = self.get_uniform_concentration()
-
-            # todo reactivate
-            # elif self.config[group]['type'] == 'dirichlet':
-            #     self.concentration[i_g] = self.load_concentration(self.config[group])
+            elif self.config[group].type is self.PriorType.DIRICHLET:
+                self.concentration[group] = self.load_concentration(self.config[group])
 
             else:
-                raise ValueError(self.invalid_prior_message(self.config[group]['type']))
+                raise ValueError(self.invalid_prior_message(self.config[group].type))
 
     def __call__(self, sample: Sample, caching=True) -> float:
         """"Calculate the log PDF of the confounding effects prior.
@@ -533,44 +464,39 @@ class ConfoundingEffectsPrior(DirichletPrior):
             sample: Current MCMC sample.
 
         Returns:
-            float: Logarithm of the prior probability density.
+            Logarithm of the prior probability density.
         """
+
         parameter = sample.confounding_effects[self.conf]
         cache = sample.cache.confounding_effects_prior[self.conf]
         if caching and not cache.is_outdated():
-            return np.sum(cache.value)
+            return cache.value.sum()
 
-        prior = compute_confounding_effects_prior(
-            confounding_effect=parameter.value,
-            concentration=self.concentration,
-            applicable_states=self.shapes.states_per_feature,
-            outdated_groups=cache.what_changed(f'c_{self.conf}', caching=caching),
-            cached_prior=cache.value,
-            broadcast=False
-        )
+        group_names = sample.confounders[self.conf].group_names
+        with cache.edit() as cached_priors:
+            for i_group in cache.what_changed(f'c_{self.conf}', caching=caching):
+                group = group_names[i_group]
 
-        # assert np.all(
-        #     prior == compute_confounding_effects_prior(
-        #         confounding_effect=parameter.value,
-        #         concentration=self.concentration,
-        #         applicable_states=self.shapes.states_per_feature,
-        #         outdated_groups=cache.what_changed(f'c_{self.conf}', caching=False),
-        #         cached_prior=cache.value,
-        #         broadcast=False
-        #     )
-        # )
+                if self.config[group].type is self.PriorType.UNIFORM:
+                    cached_priors[i_group] = 0.0
+                    continue
 
-        cache.update_value(prior)
-        return np.sum(cache.value)
+                cached_priors[i_group] = compute_group_effect_prior(
+                    group_effect=parameter.value[i_group],
+                    concentration=self.concentration[group],
+                    applicable_states=self.shapes.states_per_feature,
+                )
+
+        return cache.value.sum()
 
     def get_setup_message(self):
         """Compile a set-up message for logging."""
         msg = f"Prior on confounding effect {self.conf}:\n"
 
         for i_g, group in enumerate(self.config):
-            if self.config[group]['type'] == 'uniform':
+            if self.config[group].type is self.PriorType.UNIFORM:
                 msg += f'\tUniform prior for confounder {self.conf} = {group}.\n'
-            elif self.config[group]['type'] == 'dirichlet':
+            elif self.config[group].type is self.PriorType.DIRICHLET:
                 msg += f'\tDirichlet prior for confounder {self.conf} = {group}.\n'
             else:
                 raise ValueError(self.invalid_prior_message(self.config.type))
@@ -579,18 +505,12 @@ class ConfoundingEffectsPrior(DirichletPrior):
 
 class ClusterEffectPrior(DirichletPrior):
 
-    class TYPES(Enum):
-        UNIFORM = 'uniform'
-
     def parse_attributes(self):
-
-        if self.config.type == 'uniform':
-            self.prior_type = self.TYPES.UNIFORM
-            self.counts = np.full(shape=(self.shapes['n_features'], self.shapes['n_states']),
-                                  fill_value=self.initial_counts)
-
+        self.prior_type = self.config.type
+        if self.prior_type is self.PriorType.UNIFORM:
+            self.concentration = self.get_uniform_concentration()
         else:
-            raise ValueError(self.invalid_prior_message(self.config.type))
+            raise ValueError(self.invalid_prior_message(self.prior_type))
 
     def __call__(self, sample: Sample, caching=True) -> float:
         """Compute the prior for the areal effect (or load from cache).
@@ -599,21 +519,26 @@ class ClusterEffectPrior(DirichletPrior):
         Returns:
             Logarithm of the prior probability density.
         """
-        # TODO: reactivate caching once we implement more complex priors
-        # parameter = sample.clusters
-        # cache = sample.cache.cluster_effect_prior
-        # if not cache.is_outdated():
-        #     return np.sum(cache.value)
+        parameter = sample.cluster_effect
+        cache = sample.cache.cluster_effect_prior
+        if not cache.is_outdated():
+            # return np.sum(cache.value)
+            return cache.value
 
-        if self.prior_type == self.TYPES.UNIFORM:
-            prior_cluster_effect = 0.
+        log_p = 0.0
+        if self.prior_type is self.PriorType.UNIFORM:
+            pass
         else:
-            raise ValueError(self.invalid_prior_message(self.prior_type))
+            for i_cluster in range(sample.n_clusters):
+                log_p += compute_group_effect_prior(
+                    group_effect=parameter.value[i_cluster],
+                    concentration=self.concentration,
+                    applicable_states=self.shapes.states_per_feature,
+                )
 
-        # cache.update_value(prior_cluster_effect)
+        cache.update_value(log_p)
         # return np.sum(cache.value)
-
-        return prior_cluster_effect
+        return log_p
 
     def get_setup_message(self):
         """Compile a set-up message for logging."""
@@ -622,17 +547,13 @@ class ClusterEffectPrior(DirichletPrior):
 
 class WeightsPrior(DirichletPrior):
 
-    class TYPES(Enum):
-        UNIFORM = 'uniform'
-
     def parse_attributes(self):
-        if self.config['type'] == 'uniform':
-            self.prior_type = self.TYPES.UNIFORM
+        self.prior_type = self.config.type
+        if self.prior_type is self.PriorType.UNIFORM:
             self.counts = np.full(shape=(self.shapes['n_features'], self.shapes['n_states']),
                                   fill_value=self.initial_counts)
-
         else:
-            raise ValueError(self.invalid_prior_message(self.config['type']))
+            raise ValueError(self.invalid_prior_message(self.prior_type))
 
     def __call__(self, sample: Sample, caching=True) -> float:
         """Compute the prior for weights (or load from cache).
@@ -642,19 +563,28 @@ class WeightsPrior(DirichletPrior):
             Logarithm of the prior probability density.
         """
         # TODO: reactivate caching once we implement more complex priors
-        # parameter = sample.weights
-        # cache = sample.cache.weights_prior
-        # if not cache.is_outdated():
-        #     return np.sum(cache.value)
+        parameter = sample.weights
+        cache = sample.cache.weights_prior
+        if not cache.is_outdated():
+            # return np.sum(cache.value)
+            return cache.value
 
-        if self.prior_type == self.TYPES.UNIFORM:
-            prior_weights = 0.
+        log_p = 0.0
+        if self.prior_type is self.PriorType.UNIFORM:
+            pass
+        elif self.prior_type is self.PriorType.DIRICHLET:
+            log_p = compute_group_effect_prior(
+                group_effect=parameter.value,
+                concentration=self.concentration,
+                applicable_states=np.ones_like(parameter.value),
+            )
         else:
             raise ValueError(self.invalid_prior_message(self.prior_type))
 
-        # cache.update_value(prior_weights)
+        cache.update_value(log_p)
         # return np.sum(cache.value)
-        return prior_weights
+
+        return log_p
 
     def get_setup_message(self):
         """Compile a set-up message for logging."""
@@ -662,9 +592,6 @@ class WeightsPrior(DirichletPrior):
 
 
 class SourcePrior(object):
-
-    def __init__(self, config):
-        self.config = config
 
     def __call__(self, sample: Sample, caching=True) -> float:
         """Compute the prior for weights (or load from cache).
@@ -677,45 +604,30 @@ class SourcePrior(object):
         if caching and not cache.is_outdated():
             return cache.value
 
-        weights = update_weights(sample, caching=caching)
+        weights = update_weights(sample)
         is_source = np.where(sample.source.value.ravel())
         observation_weights = weights.ravel()[is_source]
-        source_prior = np.sum(np.log(observation_weights))
+        source_prior = np.log(observation_weights).sum()
 
         cache.update_value(source_prior)
         return source_prior
 
 
-class ClusterSizePrior(object):
+class ClusterSizePrior:
 
-    class TYPES(Enum):
-        UNIFORM_AREA = 'uniform_area'
-        UNIFORM_SIZE = 'uniform_size'
-        QUADRATIC_SIZE = 'quadratic'
+    PriorType = ClusterSizePriorConfig.Types
 
-    def __init__(self, config, shapes, initial_counts=1.):
+    def __init__(self, config: ClusterSizePriorConfig, shapes: ModelShapes, initial_counts=1.):
         self.config = config
         self.shapes = shapes
         self.initial_counts = initial_counts
-        self.prior_type = None
+        self.prior_type = config.type
 
         self.cached = None
-        self.parse_attributes()
 
     def invalid_prior_message(self, s):
-        valid_types = ','.join([str(t.value) for t in self.TYPES])
+        valid_types = ','.join(self.PriorType)
         return f'Invalid prior type {s} for size prior (choose from [{valid_types}]).'
-
-    def parse_attributes(self):
-        size_prior_type = self.config['type']
-        if size_prior_type == 'uniform_area':
-            self.prior_type = self.TYPES.UNIFORM_AREA
-        elif size_prior_type == 'uniform_size':
-            self.prior_type = self.TYPES.UNIFORM_SIZE
-        elif size_prior_type == 'quadratic':
-            self.prior_type = self.TYPES.QUADRATIC_SIZE
-        else:
-            raise ValueError(self.invalid_prior_message(size_prior_type))
 
     def __call__(self, sample: Sample, caching=True) -> float:
         """Compute the prior probability of a set of clusters, based on its number of objects.
@@ -730,19 +642,19 @@ class ClusterSizePrior(object):
 
         sizes = np.sum(sample.clusters.value, axis=-1)
 
-        if self.prior_type == self.TYPES.UNIFORM_SIZE:
+        if self.prior_type is self.PriorType.UNIFORM_SIZE:
             # P(size)   =   uniform
             # P(zone | size)   =   1 / |{clusters of size k}|   =   1 / (n choose k)
             logp = -log_multinom(self.shapes['n_sites'], sizes)
 
-        elif self.prior_type == self.TYPES.QUADRATIC_SIZE:
+        elif self.prior_type is self.PriorType.QUADRATIC_SIZE:
             # Here we assume that only a quadratically growing subset of clusters is
             # plausibly permitted by the likelihood and/or geo-prior.
             # P(zone | size) = 1 / |{"plausible" clusters of size k}| = 1 / k**2
             log_plausible_clusters = np.log(sizes ** 2)
             logp = -np.sum(log_plausible_clusters)
 
-        elif self.prior_type == self.TYPES.UNIFORM_AREA:
+        elif self.prior_type is self.PriorType.UNIFORM_AREA:
             # No size prior
             # P(zone | size) = P(zone) = const.
             logp = 0.
@@ -758,7 +670,7 @@ class ClusterSizePrior(object):
 
     # @staticmethod
     # def sample(prior_type, n_clusters, n_sites):
-    #     if prior_type == ClusterSizePrior.TYPES.UNIFORM_AREA:
+    #     if prior_type is ClusterSizePrior.PriorTypes.UNIFORM_AREA:
     #         onehots = np.eye(n_clusters+1, n_clusters, dtype=bool)
     #         return onehots[np.random.randint(0, n_clusters+1, size=n_sites)].T
     #     else:
@@ -771,22 +683,20 @@ Aggregator = Callable[[Sequence[float]], float]
 
 class GeoPrior(object):
 
-    class TYPES(Enum):
-        UNIFORM = 'uniform'
-        COST_BASED = 'cost_based'
-
+    PriorTypes = GeoPriorConfig.Types
+    AggrStrats = GeoPriorConfig.AggregationStrategies
     AGGREGATORS: Dict[str, Aggregator] = {
-        'mean': np.mean,
-        'sum': np.sum,
-        'max': np.max,
+        AggrStrats.MEAN: np.mean,
+        AggrStrats.SUM: np.sum,
+        AggrStrats.MAX: np.max,
     }
 
-    def __init__(self, config, cost_matrix=None, initial_counts=1.):
+    def __init__(self, config: GeoPriorConfig, cost_matrix=None, initial_counts=1.):
         self.config = config
         self.cost_matrix = cost_matrix
         self.initial_counts = initial_counts
+        self.prior_type = config.type
 
-        self.prior_type = None
         self.covariance = None
         self.aggregator = None
         self.aggregation_policy = None
@@ -799,44 +709,34 @@ class GeoPrior(object):
         self.parse_attributes(config)
 
     def parse_attributes(self, config: GeoPriorConfig):
-        if config.type is config.Types.UNIFORM:
-            self.prior_type = self.TYPES.UNIFORM
-
-        elif config.type is config.Types.COST_BASED:
+        if self.prior_type is config.Types.COST_BASED:
             if self.cost_matrix is None:
                 ValueError('`cost_based` geo-prior requires a cost_matrix.')
 
-            self.prior_type = self.TYPES.COST_BASED
-            self.scale = config['rate']
-            self.aggregation_policy = config['aggregation']
-            assert self.aggregation_policy in ['mean', 'sum', 'max']
-            self.aggregator = self.AGGREGATORS.get(self.aggregation_policy)
-            if self.aggregator is None:
-                raise ValueError(f'Unknown aggregation policy "{self.aggregation_policy}" in geo prior.')
+            self.prior_type = self.PriorTypes.COST_BASED
+            self.scale = config.rate
+            self.aggregation_policy = config.aggregation
+            self.aggregator = self.AGGREGATORS[self.aggregation_policy]
 
-            assert config['probability_function'] in ['exponential', 'sigmoid']
             self.probability_function = self.parse_prob_function(
-                prob_function_type=config['probability_function'],
+                prob_function_type=config.probability_function,
                 scale=self.scale,
                 inflection_point=config.inflection_point
             )
-        else:
-            raise ValueError('Geo prior not supported')
 
     @staticmethod
     def parse_prob_function(
             prob_function_type: str,
             scale: float,
             inflection_point: Optional[float] = None
-    ) -> callable:
+    ) -> Callable[[float], float]:
 
-        if prob_function_type == 'exponential':
+        if prob_function_type is GeoPriorConfig.probability_function.EXPONENTIAL:
             return lambda x: -x / scale
             # == log(e**(-x/scale))
 
-        elif prob_function_type == 'sigmoid':
+        elif prob_function_type is GeoPriorConfig.probability_function.SIGMOID:
             assert inflection_point is not None
-
             x0 = inflection_point
             return lambda x: log_expit(-(x - x0) / scale) - log_expit(x0 / scale)
             # The last term `- log_expit(x0/scale)` scales the sigmoid to be 1 at distance 0
@@ -844,20 +744,20 @@ class GeoPrior(object):
         else:
             raise ValueError(f'Unknown probability_function `{prob_function_type}`')
 
-    def __call__(self, sample: Sample, caching=True):
+    def __call__(self, sample: Sample, caching=True) -> float:
         """Compute the geo-prior of the current cluster (or load from cache).
         Args:
-            sample (Sample): Current MCMC sample
+            sample: Current MCMC sample
         Returns:
-            float: Logarithm of the prior probability density
+            Logarithm of the prior probability density
         """
         cache = sample.cache.geo_prior
         if caching and not cache.is_outdated():
             return cache.value
 
-        if self.prior_type is self.TYPES.UNIFORM:
+        if self.prior_type is self.PriorTypes.UNIFORM:
             geo_prior = 0.
-        elif self.prior_type is self.TYPES.COST_BASED:
+        elif self.prior_type is self.PriorTypes.COST_BASED:
             geo_prior = compute_cost_based_geo_prior(
                 clusters=sample.clusters.value,
                 cost_mat=self.cost_matrix,
@@ -871,13 +771,13 @@ class GeoPrior(object):
         return geo_prior
 
     def invalid_prior_message(self, s):
-        valid_types = ','.join([str(t.value) for t in self.TYPES])
+        valid_types = ','.join(self.PriorTypes)
         return f'Invalid prior type {s} for geo-prior (choose from [{valid_types}]).'
 
     def get_setup_message(self):
         """Compile a set-up message for logging."""
         msg = f'Geo-prior: {self.prior_type.value}\n'
-        if self.prior_type == self.TYPES.COST_BASED:
+        if self.prior_type is self.PriorTypes.COST_BASED:
             prob_fun = self.config["probability_function"]
             msg += f'\tProbability function: {prob_fun}\n'
             msg += f'\tAggregation policy: {self.aggregation_policy}\n'
@@ -931,14 +831,14 @@ def compute_gaussian_geo_prior(
         prior_z = stats.multivariate_normal.logpdf(diffs, mean=[0, 0], cov=cov)
         log_prior = np.append(log_prior, prior_z)
 
-    return np.mean(log_prior)
+    return log_prior.mean()
 
 
 def compute_cost_based_geo_prior(
-        clusters: np.array,
-        cost_mat: np.array,
-        aggregator: Aggregator,
-        probability_function: Callable[[float], float],
+    clusters: NDArray[bool],  # shape: (n_clusters, n_objects)
+    cost_mat: NDArray,        # shape: (n_objects, n_objects)
+    aggregator: Aggregator,
+    probability_function: Callable[[float], float],
 ) -> float:
     """ This function computes the geo prior for the sum of all distances of the mst of a zone
     Args:
@@ -973,57 +873,28 @@ def compute_cost_based_geo_prior(
     return log_prior
 
 
-def compute_confounding_effects_prior(
-        confounding_effect: NDArray[float],  # shape: (n_groups, n_features, n_states)
+def compute_group_effect_prior(
+        group_effect: NDArray[float],  # shape: (n_features, n_states)
         concentration: List[NDArray],  # shape: (n_applicable_states[f],) for f in features
         applicable_states: List[NDArray],  # shape: (n_applicable_states[f],) for f in features
-        outdated_groups: set[int],
-        cached_prior: NDArray[float] = None,  # shape: (n_groups)
-        broadcast: bool = False
-) -> NDArray[float]:  # shape: (n_groups, n_features)
-    """" This function evaluates the prior for p_families
+) -> float:
+    """" This function evaluates the prior on probability vectors in a cluster or confounder group.
     Args:
-        confounding_effect: The confounding effect [i] from the sample
+        group_effect: The group effect for a confounder
         concentration: List of Dirichlet concentration parameters.
         applicable_states: List of available states per feature
-        outdated_groups: The features which need to be updated in each group
-        cached_prior: The cached prior for confound effect [i]
-        broadcast: Apply the same prior for all groups (TRUE)?
     Returns:
-        The prior log-pdf of the confounding effect for each group and feature
+        The prior log-pdf of the confounding effect for each feature
     """
-    n_groups, n_features, n_states = confounding_effect.shape
+    n_features, n_states = group_effect.shape
 
-    for group in outdated_groups:
-        cached_prior[group] = 0.0
-        for f in range(n_features):
-            if broadcast:
-                # One prior is applied to all groups
-                concentration_group = concentration[f]
+    log_p = 0.0
+    for f in range(n_features):
+        states_f = applicable_states[f]
+        conf_group = group_effect[f, states_f]
+        log_p += dirichlet_logpdf(x=conf_group, alpha=concentration[f])
 
-            else:
-                # One prior per group
-                concentration_group = concentration[group][f]
-
-            states_f = applicable_states[f]
-            conf_group = confounding_effect[group, f, states_f]
-
-            cached_prior[group] += dirichlet_logpdf(x=conf_group, alpha=concentration_group)
-
-    # for group, f in outdated_indices:
-    #     if broadcast:
-    #         # One prior is applied to all groups
-    #         concentration_group = concentration[f]
-    #
-    #     else:
-    #         # One prior per group
-    #         concentration_group = concentration[group][f]
-    #
-    #     states_f = applicable_states[f]
-    #     conf_group = confounding_effect[group, f, states_f]
-    #
-    #     log_prior[group, f] = dirichlet_logpdf(x=conf_group, alpha=concentration_group)
-    return cached_prior
+    return log_p
 
 
 if __name__ == '__main__':
