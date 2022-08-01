@@ -1,3 +1,4 @@
+from __future__ import annotations
 from typing import TextIO, Optional
 from abc import ABC, abstractmethod
 
@@ -6,12 +7,14 @@ import numpy.typing as npt
 import tables
 
 from sbayes.load_data import Data
+from sbayes.sampling.operators import Operator
 from sbayes.util import format_cluster_columns, get_best_permutation
 from sbayes.model import Model
 from sbayes.sampling.state import Sample, ModelCache
 
 
 class ResultsLogger(ABC):
+
     def __init__(
         self,
         path: str,
@@ -66,6 +69,11 @@ class ParametersCSVLogger(ResultsLogger):
         self.log_contribution_per_cluster = log_contribution_per_cluster
         self.match_clusters = match_clusters
         self.cluster_sum: Optional[npt.NDArray[int]] = None
+
+        # For logging single cluster likelihood values we do not want to use the sampled
+        # source arrays
+        self.model.sample_source = False
+        self.model.prior.sample_source = False
 
     def write_header(self, sample: Sample):
         feature_names = self.data.features.names
@@ -134,14 +142,14 @@ class ParametersCSVLogger(ResultsLogger):
             permutation = get_best_permutation(sample.clusters.value, self.cluster_sum)
 
             # Permute parameters
-            p_clusters = sample.cluster_effect.value[permutation, :, :]
+            cluster_effect = sample.cluster_effect.value[permutation, :, :]
             clusters = sample.clusters.value[permutation, :]
 
             # Update cluster_sum for matching future samples
             self.cluster_sum += clusters
         else:
             # Unpermuted parameters
-            p_clusters = sample.cluster_effect.value
+            cluster_effect = sample.cluster_effect.value
             clusters = sample.clusters.value
 
         row = {
@@ -177,7 +185,7 @@ class ParametersCSVLogger(ResultsLogger):
             for i_f, f in enumerate(feature_names):
                 for i_s, s in enumerate(state_names[i_f]):
                     col_name = f"areal_a{i_a+1}_{f}_{s}"
-                    row[col_name] = sample.cluster_effect.value[i_a, i_f, i_s]
+                    row[col_name] = cluster_effect[i_a, i_f, i_s]
 
         # Confounding effects
         for conf in self.data.confounders.values():
@@ -190,11 +198,11 @@ class ParametersCSVLogger(ResultsLogger):
         # lh, prior, posteriors
         if self.log_contribution_per_cluster:
             sample_single_cluster = sample.copy()
-            sample_single_cluster.source._value = None
+            sample_single_cluster._source = None
 
             for i in range(sample.n_clusters):
                 sample_single_cluster.clusters._value = clusters[[i], :]
-                sample_single_cluster.cluster_effect._value = sample.cluster_effect.value[[i],...]
+                sample_single_cluster.cluster_effect._value = cluster_effect[[i],...]
                 sample_single_cluster.cache = ModelCache(sample_single_cluster)
                 lh = self.model.likelihood(sample_single_cluster, caching=False)
                 prior = self.model.prior(sample_single_cluster, caching=False)
@@ -270,3 +278,54 @@ class LikelihoodLogger(ResultsLogger):
 
     def _write_sample(self, sample: Sample):
         self.logged_likelihood_array.append(sample.observation_lhs[None, ...])
+
+
+class OperatorStatsLogger(ResultsLogger):
+
+    """The OperatorStatsLogger keeps an operator_stats.txt file which contains statistics
+     on each MCMC operator. The file is updated at each logged sample."""
+
+    COL_WIDTHS = [20, 8, 8, 8, 10]
+
+    def __init__(self, *args, operators: list[Operator], **kwargs):
+        super().__init__(*args, **kwargs)
+        self.operators = operators
+
+    def write_sample(self, sample: Sample):
+        with open(self.path, 'w') as self.file:
+            self.write_to(self.file)
+
+    def write_to(self, out: TextIO):
+        out.write(self.get_log_message_header() + '\n')
+        for operator in self.operators:
+            out.write(self.get_log_message_row(operator) + '\n')
+
+    @classmethod
+    def get_log_message_header(cls) -> str:
+        name_header = str.ljust('OPERATOR', cls.COL_WIDTHS[0])
+        acc_header = str.ljust('ACCEPTS', cls.COL_WIDTHS[1])
+        rej_header = str.ljust('REJECTS', cls.COL_WIDTHS[2])
+        total_header = str.ljust('TOTAL', cls.COL_WIDTHS[3])
+        acc_rate_header = 'ACC. RATE'
+
+        return '\t'.join([name_header, acc_header, rej_header, total_header, acc_rate_header])
+
+    @classmethod
+    def get_log_message_row(cls, operator: Operator) -> str:
+        if operator.total == 0:
+            row_strings = [operator.operator_name, '-', '-', '-', '-']
+            return '\t'.join([str.ljust(x, cls.COL_WIDTHS[i]) for i, x in enumerate(row_strings)])
+
+        name_str = str.ljust(operator.operator_name, cls.COL_WIDTHS[0])
+        acc_str = str.ljust(str(operator.accepts), cls.COL_WIDTHS[1])
+        rej_str = str.ljust(str(operator.rejects), cls.COL_WIDTHS[2])
+        total_str = str.ljust(str(operator.total), cls.COL_WIDTHS[3])
+        acc_rate_str = '%.2f%%' % (100 * operator.acceptance_rate)
+
+        return '\t'.join([name_str, acc_str, rej_str, total_str, acc_rate_str])
+
+    def write_header(self, sample: Sample):
+        pass
+
+    def _write_sample(self, sample: Sample):
+        pass
