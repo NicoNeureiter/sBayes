@@ -10,6 +10,7 @@ from numpy.typing import NDArray
 from numpy.core.umath_tests import inner1d
 import scipy.stats as stats
 
+from sbayes.load_data import ConfounderName
 from sbayes.sampling.state import Sample
 from sbayes.util import dirichlet_logpdf, normalize, get_neighbours
 from sbayes.model import Model, Likelihood, Prior, normalize_weights, update_weights
@@ -85,6 +86,19 @@ class Operator(ABC):
     def register_reject(self):
         self.rejects += 1
 
+    @property
+    def total(self):
+        return self.accepts + self.rejects
+
+    @property
+    def acceptance_rate(self):
+        return self.accepts / self.total
+
+    @property
+    def operator_name(self) -> str:
+        return self.__class__.__name__
+
+
 class DirichletOperator(Operator):
 
     """Base class for operators modifying probability vectors using a dirichlet proposal."""
@@ -125,7 +139,7 @@ class DirichletOperator(Operator):
 
 class AlterWeights(DirichletOperator):
 
-    STEP_PRECISION = 10
+    STEP_PRECISION = 30
 
     def _propose(self, sample: Sample, **kwargs):
         """Modifies one weight of one feature in the current sample
@@ -210,17 +224,17 @@ class AlterConfoundingEffects(DirichletOperator):
 
     STEP_PRECISION = 10
 
-    def __init__(self, weight: float, applicable_states: NDArray[bool], **kwargs):
+    def __init__(self, weight: float, confounder: ConfounderName, applicable_states: NDArray[bool], **kwargs):
         super().__init__(weight=weight, **kwargs)
+        self.confounder = confounder
         self.applicable_states = applicable_states
 
     def _propose(self, sample: Sample, **kwargs) -> tuple[Sample, float, float]:
         """This function modifies confounding effect [i] of one state and one feature in the current sample"""
         sample_new = sample.copy()
-        conf = kwargs["additional_parameters"]["confounder"]
 
         # Randomly choose one of the families and one of the features
-        group_id = np.random.randint(0, sample.n_groups(conf))
+        group_id = np.random.randint(0, sample.n_groups(self.confounder))
         f_id = np.random.choice(range(sample.n_features))
 
         # Different features have different applicable states
@@ -230,7 +244,7 @@ class AlterConfoundingEffects(DirichletOperator):
         states_to_alter = random.sample(list(f_states), 2)
 
         # Get the current probabilities
-        p_current = sample.confounding_effects[conf].value[
+        p_current = sample.confounding_effects[self.confounder].value[
             group_id, f_id, states_to_alter
         ]
 
@@ -246,7 +260,7 @@ class AlterConfoundingEffects(DirichletOperator):
         p_new = p_new_t * p_current.sum()
 
         # Update sample
-        with sample_new.confounding_effects[conf].edit_group(group_id) as group_effect:
+        with sample_new.confounding_effects[self.confounder].edit_group(group_id) as group_effect:
             group_effect[f_id, states_to_alter] = p_new
 
         return sample_new, log_q, log_q_back
@@ -496,6 +510,7 @@ class GibbsSampleConfoundingEffects(Operator):
         conf = self.confounder
         if i_group is None:
             i_group = np.random.randint(0, sample.n_groups(conf))
+        group = sample.confounders[conf].group_names[i_group]
 
         if self.sample_from_prior:
             # To sample from prior we emulate an empty dataset
@@ -515,7 +530,7 @@ class GibbsSampleConfoundingEffects(Operator):
 
         # Get the prior pseudo-counts
         prior = self.get_prior(sample)
-        prior_counts = prior.prior_confounding_effects[conf].concentration[i_group]
+        prior_counts = prior.prior_confounding_effects[conf].concentration[group]
 
         # Resample confounding effect according to these observations
         with sample.confounding_effects[conf].edit_group(i_group) as group_effect:
@@ -951,15 +966,11 @@ class AlterCluster(_AlterCluster):
     def grow_cluster(self, sample: Sample) -> tuple[Sample, float, float]:
         """Grow a clusters in the current sample (i.e. add a new site to one cluster)."""
         sample_new = sample.copy()
-        clusters_current = sample.clusters
-        occupied = clusters_current.any_cluster()
-
-        if sample.source is None:
-            self.resample_source = False
+        occupied = sample.clusters.any_cluster()
 
         # Randomly choose one of the clusters to modify
-        z_id = np.random.choice(range(clusters_current.shape[0]))
-        cluster_current = clusters_current.value[z_id, :]
+        z_id = np.random.choice(range(sample.clusters.n_clusters))
+        cluster_current = sample.clusters.value[z_id, :]
 
         # Check if cluster is small enough to grow
         current_size = np.count_nonzero(cluster_current)
@@ -1000,6 +1011,7 @@ class AlterCluster(_AlterCluster):
         log_q_back = np.log(q_back)
 
         if self.resample_source:
+            assert sample.source is not None
             sample_new, log_q_s, log_q_back_s = self.propose_new_sources(
                 sample, sample_new, [object_add]
             )
@@ -1011,14 +1023,10 @@ class AlterCluster(_AlterCluster):
     def shrink_cluster(self, sample: Sample) -> tuple[Sample, float, float]:
         """Shrink a cluster in the current sample (i.e. remove one object from one cluster)."""
         sample_new = sample.copy()
-        clusters_current = sample.clusters.value
-
-        if sample.source is None:
-            self.resample_source = False
 
         # Randomly choose one of the clusters to modify
-        z_id = np.random.choice(range(clusters_current.shape[0]))
-        cluster_current = clusters_current[z_id, :]
+        z_id = np.random.choice(range(sample.clusters.n_clusters))
+        cluster_current = sample.clusters.value[z_id, :]
 
         # Check if cluster is big enough to shrink
         current_size = np.count_nonzero(cluster_current)
@@ -1047,13 +1055,11 @@ class AlterCluster(_AlterCluster):
             q_back_connected = 1 / np.count_nonzero(back_neighbours)
             q_back += self.p_grow_connected * q_back_connected
 
-        # Back-probability (shrinking)
-        q_back = 1 / (current_size + 1)
-
         log_q = np.log(q)
         log_q_back = np.log(q_back)
 
         if self.resample_source:
+            assert sample.source is not None
             sample_new, log_q_s, log_q_back_s = self.propose_new_sources(
                 sample, sample_new, [object_remove]
             )

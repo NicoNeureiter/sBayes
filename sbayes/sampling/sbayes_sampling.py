@@ -9,10 +9,12 @@ from sbayes.sampling.mcmc import MCMC
 from sbayes.model import normalize_weights
 from sbayes.sampling.state import Sample
 from sbayes.sampling.operators import (
+    Operator,
     AlterWeights,
     AlterClusterEffect,
     GibbsSampleWeights,
     AlterClusterGibbsish,
+    AlterClusterGibbsish2,
     AlterCluster,
     GibbsSampleSource,
     AlterConfoundingEffects,
@@ -157,11 +159,11 @@ class ClusterMCMC(MCMC):
             # log_q_back_s = self.calculate_current_source_prob(sample)
 
         # Compute lh per language with and without zone
-        zone_lh_z = np.einsum('ijk,jk->ij', self.features[available], sample.cluster_effect[i_cluster])
+        zone_lh_z = np.einsum('ijk,jk->ij', self.features[available], sample.cluster_effect.value[i_cluster])
         all_lh = likelihood.update_component_likelihoods(sample)[available, :].copy()
         all_lh[..., 0] = zone_lh_z
 
-        has_components = sample.has_components[available, :].copy()
+        has_components = sample.cache.has_components.value[available, :].copy()
         weights_with_z = normalize_weights(sample.weights, has_components)
                                            # missing_family_as_universal=universe_for_orphans)
         has_components[:, 0] = False
@@ -376,7 +378,7 @@ class ClusterMCMC(MCMC):
         """
 
         n_groups = self.n_groups[conf]
-        groups = self.data.confounders[conf]['values']
+        groups = self.data.confounders[conf].group_assignment
 
         initial_confounding_effect = np.zeros((n_groups, self.n_features, self.features.shape[2]))
 
@@ -471,37 +473,35 @@ class ClusterMCMC(MCMC):
     class ClusterError(Exception):
         pass
 
-    def get_operators(self, operators_config: OperatorsConfig):
+    def get_operators(self, operators_config: OperatorsConfig) -> dict[str, Operator]:
         """Get all relevant operator functions for proposing MCMC update steps and their probabilities
         Args:
             operators_config: dictionary with names of all operators (keys) and their weights (values)
         Returns:
-            dict: for each operator: functions (callable), weights (float) and if applicable additional parameters
+            Dictionary mapping operator names to operator objects
         """
 
-        GIBBSISH_CLUSTER_STEPS = False
-
-        operators = {
-            # 'gibbsish_sample_cluster': AlterClusterGibbsish(
-            #     weight=operators_config.clusters,
-            #     adjacency_matrix=self.data.network.adj_mat,
-            #     p_grow_connected=self.p_grow_connected,
-            #     model_by_chain=self.posterior_per_chain,
-            #     features=self.features,
-            #     sample_from_prior=self.sample_from_prior,
-            # )
-            'sample_cluster': AlterCluster(
-                weight=operators_config.clusters,
-                adjacency_matrix=self.data.network.adj_mat,
-                p_grow_connected=self.p_grow_connected,
-                model_by_chain=self.posterior_per_chain,
-                resample_source=self.model.sample_source,
-                sample_from_prior=self.sample_from_prior,
-            ),
-        }
-
         if self.model.sample_source:
-            operators.update({
+
+            operators = {
+                'gibbsish_sample_cluster': AlterClusterGibbsish(
+                    weight=0.5 * operators_config.clusters,
+                    adjacency_matrix=self.data.network.adj_mat,
+                    p_grow_connected=self.p_grow_connected,
+                    model_by_chain=self.posterior_per_chain,
+                    features=self.features,
+                    resample_source=self.model.sample_source,
+                    sample_from_prior=self.sample_from_prior,
+                ),
+                'gibbsish_sample_cluster_2"': AlterClusterGibbsish2(
+                    weight=0.5 * operators_config.clusters,
+                    adjacency_matrix=self.data.network.adj_mat,
+                    p_grow_connected=self.p_grow_connected,
+                    model_by_chain=self.posterior_per_chain,
+                    features=self.features,
+                    resample_source=self.model.sample_source,
+                    sample_from_prior=self.sample_from_prior,
+                ),
                 'gibbs_sample_sources': GibbsSampleSource(
                     weight=operators_config.source,
                     model_by_chain=self.posterior_per_chain,
@@ -518,7 +518,7 @@ class ClusterMCMC(MCMC):
                     applicable_states=self.applicable_states,
                     sample_from_prior=self.sample_from_prior,
                 ),
-            })
+            }
 
             r = float(1 / len(self.model.confounders))
             for k in self.model.confounders:
@@ -533,13 +533,21 @@ class ClusterMCMC(MCMC):
                 )
 
         else:
-            operators.update({
+            operators = {
+                'sample_cluster': AlterCluster(
+                    weight=operators_config.clusters,
+                    adjacency_matrix=self.data.network.adj_mat,
+                    p_grow_connected=self.p_grow_connected,
+                    model_by_chain=self.posterior_per_chain,
+                    resample_source=self.model.sample_source and not self.sample_from_prior,
+                    sample_from_prior=self.sample_from_prior,
+                ),
                 'alter_weights': AlterWeights(operators_config.weights),
                 'alter_cluster_effect': AlterClusterEffect(
                     weight=operators_config.cluster_effect,
                     applicable_states=self.data.features.states,
                 )
-            })
+            }
 
             r = float(1 / len(self.model.confounders))
             for k in self.model.confounders:
@@ -548,7 +556,7 @@ class ClusterMCMC(MCMC):
                     op_name: AlterConfoundingEffects(
                         weight=operators_config.confounding_effects * r,
                         applicable_states=self.data.features.states,
-                        additional_parameters={'confounder': k}
+                        confounder=k,
                     )
                 })
 

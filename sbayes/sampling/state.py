@@ -314,7 +314,7 @@ class ModelCache:
         self.cluster_size_prior = CalculationNode(value=0.0)
         self.cluster_effect_prior = CalculationNode(value=0.0)
         self.confounding_effects_prior = {
-            conf: CalculationNode(value=np.empty(sample.n_groups(conf)))
+            conf: CalculationNode(value=np.ones(sample.n_groups(conf)))
             for conf in sample.confounders
         }
         self.weights_prior = CalculationNode(value=0.0)
@@ -400,9 +400,9 @@ class Sample:
 
         # Assign or initialize a ModelCache object
         if _other_cache is None:
-            self.cache = ModelCache(self)
+            self.cache = ModelCache(sample=self)
         else:
-            self.cache = _other_cache.copy(self)
+            self.cache = _other_cache.copy(new_sample=self)
 
         # Store last likelihood and prior for logging
         self.last_lh = None
@@ -428,7 +428,7 @@ class Sample:
             cluster_effect=GroupedParameters(cluster_effect),
             confounding_effects={k: GroupedParameters(v) for k, v in confounding_effects.items()},
             confounders=confounders,
-            source=ArrayParameter(source),
+            source=None if source is None else ArrayParameter(source),
             chain=chain,
         )
 
@@ -441,11 +441,12 @@ class Sample:
             # cluster_effect=deepcopy(self.cluster_effect),
             # confounding_effects=deepcopy(self.confounding_effects),
             # source=deepcopy(self.source),
+            #
             clusters=self._clusters.copy(),
             weights=self.weights.copy(),
             cluster_effect=self.cluster_effect.copy(),
-            confounding_effects=self.confounding_effects.copy(),
-            source=self.source.copy(),
+            confounding_effects={k: v.copy() for k, v in self.confounding_effects.items()},
+            source=None if self.source is None else self.source.copy(),
             #
             confounders=self.confounders,
             _other_cache=self.cache,

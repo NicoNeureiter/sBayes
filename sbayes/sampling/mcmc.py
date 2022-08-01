@@ -15,7 +15,7 @@ import numpy as np
 
 from sbayes.model import Model
 from sbayes.load_data import Data
-from sbayes.sampling.loggers import ResultsLogger
+from sbayes.sampling.loggers import ResultsLogger, OperatorStatsLogger
 from sbayes.sampling.operators import Operator
 from sbayes.config.config import OperatorsConfig
 
@@ -155,6 +155,10 @@ class MCMC(_abc.ABC):
             self.logger = logging.getLogger()
         else:
             self.logger = logger
+
+        for logger in self.sample_loggers:
+            if isinstance(logger, OperatorStatsLogger):
+                logger.operators = list(self.callable_operators.values())
 
     def prior(self, sample, chain):
         """Compute the (log) prior of a sample.
@@ -315,7 +319,6 @@ class MCMC(_abc.ABC):
 
         operator = self.callable_operators[operator_name]
         operator['name'] = operator_name
-        # print(operator_name)
         return operator
 
     def step(self, sample, c):
@@ -330,7 +333,7 @@ class MCMC(_abc.ABC):
         operator = self.choose_operator()
         step_function = operator['function']
 
-        candidate, log_q, log_q_back = step_function(sample, c=c, additional_parameters=operator['additional_parameters'])
+        candidate, log_q, log_q_back = step_function(sample, c=c)
 
         # Compute the log-likelihood of the candidate
         ll_candidate = self.likelihood(candidate, c)
