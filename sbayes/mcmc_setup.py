@@ -8,11 +8,14 @@ from typing import List, Optional
 from sbayes.sampling.sbayes_sampling import ClusterMCMC, ClusterMCMCWarmup
 from sbayes.sampling.state import Sample
 from sbayes.model import Model
-from sbayes.sampling.loggers import ResultsLogger, ParametersCSVLogger, ClustersLogger, LikelihoodLogger
+from sbayes.sampling.loggers import ResultsLogger, ParametersCSVLogger, ClustersLogger, LikelihoodLogger, \
+    OperatorStatsLogger
+from sbayes.experiment_setup import Experiment
+from sbayes.load_data import Data
 
 
 class MCMCSetup:
-    def __init__(self, data, experiment):
+    def __init__(self, data: Data, experiment: Experiment):
 
         # Retrieve the data
         self.data = data
@@ -47,8 +50,10 @@ Warm-up: {wu_cfg.warmup_chains} chains exploring the parameter space in {wu_cfg.
 Ratio of cluster steps (growing, shrinking, swapping clusters): {op_cfg.clusters}
 Ratio of weight steps (changing weights): {op_cfg.weights}
 Ratio of cluster_effect steps (changing probabilities in clusters): {op_cfg.cluster_effect}
-Ratio of confounding_effects steps (changing probabilities in confounders): {op_cfg.confounding_effects}
-''')
+Ratio of confounding_effects steps (changing probabilities in confounders): {op_cfg.confounding_effects}''')
+        if self.model.sample_source:
+            self.logger.info(f'Ratio of source steps (changing source component assignment): {op_cfg.source}')
+        self.logger.info('\n')
 
     def sample(self, initial_sample: Optional[Sample] = None, run: int = 1):
         mcmc_config = self.config.mcmc
@@ -102,11 +107,14 @@ Ratio of confounding_effects steps (changing probabilities in confounders): {op_
         params_path = base_dir / f'stats_K{k}_{run}.txt'
         clusters_path = base_dir / f'clusters_K{k}_{run}.txt'
         likelihood_path = base_dir / f'likelihood_K{k}_{run}.h5'
+        op_stats_path = base_dir / f'operator_stats_K{k}_{run}.txt'
 
         sample_loggers = [
             ParametersCSVLogger(params_path, self.data, self.model),
             ClustersLogger(clusters_path, self.data, self.model),
+            OperatorStatsLogger(op_stats_path, self.data, self.model, operators=[])
         ]
+
         if not self.config.mcmc.sample_from_prior:
             sample_loggers.append(LikelihoodLogger(likelihood_path, self.data, self.model))
 
