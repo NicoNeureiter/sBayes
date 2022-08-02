@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 
-from typing import List, Dict, Sequence, Callable, Optional, OrderedDict, Protocol
+from typing import List, Dict, Sequence, Callable, Optional, OrderedDict
 import json
 
 import numpy as np
