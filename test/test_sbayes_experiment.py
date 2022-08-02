@@ -41,6 +41,17 @@ class TestExperiment(unittest.TestCase):
         print("Mobility analysis passed\n")
 
     @staticmethod
+    def test_south_america_run():
+        """Test whether south america case study is running without errors."""
+        custom_settings = TestExperiment.CUSTOM_SETTINGS
+        sbayes_main(
+            config="experiments/south_america/config.yaml",
+            custom_settings=custom_settings,
+            experiment_name="test_south_america_run",
+        )
+        print("South america analysis passed\n")
+
+    @staticmethod
     def test_sample_prior():
         """Test whether sampling from prior is running without errors."""
         custom_settings = deepcopy(TestExperiment.CUSTOM_SETTINGS)
