@@ -483,11 +483,11 @@ class GeoPrior(object):
             inflection_point: Optional[float] = None
     ) -> Callable[[float], float]:
 
-        if prob_function_type is GeoPriorConfig.probability_function.EXPONENTIAL:
+        if prob_function_type is GeoPriorConfig.ProbabilityFunction.EXPONENTIAL:
             return lambda x: -x / scale
             # == log(e**(-x/scale))
 
-        elif prob_function_type is GeoPriorConfig.probability_function.SIGMOID:
+        elif prob_function_type is GeoPriorConfig.ProbabilityFunction.SIGMOID:
             assert inflection_point is not None
             x0 = inflection_point
             return lambda x: log_expit(-(x - x0) / scale) - log_expit(x0 / scale)
