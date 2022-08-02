@@ -4,14 +4,12 @@ from __future__ import annotations
 import unittest
 import random
 import math
+from copy import deepcopy
 from abc import abstractmethod, ABC
-from typing import Generic, TypeVar, Iterator, Callable
+from typing import Generic, TypeVar
 
-import matplotlib.pyplot as plt
 import numpy as np
-import numpy.testing
 from numpy.typing import NDArray
-from pydantic.main import deepcopy
 import scipy.stats as stats
 from scipy.stats import kstest
 
@@ -41,7 +39,7 @@ class DummyModel(Model):
         self.max_size = max_size
 
 
-class TestOperator(ABC, Generic[Value]):
+class AbstractOperatorTest(ABC, Generic[Value]):
 
     """Test whether repeated application of an MCMC operator reaches the desired
     stationary distribution."""
@@ -79,11 +77,12 @@ class TestOperator(ABC, Generic[Value]):
         ...
 
     def test_operator(self):
-        N_SAMPLES = 100
-        N_STEPS_PER_SAMPLE = 30
+
+        n_samples = 100
+        n_steps_per_sample = 30
 
         mcmc_samples = []
-        for i_sample in range(N_SAMPLES):
+        for i_sample in range(n_samples):
             # Create a dummy sample object (required for sBayes operators to work)
             sample = DummySample()
 
@@ -93,13 +92,13 @@ class TestOperator(ABC, Generic[Value]):
 
             # Repeatedly apply the operator
             operator = self.get_operator()
-            for i_step in range(N_STEPS_PER_SAMPLE):
+            for i_step in range(n_steps_per_sample):
                 sample = self.mcmc_step(sample, operator)
 
             # Remember the final value
             mcmc_samples.append(self.get_value_from_sample(sample))
 
-        exact_samples = self.sample_stationary_distribution(N_SAMPLES)
+        exact_samples = self.sample_stationary_distribution(n_samples)
 
         self.compare_sampled_values(mcmc_samples, exact_samples)
 
@@ -113,12 +112,13 @@ class TestOperator(ABC, Generic[Value]):
         #     # plt.show()
         #
         #     ks_stat, p_value = kstest(mcmc_sample_stats, exact_sample_stats)
-        #     print(p_value, stats.binom_test(sum(mcmc_sample_stats), N_SAMPLES, 0.5))
+        #     print(p_value, stats.binom_test(sum(mcmc_sample_stats), n_samples, 0.5))
         #     # print(kstest(mcmc_sample_stats, cdf))
         #     # print(kstest(exact_sample_stats, cdf))
         #     assert p_value > 0.01
 
-    def mcmc_step(self, sample: Sample, operator: Operator) -> Sample:
+    @staticmethod
+    def mcmc_step(sample: Sample, operator: Operator) -> Sample:
         new_sample, log_q, log_q_back = operator.function(sample)
         p_accept = math.exp(log_q_back - log_q)
         if random.random() < p_accept:
@@ -127,7 +127,7 @@ class TestOperator(ABC, Generic[Value]):
             return sample
 
 
-class TestClusterOperators(TestOperator[NDArray[bool]], unittest.TestCase):
+class ClusterOperatorTest(AbstractOperatorTest[NDArray[bool]], unittest.TestCase):
 
     N_OBJECTS = 30
     STATIONARY_DISTRIBUTION = stats.binom(N_OBJECTS, 0.5)
@@ -186,6 +186,7 @@ class TestClusterOperators(TestOperator[NDArray[bool]], unittest.TestCase):
             p=0.5
         )
         assert p_value_flat > 0.01, p_value_flat
+
 
 if __name__ == "__main__":
     unittest.main()
