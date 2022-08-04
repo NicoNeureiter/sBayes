@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from typing import List, Dict, Sequence, Callable, Optional, OrderedDict
-from dataclasses import dataclass
 import json
 
 import numpy as np
@@ -12,253 +11,12 @@ from numpy.typing import NDArray
 import scipy.stats as stats
 from scipy.sparse.csgraph import minimum_spanning_tree, csgraph_from_dense
 
-from sbayes.sampling.state import Sample, CalculationNode, ArrayParameter
+from sbayes.model.likelihood import update_weights, ModelShapes
+from sbayes.sampling.state import Sample
 from sbayes.util import (compute_delaunay, n_smallest_distances, log_multinom,
                          dirichlet_logpdf, log_expit, PathLike)
-from sbayes.config.config import ModelConfig, PriorConfig, DirichletPriorConfig, GeoPriorConfig, ClusterSizePriorConfig
+from sbayes.config.config import PriorConfig, DirichletPriorConfig, GeoPriorConfig, ClusterSizePriorConfig
 from sbayes.load_data import Data, ComputeNetwork, GroupName, ConfounderName, StateName, FeatureName
-
-
-@dataclass
-class ModelShapes:
-    n_clusters: int
-    n_sites: int
-    n_features: int
-    n_states: int
-    states_per_feature: NDArray[bool]
-
-    @property
-    def n_states_per_feature(self):
-        return [sum(applicable) for applicable in self.states_per_feature]
-
-    def __getitem__(self, key):
-        """Getter for backwards compatibility with dict-notation."""
-        return getattr(self, key)
-
-
-class Model:
-    """The sBayes model: posterior distribution of clusters and parameters.
-
-    Attributes:
-        data (Data): The data used in the likelihood
-        config (ModelConfig): A dictionary containing configuration parameters of the model
-        confounders (dict): A ict of all confounders and group names
-        shapes (ModelShapes): A dictionary with shape information for building the Likelihood and Prior objects
-        likelihood (Likelihood): The likelihood of the model
-        prior (Prior): Rhe prior of the model
-
-    """
-    def __init__(self, data: Data, config: ModelConfig):
-        self.data = data
-        self.config = config
-        self.confounders = config.confounders
-        self.n_clusters = config.clusters
-        self.min_size = config.prior.objects_per_cluster.min
-        self.max_size = config.prior.objects_per_cluster.max
-        self.sample_source = config.sample_source
-        n_sites, n_features, n_states = self.data.features.values.shape
-
-        self.shapes = ModelShapes(
-            n_clusters=self.n_clusters,
-            n_sites=n_sites,
-            n_features=n_features,
-            n_states=n_states,
-            states_per_feature=self.data.features.states
-        )
-
-        # Create likelihood and prior objects
-        self.likelihood = Likelihood(data=self.data, shapes=self.shapes)
-        self.prior = Prior(shapes=self.shapes, config=self.config.prior, data=data, sample_source=self.sample_source)
-
-    def __call__(self, sample, caching=True):
-        """Evaluate the (non-normalized) posterior probability of the given sample."""
-        log_likelihood = self.likelihood(sample, caching=caching)
-        log_prior = self.prior(sample)
-        return log_likelihood + log_prior
-
-    def __copy__(self):
-        return Model(self.data, self.config)
-
-    def get_setup_message(self):
-        """Compile a set-up message for logging."""
-        setup_msg = "\n"
-        setup_msg += "Model\n"
-        setup_msg += "##########################################\n"
-        setup_msg += f"Number of clusters: {self.config.clusters}\n"
-        setup_msg += f"Clusters have a minimum size of {self.config.prior.objects_per_cluster.min} " \
-                     f"and a maximum size of {self.config.prior.objects_per_cluster.max}\n"
-        setup_msg += self.prior.get_setup_message()
-        return setup_msg
-
-
-class Likelihood(object):
-
-    """Likelihood of the sBayes model.
-
-    Attributes:
-        features (np.array): The values for all sites and features.
-            shape: (n_objects, n_features, n_categories)
-        confounders (dict): Assignment of objects to confounders. For each confounder (c) one np.array
-            with shape: (n_groups(c), n_objects)
-        shapes (ModelShapes): A dataclass with shape information for building the Likelihood and Prior objects
-        na_features (np.array): A boolean array indicating missing observations
-            shape: (n_objects, n_features)
-    """
-
-    def __init__(self, data: Data, shapes: ModelShapes):
-        self.features = data.features.values
-        self.confounders = data.confounders
-        self.shapes = shapes
-        self.na_features = (np.sum(self.features, axis=-1) == 0)
-
-    def __call__(self, sample, caching=True):
-        """Compute the likelihood of all sites. The likelihood is defined as a mixture of areal and confounding effects.
-            Args:
-                sample(Sample): A Sample object consisting of clusters and weights
-            Returns:
-                float: The joint likelihood of the current sample
-            """
-        if not caching:
-            sample.cache.clear()
-
-        # Compute the likelihood values per mixture component
-        component_lhs = self.update_component_likelihoods(sample, caching=caching)
-
-        # Compute the weights of the mixture component in each feature and site
-        weights = update_weights(sample, caching=caching)
-
-        # Compute the total log-likelihood
-        observation_lhs = self.get_observation_lhs(component_lhs, weights, sample.source)
-        sample.observation_lhs = observation_lhs
-        log_lh = np.sum(np.log(observation_lhs))
-
-        return log_lh
-
-    @staticmethod
-    def get_observation_lhs(
-        all_lh: NDArray,                # shape: (n_objects, n_features, n_components)
-        weights: NDArray[float],        # shape: (n_objects, n_features, n_components)
-        source: ArrayParameter | None,   # shape: (n_objects, n_features, n_components)
-    ) -> NDArray[float]:                # shape: (n_objects, n_features)
-        """Combine likelihood from the selected source distributions."""
-        if source is None:
-            return np.sum(weights * all_lh, axis=2).ravel()
-        else:
-            is_source = np.where(source.value.ravel())
-            return all_lh.ravel()[is_source]
-
-    def update_component_likelihoods(self, sample: Sample, caching=True) -> NDArray[float]:
-        """Update the likelihood values for each of the mixture components"""
-        CHECK_CACHING = False
-
-        cache = sample.cache.component_likelihoods
-        if caching and not cache.is_outdated():
-            x = sample.cache.component_likelihoods.value
-            if CHECK_CACHING:
-                assert np.all(x == self.update_component_likelihoods(sample, caching=False))
-            return x
-
-        with cache.edit() as component_likelihood:
-            # TODO: Not sure whether a context manager is the best way to do this. Discuss!
-            # Update component likelihood for cluster effects:
-            compute_component_likelihood(
-                features=self.features,
-                probs=sample.cluster_effect.value,
-                groups=sample.clusters.value,
-                changed_groups=cache.what_changed(['cluster_effect', 'clusters'], caching),
-                out=component_likelihood[..., 0],
-            )
-            if caching and CHECK_CACHING:
-                x = component_likelihood[..., 0].copy()
-                y = compute_component_likelihood(
-                    features=self.features,
-                    probs=sample.cluster_effect.value,
-                    groups=sample.clusters.value,
-                    changed_groups=cache.what_changed(['cluster_effect', 'clusters'], caching=False),
-                    out=component_likelihood[..., 0],
-                )
-                assert np.all(x[~self.na_features] == y[~self.na_features])
-
-            # Update component likelihood for confounding effects:
-            for i, conf in enumerate(self.confounders, start=1):
-                compute_component_likelihood(
-                    features=self.features,
-                    probs=sample.confounding_effects[conf].value,
-                    groups=sample.confounders[conf].group_assignment,
-                    changed_groups=cache.what_changed(f'c_{conf}', caching),
-                    out=component_likelihood[..., i],
-                )
-                if caching and CHECK_CACHING:
-                    x = component_likelihood[..., i].copy()
-                    y: object = compute_component_likelihood(
-                        features=self.features,
-                        probs=sample.confounding_effects[conf].value,
-                        groups=sample.confounders[conf].group_assignment,
-                        changed_groups=cache.what_changed(f'c_{conf}', caching=False),
-                        out=component_likelihood[..., i],
-                    )
-                    assert np.all(x[~self.na_features] == y[~self.na_features])
-
-            component_likelihood[self.na_features] = 1.
-
-        # cache.set_up_to_date()
-
-        return cache.value
-
-
-def compute_component_likelihood(
-    features: NDArray[bool],
-    probs: NDArray[float],
-    groups: NDArray[bool],  # (n_groups, n_sites)
-    changed_groups: set[int],
-    out: NDArray[float]
-) -> NDArray[float]:  # shape: (n_sites, n_features)
-    out[~groups.any(axis=0), :] = 0.
-    for i in changed_groups:
-        g = groups[i]
-        f_g = features[g, :, :]
-        p_g = probs[i, :, :]
-        out[g, :] = np.einsum('ijk,jk->ij', f_g, p_g)
-    return out
-
-
-def update_weights(sample: Sample, caching=True) -> NDArray[float]:
-    """Compute the normalized weights of each component at each site.
-    Args:
-        sample: the current MCMC sample.
-        caching: ignore cache if set to false.
-    Returns:
-        np.array: normalized weights of each component at each site.
-            shape: (n_objects, n_features, 1 + n_confounders)
-    """
-    cache = sample.cache.weights_normalized
-
-    if (not caching) or cache.is_outdated():
-        w_normed = normalize_weights(sample.weights.value, sample.cache.has_components.value)
-        cache.update_value(w_normed)
-
-    return cache.value
-
-
-def normalize_weights(
-    weights: NDArray[float],  # shape: (n_features, 1 + n_confounders)
-    has_components: NDArray[bool]  # shape: (n_objects, 1 + n_confounders)
-) -> NDArray[float]:  # shape: (n_objects, n_features, 1 + n_confounders)
-    """This function assigns each site a weight if it has a likelihood and zero otherwise
-    Args:
-        weights: the weights to normalize
-        has_components: indicators for which objects are affected by cluster and confounding effects
-    Return:
-        the weight_per site
-    """
-    # Broadcast weights to each site and mask with the has_components arrays
-    # Broadcasting:
-    #   `weights` doesnt know about sites -> add axis to broadcast to the sites-dimension of `has_component`
-    #   `has_components` doesnt know about features -> add axis to broadcast to the features-dimension of `weights`
-    weights_per_site = weights[np.newaxis, :, :] * has_components[:, np.newaxis, :]
-
-    # Re-normalize the weights, where weights were masked
-    return weights_per_site / weights_per_site.sum(axis=2, keepdims=True)
 
 
 class Prior:
@@ -289,6 +47,7 @@ class Prior:
                                                        shapes=self.shapes,
                                                        feature_names=data.features.feature_and_state_names)
         self.prior_confounding_effects = {}
+
         for k, v in self.config.confounding_effects.items():
             self.prior_confounding_effects[k] = ConfoundingEffectsPrior(
                 config=v,
@@ -393,7 +152,6 @@ class DirichletPrior:
         # Read the concentration parameters from the JSON file
         with open(json_path, 'r') as f:
             concentration_dict = json.load(f)
-
         # Parse the resulting dictionary
         return self.parse_concentration_dict(concentration_dict)
 
@@ -544,7 +302,7 @@ class WeightsPrior(DirichletPrior):
     def parse_attributes(self):
         self.prior_type = self.config.type
         if self.prior_type is self.PriorType.UNIFORM:
-            self.counts = np.full(shape=(self.shapes['n_features'], self.shapes['n_states']),
+            self.counts = np.full(shape=(self.shapes.n_features, self.shapes.n_states),
                                   fill_value=self.initial_counts)
         else:
             raise ValueError(self.invalid_prior_message(self.prior_type))
@@ -639,7 +397,7 @@ class ClusterSizePrior:
         if self.prior_type is self.PriorType.UNIFORM_SIZE:
             # P(size)   =   uniform
             # P(zone | size)   =   1 / |{clusters of size k}|   =   1 / (n choose k)
-            logp = -log_multinom(self.shapes['n_sites'], sizes)
+            logp = -log_multinom(self.shapes.n_sites, sizes)
 
         elif self.prior_type is self.PriorType.QUADRATIC_SIZE:
             # Here we assume that only a quadratically growing subset of clusters is
@@ -726,11 +484,11 @@ class GeoPrior(object):
             inflection_point: Optional[float] = None
     ) -> Callable[[float], float]:
 
-        if prob_function_type is GeoPriorConfig.probability_function.EXPONENTIAL:
+        if prob_function_type is GeoPriorConfig.ProbabilityFunction.EXPONENTIAL:
             return lambda x: -x / scale
             # == log(e**(-x/scale))
 
-        elif prob_function_type is GeoPriorConfig.probability_function.SIGMOID:
+        elif prob_function_type is GeoPriorConfig.ProbabilityFunction.SIGMOID:
             assert inflection_point is not None
             x0 = inflection_point
             return lambda x: log_expit(-(x - x0) / scale) - log_expit(x0 / scale)

@@ -6,7 +6,6 @@ import random as _random
 import numpy as np
 
 from sbayes.sampling.mcmc import MCMC
-from sbayes.model import normalize_weights
 from sbayes.sampling.state import Sample
 from sbayes.sampling.operators import (
     Operator,
@@ -90,116 +89,6 @@ class ClusterMCMC(MCMC):
             source_index['confounding_effects'][k] = i+1
 
         return source_index
-
-    def gibbsish_sample_clusters_local(self, sample, resample_source=True):
-        return self.gibbsish_sample_clusters(sample,
-                                          resample_source=resample_source,
-                                          site_subset=get_neighbours)
-
-    def calculate_current_source_prob(self, sample: Sample, site_subset=None):
-        likelihood = self.posterior_per_chain[sample.chain].likelihood
-        lh_per_component = likelihood.update_component_likelihoods(sample=sample)
-        weights = likelihood.update_weights(sample=sample)
-        source_posterior = normalize(lh_per_component[site_subset] * weights[site_subset], axis=-1)
-        is_source = np.where(sample.source.value.ravel())
-        return np.sum(np.log(source_posterior.ravel()[is_source]))
-
-    # todo: fix
-    def gibbsish_sample_clusters(self, sample: Sample, resample_source=True, **kwargs):
-        max_size = self.max_size[kwargs['c']] if self.IS_WARMUP else self.max_size
-
-        sample_new = sample.copy()
-        likelihood = self.posterior_per_chain[sample.chain].likelihood
-        occupied = np.any(sample.clusters.value, axis=0)
-
-        # Randomly choose one of the clusters to modify
-        i_cluster = np.random.choice(range(sample.clusters.shape[0]))
-        cluster = sample.clusters[i_cluster, :]
-        size_cluster = np.sum(cluster)
-
-        available = (~occupied) | cluster
-
-        # if site_subset is not None:
-        #     new_candidates &= (site_subset(cluster, occupied, self.adj_mat) | cluster)
-        n_available = np.count_nonzero(available)
-        if n_available > max_size:
-
-
-            # neighbours = get_neighbours(cluster, occupied, self.adj_mat)
-            # available[available] &= (neighbours[available] | (np.random.random(n_available) < (max_size/n_available)))
-            def random_subset(n, k):
-                x = np.zeros(n, dtype=bool)
-                s = np.random.choice(n, k, replace=False)
-                x[s] = 1
-                return x
-
-            newly_available = ~occupied
-            n_newly_available = np.sum(newly_available)
-
-            if n_newly_available > 10:
-                available[newly_available] &= random_subset(n_newly_available, 10)
-            # available[newly_available] &= np.logical_or(
-            #     cluster[newly_available],
-            #     # np.random.random(n_available) < ((max_size-np.sum(cluster))/n_available)
-            #     # np.random.random(n_available) < (5/n_available)
-            #     # TODO choose the top `max_size-sum(cluster)` elements rather than independent random sampling
-            # )
-            n_available = np.count_nonzero(available)
-            # print(n_available)
-
-        if n_available == 0:
-            return sample, self.Q_REJECT, self.Q_BACK_REJECT
-
-        if self.model.sample_source and resample_source:
-            lh_per_component = likelihood.update_component_likelihoods(sample=sample)
-            weights = likelihood.update_weights(sample=sample)
-            source_posterior = normalize(lh_per_component[available] * weights[available], axis=-1)
-            is_source = np.where(sample.source[available].ravel())
-            log_q_back_s = np.sum(np.log(source_posterior.ravel()[is_source]))
-            # log_q_back_s = self.calculate_current_source_prob(sample)
-
-        # Compute lh per language with and without zone
-        zone_lh_z = np.einsum('ijk,jk->ij', self.features[available], sample.cluster_effect.value[i_cluster])
-        all_lh = likelihood.update_component_likelihoods(sample)[available, :].copy()
-        all_lh[..., 0] = zone_lh_z
-
-        has_components = sample.cache.has_components.value[available, :].copy()
-        weights_with_z = normalize_weights(sample.weights, has_components)
-                                           # missing_family_as_universal=universe_for_orphans)
-        has_components[:, 0] = False
-        weights_without_z = normalize_weights(sample.weights, has_components)
-                                              # missing_family_as_universal=universe_for_orphans)
-
-        feature_lh_with_z = np.sum(all_lh * weights_with_z, axis=-1)
-        feature_lh_without_z = np.sum(all_lh * weights_without_z, axis=-1)
-
-        marginal_lh_with_z = np.prod(feature_lh_with_z, axis=-1)
-        marginal_lh_without_z = np.prod(feature_lh_without_z, axis=-1)
-
-        posterior_cluster = marginal_lh_with_z / (marginal_lh_with_z + marginal_lh_without_z)
-        new_cluster = sample.clusters.value[i_cluster].copy()
-        new_cluster[available] = (np.random.random(n_available) < posterior_cluster)
-        sample_new.update_cluster(i_cluster, new_cluster)
-
-        # Reject when an area outside the valid size range is proposed
-        new_cluster_size = np.sum(sample_new.clusters[i_cluster])
-        if not (self.min_size <= new_cluster_size <= max_size):
-            return sample, self.Q_REJECT, self.Q_BACK_REJECT
-
-        q_per_site = posterior_cluster * new_cluster[available] + (1 - posterior_cluster) * (1 - new_cluster[available])
-        log_q = np.sum(np.log(q_per_site))
-        q_back_per_site = posterior_cluster * cluster[available] + (1 - posterior_cluster) * (1 - cluster[available])
-        if np.any(q_back_per_site == 0):
-            return sample, self.Q_REJECT, self.Q_BACK_REJECT
-        log_q_back = np.sum(np.log(q_back_per_site))
-
-        if self.model.sample_source and resample_source:
-            sample_new, log_q_s, _ = self.gibbs_sample_sources(sample_new, as_gibbs=False,
-                                                               site_subset=available)
-            log_q += log_q_s
-            log_q_back += log_q_back_s
-
-        return sample_new, log_q, log_q_back
 
     def generate_initial_clusters(self):
         """For each chain (c) generate initial clusters by

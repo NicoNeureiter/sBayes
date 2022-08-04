@@ -96,7 +96,7 @@ class Features:
 
     def __post_init__(self):
         object.__setattr__(self, 'feature_and_state_names', OrderedDict())
-        for f, states_names_f in self.feature_and_state_names.items():
+        for f, states_names_f in zip(self.names, self.state_names):
             self.feature_and_state_names[f] = states_names_f
 
     def __getitem__(self, key: str) -> NDArray | list | int:

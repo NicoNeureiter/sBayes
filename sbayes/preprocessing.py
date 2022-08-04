@@ -141,7 +141,7 @@ class ComputeNetwork:
                 transformer.transform(locations[:, 0], locations[:, 1])
             ).T
             geod = Geodesic()
-            dist_mat = np.hstack([geod.inverse(location, w_locations)[:, :2] for location in w_locations])
+            dist_mat = np.array([geod.inverse(location, w_locations)[:, 0] for location in w_locations])
 
         self.vertices = vertices
         self.edges = edges
