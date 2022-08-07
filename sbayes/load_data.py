@@ -150,9 +150,9 @@ class Confounder:
     @classmethod
     def from_dataframe(
         cls: Type[S],
-        confounder_name: str,
-        group_names: list[str],
         data: pd.DataFrame,
+        confounder_name: str,
+        group_names: list[str] = None,
     ) -> S:
         n_objects = data.shape[0]
 
@@ -174,7 +174,11 @@ class Confounder:
                 )
 
         group_names_by_site = data[confounder_name]
-        group_names = list(np.unique(group_names_by_site.dropna()))
+        group_names_in_data = list(np.unique(group_names_by_site.dropna()))
+        if group_names is None:
+            group_names = group_names_in_data
+        else:
+            assert set(group_names) == group_names_in_data
         group_assignment = np.zeros((len(group_names), n_objects), dtype=bool)
         for g, g_name in enumerate(group_names):
             group_assignment[g, np.where(group_names_by_site == g_name)] = True
@@ -302,7 +306,7 @@ def read_features_from_csv(
     objects = Objects.from_dataframe(data)
     confounders = OrderedDict()
     for c, groups in groups_by_confounder.items():
-        confounders[c] = Confounder.from_dataframe(confounder_name=c, group_names=groups, data=data)
+        confounders[c] = Confounder.from_dataframe(data=data, confounder_name=c, group_names=groups)
 
     if logger:
         logger.info(
