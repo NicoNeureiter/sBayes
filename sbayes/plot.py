@@ -5,6 +5,7 @@ import os
 from itertools import compress
 from statistics import median
 from pathlib import Path
+from os.path import basename
 import typing as typ
 
 import pandas as pd
@@ -51,6 +52,13 @@ DEFAULT_CONFIG = json.loads(pkg_resources.read_text(config_package, 'default_con
 
 
 class Plot:
+
+    config: dict[str, ...]
+    config_file: Path
+    base_directory: Path
+    all_cluster_paths: list[Path]
+    all_stats_paths: list[Path]
+
     def __init__(self):
 
         # Config variables
@@ -133,7 +141,7 @@ class Plot:
         pass
 
     @staticmethod
-    def decompose_config_path(config_path):
+    def decompose_config_path(config_path) -> tuple[Path, Path]:
         abs_config_path = Path(config_path).absolute()
         base_directory = abs_config_path.parent
         return base_directory, abs_config_path
@@ -211,9 +219,8 @@ class Plot:
 
     def iterate_over_models(self) -> str:
         for clusters_path, stats_path in zip(sorted(self.all_cluster_paths),
-                                          sorted(self.all_stats_paths)):
-            last_part = str(clusters_path).replace('\\', '/').rsplit('/', 1)[-1]
-            model_name = str(last_part).rsplit('_')[1]
+                                             sorted(self.all_stats_paths)):
+            prefix, _, model_name = str(clusters_path.stem).partition('_')
             results = Results.from_csv_files(
                 clusters_path=clusters_path,
                 parameters_path=stats_path,
@@ -1634,7 +1641,7 @@ class Plot:
         samples_per_cluster = np.sum(samples, axis=1)
 
         # Grid
-        n_col = 3
+        n_col = cfg_pie['output']['n_columns']
         n_row = math.ceil(n_plots / n_col)
 
         width = cfg_pie['output']['width']
