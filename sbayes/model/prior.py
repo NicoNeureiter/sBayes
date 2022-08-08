@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 
-from typing import List, Dict, Sequence, Callable, Optional, OrderedDict, Protocol
+from typing import List, Dict, Sequence, Callable, Optional, OrderedDict
 import json
 
 import numpy as np
@@ -437,6 +437,7 @@ class GeoPrior(object):
 
     PriorTypes = GeoPriorConfig.Types
     AggrStrats = GeoPriorConfig.AggregationStrategies
+
     AGGREGATORS: Dict[str, Aggregator] = {
         AggrStrats.MEAN: np.mean,
         AggrStrats.SUM: np.sum,
@@ -483,11 +484,11 @@ class GeoPrior(object):
             inflection_point: Optional[float] = None
     ) -> Callable[[float], float]:
 
-        if prob_function_type is GeoPriorConfig.probability_function.EXPONENTIAL:
+        if prob_function_type is GeoPriorConfig.ProbabilityFunction.EXPONENTIAL:
             return lambda x: -x / scale
             # == log(e**(-x/scale))
 
-        elif prob_function_type is GeoPriorConfig.probability_function.SIGMOID:
+        elif prob_function_type is GeoPriorConfig.ProbabilityFunction.SIGMOID:
             assert inflection_point is not None
             x0 = inflection_point
             return lambda x: log_expit(-(x - x0) / scale) - log_expit(x0 / scale)
@@ -511,6 +512,13 @@ class GeoPrior(object):
             geo_prior = 0.
         elif self.prior_type is self.PriorTypes.COST_BASED:
             geo_prior = compute_cost_based_geo_prior(
+                clusters=sample.clusters.value,
+                cost_mat=self.cost_matrix,
+                aggregator=self.aggregator,
+                probability_function=self.probability_function,
+            )
+        elif self.prior_type is self.TYPES.DIAMETER_BASED:
+            geo_prior = compute_diameter_based_geo_prior(
                 clusters=sample.clusters.value,
                 cost_mat=self.cost_matrix,
                 aggregator=self.aggregator,
@@ -584,6 +592,31 @@ def compute_gaussian_geo_prior(
         log_prior = np.append(log_prior, prior_z)
 
     return log_prior.mean()
+
+
+def compute_diameter_based_geo_prior(
+        clusters: np.array,
+        cost_mat: np.array,
+        aggregator: Aggregator,
+        probability_function: Callable[[float], float],
+) -> float:
+    """ This function computes the geo prior for the sum of all distances of the mst of a zone
+    Args:
+        clusters: The current cluster (boolean array)
+        cost_mat: The cost matrix between locations
+        aggregator: The aggregation policy, defining how the single edge
+            costs are combined into one joint cost for the area.
+        probability_function: Function mapping aggregate distances to log-probabilities
+
+    Returns:
+        float: the log geo-prior of the cluster
+    """
+    log_prior = 0.0
+    for z in clusters:
+        cost_mat_z = cost_mat[z][:, z]
+        log_prior += probability_function(cost_mat_z.max())
+
+    return log_prior
 
 
 def compute_cost_based_geo_prior(

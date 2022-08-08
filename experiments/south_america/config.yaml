@@ -31,9 +31,10 @@ model:
         objects_per_cluster:
             type: uniform_area
             min: 3
-            max: 40
+            max: 100
         geo:
-            type: uniform
+            type: cost_based
+            rate: 200.0
         weights:
             type: uniform
         cluster_effect:
@@ -41,9 +42,8 @@ model:
         confounding_effects:
             universal:
                 "<ALL>":
-                    type: uniform
-#                    type: dirichlet
-#                    file: data/prior_universal/universal_counts.json
+                    type: dirichlet
+                    file: data/prior_universal/universal_counts.json
             family:
                 Tucanoan:
                     type: uniform
