@@ -340,6 +340,7 @@ class ModelCache:
         if sample.source is not None:
             self.source_prior = CalculationNode(value=0.0)
             self.source_prior.add_input('weights_normalized', self.weights_normalized)
+            self.source_prior.add_input('source', sample.source)
 
     @property
     def cluster_likelihoods(self) -> NDArray[float]:

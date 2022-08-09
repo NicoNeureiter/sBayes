@@ -171,8 +171,6 @@ class MCMC(_abc.ABC):
         log_prior = self.posterior_per_chain[chain].prior(sample=sample)
 
         if self.CHECK_CACHING:
-            # sample.everything_changed()
-            # log_prior_stable = self.posterior_per_chain[chain].prior(sample=sample)
             log_prior_stable = self.posterior_per_chain[chain].prior(sample=sample, caching=False)
             assert log_prior == log_prior_stable, f'{log_prior} != {log_prior_stable}'
 
