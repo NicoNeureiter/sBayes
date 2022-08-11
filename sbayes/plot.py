@@ -3,7 +3,6 @@ import logging
 import math
 import os
 from itertools import compress
-from statistics import median
 from pathlib import Path
 import typing as typ
 
@@ -19,7 +18,7 @@ import matplotlib as mpl
 import matplotlib.pyplot as plt
 import matplotlib.ticker as mtick
 import numpy as np
-import numpy.typing as nptyp
+from numpy.typing import NDArray
 import seaborn as sns
 import colorsys
 
@@ -200,7 +199,7 @@ class Plot:
         return result
 
     @staticmethod
-    def read_dictionary(dataframe: pd.DataFrame, search_key: str) -> typ.Dict[str, nptyp.NDArray]:
+    def read_dictionary(dataframe: pd.DataFrame, search_key: str) -> typ.Dict[str, NDArray]:
         """Helper function for read_stats. Used for reading weights and preferences. """
         param_dict = {}
         for column_name in dataframe.columns:
@@ -389,20 +388,15 @@ class Plot:
 
         return in_graph, lines, line_weights
 
-    def reproject_to_map_crs(self, map_proj):
+    def reproject_to_map_crs(self, map_proj: str) -> NDArray[float]:
         """Reproject from data CRS to map CRD"""
         data_proj = self.config['data']['projection']
 
         if map_proj != data_proj:
-
             print(f'Reprojecting locations from {data_proj} to {map_proj}.')
             loc = gpd.GeoDataFrame(geometry=gpd.points_from_xy(*self.locations.T), crs=data_proj)
-            loc_re = loc.to_crs(map_proj)
-
-            x_re = loc_re.geometry.x
-            y_re = loc_re.geometry.y
-            locations_reprojected = np.array(list(zip(x_re,y_re)))
-            return locations_reprojected
+            loc_re = loc.to_crs(map_proj).geometry
+            return np.array([loc_re.x, loc_re.y]).T
         else:
             return self.locations
 
@@ -1232,7 +1226,7 @@ class Plot:
 
     @staticmethod
     def filter_weights(
-            weights: typ.Dict[str, nptyp.NDArray[float]],
+            weights: typ.Dict[str, NDArray[float]],
             features_subset: typ.Optional[list] = None,
     ):
         """Return the subset of weights specificied by the features in `features_subset`.
