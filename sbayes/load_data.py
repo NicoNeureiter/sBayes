@@ -178,7 +178,7 @@ class Confounder:
         if group_names is None:
             group_names = group_names_in_data
         else:
-            assert set(group_names) == group_names_in_data
+            assert set(group_names) == set(group_names_in_data)
         group_assignment = np.zeros((len(group_names), n_objects), dtype=bool)
         for g, g_name in enumerate(group_names):
             group_assignment[g, np.where(group_names_by_site == g_name)] = True

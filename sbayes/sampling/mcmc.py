@@ -171,8 +171,6 @@ class MCMC(_abc.ABC):
         log_prior = self.posterior_per_chain[chain].prior(sample=sample)
 
         if self.CHECK_CACHING and (sample.i_step < 1000) and (sample.i_step % 10 == 0):
-            # sample.everything_changed()
-            # log_prior_stable = self.posterior_per_chain[chain].prior(sample=sample)
             log_prior_stable = self.posterior_per_chain[chain].prior(sample=sample, caching=False)
             assert log_prior == log_prior_stable, f'{log_prior} != {log_prior_stable}'
 
@@ -196,7 +194,6 @@ class MCMC(_abc.ABC):
         log_lh = self.posterior_per_chain[chain].likelihood(sample=sample)
 
         if self.CHECK_CACHING and (sample.i_step < 1000) and (sample.i_step % 10 == 0):
-            # sample.everything_changed()
             log_lh_stable = self.posterior_per_chain[chain].likelihood(sample=sample, caching=False)
             assert log_lh == log_lh_stable, f'{log_lh} != {log_lh_stable}'
 
