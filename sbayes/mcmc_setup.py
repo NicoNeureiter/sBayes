@@ -2,8 +2,7 @@
 # -*- coding: utf-8 -*-
 
 """ Setup of the MCMC process """
-
-from typing import List, Optional
+from __future__ import annotations
 
 from sbayes.sampling.sbayes_sampling import ClusterMCMC, ClusterMCMCWarmup
 from sbayes.sampling.state import Sample
@@ -55,7 +54,7 @@ Ratio of confounding_effects steps (changing probabilities in confounders): {op_
             self.logger.info(f'Ratio of source steps (changing source component assignment): {op_cfg.source}')
         self.logger.info('\n')
 
-    def sample(self, initial_sample: Optional[Sample] = None, run: int = 1):
+    def sample(self, initial_sample: Sample | None = None, run: int = 1):
         mcmc_config = self.config.mcmc
 
         if initial_sample is None:
@@ -100,7 +99,7 @@ Ratio of confounding_effects steps (changing probabilities in confounders): {op_
                                                            warm_up=True,
                                                            warm_up_steps=mcmc_config.warmup.warmup_steps)
 
-    def get_sample_loggers(self, run=1) -> List[ResultsLogger]:
+    def get_sample_loggers(self, run=1) -> list[ResultsLogger]:
         k = self.model.n_clusters
         base_dir = self.path_results / f'K{k}'
         base_dir.mkdir(exist_ok=True)

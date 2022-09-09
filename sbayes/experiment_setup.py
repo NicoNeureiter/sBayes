@@ -1,12 +1,8 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-
-""" Setup of the Experiment"""
+from __future__ import annotations
 import logging
 import os
 import shutil
 from pathlib import Path
-from typing import Optional
 
 from sbayes.util import set_experiment_name, PathLike
 from sbayes.config.config import SBayesConfig
@@ -27,8 +23,8 @@ class Experiment:
     def __init__(
         self,
         config_file: PathLike,
-        experiment_name: str = None,
-        custom_settings: Optional[dict] = None,
+        experiment_name: str | None = None,
+        custom_settings: dict | None = None,
         log: bool = True,
     ):
         # Naming and shaming

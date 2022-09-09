@@ -151,8 +151,8 @@ class Confounder:
     def from_dataframe(
         cls: Type[S],
         data: pd.DataFrame,
-        confounder_name: str,
-        group_names: list[str] = None,
+        confounder_name: ConfounderName,
+        group_names: list[GroupName] = None,
     ) -> S:
         n_objects = data.shape[0]
 
@@ -285,9 +285,9 @@ class Data:
 def read_features_from_csv(
     data_path: PathLike,
     feature_states_path: PathLike,
-    groups_by_confounder: OrderedDict[ConfounderName, list[GroupName]],
+    groups_by_confounder: dict[ConfounderName, list[GroupName]],
     logger: Optional[Logger] = None,
-) -> (Objects, Features, OrderedDict[ConfounderName, Confounder]):
+) -> (Objects, Features, dict[ConfounderName, Confounder]):
     """This is a helper function to import data (objects, features, confounders) from a csv file
     Args:
         data_path: path to the data csv file.

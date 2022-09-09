@@ -70,7 +70,7 @@ class Likelihood(object):
     def get_observation_lhs(
         all_lh: NDArray,                # shape: (n_objects, n_features, n_components)
         weights: NDArray[float],        # shape: (n_objects, n_features, n_components)
-        source: ArrayParameter | None,   # shape: (n_objects, n_features, n_components)
+        source: ArrayParameter | None,  # shape: (n_objects, n_features, n_components)
     ) -> NDArray[float]:                # shape: (n_objects, n_features)
         """Combine likelihood from the selected source distributions."""
         if source is None:
