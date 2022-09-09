@@ -1,13 +1,13 @@
 {
 	"results": {
 		"path_in": {
-			"areas": [
-				"./areas_n2_0.txt",
-				"./areas_n3_0.txt"
+			"clusters": [
+				"./clusters_K1_0.txt",
+				"./clusters_K3_0.txt"
 			],
 			"stats": [
-				"./stats_n2_0.txt",
-				"./stats_n3_0.txt"
+				"./stats_K1_0.txt",
+				"./stats_K3_0.txt"
 			]
 		},
 		"path_out":  "results"
@@ -21,7 +21,6 @@
 		"content": {
 			"type": "consensus_map",
 			"min_posterior_frequency": 0.7,
-			"labels": "in_area",
 			"plot_families": true,
 			"burn_in": 0.2
 		},
@@ -33,13 +32,13 @@
 			}
 		},
 		"legend": {
-			"areas": {
+			"clusters": {
 				"add": true,
 				"position": [
 					0.01,
 					0.4
 				],
-				"log-likelihood": true
+				"log-likelihood": false
 			},
 			"lines": {
 				"add": true,
