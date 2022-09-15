@@ -93,15 +93,23 @@ def cli():
     parser = argparse.ArgumentParser(
         description="An MCMC algorithm to identify contact zones"
     )
-    parser.add_argument("config", type=Path, help="The JSON configuration file")
+
+    # The only required (positional) argument is the path to the config file:
     parser.add_argument(
-        "--name",
+        "config",
+        type=Path,
+        help="The JSON configuration file"
+    )
+
+    # Optional named arguments:
+    parser.add_argument(
+        "-n", "--name",
         nargs="?",
         type=str,
         help="The experiment name used for logging and as the name of the results directory.",
     )
     parser.add_argument(
-        "--threads",
+        "-t", "--threads",
         nargs="?",
         type=int,
         default=1,
