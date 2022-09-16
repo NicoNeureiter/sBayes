@@ -7,7 +7,7 @@ import argparse
 import tkinter as tk
 from tkinter import filedialog
 
-from sbayes.load_data import read_features_from_csv
+from sbayes.load_data import read_features_from_csv, Confounder
 from sbayes.util import scale_counts
 
 
@@ -18,6 +18,8 @@ def zip_internal_external(names):
 def main(args):
     # ===== CLI =====
     parser = argparse.ArgumentParser(description="Tool to extract parameters for an empirical inheritance prior from sBayes data files.")
+    # parser.add_argument("--confounder", nargs="?", type=Path,
+    #                     help="The name of the confounder for which to extract the data.")
     parser.add_argument("--data", nargs="?", type=Path, help="The input CSV file")
     parser.add_argument("--featureStates", nargs="?", type=Path, help="The feature states CSV file")
     parser.add_argument("--output", nargs="?", type=Path, help="The output directory")
@@ -76,27 +78,29 @@ def main(args):
     feature_states_file = Path(feature_states_file)
     output_directory = Path(output_directory)
 
-    _, _, features, feature_names, state_names, _, families, family_names, _ = read_features_from_csv(
-        file=prior_data_file,
-        feature_states_file=feature_states_file
+    objects, features, confounders = read_features_from_csv(
+        data_path=prior_data_file,
+        feature_states_path=feature_states_file,
+        groups_by_confounder={'family': None},
     )
+    families: Confounder = confounders['family']
 
-    for i_fam, family in zip_internal_external(family_names):
-        sites_in_family = families[i_fam]
-        features_fam = features[sites_in_family, :, :]      # shape: (n_sites_in_family, n_features, n_states)
-        counts = np.sum(features_fam, axis=0)               # shape: (n_features, n_states)
+    for i_fam, family_name in enumerate(families.group_names):
+        family_members = families.group_assignment[i_fam]
+        features_fam = features.values[family_members, :, :]  # shape: (n_family_members, n_features, n_states)
+        counts = np.sum(features_fam, axis=0)                 # shape: (n_features, n_states)
 
         # Apply the scale_counts if provided
         if max_counts is not None:
             counts = scale_counts(counts, max_counts)
 
         counts_dict = {}
-        for i_f, feature in zip_internal_external(feature_names):
+        for i_f, feature in enumerate(features.names):
             counts_dict[feature] = {}
-            for i_s, state in enumerate(state_names['external'][i_f]):
+            for i_s, state in enumerate(features.state_names[i_f]):
                 counts_dict[feature][state] = hyper_prior_concentration + counts[i_f, i_s]
 
-        with open(output_directory / f'{family}.json', 'w') as prior_file:
+        with open(output_directory / f'{family_name}.json', 'w') as prior_file:
             json.dump(counts_dict, prior_file, indent=4)
 
 

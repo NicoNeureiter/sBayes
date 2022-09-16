@@ -613,9 +613,7 @@ class _AlterCluster(Operator):
             p = update_weights(sample_new)[changed_objects]
             p_back = update_weights(sample_old)[changed_objects]
             with sample_new.source.edit() as source:
-                source[changed_objects, :, :] = sample_categorical(
-                    p, binary_encoding=True
-                )
+                source[changed_objects, :, :] = sample_categorical(p, binary_encoding=True)
                 log_q = np.log(p[source[changed_objects]]).sum()
             log_q_back = np.log(p_back[sample_old.source.value[changed_objects]]).sum()
 
@@ -650,17 +648,18 @@ class _AlterCluster(Operator):
 
         if self.sample_from_prior:
             # If sampling from prior, the source posterior is equal to the weights
-            p = update_weights(sample_new)
+            p = update_weights(sample_new)[object_subset]
+            p_back = update_weights(sample_old)[object_subset]
         else:
             p = self.calculate_source_posterior(sample_new, object_subset)
+            p_back = self.calculate_source_posterior(sample_old, object_subset)
 
         # Sample the new source assignments
         with sample_new.source.edit() as s:
             s[object_subset] = sample_categorical(p, binary_encoding=True)
 
-        # Compute transition probabilities
+        # Calculate transition probabilities
         log_q = np.log(p[sample_new.source.value[object_subset]]).sum()
-        p_back = self.calculate_source_posterior(sample_old, object_subset)
         log_q_back = np.log(p_back[sample_old.source.value[object_subset]]).sum()
 
         return sample_new, log_q, log_q_back

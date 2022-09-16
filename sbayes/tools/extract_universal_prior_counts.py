@@ -7,7 +7,7 @@ import argparse
 import tkinter as tk
 from tkinter import filedialog
 
-from sbayes.load_data import read_features_from_csv
+from sbayes.load_data import read_features_from_csv, Confounder
 from sbayes.util import scale_counts
 
 
@@ -78,27 +78,22 @@ def main(args):
     feature_states_file = Path(feature_states_file)
     output_file = Path(output_file)
 
-    # TODO: MAKE THIS SCRIPT COMPATIBLE WITH GEO_SBAYES
+    objects, features, confounders = read_features_from_csv(
+        data_path=prior_data_file,
+        feature_states_path=feature_states_file,
+        groups_by_confounder={'universal': ['<ALL>']},
+    )
 
-    config = {
-        'data': {'features': prior_data_file}
-    }
-
-    _, _, features, feature_names, state_names, _, families, family_names, _ = read_features_from_csv(config)
-    #    file=prior_data_file,
-    #    feature_states_file=feature_states_file
-    #)
-
-    counts = np.sum(features, axis=0)       # shape: (n_features, n_states)
+    counts = np.sum(features.values, axis=0)  # shape: (n_features, n_states)
 
     # Apply the scale_counts if provided
     if max_counts is not None:
         counts = scale_counts(counts, max_counts)
 
     counts_dict = {}
-    for i_f, feature in zip_internal_external(feature_names):
+    for i_f, feature in enumerate(features.names):
         counts_dict[feature] = {}
-        for i_s, state in enumerate(state_names['external'][i_f]):
+        for i_s, state in enumerate(features.state_names[i_f]):
             counts_dict[feature][state] = hyper_prior_concentration + counts[i_f, i_s]
 
     with open(output_file, 'w') as prior_file:

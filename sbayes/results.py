@@ -1,4 +1,5 @@
-from typing import List, Dict, Sequence, TypeVar
+from __future__ import annotations
+from typing import Sequence, TypeVar
 
 import numpy as np
 from numpy.typing import NDArray
@@ -193,7 +194,7 @@ class Results:
 
         return param_dict
 
-    def parse_weights(self, parameters: pd.DataFrame) -> Dict[str, NDArray]:
+    def parse_weights(self, parameters: pd.DataFrame) -> dict[str, NDArray]:
         """Parse weights array for each feature in a dictionary from the parameters
         data-frame.
 
@@ -222,7 +223,7 @@ class Results:
         self,
         parameters: pd.DataFrame,
         prefix: str,
-    ) -> Dict[str, NDArray[float]]:
+    ) -> dict[str, NDArray[float]]:
         """Parse a categorical probabilities for each feature. The probabilities are
         specified in the columns starting with `prefix` in the `parameters` data-frame.
 
@@ -244,7 +245,7 @@ class Results:
         assert len(param) == self.n_features
         return param
 
-    def parse_areal_effect(self, parameters: pd.DataFrame) -> Dict[str, dict]:
+    def parse_areal_effect(self, parameters: pd.DataFrame) -> dict[str, dict]:
         """Parse a categorical probabilities for each feature in each cluster. The
          probabilities are specified in the columns starting with `areal_` in the
          `parameters` data-frame.
@@ -264,7 +265,7 @@ class Results:
 
     def parse_confounding_effects(
         self, parameters: pd.DataFrame
-    ) -> Dict[str, dict]:
+    ) -> dict[str, dict]:
         """Parse a categorical probabilities for each feature in each confounder. The
          probabilities are specified in the `parameters` data-frame in columns starting
          with `{c}_` for a confounder c.
@@ -283,7 +284,7 @@ class Results:
         return conf_effects
 
     @staticmethod
-    def get_family_names(column_names) -> List[str]:
+    def get_family_names(column_names) -> list[str]:
         family_names = []
         for key in column_names:
             if not key.startswith("beta_"):
@@ -296,7 +297,7 @@ class Results:
     @staticmethod
     def get_groups_by_confounder(
         column_names: Sequence[str],
-    ) -> Dict[str, List[str]]:
+    ) -> dict[str, list[str]]:
         """Create a dictionary containing all confounder names as keys and a list of
         corresponding group names as values. The dictionary is extracted from the column
         names in a csv file of logged sbayes parameters."""
@@ -343,7 +344,7 @@ class Results:
         return groups_by_confounder
 
     @staticmethod
-    def get_cluster_names(column_names) -> List[str]:
+    def get_cluster_names(column_names) -> list[str]:
         area_names = []
         for key in column_names:
             if not key.startswith("areal_"):
@@ -353,14 +354,14 @@ class Results:
                 area_names.append(area)
         return area_names
 
-    def get_states_for_feature_name(self, f: str) -> List[str]:
+    def get_states_for_feature_name(self, f: str) -> list[str]:
         return self.feature_states[self.feature_names.index(f)]
 
 
 def extract_features_and_states(
         parameters: pd.DataFrame,
         prefix: str
-) -> (List[str], List[List[str]]):
+) -> (list[str], list[list[str]]):
     """Extract features names and state names of the given data-set.
 
     Args:
