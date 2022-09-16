@@ -373,6 +373,14 @@ class ClusterMCMC(MCMC):
         if self.model.sample_source:
 
             operators = {
+                # 'sample_cluster': AlterCluster(
+                #     weight=operators_config.clusters,
+                #     adjacency_matrix=self.data.network.adj_mat,
+                #     p_grow_connected=0.5,
+                #     model_by_chain=self.posterior_per_chain,
+                #     resample_source=True,
+                #     sample_from_prior=True,
+                # ),
                 'gibbsish_sample_cluster': AlterClusterGibbsish(
                     weight=0.5 * operators_config.clusters,
                     adjacency_matrix=self.data.network.adj_mat,
