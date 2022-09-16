@@ -103,7 +103,7 @@ class MCMC(_abc.ABC):
     Q_REJECT = 0
     Q_BACK_REJECT = -_np.inf
 
-    CHECK_CACHING = False
+    CHECK_CACHING = __debug__
 
     def __init__(
             self,
@@ -170,9 +170,7 @@ class MCMC(_abc.ABC):
         # Compute the prior
         log_prior = self.posterior_per_chain[chain].prior(sample=sample)
 
-        if self.CHECK_CACHING:
-            # sample.everything_changed()
-            # log_prior_stable = self.posterior_per_chain[chain].prior(sample=sample)
+        if self.CHECK_CACHING and (sample.i_step < 1000) and (sample.i_step % 10 == 0):
             log_prior_stable = self.posterior_per_chain[chain].prior(sample=sample, caching=False)
             assert log_prior == log_prior_stable, f'{log_prior} != {log_prior_stable}'
 
@@ -195,8 +193,7 @@ class MCMC(_abc.ABC):
         # Compute the likelihood
         log_lh = self.posterior_per_chain[chain].likelihood(sample=sample)
 
-        if self.CHECK_CACHING:
-            # sample.everything_changed()
+        if self.CHECK_CACHING and (sample.i_step < 1000) and (sample.i_step % 10 == 0):
             log_lh_stable = self.posterior_per_chain[chain].likelihood(sample=sample, caching=False)
             assert log_lh == log_lh_stable, f'{log_lh} != {log_lh_stable}'
 

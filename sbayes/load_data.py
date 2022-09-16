@@ -150,9 +150,9 @@ class Confounder:
     @classmethod
     def from_dataframe(
         cls: Type[S],
-        confounder_name: str,
-        group_names: list[str],
         data: pd.DataFrame,
+        confounder_name: ConfounderName,
+        group_names: list[GroupName] = None,
     ) -> S:
         n_objects = data.shape[0]
 
@@ -174,7 +174,11 @@ class Confounder:
                 )
 
         group_names_by_site = data[confounder_name]
-        group_names = list(np.unique(group_names_by_site.dropna()))
+        group_names_in_data = list(np.unique(group_names_by_site.dropna()))
+        if group_names is None:
+            group_names = group_names_in_data
+        else:
+            assert set(group_names) == set(group_names_in_data)
         group_assignment = np.zeros((len(group_names), n_objects), dtype=bool)
         for g, g_name in enumerate(group_names):
             group_assignment[g, np.where(group_names_by_site == g_name)] = True
@@ -281,9 +285,9 @@ class Data:
 def read_features_from_csv(
     data_path: PathLike,
     feature_states_path: PathLike,
-    groups_by_confounder: OrderedDict[ConfounderName, list[GroupName]],
+    groups_by_confounder: dict[ConfounderName, list[GroupName]],
     logger: Optional[Logger] = None,
-) -> (Objects, Features, OrderedDict[ConfounderName, Confounder]):
+) -> (Objects, Features, dict[ConfounderName, Confounder]):
     """This is a helper function to import data (objects, features, confounders) from a csv file
     Args:
         data_path: path to the data csv file.
@@ -302,7 +306,7 @@ def read_features_from_csv(
     objects = Objects.from_dataframe(data)
     confounders = OrderedDict()
     for c, groups in groups_by_confounder.items():
-        confounders[c] = Confounder.from_dataframe(confounder_name=c, group_names=groups, data=data)
+        confounders[c] = Confounder.from_dataframe(data=data, confounder_name=c, group_names=groups)
 
     if logger:
         logger.info(

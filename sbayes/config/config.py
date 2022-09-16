@@ -20,7 +20,7 @@ except ImportError:
 from pydantic import BaseModel, Extra, Field
 from pydantic import root_validator, ValidationError
 from pydantic import FilePath, DirectoryPath
-from pydantic import PositiveInt, PositiveFloat, confloat, NonNegativeFloat, NonNegativeInt
+from pydantic import PositiveInt, PositiveFloat, confloat, NonNegativeFloat
 
 from sbayes.util import fix_relative_path, decompose_config_path, PathLike
 from sbayes.util import update_recursive
@@ -88,6 +88,7 @@ class GeoPriorConfig(BaseConfig):
     class Types(str, Enum):
         UNIFORM = "uniform"
         COST_BASED = "cost_based"
+        DIAMETER_BASED = "diameter_based"
         # GAUSSIAN = "gaussian"
 
     class AggregationStrategies(str, Enum):
@@ -98,6 +99,12 @@ class GeoPriorConfig(BaseConfig):
     class ProbabilityFunction(str, Enum):
         EXPONENTIAL = "exponential"
         SIGMOID = "sigmoid"
+
+    class Skeleton(str, Enum):
+        MST = "mst"
+        DELAUNAY = "delaunay"
+        DIAMETER = "diameter"  # i.e. the longest shortest path between two nodes
+        COMPLETE = "complete_graph"
 
     type: Types = Types.UNIFORM
     """Type of prior distribution (`uniform`, `cost_based` or `gaussian`)."""
@@ -117,6 +124,10 @@ class GeoPriorConfig(BaseConfig):
 
     inflection_point: Optional[float]
     """The point where a sigmoid probability function reaches 0.5."""
+
+    skeleton: Skeleton = Skeleton.MST
+    """The graph along which the costs are aggregated. Per default, the cost of edges on 
+    the minimum spanning tree are aggregated."""
 
     @root_validator
     def validate_dirichlet_parameters(cls, values):
@@ -410,9 +421,10 @@ class SBayesConfig(BaseConfig):
 
 #
 
+#
 
 
-def ruaml_yaml_dumps(thing):
+def ruamel_yaml_dumps(thing: yaml.CommentedMap):
     y = yaml.YAML()
     y.indent(mapping=4, sequence=4, offset=4)
     out = io.StringIO()
@@ -517,7 +529,7 @@ def generate_template():
             assert field.required, field
             return '<REQUIRED>'
 
-    def template(cfg: type(BaseConfig)):
+    def template(cfg: type(BaseConfig)) -> yaml.CommentedMap:
         d = yaml.CommentedMap()
         for key, field in cfg.__fields__.items():
             if is_config_class(field.type_):
@@ -534,11 +546,11 @@ def generate_template():
 
         return d
 
-    def get_indent(line):
+    def get_indent(line: str) -> int:
         return len(line) - len(str.lstrip(line))
 
     d = template(SBayesConfig)
-    s = ruaml_yaml_dumps(d)
+    s = ruamel_yaml_dumps(d)
     lines = []
     for line in s.split('\n'):
         if line.startswith('#'):
