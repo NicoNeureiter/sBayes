@@ -2,13 +2,15 @@
 	"results": {
 		"path_in": {
 			"clusters": [
-				"results/SA_in_new_sbayes/K2/clusters_K2_0.txt"
+				"results/test/K3/clusters_K3_0.txt",
+				"results/test/K3/clusters_K3_1.txt"
 			],
 			"stats": [
-				"results/SA_in_new_sbayes/K2/stats_K2_0.txt"
+				"results/test/K3/stats_K3_0.txt",
+				"results/test/K3/stats_K3_1.txt"
 			]
 		},
-		"path_out": "plots"
+		"path_out": "results/test/plots"
 	},
 	"data": {
 		"features": "data/features.csv",
@@ -17,8 +19,8 @@
 	},
 	"map": {
 		"content": {
-			"type": "density_map",
-			"min_posterior_frequency": 0.8,
+			"type": "consensus_map",
+			"min_posterior_frequency": 0.6,
 			"plot_families": true,
 			"burn_in": 0.2
 		},
@@ -48,7 +50,7 @@
 					"#66a61e"
 				],
 				"width": 2,
-				"alpha": 0.1
+				"alpha": 1.0
 			},
 			"families": {
 				"size": 200,
@@ -82,7 +84,7 @@
 					0.01,
 					0.3
 				],
-				"log-likelihood": true
+				"log-likelihood": false
 			},
 			"lines": {
 				"add": true,
@@ -194,6 +196,11 @@
 			"height": 6,
 			"format": "pdf",
 			"resolution": 200
+		}
+	},
+	"pie_plot": {
+		"content": {
+			"burn_in": 0.2
 		}
 	}
 }

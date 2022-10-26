@@ -1,21 +1,21 @@
 mcmc:
-    steps: 4000000
+    steps: 2000000
     samples: 2000
-    runs: 1
-    grow_to_adjacent: 0.85
+    runs: 2
+    grow_to_adjacent: 0.8
     operators:
         clusters: 50
         weights: 10
-        cluster_effect: 20
-        confounding_effects: 10
-        source: 10
+        cluster_effect: 1
+        confounding_effects: 1
+        source: 12
     init_objects_per_cluster: 10
     warmup:
-        warmup_steps: 10000
-        warmup_chains: 10
+        warmup_steps: 100
+        warmup_chains: 4
     sample_from_prior: false
 model:
-    clusters: 3
+    clusters: [3,5]
     sample_source: true
     confounders:
         universal:
@@ -30,11 +30,12 @@ model:
     prior:
         objects_per_cluster:
             type: uniform_area
-            min: 3
+            min: 2
             max: 100
         geo:
-            type: cost_based
-            rate: 200.0
+            type: uniform
+#            type: cost_based
+#            rate: 200.0
         weights:
             type: uniform
         cluster_effect:
@@ -42,8 +43,9 @@ model:
         confounding_effects:
             universal:
                 "<ALL>":
-                    type: dirichlet
-                    file: data/prior_universal/universal_counts.json
+                    type: uniform
+#                    type: dirichlet
+#                    file: data/prior_universal/universal_counts.json
             family:
                 Tucanoan:
                     type: uniform
