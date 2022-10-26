@@ -94,10 +94,14 @@ class Features:
     feature_and_state_names: OrderedDict[FeatureName, list[StateName]] = field(init=False)
     # TODO This could replace names and state_names
 
+    na_values: NDArray[bool] = field(init=False)  # shape: (n_objects, n_features)
+
     def __post_init__(self):
         object.__setattr__(self, 'feature_and_state_names', OrderedDict())
         for f, states_names_f in zip(self.names, self.state_names):
             self.feature_and_state_names[f] = states_names_f
+
+        object.__setattr__(self, 'na_values', np.sum(self.values, axis=-1) == 0)
 
     def __getitem__(self, key: str) -> NDArray | list | int:
         return getattr(self, key)
