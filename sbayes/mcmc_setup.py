@@ -48,7 +48,6 @@ MCMC with {mcmc_cfg.steps} steps and {mcmc_cfg.samples} samples
 Warm-up: {wu_cfg.warmup_chains} chains exploring the parameter space in {wu_cfg.warmup_steps} steps
 Ratio of cluster steps (growing, shrinking, swapping clusters): {op_cfg.clusters}
 Ratio of weight steps (changing weights): {op_cfg.weights}
-Ratio of cluster_effect steps (changing probabilities in clusters): {op_cfg.cluster_effect}
 Ratio of confounding_effects steps (changing probabilities in confounders): {op_cfg.confounding_effects}''')
         if self.model.sample_source:
             self.logger.info(f'Ratio of source steps (changing source component assignment): {op_cfg.source}')

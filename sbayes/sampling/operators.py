@@ -10,10 +10,13 @@ from numpy.typing import NDArray
 from numpy.core.umath_tests import inner1d
 import scipy.stats as stats
 
-from sbayes.load_data import ConfounderName
+from sbayes.load_data import Data
+from sbayes.model.likelihood import compute_component_likelihood
+from sbayes.sampling.conditionals import likelihood_per_component, sample_source_from_prior, logprob_source_from_prior, \
+    conditional_effect_mean, compute_effect_counts, update_feature_counts, compute_feature_counts
 from sbayes.sampling.state import Sample
 from sbayes.util import dirichlet_logpdf, normalize, get_neighbours
-from sbayes.model import Model, Likelihood, Prior, normalize_weights, update_weights
+from sbayes.model import Model, Likelihood, normalize_weights, update_weights
 from sbayes.preprocessing import sample_categorical
 from sbayes.config.config import OperatorsConfig
 
@@ -99,7 +102,7 @@ class Operator(ABC):
         return self.__class__.__name__
 
 
-class DirichletOperator(Operator):
+class DirichletOperator(Operator, ABC):
 
     """Base class for operators modifying probability vectors using a dirichlet proposal."""
 
@@ -177,95 +180,6 @@ class AlterWeights(DirichletOperator):
         return sample_new, log_q, log_q_back
 
 
-class AlterClusterEffect(DirichletOperator):
-
-    STEP_PRECISION = 20
-
-    def __init__(self, weight: float, applicable_states: NDArray[bool], **kwargs):
-        super().__init__(weight=weight, **kwargs)
-        self.applicable_states = applicable_states
-
-    def _propose(self, sample: Sample, **kwargs) -> tuple[Sample, float, float]:
-        """Modifies the areal effect of one state, feature and cluster in the current sample."""
-        sample_new = sample.copy()
-
-        # Randomly choose one of the clusters, one of the features and one of the states
-        z_id = np.random.choice(range(sample.n_clusters))
-        f_id = np.random.choice(range(sample.n_features))
-
-        # Different features have different applicable states
-        f_states = np.nonzero(self.applicable_states[f_id])[0]
-
-        # Randomly choose two applicable states for which the probabilities will be changed, leave the others untouched
-        states_to_alter = random.sample(list(f_states), 2)
-
-        # Get the current probabilities
-        p_current = sample.cluster_effect.value[z_id, f_id, states_to_alter]
-
-        # Transform the probabilities such that they sum to 1
-        p_current_t = p_current / p_current.sum()
-
-        # Sample new p from dirichlet distribution with given precision
-        p_new_t, log_q, log_q_back = self.dirichlet_proposal(
-            p_current_t, step_precision=self.STEP_PRECISION
-        )
-
-        # Transform back
-        p_new = p_new_t * p_current.sum()
-
-        # Update sample
-        with sample_new.cluster_effect.edit_group(z_id) as ce_z:
-            ce_z[f_id, states_to_alter] = p_new
-
-        return sample_new, log_q, log_q_back
-
-
-class AlterConfoundingEffects(DirichletOperator):
-
-    STEP_PRECISION = 10
-
-    def __init__(self, weight: float, confounder: ConfounderName, applicable_states: NDArray[bool], **kwargs):
-        super().__init__(weight=weight, **kwargs)
-        self.confounder = confounder
-        self.applicable_states = applicable_states
-
-    def _propose(self, sample: Sample, **kwargs) -> tuple[Sample, float, float]:
-        """This function modifies confounding effect [i] of one state and one feature in the current sample"""
-        sample_new = sample.copy()
-
-        # Randomly choose one of the families and one of the features
-        group_id = np.random.randint(0, sample.n_groups(self.confounder))
-        f_id = np.random.choice(range(sample.n_features))
-
-        # Different features have different applicable states
-        f_states = np.nonzero(self.applicable_states[f_id])[0]
-
-        # Randomly choose two applicable states for which the probabilities will be changed, leave the others untouched
-        states_to_alter = random.sample(list(f_states), 2)
-
-        # Get the current probabilities
-        p_current = sample.confounding_effects[self.confounder].value[
-            group_id, f_id, states_to_alter
-        ]
-
-        # Transform the probabilities such that they sum to 1
-        p_current_t = p_current / p_current.sum()
-
-        # Sample new p from dirichlet distribution with given precision
-        p_new_t, log_q, log_q_back = self.dirichlet_proposal(
-            p_current_t, step_precision=self.STEP_PRECISION
-        )
-
-        # Transform back
-        p_new = p_new_t * p_current.sum()
-
-        # Update sample
-        with sample_new.confounding_effects[self.confounder].edit_group(group_id) as group_effect:
-            group_effect[f_id, states_to_alter] = p_new
-
-        return sample_new, log_q, log_q_back
-
-
 class GibbsSampleSource(Operator):
     def __init__(
         self,
@@ -283,47 +197,94 @@ class GibbsSampleSource(Operator):
     def _propose(
         self,
         sample: Sample,
-        site_subset: slice | list[int] = slice(None),
+        object_subset: slice | list[int] = slice(None),
         **kwargs,
     ) -> tuple[Sample, float, float]:
         """Resample the observations to mixture components (their source).
 
         Args:
             sample: The current sample with clusters and parameters
-            site_subset: A subset of sites to be updated
+            object_subset: A subset of sites to be updated
 
         Returns:
             The modified sample and forward and backward transition log-probabilities
         """
+        sample_new = sample.copy()
+        features = self.model_by_chain[sample.chain].data.features.values
+
+        # object_subset = slice(None)
+
+        r = np.random.random(sample.n_objects)
+        object_subset = r <= max(0.08, np.min(r))
+
         if self.sample_from_prior:
-            p = update_weights(sample)
+            p = update_weights(sample)[object_subset]
         else:
-            p = self.calculate_source_posterior(sample, site_subset)
+            p = self.calculate_source_posterior(sample, object_subset)
 
         # Sample the new source assignments
-        with sample.source.edit() as source:
-            source[site_subset] = sample_categorical(p=p, binary_encoding=True)
+        with sample_new.source.edit() as source:
+            source[object_subset] = sample_categorical(p=p, binary_encoding=True)
 
-        if self.as_gibbs:
-            # This is a Gibbs operator, which should always be accepted
-            return sample, self.Q_GIBBS, self.Q_BACK_GIBBS
+        update_feature_counts(sample, sample_new, features, object_subset)
+        # ODER:
+        # sample_new.source.counts = compute_feature_counts(features, sample_new)
+        # sample_new.source.assert_counts_match(compute_feature_counts(features, sample_new))
+
+        # if self.as_gibbs:
+        #     # This is a Gibbs operator, which should always be accepted
+        #     return sample, self.Q_GIBBS, self.Q_BACK_GIBBS
+        # else:
+        #     # If this is not a Gibbs operator, we need the correct hastings factor:
+
+        # Transition probability forward:
+        log_q = np.log(p[sample_new.source.value[object_subset]]).sum()
+
+        # Transition probability backward:
+        if self.sample_from_prior:
+            p_back = p
         else:
-            # If part of another (non-Gibbs) operator, we need the correct hastings factor:
-            log_q = np.log(p[sample.source.value[site_subset]]).sum()
-            return sample, log_q, 0.0
+            p_back = self.calculate_source_posterior(sample_new, object_subset)
+            # w = update_weights(sample_new)[object_subset]
+            # print(w.shape, p_back.shape, sample.source.value[object_subset].shape)
+            # assert np.all((w > 0) == (p_back > 0))
+            # assert np.all(sample.source.value[object_subset] <= (p_back > 0))
+
+        # print(np.sum(np.abs(sample.source.value.astype(float) - sample_new.source.value.astype(float))))
+        # print(np.sum(np.abs(p - p_back)))
+
+        log_q_back = np.log(p_back[sample.source.value[object_subset]]).sum()
+        # print(np.min(p_back[sample.source.value[object_subset]]))
+        # print('\t\t\t\t\t\t\t\t\t\t',
+        #       np.log(p_back[sample_new.source.value[object_subset]]).sum(),
+        #       np.log(p[sample.source.value[object_subset]]).sum()
+        #       )
+        #
+        # print('\t\t\t\t\t\t\t\t\t\t', log_q, log_q_back)
+        # print('\t\t\t\t\t', log_q - log_q_back)
+
+        return sample_new, log_q, log_q_back
 
     def calculate_source_posterior(
         self, sample: Sample, object_subset: slice | list[int] = slice(None)
     ) -> NDArray[float]:  # shape: (n_objects_in_subset, n_features, n_components)
-        likelihood = self.model_by_chain[sample.chain].likelihood
-        lh_per_component = likelihood.update_component_likelihoods(sample)
+        """Compute the posterior support for source assignments of every object and feature."""
+
+        # 1. compute likelihood for each component
+        model: Model = self.model_by_chain[sample.chain]
+        lh_per_component = likelihood_per_component(model=model, sample=sample, caching=True)
+        # print(lh_per_component[:2,:2, :])
+
+        # 2. multiply by weights and normalize over components to get the source posterior
         weights = update_weights(sample)
+        # print(weights[:2, :2, :])
         return normalize(
             lh_per_component[object_subset] * weights[object_subset], axis=-1
         )
 
 
 class GibbsSampleWeights(Operator):
+
     def __init__(
         self,
         *args,
@@ -418,138 +379,6 @@ class GibbsSampleWeights(Operator):
         return np.sum(log_lh_per_observation, axis=0)
 
 
-class GibbsSampleClusterEffect(Operator):
-    def __init__(
-        self,
-        weight: float,
-        model_by_chain: list[Model],
-        applicable_states: NDArray[bool],
-        sample_from_prior: bool = False,
-        **kwargs,
-    ):
-        super().__init__(weight=weight, **kwargs)
-        self.model_by_chain = model_by_chain
-        self.sample_from_prior = sample_from_prior
-        self.applicable_states = applicable_states
-
-    def _propose(
-        self,
-        sample: Sample,
-        i_cluster: int | None = None,
-        **kwargs,
-    ) -> tuple[Sample, float, float]:
-        """Resample the cluster effects according to the conditional posterior distr.
-        Args:
-            sample: The current sample with clusters and parameters
-            i_cluster: Index of the cluster to be changed
-        Returns:
-            The modified sample and forward and backward transition log-probabilities
-        """
-        if i_cluster is None:
-            i_cluster = np.random.randint(0, sample.n_clusters)
-
-        if self.sample_from_prior:
-            # To sample from prior we emulate an empty dataset
-            features = np.zeros((1, sample.n_features, sample.n_states))
-        else:
-            # Only consider observations that are attributed to the areal effect distribution
-            from_cluster = (
-                sample.source.value[..., 0]
-                & sample.clusters.value[i_cluster, :, np.newaxis]
-            )
-            features = (
-                from_cluster[..., np.newaxis] * self.get_likelihood(sample).features
-            )
-
-        # Resample cluster_effect according to these observations
-        with sample.cluster_effect.edit_group(i_cluster) as cluster_effect:
-            for i_feat in range(sample.n_features):
-                s_idxs = self.applicable_states[i_feat]
-                feature_counts = np.nansum(features[:, i_feat, s_idxs], axis=0)
-                cluster_effect[i_feat, s_idxs] = np.random.dirichlet(
-                    alpha=1 + feature_counts
-                )
-
-        return sample, self.Q_GIBBS, self.Q_BACK_GIBBS
-
-    def get_likelihood(self, sample) -> Likelihood:
-        return self.model_by_chain[sample.chain].likelihood
-
-
-class GibbsSampleConfoundingEffects(Operator):
-    def __init__(
-        self,
-        weight: float,
-        confounder: str,
-        source_index: int,
-        model_by_chain: list[Model],
-        applicable_states: NDArray[bool],
-        sample_from_prior: bool = False,
-        **kwargs,
-    ):
-        super().__init__(weight=weight, **kwargs)
-        self.confounder = confounder
-        self.model_by_chain = model_by_chain
-        self.applicable_states = applicable_states
-        self.source_index = source_index
-        self.sample_from_prior = sample_from_prior
-
-    def _propose(
-        self,
-        sample: Sample,
-        i_group: int | None = None,
-        **kwargs,
-    ) -> tuple[Sample, float, float]:
-        """Resample one confounding effects according to the conditional posterior distr.
-        Args:
-            sample: The current sample with clusters and parameters
-            i_cluster: Index of the cluster to be changed
-        Returns:
-            The modified sample and forward and backward transition log-probabilities
-        """
-        conf = self.confounder
-        if i_group is None:
-            i_group = np.random.randint(0, sample.n_groups(conf))
-        group = sample.confounders[conf].group_names[i_group]
-
-        if self.sample_from_prior:
-            # To sample from prior we emulate an empty dataset
-            features = np.zeros((1, sample.n_features, sample.n_states))
-        else:
-            # Select subset of features
-            # features = self.features[:, feature_subset, :]
-            features = self.get_likelihood(sample).features
-
-            # Only consider observations that are attributed to the relevant confounding effect and group
-            # from_group = (sample.source[:, feature_subset, source_i] &
-            from_group = (
-                sample.source.value[:, :, self.source_index]
-                & sample.confounders[conf].group_assignment[i_group, :, np.newaxis]
-            )
-            features = from_group[..., np.newaxis] * features
-
-        # Get the prior pseudo-counts
-        prior = self.get_prior(sample)
-        prior_counts = prior.prior_confounding_effects[conf].concentration[group]
-
-        # Resample confounding effect according to these observations
-        with sample.confounding_effects[conf].edit_group(i_group) as group_effect:
-            for i_feat in range(sample.n_features):
-                s_idxs = self.applicable_states[i_feat]
-                feature_counts = np.nansum(features[:, i_feat, s_idxs], axis=0)
-                group_effect[i_feat, s_idxs] = np.random.dirichlet(
-                    prior_counts[i_feat] + feature_counts
-                )
-
-        return sample, self.Q_GIBBS, self.Q_BACK_GIBBS
-
-    def get_likelihood(self, sample) -> Likelihood:
-        return self.model_by_chain[sample.chain].likelihood
-
-    def get_prior(self, sample) -> Prior:
-        return self.model_by_chain[sample.chain].prior
-
-
 class _AlterCluster(Operator):
 
     def __init__(
@@ -558,18 +387,27 @@ class _AlterCluster(Operator):
         model_by_chain: list[Model],
         resample_source: bool,
         sample_from_prior: bool,
+        p_grow: float = 0.5,
         **kwargs,
     ):
         super().__init__(*args, **kwargs)
         self.model_by_chain = model_by_chain
         self.resample_source = resample_source
         self.sample_from_prior = sample_from_prior
+        self.p_grow = p_grow
 
     def _propose(self, sample: Sample, **kwargs) -> tuple[Sample, float, float]:
-        if random.random() < 0.5:
-            return self.shrink_cluster(sample)
+        if random.random() < self.p_grow:
+            sample_new, log_q, log_q_back = self.grow_cluster(sample)
+            log_q += np.log(self.p_grow)
+            log_q_back += np.log(1 - self.p_grow)
         else:
-            return self.grow_cluster(sample)
+            sample_new, log_q, log_q_back = self.shrink_cluster(sample)
+            log_q += np.log(1 - self.p_grow)
+            log_q_back += np.log(self.p_grow)
+
+        return sample_new, log_q, log_q_back
+
 
     @abstractmethod
     def grow_cluster(self, sample: Sample) -> tuple[Sample, float, float]:
@@ -595,27 +433,35 @@ class _AlterCluster(Operator):
         """
         return cluster.nonzero()[0]
 
-    def get_likelihood(self, sample):
-        return self.model_by_chain[sample.chain].likelihood
-
     def propose_new_sources(
         self, sample_old: Sample, sample_new: Sample, changed_objects: list[int] | NDArray[int]
     ) -> tuple[Sample, float, float]:
         n_features = sample_old.n_features
+        features = self.model_by_chain[sample_old.chain].data.features.values
 
         MODE = "gibbs"
+        # MODE = "prior"
+
         if MODE == "gibbs":
             sample_new, log_q, log_q_back = self.gibbs_sample_source(
                 sample_new, sample_old, object_subset=changed_objects
             )
 
         elif MODE == "prior":
+            # source = sample_source_from_prior(sample_new)
+            # log_q = logprob_source_from_prior(sample_new)
+            # log_q_back = logprob_source_from_prior(sample_old)
+
             p = update_weights(sample_new)[changed_objects]
             p_back = update_weights(sample_old)[changed_objects]
             with sample_new.source.edit() as source:
                 source[changed_objects, :, :] = sample_categorical(p, binary_encoding=True)
                 log_q = np.log(p[source[changed_objects]]).sum()
             log_q_back = np.log(p_back[sample_old.source.value[changed_objects]]).sum()
+
+            update_feature_counts(sample_old, sample_new, features, changed_objects)
+            # sample_new.source.counts = compute_feature_counts(features, sample_new)
+            # sample_new.source.assert_counts_match(compute_feature_counts(features.values, sample_new))
 
         elif MODE == "uniform":
             has_components_new = sample_new.cache.has_components.value
@@ -633,6 +479,10 @@ class _AlterCluster(Operator):
                 np.tile(has_components_old[changed_objects, None, :], (1, n_features, 1))
             )
             log_q_back = np.log(p_back[sample_old.source.value[changed_objects]]).sum()
+
+            update_feature_counts(sample_old, sample_new, features, changed_objects)
+            # sample_new.source.counts = compute_feature_counts(features, sample_new)
+            # sample_new.source.assert_counts_match(compute_feature_counts(features.values, sample_new))
         else:
             raise ValueError(f"Invalid mode `{MODE}`. Choose from (gibbs, prior and uniform)")
 
@@ -645,38 +495,52 @@ class _AlterCluster(Operator):
         object_subset: slice | list[int] | NDArray[int] = slice(None),
     ) -> tuple[Sample, float, float]:
         """Resample the observations to mixture components (their source)."""
+        features = self.model_by_chain[sample_old.chain].data.features.values
+
+        w = update_weights(sample_old)[object_subset]
+        s = sample_old.source.value[object_subset]
+        assert np.all(s <= (w > 0)), np.max(w)
 
         if self.sample_from_prior:
-            # If sampling from prior, the source posterior is equal to the weights
             p = update_weights(sample_new)[object_subset]
-            p_back = update_weights(sample_old)[object_subset]
         else:
             p = self.calculate_source_posterior(sample_new, object_subset)
-            p_back = self.calculate_source_posterior(sample_old, object_subset)
 
         # Sample the new source assignments
-        with sample_new.source.edit() as s:
-            s[object_subset] = sample_categorical(p, binary_encoding=True)
+        with sample_new.source.edit() as source:
+            source[object_subset] = sample_categorical(p=p, binary_encoding=True)
 
-        # Calculate transition probabilities
+        update_feature_counts(sample_old, sample_new, features, object_subset)
+        # sample_new.source.counts = compute_feature_counts(features, sample_new)
+        # sample_new.source.assert_counts_match(compute_feature_counts(features, sample_new))
+
+        # Transition probability forward:
         log_q = np.log(p[sample_new.source.value[object_subset]]).sum()
+
+        # Transition probability backward:
+        if self.sample_from_prior:
+            p_back = update_weights(sample_old)[object_subset]
+        else:
+            p_back = self.calculate_source_posterior(sample_old, object_subset,
+                                                     source=sample_new.source.value)
         log_q_back = np.log(p_back[sample_old.source.value[object_subset]]).sum()
 
         return sample_new, log_q, log_q_back
 
     def calculate_source_posterior(
-        self, sample: Sample, object_subset: slice | list[int] | NDArray[int] = slice(None)
+        self,
+        sample: Sample,
+        object_subset: slice | list[int] | NDArray[int] = slice(None),
+        source: NDArray[bool] = None,
     ) -> NDArray[float]:  # shape: (n_objects_in_subset, n_features, n_components)
         """Compute the posterior support for source assignments of every object and feature."""
 
-        # Weights (in each feature and object) are the priors on the source assignments
+        # 1. compute likelihood for each component
+        model: Model = self.model_by_chain[sample.chain]
+        lh_per_component = likelihood_per_component(model=model, sample=sample, source=source, caching=True)
+
+        # 2. multiply by weights and normalize over components to get the source posterior
         weights = update_weights(sample)
-
-        # Compute the likelihood of each component in each feature and language
-        likelihood = self.get_likelihood(sample)
-        lh_per_component = likelihood.update_component_likelihoods(sample)
-
-        # The source posterior is the (normalized) product of weights and lh
         return normalize(
             lh_per_component[object_subset] * weights[object_subset], axis=-1
         )
@@ -698,17 +562,31 @@ class AlterClusterGibbsish(_AlterCluster):
         self,
         sample: Sample,
         i_cluster: int,
-        likelihood: Likelihood,
         available: NDArray[bool],
     ) -> NDArray[float]:  # shape: (n_avaiable, )
+        model = self.model_by_chain[sample.chain]
+        features = model.data.features
+        cluster = sample.clusters.value[i_cluster]
+        source = sample.source.value
+
         if self.sample_from_prior:
             n_available = np.count_nonzero(available)
             return 0.5*np.ones(n_available)
 
-        cluster_lh_z = inner1d(
-            self.features[available], sample.cluster_effect.value[i_cluster]
+        p = conditional_effect_mean(
+            features=features.values,
+            is_source_group=(cluster[..., np.newaxis] & source[..., 0])[np.newaxis,...],
+            applicable_states=features.states,
+            prior_counts=model.prior.prior_cluster_effect.concentration_array,
+            feature_counts=sample.source.counts['cluster'][[i_cluster]]
         )
-        all_lh = deepcopy(likelihood.update_component_likelihoods(sample)[available, :])
+        # sample.source.assert_counts_match(compute_feature_counts(features.values, sample))
+        # posterior_counts = sample.source.counts['cluster'][[i_cluster]] + model.prior.prior_cluster_effect.concentration_array
+        # assert np.allclose(p, normalize(posterior_counts, axis=-1))
+
+
+        cluster_lh_z = inner1d(self.features[available], p)
+        all_lh = deepcopy(likelihood_per_component(model, sample, source, caching=True)[available, :])
         all_lh[..., 0] = cluster_lh_z
 
         has_components = deepcopy(sample.cache.has_components.value[available, :])
@@ -740,7 +618,7 @@ class AlterClusterGibbsish(_AlterCluster):
 
         # Load and precompute useful variables
         model = self.model_by_chain[sample.chain]
-        likelihood = model.likelihood
+        available = self.available(sample, i_cluster)
         candidates = self.grow_candidates(sample)
 
         # If all the space is take we can't grow
@@ -755,8 +633,11 @@ class AlterClusterGibbsish(_AlterCluster):
         sample_new = sample.copy()
 
         # Assign probabilities for each unoccupied object
-        cluster_posterior = self.compute_cluster_posterior(
-            sample, i_cluster, likelihood, np.ones(sample.n_objects, dtype=bool)
+        cluster_posterior = np.empty(sample.n_objects)
+        cluster_posterior[available] = self.compute_cluster_posterior(
+            sample, i_cluster, available
+        # cluster_posterior = self.compute_cluster_posterior(
+        #     sample, i_cluster, np.ones(sample.n_objects, dtype=bool)
         )
         p_add = normalize(cluster_posterior * candidates)
 
@@ -787,7 +668,7 @@ class AlterClusterGibbsish(_AlterCluster):
 
         # Load and precompute useful variables
         model = self.model_by_chain[sample.chain]
-        likelihood = model.likelihood
+        available = self.available(sample, i_cluster)
         candidates = self.shrink_candidates(sample, i_cluster)
 
         # If the cluster is already at min size, reject:
@@ -798,13 +679,15 @@ class AlterClusterGibbsish(_AlterCluster):
         sample_new = sample.copy()
 
         # Assign probabilities for each unoccupied object
-        cluster_posterior = self.compute_cluster_posterior(
-            sample, i_cluster, likelihood, np.ones(sample.n_objects, dtype=bool)
+        cluster_posterior = np.empty(sample.n_objects)
+        cluster_posterior[available] = self.compute_cluster_posterior(
+            sample, i_cluster, available
+        # cluster_posterior = self.compute_cluster_posterior(
+        #     sample, i_cluster, np.ones(sample.n_objects, dtype=bool)
         )
         p_remove = normalize((1 - cluster_posterior) * candidates)
 
         # Draw new object according to posterior
-        # print(p_remove)
         object_remove = np.random.choice(sample.n_objects, p=p_remove, replace=False)
         sample_new.clusters.remove_object(i_cluster, object_remove)
 
@@ -835,14 +718,8 @@ class AlterClusterGibbsish2(AlterClusterGibbsish):
         n_available = np.count_nonzero(available)
         model = self.model_by_chain[sample.chain]
 
-        p = self.compute_cluster_posterior(
-            sample=sample,
-            i_cluster=i_cluster,
-            likelihood=model.likelihood,
-            available=available
-        )  # shape: (n_available,)
-
-        # print()
+        p = self.compute_cluster_posterior(sample, i_cluster, available)
+        # shape: (n_available,)
 
         cluster_new = (np.random.random(n_available) < p)
         if not (model.min_size <= np.count_nonzero(cluster_new) <= model.max_size):
@@ -881,6 +758,7 @@ class AlterClusterGibbsish2(AlterClusterGibbsish):
 
 
 class AlterCluster(_AlterCluster):
+
     def __init__(
         self,
         *args,
@@ -891,76 +769,6 @@ class AlterCluster(_AlterCluster):
         super().__init__(*args, **kwargs)
         self.adjacency_matrix = adjacency_matrix
         self.p_grow_connected = p_grow_connected
-
-    # def swap_cluster(self, sample: Sample) -> tuple[Sample, float, float]:
-    #     """Swap objects in a cluster of the current sample (i.e. remove an object from and
-    #     add another object to one cluster)."""
-    #     sample_new = sample.copy()
-    #     clusters_current = sample.clusters
-    #     occupied = clusters_current.any_cluster()
-    #
-    #     if sample.source is None:
-    #         self.resample_source = False
-    #
-    #     # Randomly choose one of the clusters to modify
-    #     z_id = np.random.choice(range(clusters_current.shape[0]))
-    #     cluster_current = clusters_current[z_id, :]
-    #
-    #     neighbours = get_neighbours(cluster_current, occupied, self.adjacency_matrix)
-    #     connected_step = random.random() < self.p_grow_connected
-    #     if connected_step:
-    #         # All neighboring sites that are not yet occupied by other clusters are candidates
-    #         candidates = neighbours
-    #     else:
-    #         # All free sites are candidates
-    #         candidates = ~occupied
-    #
-    #     # When stuck (all neighbors occupied) return current sample and reject the step (q_back = 0)
-    #     if not np.any(candidates):
-    #         return sample, 0, -np.inf
-    #
-    #     # Add a site to the zone
-    #     object_add = random.choice(candidates.nonzero()[0])
-    #     sample_new.clusters.add_object(z_id, object_add)
-    #
-    #     # Remove a site from the zone
-    #     removal_candidates = self.get_removal_candidates(cluster_current)
-    #     object_remove = random.choice(removal_candidates)
-    #     sample_new.clusters.remove_object(z_id, object_remove)
-    #
-    #     # # Compute transition probabilities
-    #     back_neighbours = get_neighbours(cluster_current, occupied, self.adjacency_matrix)
-    #     # q = 1. / np.count_nonzero(candidates)
-    #     # q_back = 1. / np.count_nonzero(back_neighbours)
-    #
-    #     # Transition probability growing to the new cluster
-    #     q_non_connected = 1 / np.count_nonzero(~occupied)
-    #
-    #     q = (1 - self.p_grow_connected) * q_non_connected
-    #     if neighbours[object_add]:
-    #         q_connected = 1 / np.count_nonzero(neighbours)
-    #         q += self.p_grow_connected * q_connected
-    #
-    #     # Transition probability of growing back to the original zone
-    #     q_back_non_connected = 1 / np.count_nonzero(~occupied)
-    #     q_back = (1 - self.p_grow_connected) * q_back_non_connected
-    #
-    #     # If z is a neighbour of the new zone, the back step could also be a connected grow-step
-    #     if back_neighbours[object_remove]:
-    #         q_back_connected = 1 / np.count_nonzero(back_neighbours)
-    #         q_back += self.p_grow_connected * q_back_connected
-    #
-    #     log_q = np.log(q)
-    #     log_q_back = np.log(q_back)
-    #
-    #     if self.resample_source:
-    #         sample_new, log_q_s, log_q_back_s = self.propose_new_sources(
-    #             sample, sample_new, [object_add, object_remove]
-    #         )
-    #         log_q += log_q_s
-    #         log_q_back += log_q_back_s
-    #
-    #     return sample_new, log_q, log_q_back
 
     def grow_cluster(self, sample: Sample) -> tuple[Sample, float, float]:
         """Grow a clusters in the current sample (i.e. add a new site to one cluster)."""

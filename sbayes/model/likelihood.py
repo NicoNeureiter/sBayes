@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 
-from sbayes.util import normalize, log_multinom
+from sbayes.util import dirichlet_multinomial_logpdf, dirichlet_categorical_logpdf
 
 try:
     from typing import Protocol
@@ -11,7 +11,6 @@ except ImportError:
 
 import numpy as np
 from numpy.typing import NDArray
-import scipy.stats as stats
 
 from sbayes.sampling.state import Sample
 from sbayes.load_data import Data
@@ -24,6 +23,8 @@ class ModelShapes(Protocol):
     n_states: int
     states_per_feature: NDArray[bool]
     n_states_per_feature: list[int]
+    n_confounders: int
+    n_components: int
 
 
 class Likelihood(object):
@@ -46,17 +47,16 @@ class Likelihood(object):
         self.shapes = shapes
         self.na_features = (np.sum(self.features, axis=-1) == 0)
 
-        self.source_index = {}
-        self.source_index['clusters'] = 0
+        self.source_index = {'clusters': 0}
         for i, conf in enumerate(self.confounders, start=1):
             self.source_index[conf] = i
 
-    def __call__(self, sample, caching=True):
+    def __call__(self, sample: Sample, caching=True) -> float:
         """Compute the likelihood of all sites. The likelihood is defined as a mixture of areal and confounding effects.
             Args:
-                sample(Sample): A Sample object consisting of clusters and weights
+                sample: A Sample object consisting of clusters and weights
             Returns:
-                float: The joint likelihood of the current sample
+                The joint likelihood of the current sample
             """
 
         # Sum up log-likelihood of each mixture component:
@@ -68,27 +68,30 @@ class Likelihood(object):
         return log_lh
 
     def compute_lh_clusters(self, sample: Sample) -> float:
+        """Compute the log-likelihood of the observations that are assigned to cluster
+        effects in the current sample."""
         cluster_source = sample.source.value[..., 0]
 
         log_p = 0.0
         for i_cluster in range(sample.n_clusters):  # TODO use caching
             c = sample.clusters.value[i_cluster]
-            p = sample.cluster_effect.value[i_cluster, :, :]
-            log_p += self.compute_lh_group(c, cluster_source, p)
+            log_p += self.compute_lh_group(c, cluster_source,
+                                           state_counts=sample.source.counts['cluster'][i_cluster])
             assert not np.isnan(log_p)
 
         return log_p
 
     def compute_lh_confounder(self, sample: Sample, conf: str) -> float:
+        """Compute the log-likelihood of the observations that are assigned to confounder
+        `conf` in the current sample."""
         conf_source = sample.source.value[..., self.source_index[conf]]
         confounder = sample.confounders[conf]
-        confounding_effect = sample.confounding_effects[conf]
 
         log_p = 0.0
         for i_group in range(sample.n_groups(conf)):
             g = confounder.group_assignment[i_group]
-            p = confounding_effect.value[i_group, :, :]
-            log_p += self.compute_lh_group(g, conf_source, p)
+            log_p += self.compute_lh_group(g, conf_source,
+                                           state_counts=sample.source.counts[f'c_{conf}'][i_group])
             assert not np.isnan(log_p)
 
         return log_p
@@ -97,70 +100,54 @@ class Likelihood(object):
         self,
         group: NDArray[bool],               # shape: (n_objects,)
         component_source: NDArray[bool],    # shape: (n_objects, n_features)
-        p: NDArray[float],                  # shape: (n_features, n_states)
+        state_counts: NDArray[int] = None
     ) -> float:
-        # Which observations are attributed to this component and group:
-        source_group = group[:, np.newaxis] & component_source                  # shape: (n_objects, n_features)
+        """Compute the likelihood (in the form of a Dirichlet multinomial distribution)
+        for one cluster or one group of a confounder."""
 
-        # Compute state counts for all observations assigned to this group and are not NA
-        where = (source_group & ~self.na_features)[..., np.newaxis]             # shape: (n_objects, n_features, 1)
-        state_counts = np.sum(self.features, where=where, axis=0)               # shape: (n_features, n_states)
+        if state_counts is None:
+            # Which observations are attributed to this component and group:
+            source_group = group[:, np.newaxis] & component_source                  # shape: (n_objects, n_features)
 
-        # # Alternative way of computing likelihood using multinomial distribution:
-        # n = np.sum(state_counts, axis=-1)
-        # lh_per_feat = stats.multinomial._logpmf(x=state_counts, n=n, p=p)
-        # for i in range(len(n)):
-        #     lh_per_feat[i] -= log_multinom(n[i], state_counts[i])
-        # lh = lh.sum(where=(n>0))
+            # Compute state counts for all observations assigned to this group and are not NA
+            where = (source_group & ~self.na_features)[..., np.newaxis]             # shape: (n_objects, n_features, 1)
+            state_counts = np.sum(self.features, where=where, axis=0)               # shape: (n_features, n_states)
+        # else:
+        #     source_group = group[:, np.newaxis] & component_source
+        #     where = (source_group & ~self.na_features)[..., np.newaxis]
+        #     x = np.sum(self.features, where=where, axis=0)
+        #     assert np.all(state_counts == x), (state_counts[:2, :3], x[:2, :3])
 
-        # Directly computing likelihood through sum of powers:
-        return np.log(p**state_counts).sum()
+        # Use the applicable states to construct a uniform prior
+        a = self.shapes.states_per_feature.astype(float)                        # shape: (n_features, n_states)
 
-    ####################
-    # FOR OPERATORS
-    ##########
-    def update_component_likelihoods(self, sample: Sample, caching=True) -> NDArray[float]:
-        """Update the likelihood values for each of the mixture components"""
-        component_likelihood = np.zeros((sample.n_objects, sample.n_features, sample.n_components))
+        # Compute the dirichlet-multinomial likelihood
+        log_lh = dirichlet_categorical_logpdf(counts=state_counts, a=a)
+        # log_lh = dirichlet_multinomial_logpdf(counts=state_counts, a=a)
+        # Using the boolean `states` array implicitly defines a concentration of 1 for
+        # each applicable state (i.e. uniform distribution on the probability simplex)
+        # TODO: Use concentration from config files
 
-        # Update component likelihood for cluster effects:
-        compute_component_likelihood(
-            features=self.features,
-            probs=sample.cluster_effect.value,
-            groups=sample.clusters.value,
-            changed_groups=set(range(sample.n_clusters)),
-            out=component_likelihood[..., 0],
-        )
+        # for x in zip(state_counts, a, log_lh):
+        #     print(x)
 
-        # Update component likelihood for confounding effects:
-        for i, conf in enumerate(self.confounders, start=1):
-            compute_component_likelihood(
-                features=self.features,
-                probs=sample.confounding_effects[conf].value,
-                groups=sample.confounders[conf].group_assignment,
-                changed_groups=set(range(sample.n_groups(conf))),
-                out=component_likelihood[..., i],
-            )
-
-        component_likelihood[self.na_features] = 1.
-        sample.cache.component_likelihoods.set_up_to_date()
-
-        return component_likelihood
+        return log_lh.sum()
 
 
 def compute_component_likelihood(
-    features: NDArray[bool],
-    probs: NDArray[float],
-    groups: NDArray[bool],  # (n_groups, n_sites)
+    features: NDArray[bool],    # shape: (n_objects, n_features, n_states)
+    probs: NDArray[float],      # shape: (n_groups, n_features, n_states)
+    groups: NDArray[bool],      # shape: (n_groups, n_sites)
     changed_groups: set[int],
-    out: NDArray[float]
-) -> NDArray[float]:  # shape: (n_sites, n_features)
+    out: NDArray[float]         # shape: (n_objects, n_features)
+) -> NDArray[float]:            # shape: (n_objects, n_features)
     out[~groups.any(axis=0), :] = 0.
     for i in changed_groups:
         g = groups[i]
         f_g = features[g, :, :]
         p_g = probs[i, :, :]
         out[g, :] = np.einsum('ijk,jk->ij', f_g, p_g)
+        # out[g, :] = np.sum(f_g*p_g[None,...], axis=-1)
     return out
 
 

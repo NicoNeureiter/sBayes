@@ -17,11 +17,9 @@ from numpy.typing import NDArray
 import pandas as pd
 import scipy
 import scipy.spatial as spatial
-from scipy.special import betaln, expit
+from scipy.special import betaln, expit, gammaln
 import scipy.stats as stats
 from scipy.sparse import csr_matrix
-import matplotlib.pyplot as plt
-from matplotlib.collections import LineCollection
 
 
 EPS = np.finfo(float).eps
@@ -943,44 +941,6 @@ def round_int(n, mode='up', offset=0):
     return n_rounded
 
 
-def colorline(ax, x, y, z=None, cmap=plt.get_cmap('copper'), norm=plt.Normalize(0.0, 1.0), linewidth=3):
-    """
-    Plot a colored line with coordinates x and y
-    Optionally specify colors in the array z
-    Optionally specify a colormap, a norm function and a line width
-    from: https://nbviewer.jupyter.org/github/dpsanders/matplotlib-examples/blob/master/colorline.ipynb
-    """
-
-    # Default colors equally spaced on [0,1]:
-    if z is None:
-        z = np.linspace(0.0, 1.0, len(x))
-
-    # Special case if a single number:
-    if not hasattr(z, "__iter__"):  # to check for numerical input -- this is a hack
-        z = np.array([z])
-
-    z = np.asarray(z)
-
-    def make_segments(x, y):
-        """
-        Create list of line segments from x and y coordinates, in the correct format for LineCollection:
-        an array of the form   numlines x (points per line) x 2 (x and y) array
-        """
-
-        points = np.array([x, y]).T.reshape(-1, 1, 2)
-        segments = np.concatenate([points[:-1], points[1:]], axis=1)
-
-        return segments
-
-    segments = make_segments(x, y)
-    lc = LineCollection(segments, array=z, cmap=cmap, norm=norm, linewidth=linewidth, alpha=1, zorder=1)
-
-    # ax = plt.gca()
-    ax.add_collection(lc)
-
-    return lc
-
-
 def normalize(x, axis=-1):
     """Normalize ´x´ s.t. the last axis sums up to 1.
 
@@ -1322,6 +1282,117 @@ def categorical_log_probability(x: NDArray[bool], p: NDArray[float]) -> NDArray[
     return np.log(np.sum(x*p, axis=-1))
 
 
+def dirichlet_multinomial_logpdf(
+    counts: NDArray[int],        # shape: (n_features, n_states)
+    a: NDArray[float],      # shape: (n_features, n_states)
+) -> NDArray[float]:        # shape: (n_features)
+    """Calculate log-probability of DirichletMultinomial distribution for given Dirichlet
+    concentration parameter `a` and multinomial observations ´counts´.
+
+    Dirichlet-multinomial distribution:
+        https://en.wikipedia.org/wiki/Dirichlet-multinomial_distribution
+    Reference implementation (pymc3):
+        https://github.com/pymc-devs/pymc/blob/main/pymc/distributions/multivariate.py
+
+    == Usage ===
+    >>> dirichlet_multinomial_logpdf(counts=np.array([2, 1, 0, 0]), a=np.array([1, 1, 0, 0]))
+    -1.386294361303224
+    """
+    # Only apply to
+    # valid = a > 0
+    # counts = counts[valid]
+    # a = a[valid]
+    a += 1e-10      # TODO Find a better way to fix 0s in a (and still use broadcasting)
+
+    n = counts.sum(axis=-1)
+    sum_a = a.sum(axis=-1)
+    const = (gammaln(n + 1) + gammaln(sum_a)) - gammaln(n + sum_a)
+    series = gammaln(counts + a) - (gammaln(counts + 1) + gammaln(a))
+    return const + series.sum(axis=-1)
+
+
+def dirichlet_categorical_logpdf(
+    # x: NDArray[bool]        # shape: (n_objects, n_features, n_states)
+    counts: NDArray[int],   # shape: (n_features, n_states)
+    a: NDArray[float],      # shape: (n_features, n_states)
+) -> NDArray[float]:        # shape: (n_features)
+    """Calculate log-probability of DirichletMultinomial distribution for given Dirichlet
+    concentration parameter `a` and multinomial observations ´counts´.
+
+    Dirichlet-multinomial distribution:
+        https://en.wikipedia.org/wiki/Dirichlet-multinomial_distribution
+    Reference implementation (pymc3):
+        https://github.com/pymc-devs/pymc/blob/main/pymc/distributions/multivariate.py
+
+    == Usage ===
+    >>> dirichlet_multinomial_logpdf(counts=np.array([2, 1, 0, 0]), a=np.array([1, 1, 0, 0]))
+    -1.386294361303224
+    """
+    a += 1e-10  # TODO Find a better way to fix 0s in a (and still use broadcasting)
+    # counts = x.sum(axis=0)
+    n = counts.sum(axis=-1)
+    sum_a = a.sum(axis=-1)
+    const = gammaln(sum_a) - gammaln(n + sum_a)
+    series = gammaln(counts + a) - gammaln(a)
+    return const + series.sum(axis=-1)
+
+
 if __name__ == "__main__":
-    import doctest
-    doctest.testmod()
+    # import doctest
+    # doctest.testmod()
+
+    def sample_diri_mult_pdf(counts, a, S=10000):
+        n = np.sum(counts)
+        p = np.random.dirichlet(a, size=S)
+        # lh_per_observation_and_sample = (p @ t.T)
+        # lh_per_sample = lh_per_observation_and_sample.prod(axis=-1)
+        lh = stats.multinomial.pmf(x=counts, n=n, p=p)
+        return lh.mean()
+
+    def sample_diri_cat_pdf(t, a, S=10000):
+        print(S)
+        p = np.random.dirichlet(a, size=S)
+        lh_per_observation_and_sample = (p @ t.T)
+        lh_per_sample = lh_per_observation_and_sample.prod(axis=-1)
+        return lh_per_sample.mean()
+
+    a = np.array([0.3, 0.9, 1.5])
+    t = np.array([
+        [1, 0, 0],
+        [0, 1, 0],
+        [0, 1, 0],
+        [0, 0, 1],
+    ], dtype=bool)
+    k = t.sum(axis=0)
+    p = normalize(a)
+
+    # print(p[None, :][[0, 0, 0, 0, 0, 0]])
+
+    # s_values = np.array([2**(2*i) for i in range(2, 16)])
+    # s_values = np.arange(5_000, 1_000_000, 5_000)
+    s_values = np.arange(100, 4_000, 100)**2
+    pdf_sampled = [sample_diri_cat_pdf(t, a, S=S) for S in s_values]
+    print(pdf_sampled)
+
+    pdf_exact = np.exp(dirichlet_categorical_logpdf(t, a))
+    print(pdf_exact)
+
+    import matplotlib.pyplot as plt
+    plt.scatter(s_values, pdf_sampled, s=10)
+    plt.axhline(pdf_exact, color='darkorange', zorder=2)
+    plt.ylim(0.00286, 0.00289)
+    plt.show()
+
+    exit()
+    #################################################
+
+    pdf_sampled = sample_diri_mult_pdf(k, a)
+    print(pdf_sampled)
+
+    pdf_exact = dirichlet_multinomial_logpdf(k, a)
+    print(np.exp(pdf_exact))
+
+    import tensorflow_probability as tfp
+    print(
+        tfp.distributions.DirichletMultinomial(4, a).prob(k)
+    )

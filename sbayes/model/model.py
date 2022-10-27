@@ -11,17 +11,22 @@ from sbayes.config.config import ModelConfig
 from sbayes.load_data import Data
 
 
-@dataclass
+@dataclass(frozen=True)
 class ModelShapes:
     n_clusters: int
     n_sites: int
     n_features: int
     n_states: int
     states_per_feature: NDArray[bool]
+    n_confounders: int
 
     @property
     def n_states_per_feature(self):
         return [sum(applicable) for applicable in self.states_per_feature]
+
+    @property
+    def n_components(self):
+        return self.n_confounders + 1
 
     def __getitem__(self, key):
         """Getter for backwards compatibility with dict-notation."""
@@ -55,7 +60,8 @@ class Model:
             n_sites=n_sites,
             n_features=n_features,
             n_states=n_states,
-            states_per_feature=self.data.features.states
+            states_per_feature=self.data.features.states,
+            n_confounders=len(self.confounders),
         )
 
         # Create likelihood and prior objects

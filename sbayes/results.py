@@ -23,18 +23,6 @@ class Results:
                                    and likelihood, prior and posterior probabilities.
     """
 
-    @staticmethod
-    def drop_burnin(clusters, parameters, burn_in):
-        # Translate burn_in fraction to index
-        n_total_samples = clusters.shape[1]
-        burn_in_index = int(burn_in * n_total_samples)
-
-        # Drop burnin samples from both arrays
-        clusters = clusters[:, burn_in_index:, :]
-        parameters = parameters.iloc[burn_in_index:]
-
-        return clusters, parameters
-
     def __init__(
         self,
         clusters: NDArray[bool],
@@ -134,15 +122,21 @@ class Results:
         return cls(clusters, parameters, burn_in=burn_in)
 
     @staticmethod
-    def read_clusters(txt_path: PathLike) -> NDArray[bool]:
-        """
+    def drop_burnin(clusters, parameters, burn_in):
+        # Translate burn_in fraction to index
+        n_total_samples = clusters.shape[1]
+        burn_in_index = int(burn_in * n_total_samples)
 
-        Args:
-            txt_path:
+        # Drop burnin samples from both arrays
+        clusters = clusters[:, burn_in_index:, :]
+        parameters = parameters.iloc[burn_in_index:]
 
-        Returns:
-            Boolean clusters array of shape (n_clusters, n_samples, n_sites)
-        """
+        return clusters, parameters
+
+    @staticmethod
+    def read_clusters(txt_path: PathLike) -> NDArray[bool]:  # shape: (n_clusters, n_samples, n_sites)
+        """Read the cluster samples from the text file at `txt_path` and return as a
+        boolean numpy array."""
         clusters_list = []
         with open(txt_path, "r") as f_sample:
             # This makes len(result) = number of clusters (flipped array)
@@ -188,9 +182,7 @@ class Results:
         param_dict = {}
         for column_name in dataframe.columns:
             if column_name.startswith(search_key):
-                param_dict[column_name] = dataframe[column_name].to_numpy(
-                    dtype=np.float
-                )
+                param_dict[column_name] = dataframe[column_name].to_numpy(dtype=float)
 
         return param_dict
 
@@ -214,7 +206,7 @@ class Results:
         weights = {}
         for f in self.feature_names:
             weights[f] = np.column_stack(
-                [parameters[f"w_{c}_{f}"].to_numpy(dtype=np.float) for c in components]
+                [parameters[f"w_{c}_{f}"].to_numpy(dtype=float) for c in components]
             )
 
         return weights

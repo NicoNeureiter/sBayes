@@ -3,13 +3,13 @@ from collections import OrderedDict
 from copy import copy, deepcopy
 from contextlib import contextmanager
 from functools import lru_cache
-from typing import Optional, Generic, TypeVar, Type
+from typing import Optional, Generic, TypeVar, Type, Iterator
 
 from numpy.typing import NDArray
 import numpy as np
 from pydantic.types import PositiveInt
 
-from sbayes.load_data import Confounder
+from sbayes.load_data import Confounder, Features
 
 S = TypeVar('S')
 Value = TypeVar('Value', NDArray, float)
@@ -35,7 +35,7 @@ class Parameter(Generic[Value]):
         self.version += 1
 
 
-class ArrayParameter(Parameter[NDArray[DType]]):
+class ArrayParameter(Parameter[NDArray[DType]], Generic[DType]):
 
     def __init__(self, value: NDArray[DType], shared=False):
         super().__init__(value)
@@ -164,10 +164,7 @@ class CalculationNode(Generic[Value]):
     inputs: OrderedDict[str, CalculationNode | Parameter]
     cached_group_versions: dict[str, NDArray[int]]
 
-    def __init__(
-        self,
-        value: Value,
-    ):
+    def __init__(self, value: Value):
         self._value = value
         self.inputs = OrderedDict()
         self.input_idx = OrderedDict()
@@ -212,7 +209,7 @@ class CalculationNode(Generic[Value]):
                 self.cached_group_versions[key].flags.writeable = False
 
     @contextmanager
-    def edit(self) -> NDArray:
+    def edit(self) -> Iterator[NDArray]:
         # self._value.flags.writeable = True
         yield self.value
         # self._value.flags.writeable = False
@@ -263,6 +260,35 @@ class CalculationNode(Generic[Value]):
         self._value = copy(other._value)
         self.cached_version = other.cached_version
         self.cached_group_versions = {k: v for k, v in other.cached_group_versions.items()}
+
+
+class Source(ArrayParameter[bool]):
+
+    def __init__(
+        self,
+        value: Value,
+        confounders: dict[str, Confounder]
+    ):
+        super().__init__(value)
+        self.confounders = confounders
+        self.counts = {'clusters': None}
+        for conf in self.confounders:
+            self.counts[conf] = None
+
+    def resolve_sharing(self):
+        self.counts = deepcopy(self.counts)
+        self._value = self._value.copy()
+        self.shared = False
+
+    def assert_counts_match(self, other: dict[str, NDArray[int]]):
+        assert set(self.counts.keys()) == set(other.keys())
+        for k in self.counts.keys():
+            assert np.all(other[k] == self.counts[k]), (k)
+
+    # def copy(self: S) -> S:
+    #     other = super().copy()
+    #     other.counts = {}
+    #     return other
 
 
 class HasComponents(CalculationNode[NDArray[bool]]):
@@ -326,12 +352,9 @@ class ModelCache:
         self.cluster_size_prior.add_input('clusters', sample.clusters)
         self.weights_normalized.add_input('has_components', self.has_components)
 
-        self.component_likelihoods.add_input('cluster_effect', sample.cluster_effect)
-        self.cluster_effect_prior.add_input('cluster_effect', sample.cluster_effect)
-
+        # self.component_likelihoods.add_input('cluster_effect', sample.cluster_effect)
         for conf, effect in sample.confounding_effects.items():
             self.component_likelihoods.add_input(f'c_{conf}', effect)
-            self.confounding_effects_prior[conf].add_input(f'c_{conf}', effect)
 
         self.weights_prior.add_input('weights', sample.weights)
         self.weights_normalized.add_input('weights', sample.weights)
@@ -341,6 +364,7 @@ class ModelCache:
             self.source_prior = CalculationNode(value=0.0)
             self.source_prior.add_input('weights_normalized', self.weights_normalized)
             self.source_prior.add_input('source', sample.source)
+            self.component_likelihoods.add_input('source', sample.source)
 
     @property
     def cluster_likelihoods(self) -> NDArray[float]:
@@ -382,17 +406,15 @@ class Sample:
         self,
         clusters: Clusters,                                 # shape: (n_clusters, n_objects)
         weights: ArrayParameter[float],                     # shape: (n_features, n_components)
-        cluster_effect: GroupedParameters[float],           # shape: (n_clusters, n_features, n_states)
         confounding_effects: dict[str, GroupedParameters],  # shape per conf:  (n_groups, n_features, n_states)
         confounders: dict[str, Confounder],
-        source: Optional[ArrayParameter[bool]] = None,      # shape: (n_objects, n_features, n_components)
+        source: Optional[Source] = None,      # shape: (n_objects, n_features, n_components)
         chain: int = 0,
         _other_cache: ModelCache = None,
         _i_step: int = 0
     ):
         self._clusters = clusters
         self._weights = weights
-        self._cluster_effect = cluster_effect
         self._confounding_effects = confounding_effects
         self._source = source
         self.chain = chain
@@ -417,7 +439,6 @@ class Sample:
         cls: Type[S],
         clusters: NDArray[bool],
         weights: NDArray[float],
-        cluster_effect: NDArray[float],
         confounding_effects: dict[str, NDArray[float]],
         confounders: dict[str, Confounder],
         source: Optional[NDArray[bool]] = None,
@@ -426,10 +447,9 @@ class Sample:
         return cls(
             clusters=Clusters(clusters),
             weights=ArrayParameter(weights),
-            cluster_effect=GroupedParameters(cluster_effect),
             confounding_effects={k: GroupedParameters(v) for k, v in confounding_effects.items()},
             confounders=confounders,
-            source=None if source is None else ArrayParameter(source),
+            source=None if source is None else Source(source, confounders=confounders),
             chain=chain,
         )
 
@@ -439,13 +459,11 @@ class Sample:
             #
             # clusters=deepcopy(self._clusters),
             # weights=deepcopy(self.weights),
-            # cluster_effect=deepcopy(self.cluster_effect),
             # confounding_effects=deepcopy(self.confounding_effects),
             # source=deepcopy(self.source),
             #
             clusters=self._clusters.copy(),
             weights=self.weights.copy(),
-            cluster_effect=self.cluster_effect.copy(),
             confounding_effects={k: v.copy() for k, v in self.confounding_effects.items()},
             source=None if self.source is None else self.source.copy(),
             #
@@ -468,15 +486,11 @@ class Sample:
         return self._weights
 
     @property
-    def cluster_effect(self) -> GroupedParameters:
-        return self._cluster_effect
-
-    @property
     def confounding_effects(self) -> dict[str, GroupedParameters]:
         return self._confounding_effects
 
     @property
-    def source(self) -> ArrayParameter:
+    def source(self) -> Source:
         return self._source
 
     """ shape properties """
@@ -499,7 +513,7 @@ class Sample:
 
     @property
     def n_states(self) -> int:
-        return self._cluster_effect.shape[2]
+        return next(iter(self._confounding_effects.values())).shape[2]
 
     def n_groups(self, conf: str) -> int:
         return self._confounding_effects[conf].shape[0]

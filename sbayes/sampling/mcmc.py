@@ -96,13 +96,6 @@ class MCMC(_abc.ABC):
     """
 
     IS_WARMUP = False
-
-    Q_GIBBS = -_np.inf
-    Q_BACK_GIBBS = 0
-
-    Q_REJECT = 0
-    Q_BACK_REJECT = -_np.inf
-
     CHECK_CACHING = __debug__
 
     def __init__(
@@ -323,10 +316,10 @@ class MCMC(_abc.ABC):
         for either the clusters or the other parameters. Then the candidate is evaluated against the current sample
         and accepted with Metropolis-Hastings acceptance probability
         Args:
-            sample(Sample): A Sample object consisting of clusters, weights, areal and confounding effects
+            sample(Sample): A Sample object consisting of clusters, weights and source array
             c(int): the current chain
         Returns:
-            Sample: A Sample object consisting of clusters, weights, areal and confounding effects"""
+            Sample: A Sample object consisting of clusters, weights and source array"""
         operator = self.choose_operator()
         step_function = operator['function']
 

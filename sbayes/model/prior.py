@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 
-from typing import List, Dict, Sequence, Callable, Optional, OrderedDict
+from typing import List, Sequence, Callable, Optional, OrderedDict
 import json
 
 import numpy as np
@@ -11,12 +11,13 @@ from numpy.typing import NDArray
 import scipy.stats as stats
 from scipy.sparse.csgraph import minimum_spanning_tree, csgraph_from_dense
 
-from sbayes.model.likelihood import update_weights, ModelShapes
+from sbayes.model.likelihood import update_weights, ModelShapes, normalize_weights
+from sbayes.preprocessing import sample_categorical
 from sbayes.sampling.state import Sample
 from sbayes.util import (compute_delaunay, n_smallest_distances, log_multinom,
                          dirichlet_logpdf, log_expit, PathLike)
 from sbayes.config.config import PriorConfig, DirichletPriorConfig, GeoPriorConfig, ClusterSizePriorConfig
-from sbayes.load_data import Data, ComputeNetwork, GroupName, ConfounderName, StateName, FeatureName
+from sbayes.load_data import Data, ComputeNetwork, GroupName, ConfounderName, StateName, FeatureName, Confounder
 
 
 class Prior:
@@ -56,10 +57,7 @@ class Prior:
                 feature_names=data.features.feature_and_state_names
             )
 
-        if self.sample_source:
-            self.source_prior = SourcePrior()
-        else:
-            self.source_prior = lambda *args, **kwargs: 0.0
+        self.source_prior = SourcePrior()
 
     def __call__(self, sample: Sample, caching=True) -> float:
         """Compute the prior of the current sample.
@@ -74,9 +72,11 @@ class Prior:
         log_prior += self.size_prior(sample, caching=caching)
         log_prior += self.geo_prior(sample, caching=caching)
         log_prior += self.prior_weights(sample, caching=caching)
-        log_prior += self.prior_cluster_effect(sample, caching=caching)
-        for k, v in self.prior_confounding_effects.items():
-            log_prior += v(sample, caching=caching)
+
+        # AFTER THE DIRI-MULT MODEL CHANGES, THE FOLLOWING PRIORS ARE NOT NEEDED:
+        # log_prior += self.prior_cluster_effect(sample, caching=caching)
+        # for k, v in self.prior_confounding_effects.items():
+        #     log_prior += v(sample, caching=caching)
 
         if self.sample_source:
             assert sample.source is not None
@@ -106,6 +106,43 @@ class Prior:
             sample_source=self.sample_source,
         )
 
+    def generate_sample(self) -> Sample:
+        """Generate a sample from the prior distribution."""
+        confounders = self.data.confounders
+
+        # Generate samples from the independent prior distributions
+        weights = self.prior_weights.generate_sample()
+        clusters = self.size_prior.generate_sample()
+
+        # Sample the source array, conditioned on the weights and clusters
+        has_components = compute_has_components(clusters, confounders)
+        source = self.source_prior.generate_sample(weights, has_components)
+
+        # Create a sample object from the generated numpy arrays
+        return Sample.from_numpy_arrays(
+            clusters=clusters,
+            weights=weights,
+            confounding_effects={c: np.empty(0) for c in confounders},
+            confounders=confounders,
+            source=source
+        )
+
+    def generate_samples(self, n_samples: int) -> list[Sample]:
+        """Generate `n_samples` samples from the prior distribution"""
+        return [self.generate_sample() for _ in range(n_samples)]
+
+
+def compute_has_components(clusters: NDArray[bool], confounders: dict[str, Confounder]):
+    n_components = len(confounders) + 1
+    n_objects = clusters.shape[1]
+
+    has_components = np.empty((n_objects, n_components))
+    has_components[:, 0] = np.any(clusters, axis=0)
+    for i, conf in enumerate(confounders.values(), start=1):
+        has_components[:, i] = conf.any_group()
+
+    return np.array(has_components)
+
 
 Concentration = List[NDArray[float]]
 
@@ -119,6 +156,7 @@ class DirichletPrior:
     initial_counts: float
     prior_type: Optional[PriorType]
     concentration: Concentration | dict[GroupName, Concentration]
+    concentration_array: NDArray[float]
 
     def __init__(
         self,
@@ -140,7 +178,7 @@ class DirichletPrior:
     def n_features(self):
         return len(self.feature_names)
 
-    def load_concentration(self, config: DirichletPriorConfig) -> List[np.ndarray]:
+    def load_concentration(self, config: DirichletPriorConfig) -> list[np.ndarray]:
         if config.file:
             return self.parse_concentration_json(config.file)
         elif config.parameters:
@@ -148,7 +186,7 @@ class DirichletPrior:
         else:
             raise ValueError('DirichletPrior requires a file or parameters.')
 
-    def parse_concentration_json(self, json_path: PathLike) -> List[np.ndarray]:
+    def parse_concentration_json(self, json_path: PathLike) -> list[np.ndarray]:
         # Read the concentration parameters from the JSON file
         with open(json_path, 'r') as f:
             concentration_dict = json.load(f)
@@ -158,7 +196,7 @@ class DirichletPrior:
     def parse_concentration_dict(
         self,
         concentration_dict: dict[FeatureName, dict[StateName, float]]
-    ) -> List[np.ndarray]:
+    ) -> list[np.ndarray]:
         """Compile the array with concentration parameters"""
         concentration = []
         for f, state_names_f in self.feature_names.items():
@@ -169,7 +207,7 @@ class DirichletPrior:
             concentration.append(np.array(conc_f))
         return concentration
 
-    def get_uniform_concentration(self) -> List[np.ndarray]:
+    def get_uniform_concentration(self) -> list[np.ndarray]:
         concentration = []
         for n_states_f in self.shapes.n_states_per_feature:
             concentration.append(
@@ -198,8 +236,11 @@ class ConfoundingEffectsPrior(DirichletPrior):
         self.conf = conf
 
     def parse_attributes(self):
+        n_groups = len(self.config)
         self.concentration = {}
-        for group in self.config.keys():
+        self.concentration_array = np.zeros((n_groups, self.shapes.n_features, self.shapes.n_states), dtype=float)
+
+        for i_g, group in enumerate(self.config.keys()):
             if self.config[group].type is self.PriorType.UNIFORM:
                 self.concentration[group] = self.get_uniform_concentration()
 
@@ -208,6 +249,9 @@ class ConfoundingEffectsPrior(DirichletPrior):
 
             else:
                 raise ValueError(self.invalid_prior_message(self.config[group].type))
+
+            for i_f, conc_f in enumerate(self.concentration[group]):
+                self.concentration_array[i_g, i_f, :len(conc_f)] = conc_f
 
     def __call__(self, sample: Sample, caching=True) -> float:
         """"Calculate the log PDF of the confounding effects prior.
@@ -241,6 +285,14 @@ class ConfoundingEffectsPrior(DirichletPrior):
 
         return cache.value.sum()
 
+    def generate_sample(self) -> dict[GroupName, NDArray[float]]:  # shape: (n_samples, n_features, n_states)
+        group_effects = {}
+        for i_g, conc_g in enumerate(self.concentration):
+            group_effects[...] = np.array([
+
+            ])
+        return group_effects
+
     def get_setup_message(self):
         """Compile a set-up message for logging."""
         msg = f"Prior on confounding effect {self.conf}:\n"
@@ -263,6 +315,10 @@ class ClusterEffectPrior(DirichletPrior):
             self.concentration = self.get_uniform_concentration()
         else:
             raise ValueError(self.invalid_prior_message(self.prior_type))
+
+        self.concentration_array = np.zeros((self.shapes.n_features, self.shapes.n_states))
+        for i_f, conc_f in enumerate(self.concentration):
+            self.concentration_array[i_f, :len(conc_f)] = conc_f
 
     def __call__(self, sample: Sample, caching=True) -> float:
         """Compute the prior for the areal effect (or load from cache).
@@ -302,10 +358,14 @@ class WeightsPrior(DirichletPrior):
     def parse_attributes(self):
         self.prior_type = self.config.type
         if self.prior_type is self.PriorType.UNIFORM:
-            self.counts = np.full(shape=(self.shapes.n_features, self.shapes.n_states),
-                                  fill_value=self.initial_counts)
+            self.concentration = list(np.full(
+                shape=(self.shapes.n_features, self.shapes.n_components),
+                fill_value=self.initial_counts
+            ))
         else:
             raise ValueError(self.invalid_prior_message(self.prior_type))
+
+        self.concentration_array = np.array(self.concentration)
 
     def __call__(self, sample: Sample, caching=True) -> float:
         """Compute the prior for weights (or load from cache).
@@ -342,6 +402,9 @@ class WeightsPrior(DirichletPrior):
         """Compile a set-up message for logging."""
         return f'Prior on weights: {self.prior_type.value}\n'
 
+    def generate_sample(self) -> NDArray[float]:  # shape: (n_features, n_states)
+        return np.array([np.random.dirichlet(c) for c in self.concentration])
+
 
 class SourcePrior(object):
 
@@ -364,6 +427,14 @@ class SourcePrior(object):
         cache.update_value(source_prior)
         return source_prior
 
+    def generate_sample(
+            self,
+            weights: NDArray[float],
+            has_components: NDArray[bool],
+    ) -> NDArray[float]:  # shape: (n_objects, n_features)
+        p = normalize_weights(weights, has_components)
+        return sample_categorical(p, binary_encoding=True)
+
 
 class ClusterSizePrior:
 
@@ -374,6 +445,8 @@ class ClusterSizePrior:
         self.shapes = shapes
         self.initial_counts = initial_counts
         self.prior_type = config.type
+        self.min = self.config.min
+        self.max = self.config.max
 
         self.cached = None
 
@@ -420,13 +493,18 @@ class ClusterSizePrior:
         """Compile a set-up message for logging."""
         return f'Prior on cluster size: {self.prior_type.value}\n'
 
-    # @staticmethod
-    # def sample(prior_type, n_clusters, n_sites):
-    #     if prior_type is ClusterSizePrior.PriorTypes.UNIFORM_AREA:
-    #         onehots = np.eye(n_clusters+1, n_clusters, dtype=bool)
-    #         return onehots[np.random.randint(0, n_clusters+1, size=n_sites)].T
-    #     else:
-    #         raise NotImplementedError()
+    def generate_sample(self) -> NDArray[bool]:  # shape: (n_clusters, n_objects)
+        n_clusters = self.shapes.n_clusters
+        n_objects = self.shapes.n_sites
+        if self.prior_type is self.PriorType.UNIFORM_AREA:
+            onehots = np.eye(n_clusters + 1, n_clusters, dtype=bool)
+
+            clusters = np.zeros((n_clusters, n_objects))
+            while not np.all(self.min <= np.sum(clusters, axis=-1) <= self.max):
+                clusters = onehots[np.random.randint(0, n_clusters+1, size=n_objects)].T
+            return clusters
+        else:
+            raise NotImplementedError()
 
 
 Aggregator = Callable[[Sequence[float]], float]
@@ -438,7 +516,7 @@ class GeoPrior(object):
     PriorTypes = GeoPriorConfig.Types
     AggrStrats = GeoPriorConfig.AggregationStrategies
 
-    AGGREGATORS: Dict[str, Aggregator] = {
+    AGGREGATORS: dict[str, Aggregator] = {
         AggrStrats.MEAN: np.mean,
         AggrStrats.SUM: np.sum,
         AggrStrats.MAX: np.max,
@@ -660,8 +738,8 @@ def compute_cost_based_geo_prior(
 
 def compute_group_effect_prior(
         group_effect: NDArray[float],  # shape: (n_features, n_states)
-        concentration: List[NDArray],  # shape: (n_applicable_states[f],) for f in features
-        applicable_states: List[NDArray],  # shape: (n_applicable_states[f],) for f in features
+        concentration: list[NDArray],  # shape: (n_applicable_states[f],) for f in features
+        applicable_states: list[NDArray],  # shape: (n_applicable_states[f],) for f in features
 ) -> float:
     """" This function evaluates the prior on probability vectors in a cluster or confounder group.
     Args:

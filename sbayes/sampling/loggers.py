@@ -7,6 +7,7 @@ import numpy.typing as npt
 import tables
 
 from sbayes.load_data import Data
+from sbayes.sampling.conditionals import conditional_effect_sample
 from sbayes.sampling.operators import Operator
 from sbayes.util import format_cluster_columns, get_best_permutation
 from sbayes.model import Model
@@ -60,7 +61,7 @@ class ParametersCSVLogger(ResultsLogger):
     def __init__(
         self,
         *args,
-        log_contribution_per_cluster: bool = True,
+        log_contribution_per_cluster: bool = False,
         float_format: str = "%.12g",
         match_clusters: bool = True,
     ):
@@ -86,7 +87,7 @@ class ParametersCSVLogger(ResultsLogger):
             self.match_clusters = False
 
         # Initialize cluster_sum array for matching
-        self.cluster_sum = np.zeros((sample.n_clusters, sample.n_objects), dtype=np.int)
+        self.cluster_sum = np.zeros((sample.n_clusters, sample.n_objects), dtype=int)
 
         # Cluster sizes
         for i in range(sample.n_clusters):
@@ -134,23 +135,28 @@ class ParametersCSVLogger(ResultsLogger):
         self.file.write("\t".join(column_names) + "\n")
 
     def _write_sample(self, sample: Sample):
-        feature_names = self.data.features.names
-        state_names = self.data.features.state_names
+        features = self.data.features
+
+        clusters = sample.clusters.value
+        # cluster_effect = sample.cluster_effect.value
+        cluster_effect = conditional_effect_sample(
+            features=features.values,
+            is_source_group=sample.clusters.value[..., np.newaxis] & sample.source.value[np.newaxis, ..., 0],
+            applicable_states=features.states,
+            prior_counts=self.model.prior.prior_cluster_effect.concentration_array,
+        )
 
         if self.match_clusters:
             # Compute the best matching permutation
             permutation = get_best_permutation(sample.clusters.value, self.cluster_sum)
 
             # Permute parameters
-            cluster_effect = sample.cluster_effect.value[permutation, :, :]
-            clusters = sample.clusters.value[permutation, :]
+            cluster_effect = cluster_effect[permutation, :, :]
+            clusters = clusters[permutation, :]
 
             # Update cluster_sum for matching future samples
             self.cluster_sum += clusters
-        else:
-            # Unpermuted parameters
-            cluster_effect = sample.cluster_effect.value
-            clusters = sample.clusters.value
+
 
         row = {
             "Sample": sample.i_step,
@@ -165,7 +171,7 @@ class ParametersCSVLogger(ResultsLogger):
             row[col_name] = np.count_nonzero(cluster)
 
         # Weights
-        for i_f, f in enumerate(feature_names):
+        for i_f, f in enumerate(features.names):
 
             # Areal effect weights
             w_areal = f"w_areal_{f}"
@@ -182,16 +188,16 @@ class ParametersCSVLogger(ResultsLogger):
 
         # Areal effect
         for i_a in range(sample.n_clusters):
-            for i_f, f in enumerate(feature_names):
-                for i_s, s in enumerate(state_names[i_f]):
+            for i_f, f in enumerate(features.names):
+                for i_s, s in enumerate(features.state_names[i_f]):
                     col_name = f"areal_a{i_a+1}_{f}_{s}"
                     row[col_name] = cluster_effect[i_a, i_f, i_s]
 
         # Confounding effects
         for conf in self.data.confounders.values():
             for i_g, g in enumerate(conf.group_names):
-                for i_f, f in enumerate(feature_names):
-                    for i_s, s in enumerate(state_names[i_f]):
+                for i_f, f in enumerate(features.names):
+                    for i_s, s in enumerate(features.state_names[i_f]):
                         col_name = f"{conf.name}_{g}_{f}_{s}"
                         row[col_name] = sample.confounding_effects[conf.name].value[i_g, i_f, i_s]
 
@@ -233,7 +239,7 @@ class ClustersLogger(ResultsLogger):
             # Nothing to match
             self.match_clusters = False
 
-        self.cluster_sum = np.zeros((sample.n_clusters, sample.n_objects), dtype=np.int)
+        self.cluster_sum = np.zeros((sample.n_clusters, sample.n_objects), dtype=int)
 
     def _write_sample(self, sample):
         if self.match_clusters:
@@ -277,7 +283,8 @@ class LikelihoodLogger(ResultsLogger):
         )
 
     def _write_sample(self, sample: Sample):
-        self.logged_likelihood_array.append(sample.observation_lhs[None, ...])
+        # self.logged_likelihood_array.append(sample.observation_lhs[None, ...])
+        ...
 
 
 class OperatorStatsLogger(ResultsLogger):
