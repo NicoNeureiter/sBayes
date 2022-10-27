@@ -5,20 +5,18 @@ import random as _random
 
 import numpy as np
 
+from sbayes.model import update_weights
+from sbayes.sampling.conditionals import sample_source_from_prior, compute_feature_counts
 from sbayes.sampling.mcmc import MCMC
 from sbayes.sampling.state import Sample
 from sbayes.sampling.operators import (
     Operator,
     AlterWeights,
-    AlterClusterEffect,
     GibbsSampleWeights,
     AlterClusterGibbsish,
     AlterClusterGibbsish2,
     AlterCluster,
     GibbsSampleSource,
-    AlterConfoundingEffects,
-    GibbsSampleClusterEffect,
-    GibbsSampleConfoundingEffects,
 )
 from sbayes.util import get_neighbours, normalize, get_max_size_list
 from sbayes.config.config import OperatorsConfig
@@ -207,53 +205,6 @@ class ClusterMCMC(MCMC):
 
         return normalize(initial_weights)
 
-    def generate_initial_cluster_effect(self, initial_clusters):
-        """This function generates initial state probabilities for each of the clusters, either by
-        A) proposing them (randomly) from scratch
-        B) using the last sample of a previous run of the MCMC
-        Probabilities are in log-space and not normalized.
-        Args:
-            initial_clusters: The assignment of sites to clusters
-            (n_clusters, n_sites)
-        Returns:
-            np.array: probabilities for categories in each cluster
-                shape (n_clusters, n_features, max(n_states))
-        """
-        # We place the cluster_effect of all features in one array, even though not all have the same number of states
-        initial_cluster_effect = np.zeros((self.n_clusters, self.n_features, self.features.shape[2]))
-        n_generated = 0
-
-        # B: Use cluster_effect from a previous run
-        if self.initial_sample is not None:
-
-            for i in range(self.initial_sample.cluster_effect.n_groups):
-                initial_cluster_effect[i, :] = self.initial_sample.cluster_effect.value[i]
-                n_generated += 1
-
-        not_initialized = range(n_generated, self.n_clusters)
-
-        # A: Initialize a new cluster_effect using a value close to the MLE of the current cluster
-        for i in not_initialized:
-            idx = initial_clusters[i].nonzero()[0]
-            features_cluster = self.features[idx, :, :]
-
-            sites_per_state = np.nansum(features_cluster, axis=0)
-
-            # Some clusters have nan for all states, resulting in a non-defined MLE
-            # other clusters have only a single state, resulting in an MLE including 1.
-            # to avoid both, we add 1 to all applicable states of each feature,
-            # which gives a well-defined initial cluster_effect slightly nudged away from the MLE
-
-            sites_per_state[np.isnan(sites_per_state)] = 0
-            sites_per_state[self.applicable_states] += 1
-
-            site_sums = np.sum(sites_per_state, axis=1)
-            cluster_effect = sites_per_state / site_sums[:, np.newaxis]
-
-            initial_cluster_effect[i, :, :] = cluster_effect
-
-        return initial_cluster_effect
-
     def generate_initial_confounding_effect(self, conf: str):
         """This function generates initial state probabilities for each group in confounding effect [i], either by
         A) using the MLE
@@ -313,9 +264,6 @@ class ClusterMCMC(MCMC):
         # Weights
         initial_weights = self.generate_initial_weights()
 
-        # Areal effect
-        initial_cluster_effect = self.generate_initial_cluster_effect(initial_clusters)
-
         # Confounding effects
         initial_confounding_effects = dict()
         for k, v in self.confounders.items():
@@ -329,7 +277,6 @@ class ClusterMCMC(MCMC):
         sample = Sample.from_numpy_arrays(
             clusters=initial_clusters,
             weights=initial_weights,
-            cluster_effect=initial_cluster_effect,
             confounding_effects=initial_confounding_effects,
             confounders=self.data.confounders,
             source=initial_source,
@@ -341,9 +288,20 @@ class ClusterMCMC(MCMC):
         # Generate the initial source using a Gibbs sampling step
         if self.model.sample_source:
             sample.everything_changed()
-            sample.source.set_value(
-                self.callable_operators['gibbs_sample_sources'].function(sample)[0].source.value
-            )
+
+            source = sample_source_from_prior(sample)
+            sample.source.set_value(source)
+            sample.source.counts = compute_feature_counts(self.features, sample)
+            sample.source.assert_counts_match(compute_feature_counts(self.features, sample))
+
+            w = update_weights(sample, caching=False)
+            s = sample.source.value
+            assert np.all(s <= (w > 0)), np.max(w)
+
+            source = self.callable_operators['gibbs_sample_sources'].function(sample)[0].source.value
+            sample.source.set_value(source)
+            sample.source.counts = compute_feature_counts(self.features, sample)
+            sample.source.assert_counts_match(compute_feature_counts(self.features, sample))
 
         sample.everything_changed()
         return sample
@@ -376,13 +334,13 @@ class ClusterMCMC(MCMC):
                 # 'sample_cluster': AlterCluster(
                 #     weight=operators_config.clusters,
                 #     adjacency_matrix=self.data.network.adj_mat,
-                #     p_grow_connected=0.5,
+                #     p_grow_connected=0.7,
                 #     model_by_chain=self.posterior_per_chain,
                 #     resample_source=True,
                 #     sample_from_prior=True,
                 # ),
                 'gibbsish_sample_cluster': AlterClusterGibbsish(
-                    weight=0.5 * operators_config.clusters,
+                    weight=operators_config.clusters,
                     adjacency_matrix=self.data.network.adj_mat,
                     p_grow_connected=self.p_grow_connected,
                     model_by_chain=self.posterior_per_chain,
@@ -390,15 +348,15 @@ class ClusterMCMC(MCMC):
                     resample_source=self.model.sample_source,
                     sample_from_prior=self.sample_from_prior,
                 ),
-                'gibbsish_sample_cluster_2"': AlterClusterGibbsish2(
-                    weight=0.5 * operators_config.clusters,
-                    adjacency_matrix=self.data.network.adj_mat,
-                    p_grow_connected=self.p_grow_connected,
-                    model_by_chain=self.posterior_per_chain,
-                    features=self.features,
-                    resample_source=self.model.sample_source,
-                    sample_from_prior=self.sample_from_prior,
-                ),
+                # 'gibbsish_sample_cluster_2"': AlterClusterGibbsish2(
+                #     weight=0.5 * operators_config.clusters,
+                #     adjacency_matrix=self.data.network.adj_mat,
+                #     p_grow_connected=self.p_grow_connected,
+                #     model_by_chain=self.posterior_per_chain,
+                #     features=self.features,
+                #     resample_source=self.model.sample_source,
+                #     sample_from_prior=self.sample_from_prior,
+                # ),
                 'gibbs_sample_sources': GibbsSampleSource(
                     weight=operators_config.source,
                     model_by_chain=self.posterior_per_chain,
@@ -409,53 +367,7 @@ class ClusterMCMC(MCMC):
                     model_by_chain=self.posterior_per_chain,
                     sample_from_prior=self.sample_from_prior,
                 ),
-                'gibbs_sample_cluster_effect': GibbsSampleClusterEffect(
-                    weight=operators_config.cluster_effect,
-                    model_by_chain=self.posterior_per_chain,
-                    applicable_states=self.applicable_states,
-                    sample_from_prior=self.sample_from_prior,
-                ),
             }
-
-            r = float(1 / len(self.model.confounders))
-            for k in self.model.confounders:
-                op_name = f"gibbs_sample_confounding_effects_{k}"
-                operators[op_name] = GibbsSampleConfoundingEffects(
-                    weight=r * operators_config.confounding_effects,
-                    confounder=k,
-                    source_index=self.source_index['confounding_effects'][k],
-                    model_by_chain=self.posterior_per_chain,
-                    applicable_states=self.applicable_states,
-                    sample_from_prior=self.sample_from_prior,
-                )
-
-        else:
-            operators = {
-                'sample_cluster': AlterCluster(
-                    weight=operators_config.clusters,
-                    adjacency_matrix=self.data.network.adj_mat,
-                    p_grow_connected=self.p_grow_connected,
-                    model_by_chain=self.posterior_per_chain,
-                    resample_source=self.model.sample_source and not self.sample_from_prior,
-                    sample_from_prior=self.sample_from_prior,
-                ),
-                'alter_weights': AlterWeights(operators_config.weights),
-                'alter_cluster_effect': AlterClusterEffect(
-                    weight=operators_config.cluster_effect,
-                    applicable_states=self.data.features.states,
-                )
-            }
-
-            r = float(1 / len(self.model.confounders))
-            for k in self.model.confounders:
-                op_name = "alter_confounding_effects_" + str(k)
-                operators.update({
-                    op_name: AlterConfoundingEffects(
-                        weight=operators_config.confounding_effects * r,
-                        applicable_states=self.data.features.states,
-                        confounder=k,
-                    )
-                })
 
         normalize_operator_weights(operators)
         return operators
