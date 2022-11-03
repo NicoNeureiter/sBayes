@@ -395,7 +395,8 @@ class SBayesConfig(BaseConfig):
         with open(path, "r") as f:
             path_str = str(path).lower()
             if path_str.endswith(".yaml"):
-                config_dict = yaml.load(f, Loader=yaml.Loader)
+                yaml_loader = yaml.YAML(typ='safe')
+                config_dict = yaml_loader.load(f)
             else:
                 config_dict = json.load(f)
 
