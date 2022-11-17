@@ -699,8 +699,8 @@ class AlterClusterGibbsish(_AlterCluster):
         sample: Sample,
         i_cluster: int,
         likelihood: Likelihood,
-        available: NDArray[bool],
-    ) -> NDArray[float]:  # shape: (n_avaiable, )
+        available: NDArray[bool],   # shape: (n_objects, )
+    ) -> NDArray[float]:            # shape: (n_avaiable, )
         if self.sample_from_prior:
             n_available = np.count_nonzero(available)
             return 0.5*np.ones(n_available)
@@ -710,20 +710,53 @@ class AlterClusterGibbsish(_AlterCluster):
         )
         all_lh = deepcopy(likelihood.update_component_likelihoods(sample)[available, :])
         all_lh[..., 0] = cluster_lh_z
+        # shape: (n_objects, n_features, n_components)
+
+        # # Old:
+        # has_components = deepcopy(sample.cache.has_components.value[available, :])
+        # has_components[:, 0] = True
+        # weights_with_z = normalize_weights(sample.weights.value, has_components)
+        # has_components[:, 0] = False
+        # weights_without_z = normalize_weights(sample.weights.value, has_components)
+        #
+        # feature_lh_with_z = inner1d(all_lh, weights_with_z)
+        # feature_lh_without_z = inner1d(all_lh, weights_without_z)
+        #
+        # # Multiply over features to get the total LH per object
+        # marginal_lh_with_z = np.prod(feature_lh_with_z, axis=-1)
+        # marginal_lh_without_z = np.prod(feature_lh_without_z, axis=-1)
+        #
+        # cluster_posterior_old = marginal_lh_with_z / (marginal_lh_with_z + marginal_lh_without_z)
+
+        # # New:
+        weights_z01 = self.compute_feature_weights_with_and_without(sample, available)
+        feature_lh_z01 = inner1d(all_lh[np.newaxis, ...], weights_z01)
+        marginal_lh_z01 = np.prod(feature_lh_z01, axis=-1)
+        cluster_posterior = marginal_lh_z01[1] / (marginal_lh_z01[0] + marginal_lh_z01[1])
+
+        # assert np.allclose(feature_lh_z01[0], feature_lh_without_z)
+        # assert np.allclose(weights_z01[0], weights_without_z)
+        # assert np.allclose(cluster_posterior, cluster_posterior_old)
+
+        return cluster_posterior
+
+    @staticmethod
+    def compute_feature_weights_with_and_without(
+        sample: Sample,
+        available: NDArray[bool],   # shape: (n_objects, )
+    ) -> NDArray[float]:            # shape: (2, n_objects, n_features, n_components)
+        weights_current = update_weights(sample, caching=True)[available]
+        # weights = normalize_weights(sample.weights.value, has_components)
 
         has_components = deepcopy(sample.cache.has_components.value[available, :])
-        has_components[:, 0] = True
-        weights_with_z = normalize_weights(sample.weights.value, has_components)
-        has_components[:, 0] = False
-        weights_without_z = normalize_weights(sample.weights.value, has_components)
+        has_components[:, 0] = ~has_components[:, 0]
+        weights_flipped = normalize_weights(sample.weights.value, has_components)
 
-        feature_lh_with_z = inner1d(all_lh, weights_with_z)
-        feature_lh_without_z = inner1d(all_lh, weights_without_z)
+        weights_z01 = np.empty((2, *weights_current.shape))
+        weights_z01[1] = np.where(has_components[:, np.newaxis, [0]], weights_flipped, weights_current)
+        weights_z01[0] = np.where(has_components[:, np.newaxis, [0]], weights_current, weights_flipped)
 
-        # Multiply over features to get the total LH per object
-        marginal_lh_with_z = np.prod(feature_lh_with_z, axis=-1)
-        marginal_lh_without_z = np.prod(feature_lh_without_z, axis=-1)
-        return marginal_lh_with_z / (marginal_lh_with_z + marginal_lh_without_z)
+        return weights_z01
 
     @staticmethod
     def grow_candidates(sample: Sample) -> NDArray[bool]:

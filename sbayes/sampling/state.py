@@ -267,6 +267,10 @@ class CalculationNode(Generic[Value]):
 
 class HasComponents(CalculationNode[NDArray[bool]]):
 
+    """
+    Array calculation node with shape (n_objects, n_components)
+    """
+
     def __init__(self, clusters: Clusters, confounders: dict[str, Confounder]):
         # Set up value from clusters and confounders
         has_components = [clusters.any_cluster()]
