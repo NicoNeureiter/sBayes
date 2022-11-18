@@ -145,9 +145,6 @@ def compute_effect_counts(
 def compute_feature_counts(
     features: NDArray[bool],
     sample: Sample,
-    # clusters: NDArray[bool],
-    # confounders: dict[str, Confounder],
-    # source: NDArray[bool],  # shape: (n_objects, n_features, n_components)
 ) -> dict[str, NDArray[int]]:
     """Update the likelihood values for each of the mixture components"""
     clusters = sample.clusters.value
@@ -268,7 +265,7 @@ def likelihood_per_component(
     sample: Sample,
     source: NDArray[bool] = None,  # shape: (n_objects, n_features, n_components)
     caching=True
-) -> NDArray[float]:
+) -> NDArray[float]:  # shape: (n_objects, n_feature, n_components)
     """Update the likelihood values for each of the mixture components"""
     CHECK_CACHING = False
     features = model.data.features

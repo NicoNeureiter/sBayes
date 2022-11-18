@@ -1312,7 +1312,6 @@ def dirichlet_multinomial_logpdf(
 
 
 def dirichlet_categorical_logpdf(
-    # x: NDArray[bool]        # shape: (n_objects, n_features, n_states)
     counts: NDArray[int],   # shape: (n_features, n_states)
     a: NDArray[float],      # shape: (n_features, n_states)
 ) -> NDArray[float]:        # shape: (n_features)
@@ -1329,7 +1328,6 @@ def dirichlet_categorical_logpdf(
     -1.386294361303224
     """
     a += 1e-10  # TODO Find a better way to fix 0s in a (and still use broadcasting)
-    # counts = x.sum(axis=0)
     n = counts.sum(axis=-1)
     sum_a = a.sum(axis=-1)
     const = gammaln(sum_a) - gammaln(n + sum_a)
