@@ -633,7 +633,7 @@ class AlterClusterGibbsish(_AlterCluster):
         sample_new = sample.copy()
 
         # Assign probabilities for each unoccupied object
-        cluster_posterior = np.empty(sample.n_objects)
+        cluster_posterior = np.zeros(sample.n_objects)
         cluster_posterior[available] = self.compute_cluster_posterior(
             sample, i_cluster, available
         # cluster_posterior = self.compute_cluster_posterior(
@@ -679,7 +679,7 @@ class AlterClusterGibbsish(_AlterCluster):
         sample_new = sample.copy()
 
         # Assign probabilities for each unoccupied object
-        cluster_posterior = np.empty(sample.n_objects)
+        cluster_posterior = np.zeros(sample.n_objects)
         cluster_posterior[available] = self.compute_cluster_posterior(
             sample, i_cluster, available
         # cluster_posterior = self.compute_cluster_posterior(
