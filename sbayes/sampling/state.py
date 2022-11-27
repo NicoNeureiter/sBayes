@@ -7,9 +7,9 @@ from typing import Optional, Generic, TypeVar, Type, Iterator
 
 from numpy.typing import NDArray
 import numpy as np
-from pydantic.types import PositiveInt
 
 from sbayes.load_data import Confounder, Features
+from sbayes.util import get_along_axis
 
 S = TypeVar('S')
 Value = TypeVar('Value', NDArray, float)
@@ -20,7 +20,7 @@ VersionType = TypeVar('VersionType', tuple, int)
 class Parameter(Generic[Value]):
 
     _value: Value
-    version: PositiveInt
+    version: int
 
     def __init__(self, value: Value):
         self._value = value
@@ -83,8 +83,9 @@ class GroupedParameters(ArrayParameter):
 
     group_versions: NDArray[int]
 
-    def __init__(self, value: NDArray[Value]):
+    def __init__(self, value: NDArray[Value], group_dim: int = 0):
         super().__init__(value=value)
+        self.group_dim = group_dim
         self.group_versions = np.zeros(self.n_groups)
 
     def set_items(self, keys, values):
@@ -94,10 +95,16 @@ class GroupedParameters(ArrayParameter):
         if isinstance(keys, int):
             self.group_versions[keys] = self.version
         elif isinstance(keys, tuple):
-            self.group_versions[keys[0]] = self.version
+            self.group_versions[keys[self.group_dim]] = self.version
         else:
             raise RuntimeError('`set_items` is not implemented for GroupedParameters. '
                                'Use `GroupedParameters.edit()` instead.')
+
+    def set_value(self, new_value: NDArray[DType]):
+        super().set_value(new_value)
+
+        # self.group_versions[:] = self.version
+        self.group_versions = np.full_like(self.group_versions, self.version)
 
     def set_group(self, i: int, values: NDArray[Value]):
         with self.edit_group(i) as g:
@@ -105,15 +112,15 @@ class GroupedParameters(ArrayParameter):
 
     @property
     def n_groups(self):
-        return self.shape[0]
+        return self.shape[self.group_dim]
 
     @contextmanager
-    def edit_group(self, i) -> NDArray:
+    def edit_group(self, i) -> NDArray[Value]:
         if self.shared:
             self.resolve_sharing()
 
         self._value.flags.writeable = True
-        yield self.value[i]
+        yield self.get_group(i)
         self._value.flags.writeable = False
         self.version += 1
         self.group_versions[i] = self.version
@@ -121,6 +128,9 @@ class GroupedParameters(ArrayParameter):
     def resolve_sharing(self):
         self.group_versions = self.group_versions.copy()
         super().resolve_sharing()
+
+    def get_group(self, i: int):
+        return get_along_axis(a=self.value, index=i, axis=self.group_dim)
 
 
 class Clusters(GroupedParameters):
@@ -147,6 +157,11 @@ class Clusters(GroupedParameters):
         with self.edit_cluster(i_cluster) as c:
             c[i_object] = False
 
+    @contextmanager
+    def value_for_cython(self) -> NDArray[DType]:
+        self._value.flags.writeable = True
+        yield self.value
+        self._value.flags.writeable = False
 
 @lru_cache(maxsize=128)
 def outdated_group_version(shape: tuple[int]) -> NDArray[int]:
@@ -178,7 +193,7 @@ class CalculationNode(Generic[Value]):
         i = self.input_idx[input_key]
         return self.cached_version[i] != self.inputs[input_key].version
 
-    def what_changed(self, input_key: str | list[str], caching=True) -> set[bool]:
+    def what_changed(self, input_key: str | list[str], caching=True) -> set[int]:
         if isinstance(input_key, list):
             return set.union(*(self.what_changed(k, caching=caching) for k in input_key))
 
@@ -209,15 +224,13 @@ class CalculationNode(Generic[Value]):
                 self.cached_group_versions[key].flags.writeable = False
 
     @contextmanager
-    def edit(self) -> Iterator[NDArray]:
-        # self._value.flags.writeable = True
+    def edit(self) -> Iterator[Value]:
         yield self.value
-        # self._value.flags.writeable = False
         self.set_up_to_date()
 
-    def outdated_version(self) -> VersionType:
+    def outdated_version(self) -> tuple[int]:
         """To manually mark the calculation node as outdated we use a constant -1."""
-        return -1
+        return (-1,) * len(self.inputs)
 
     def add_input(self, key: str, inpt: CalculationNode | Parameter):
         """Add an input to this calculation node."""
@@ -232,7 +245,7 @@ class CalculationNode(Generic[Value]):
         return self.cached_version[self.input_idx[input_key]]
 
     @property
-    def version(self) -> VersionType:
+    def version(self) -> tuple[VersionType]:
         """Calculate the current version number from the inputs."""
         return tuple(inpt.version for inpt in self.inputs.values())
         # return hash(tuple(i.version for i in self.inputs))
@@ -262,33 +275,25 @@ class CalculationNode(Generic[Value]):
         self.cached_group_versions = {k: v for k, v in other.cached_group_versions.items()}
 
 
-class Source(ArrayParameter[bool]):
+class FeatureCounts(GroupedParameters):
+    """GroupedParameters for the feature counts of each group (or cluster) in a mixture
+    component. Value shape: (n_groups, n_features, n_states)"""
 
-    def __init__(
-        self,
-        value: Value,
-        confounders: dict[str, Confounder]
-    ):
-        super().__init__(value)
-        self.confounders = confounders
-        self.counts = {'clusters': None}
-        for conf in self.confounders:
-            self.counts[conf] = None
+    @property
+    def n_groups(self):
+        return self.value.shape[0]
 
-    def resolve_sharing(self):
-        self.counts = deepcopy(self.counts)
-        self._value = self._value.copy()
-        self.shared = False
+    def add_changes(self, diff: NDArray[int]):  # diff shape: (n_groups, n_features, n_states)
+        if self.shared:
+            self.resolve_sharing()
 
-    def assert_counts_match(self, other: dict[str, NDArray[int]]):
-        assert set(self.counts.keys()) == set(other.keys())
-        for k in self.counts.keys():
-            assert np.all(other[k] == self.counts[k]), (k)
+        self._value.flags.writeable = True
+        self._value += diff
+        self._value.flags.writeable = False
+        self.version += 1
 
-    # def copy(self: S) -> S:
-    #     other = super().copy()
-    #     other.counts = {}
-    #     return other
+        changed_groups = np.any(diff != 0, axis=(1, 2))
+        self.group_versions[changed_groups] = self.version
 
 
 class HasComponents(CalculationNode[NDArray[bool]]):
@@ -315,8 +320,9 @@ class HasComponents(CalculationNode[NDArray[bool]]):
 
 class ModelCache:
 
-    likelihood: CalculationNode[float]
+    # likelihood: CalculationNode[float]
     component_likelihoods: CalculationNode[NDArray[float]]
+    group_likelihoods: dict[str, CalculationNode[NDArray[float]]]
     weights_normalized: CalculationNode[NDArray[float]]
 
     prior: CalculationNode[float]
@@ -330,9 +336,14 @@ class ModelCache:
     has_components: CalculationNode[bool]
 
     def __init__(self, sample: Sample, ):
+        # self.likelihood = CalculationNode(0.)
         self.component_likelihoods = CalculationNode(
             value=np.empty((sample.n_objects, sample.n_features, sample.n_components))
         )
+        self.group_likelihoods = {
+            conf: CalculationNode(value=np.empty(sample.n_groups(conf)))
+            for conf in sample.component_names
+        }
         self.weights_normalized = CalculationNode(
             value=np.empty((sample.n_objects, sample.n_features, sample.n_components))
         )
@@ -352,19 +363,25 @@ class ModelCache:
         self.cluster_size_prior.add_input('clusters', sample.clusters)
         self.weights_normalized.add_input('has_components', self.has_components)
 
+        # self.group_likelihoods['cluster'].add_input('cluster_effect', sample.cluster_effect)
         # self.component_likelihoods.add_input('cluster_effect', sample.cluster_effect)
         for conf, effect in sample.confounding_effects.items():
+            self.group_likelihoods[conf].add_input(f'c_{conf}', effect)
             self.component_likelihoods.add_input(f'c_{conf}', effect)
 
         self.weights_prior.add_input('weights', sample.weights)
         self.weights_normalized.add_input('weights', sample.weights)
 
         # Differences between Gibbs/Non-Gibbs models:
-        if sample.source is not None:
-            self.source_prior = CalculationNode(value=0.0)
-            self.source_prior.add_input('weights_normalized', self.weights_normalized)
-            self.source_prior.add_input('source', sample.source)
-            self.component_likelihoods.add_input('source', sample.source)
+        self.source_prior = CalculationNode(value=0.0)
+        self.source_prior.add_input('weights_normalized', self.weights_normalized)
+        self.source_prior.add_input('source', sample.source)
+        self.component_likelihoods.add_input('source', sample.source)
+
+        for comp, counts in sample.feature_counts.items():
+            self.group_likelihoods[comp].add_input('counts', counts)
+            self.component_likelihoods.add_input(f'{comp}_counts', counts)
+            # self.likelihood.add_input(f'counts_{comp}', self.group_likelihoods[comp])
 
     @property
     def cluster_likelihoods(self) -> NDArray[float]:
@@ -384,6 +401,8 @@ class ModelCache:
         self.has_components.clear()
         for conf_eff in self.confounding_effects_prior.values():
             conf_eff.clear()
+        for group_lh in self.group_likelihoods.values():
+            group_lh.clear()
 
     def copy(self: S, new_sample: Sample) -> S:
         new_cache = ModelCache(new_sample)
@@ -395,6 +414,8 @@ class ModelCache:
         new_cache.weights_prior.assign_from(self.weights_prior)
         for conf, conf_eff_prior in new_cache.confounding_effects_prior.items():
             conf_eff_prior.assign_from(self.confounding_effects_prior[conf])
+        for comp, group_lh in new_cache.group_likelihoods.items():
+            group_lh.assign_from(self.group_likelihoods[comp])
 
         # new_cache.has_components
         return new_cache
@@ -402,13 +423,16 @@ class ModelCache:
 
 class Sample:
 
+    confounders: dict[str, Confounder]
+
     def __init__(
         self,
         clusters: Clusters,                                 # shape: (n_clusters, n_objects)
         weights: ArrayParameter[float],                     # shape: (n_features, n_components)
         confounding_effects: dict[str, GroupedParameters],  # shape per conf:  (n_groups, n_features, n_states)
         confounders: dict[str, Confounder],
-        source: Optional[Source] = None,      # shape: (n_objects, n_features, n_components)
+        source: GroupedParameters[bool],                       # shape: (n_objects, n_features, n_components)
+        feature_counts: dict[str, FeatureCounts],           # shape per conf: (n_groups, n_features)
         chain: int = 0,
         _other_cache: ModelCache = None,
         _i_step: int = 0
@@ -417,6 +441,7 @@ class Sample:
         self._weights = weights
         self._confounding_effects = confounding_effects
         self._source = source
+        self._feature_counts = feature_counts
         self.chain = chain
         self.confounders = confounders
         self.i_step = _i_step
@@ -434,6 +459,9 @@ class Sample:
         # Store the likelihood of each observation (language and feature) for logging
         self.observation_lhs = None
 
+        # Caching:
+        self._groups_and_clusters = None
+
     @classmethod
     def from_numpy_arrays(
         cls: Type[S],
@@ -441,7 +469,8 @@ class Sample:
         weights: NDArray[float],
         confounding_effects: dict[str, NDArray[float]],
         confounders: dict[str, Confounder],
-        source: Optional[NDArray[bool]] = None,
+        source: NDArray[bool],
+        feature_counts: dict[str, NDArray[int]],
         chain: int = 0,
     ) -> S:
         return cls(
@@ -449,7 +478,8 @@ class Sample:
             weights=ArrayParameter(weights),
             confounding_effects={k: GroupedParameters(v) for k, v in confounding_effects.items()},
             confounders=confounders,
-            source=None if source is None else Source(source, confounders=confounders),
+            source=GroupedParameters(source, group_dim=2),
+            feature_counts={conf: FeatureCounts(c) for conf, c in feature_counts.items()},
             chain=chain,
         )
 
@@ -465,7 +495,8 @@ class Sample:
             clusters=self._clusters.copy(),
             weights=self.weights.copy(),
             confounding_effects={k: v.copy() for k, v in self.confounding_effects.items()},
-            source=None if self.source is None else self.source.copy(),
+            source=self.source.copy(),
+            feature_counts={k: v.copy() for k, v in self.feature_counts.items()},
             #
             confounders=self.confounders,
             _other_cache=self.cache,
@@ -490,8 +521,12 @@ class Sample:
         return self._confounding_effects
 
     @property
-    def source(self) -> Source:
+    def source(self) -> ArrayParameter[bool]:  # shape: (n_objects, n_features, n_components)
         return self._source
+
+    @property
+    def feature_counts(self) -> dict[str, FeatureCounts]:
+        return self._feature_counts
 
     """ shape properties """
 
@@ -515,5 +550,27 @@ class Sample:
     def n_states(self) -> int:
         return next(iter(self._confounding_effects.values())).shape[2]
 
+    @property
+    def component_names(self) -> list[str]:
+        return ['clusters', *self.confounders.keys()]
+
     def n_groups(self, conf: str) -> int:
-        return self._confounding_effects[conf].shape[0]
+        if conf == 'clusters':
+            return self.n_clusters
+        else:
+            return self._confounding_effects[conf].shape[0]
+
+    def groups_and_clusters(self) -> dict[str, NDArray[bool]]:  # shape: (n_groups,) for each component
+        # Confounder groups are constant, so only need to collect them once
+        if self._groups_and_clusters is None:
+            self._groups_and_clusters = {name: conf.group_assignment for name, conf in self.confounders.items()}
+
+        # Update clusters in case they changed:
+        self._groups_and_clusters['clusters'] = self.clusters.value
+
+        return self._groups_and_clusters
+
+
+if __name__ == '__main__':
+    import doctest
+    doctest.testmod()

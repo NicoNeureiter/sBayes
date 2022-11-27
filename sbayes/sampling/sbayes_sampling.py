@@ -6,7 +6,8 @@ import random as _random
 import numpy as np
 
 from sbayes.model import update_weights
-from sbayes.sampling.conditionals import sample_source_from_prior, compute_feature_counts
+from sbayes.sampling.conditionals import sample_source_from_prior
+from sbayes.sampling.counts import recalculate_feature_counts
 from sbayes.sampling.mcmc import MCMC
 from sbayes.sampling.state import Sample
 from sbayes.sampling.operators import (
@@ -39,6 +40,7 @@ class ClusterMCMC(MCMC):
         self.applicable_states = data.features.states
         self.n_states_by_feature = np.sum(data.features.states, axis=-1)
         self.n_features = self.features.shape[1]
+        self.n_states = self.features.shape[2]
         self.n_sites = self.features.shape[0]
 
         # Locations and network
@@ -280,42 +282,31 @@ class ClusterMCMC(MCMC):
             confounding_effects=initial_confounding_effects,
             confounders=self.data.confounders,
             source=initial_source,
+            feature_counts={'clusters': np.zeros((self.n_clusters, self.n_features, self.n_states)),
+                            **{conf: np.zeros((n_groups, self.n_features, self.n_states))
+                               for conf, n_groups in self.n_groups.items()}},
             chain=c,
         )
 
         assert ~np.any(np.isnan(initial_weights)), initial_weights
 
         # Generate the initial source using a Gibbs sampling step
-        if self.model.sample_source:
-            sample.everything_changed()
+        sample.everything_changed()
 
-            source = sample_source_from_prior(sample)
-            sample.source.set_value(source)
-            sample.source.counts = compute_feature_counts(self.features, sample)
-            sample.source.assert_counts_match(compute_feature_counts(self.features, sample))
+        source = sample_source_from_prior(sample)
+        sample.source.set_value(source)
+        recalculate_feature_counts(self.features, sample)
 
-            w = update_weights(sample, caching=False)
-            s = sample.source.value
-            assert np.all(s <= (w > 0)), np.max(w)
+        w = update_weights(sample, caching=False)
+        s = sample.source.value
+        assert np.all(s <= (w > 0)), np.max(w)
 
-            source = self.callable_operators['gibbs_sample_sources'].function(sample)[0].source.value
-            sample.source.set_value(source)
-            sample.source.counts = compute_feature_counts(self.features, sample)
-            sample.source.assert_counts_match(compute_feature_counts(self.features, sample))
+        source = self.callable_operators['gibbs_sample_sources'].function(sample)[0].source.value
+        sample.source.set_value(source)
+        recalculate_feature_counts(self.features, sample)
 
         sample.everything_changed()
         return sample
-
-    # @staticmethod
-    # def get_removal_candidates(cluster):
-    #     """Finds sites which can be removed from the given zone.
-    #     Args:
-    #         cluster (np.array): The zone for which removal candidates are found.
-    #             shape(n_sites)
-    #     Returns:
-    #         (list): Index-list of removal candidates.
-    #     """
-    #     return cluster.nonzero()[0]
 
     class ClusterError(Exception):
         pass

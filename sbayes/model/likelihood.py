@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 
+from sbayes.sampling.counts import recalculate_feature_counts
 from sbayes.util import dirichlet_multinomial_logpdf, dirichlet_categorical_logpdf
 
 try:
@@ -70,53 +71,62 @@ class Likelihood(object):
     def compute_lh_clusters(self, sample: Sample) -> float:
         """Compute the log-likelihood of the observations that are assigned to cluster
         effects in the current sample."""
-        cluster_source = sample.source.value[..., 0]
 
-        log_p = 0.0
-        for i_cluster in range(sample.n_clusters):  # TODO use caching
-            c = sample.clusters.value[i_cluster]
-            log_p += self.compute_lh_group(c, cluster_source,
-                                           state_counts=sample.source.counts['cluster'][i_cluster])
-            assert not np.isnan(log_p)
+        cache = sample.cache.group_likelihoods['clusters']
+        feature_counts = sample.feature_counts['clusters'].value
 
-        return log_p
+        with cache.edit() as lh:
+            for i_cluster in cache.what_changed('counts'):
+                lh[i_cluster] = self.compute_lh_group_from_counts(feature_counts[i_cluster])
+
+        return cache.value.sum()
 
     def compute_lh_confounder(self, sample: Sample, conf: str) -> float:
         """Compute the log-likelihood of the observations that are assigned to confounder
         `conf` in the current sample."""
-        conf_source = sample.source.value[..., self.source_index[conf]]
-        confounder = sample.confounders[conf]
 
-        log_p = 0.0
-        for i_group in range(sample.n_groups(conf)):
-            g = confounder.group_assignment[i_group]
-            log_p += self.compute_lh_group(g, conf_source,
-                                           state_counts=sample.source.counts[f'c_{conf}'][i_group])
-            assert not np.isnan(log_p)
+        cache = sample.cache.group_likelihoods[conf]
+        feature_counts = sample.feature_counts[conf].value
 
-        return log_p
+        with cache.edit() as lh:
+            for i_g in cache.what_changed('counts'):
+                lh[i_g] = self.compute_lh_group_from_counts(feature_counts[i_g])
+
+        return cache.value.sum()
+
+    def compute_lh_group_from_counts(
+        self,
+        state_counts: NDArray[int],         # shape: (n_features, n_states)
+    ) -> float:
+        """Compute the likelihood (in the form of a Dirichlet multinomial distribution)
+        for one cluster or one group of a confounder."""
+
+        # Use the applicable states to construct a uniform prior
+        a = self.shapes.states_per_feature.astype(float)  # shape: (n_features, n_states)
+
+        # Compute the dirichlet-multinomial likelihood
+        log_lh = dirichlet_categorical_logpdf(counts=state_counts, a=a)
+
+        # Using the boolean `states` array implicitly defines a concentration of 1 for
+        # each applicable state (i.e. uniform distribution on the probability simplex)
+        # TODO: Use concentration from config files
+
+        return log_lh.sum()
 
     def compute_lh_group(
         self,
         group: NDArray[bool],               # shape: (n_objects,)
         component_source: NDArray[bool],    # shape: (n_objects, n_features)
-        state_counts: NDArray[int] = None
     ) -> float:
         """Compute the likelihood (in the form of a Dirichlet multinomial distribution)
         for one cluster or one group of a confounder."""
 
-        if state_counts is None:
-            # Which observations are attributed to this component and group:
-            source_group = group[:, np.newaxis] & component_source                  # shape: (n_objects, n_features)
+        # Which observations are attributed to this component and group:
+        source_group = group[:, np.newaxis] & component_source                  # shape: (n_objects, n_features)
 
-            # Compute state counts for all observations assigned to this group and are not NA
-            where = (source_group & ~self.na_features)[..., np.newaxis]             # shape: (n_objects, n_features, 1)
-            state_counts = np.sum(self.features, where=where, axis=0)               # shape: (n_features, n_states)
-        # else:
-        #     source_group = group[:, np.newaxis] & component_source
-        #     where = (source_group & ~self.na_features)[..., np.newaxis]
-        #     x = np.sum(self.features, where=where, axis=0)
-        #     assert np.all(state_counts == x), (state_counts[:2, :3], x[:2, :3])
+        # Compute state counts for all observations assigned to this group and are not NA
+        where = (source_group & ~self.na_features)[..., np.newaxis]             # shape: (n_objects, n_features, 1)
+        state_counts = np.sum(self.features, where=where, axis=0)               # shape: (n_features, n_states)
 
         # Use the applicable states to construct a uniform prior
         a = self.shapes.states_per_feature.astype(float)                        # shape: (n_features, n_states)
@@ -128,16 +138,13 @@ class Likelihood(object):
         # each applicable state (i.e. uniform distribution on the probability simplex)
         # TODO: Use concentration from config files
 
-        # for x in zip(state_counts, a, log_lh):
-        #     print(x)
-
         return log_lh.sum()
 
 
 def compute_component_likelihood(
     features: NDArray[bool],    # shape: (n_objects, n_features, n_states)
     probs: NDArray[float],      # shape: (n_groups, n_features, n_states)
-    groups: NDArray[bool],      # shape: (n_groups, n_sites)
+    groups: NDArray[bool],      # shape: (n_groups, n_objects)
     changed_groups: set[int],
     out: NDArray[float]         # shape: (n_objects, n_features)
 ) -> NDArray[float]:            # shape: (n_objects, n_features)
