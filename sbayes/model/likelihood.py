@@ -2,8 +2,9 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 
-from sbayes.sampling.counts import recalculate_feature_counts
-from sbayes.util import dirichlet_multinomial_logpdf, dirichlet_categorical_logpdf
+from numpy.core._umath_tests import inner1d
+
+from sbayes.util import dirichlet_categorical_logpdf, timeit
 
 try:
     from typing import Protocol
@@ -141,6 +142,7 @@ class Likelihood(object):
         return log_lh.sum()
 
 
+@timeit('µs')
 def compute_component_likelihood(
     features: NDArray[bool],    # shape: (n_objects, n_features, n_states)
     probs: NDArray[float],      # shape: (n_groups, n_features, n_states)
@@ -148,13 +150,21 @@ def compute_component_likelihood(
     changed_groups: set[int],
     out: NDArray[float]         # shape: (n_objects, n_features)
 ) -> NDArray[float]:            # shape: (n_objects, n_features)
+
+    # [NN] Idea: If the majority of groups is outdated, a full update (w/o caching) may be faster
+    # [NN] ...does not seem like it -> deactivate for now.
+    # if len(changed_groups) > 0.8 * groups.shape[0]:
+    #     return np.einsum('ijk,hjk,hi->ij', features, probs, groups, optimize=True)
+
     out[~groups.any(axis=0), :] = 0.
     for i in changed_groups:
         g = groups[i]
         f_g = features[g, :, :]
         p_g = probs[i, :, :]
-        out[g, :] = np.einsum('ijk,jk->ij', f_g, p_g)
-        # out[g, :] = np.sum(f_g*p_g[None,...], axis=-1)
+        # out[g, :] = np.einsum('ijk,jk->ij', f_g, p_g, optimize=True)
+        # out[g, :] = np.sum(f_g * p_g[np.newaxis, ...], axis=-1)
+        out[g, :] = inner1d(f_g, p_g[np.newaxis, ...])
+
     return out
 
 
