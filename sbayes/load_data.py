@@ -82,7 +82,7 @@ class Objects:
         return cls(**objects_dict)
 
 
-@dataclass(frozen=True)
+@dataclass
 class Features:
 
     values: NDArray[bool]  # shape: (n_objects, n_features, n_states)
@@ -90,6 +90,7 @@ class Features:
     states: NDArray[bool]  # shape: (n_features, n_states)
     state_names: list[list[StateName]]  # shape for each feature f: (n_states[f],)
     na_number: int
+    features_by_group = None
 
     feature_and_state_names: OrderedDict[FeatureName, list[StateName]] = field(init=False)
     # TODO This could replace names and state_names
@@ -221,6 +222,12 @@ class Data:
         self.features = features
         self.confounders = confounders
         self.logger = logger
+
+        self.features_by_group = {
+            conf_name: [features.values[g] for g in conf.group_assignment]
+            for conf_name, conf in self.confounders.items()
+        }
+        self.features.features_by_group = self.features_by_group
 
         self.crs = pyproj.CRS(projection)
         self.network = ComputeNetwork(self.objects, crs=self.crs)
