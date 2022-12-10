@@ -65,8 +65,8 @@ class Model:
         )
 
         # Create likelihood and prior objects
-        self.likelihood = Likelihood(data=self.data, shapes=self.shapes)
         self.prior = Prior(shapes=self.shapes, config=self.config.prior, data=data, sample_source=self.sample_source)
+        self.likelihood = Likelihood(data=self.data, shapes=self.shapes, prior=self.prior)
 
     def __call__(self, sample, caching=True):
         """Evaluate the (non-normalized) posterior probability of the given sample."""
