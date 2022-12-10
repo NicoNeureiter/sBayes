@@ -43,7 +43,7 @@ class Likelihood(object):
             shape: (n_objects, n_features)
     """
 
-    def __init__(self, data: Data, shapes: ModelShapes, prior: 'Prior'):
+    def __init__(self, data: Data, shapes: ModelShapes, prior):
         self.features = data.features.values
         self.confounders = data.confounders
         self.shapes = shapes
