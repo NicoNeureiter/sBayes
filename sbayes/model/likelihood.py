@@ -43,11 +43,12 @@ class Likelihood(object):
             shape: (n_objects, n_features)
     """
 
-    def __init__(self, data: Data, shapes: ModelShapes):
+    def __init__(self, data: Data, shapes: ModelShapes, prior: 'Prior'):
         self.features = data.features.values
         self.confounders = data.confounders
         self.shapes = shapes
         self.na_features = (np.sum(self.features, axis=-1) == 0)
+        self.prior = prior
 
         self.source_index = {'clusters': 0}
         for i, conf in enumerate(self.confounders, start=1):
@@ -78,7 +79,10 @@ class Likelihood(object):
 
         with cache.edit() as lh:
             for i_cluster in cache.what_changed('counts'):
-                lh[i_cluster] = self.compute_lh_group_from_counts(feature_counts[i_cluster])
+                lh[i_cluster] = dirichlet_categorical_logpdf(
+                    counts=feature_counts[i_cluster],
+                    a=self.prior.prior_cluster_effect.concentration_array,
+                ).sum()
 
         return cache.value.sum()
 
@@ -91,58 +95,14 @@ class Likelihood(object):
 
         with cache.edit() as lh:
             for i_g in cache.what_changed('counts'):
-                lh[i_g] = self.compute_lh_group_from_counts(feature_counts[i_g])
+                lh[i_g] = dirichlet_categorical_logpdf(
+                    counts=feature_counts[i_g],
+                    a=self.prior.prior_confounding_effects[conf].concentration_array[i_g],
+                ).sum()
 
         return cache.value.sum()
 
-    def compute_lh_group_from_counts(
-        self,
-        state_counts: NDArray[int],         # shape: (n_features, n_states)
-    ) -> float:
-        """Compute the likelihood (in the form of a Dirichlet multinomial distribution)
-        for one cluster or one group of a confounder."""
 
-        # Use the applicable states to construct a uniform prior
-        a = self.shapes.states_per_feature.astype(float)  # shape: (n_features, n_states)
-
-        # Compute the dirichlet-multinomial likelihood
-        log_lh = dirichlet_categorical_logpdf(counts=state_counts, a=a)
-
-        # Using the boolean `states` array implicitly defines a concentration of 1 for
-        # each applicable state (i.e. uniform distribution on the probability simplex)
-        # TODO: Use concentration from config files
-
-        return log_lh.sum()
-
-    def compute_lh_group(
-        self,
-        group: NDArray[bool],               # shape: (n_objects,)
-        component_source: NDArray[bool],    # shape: (n_objects, n_features)
-    ) -> float:
-        """Compute the likelihood (in the form of a Dirichlet multinomial distribution)
-        for one cluster or one group of a confounder."""
-
-        # Which observations are attributed to this component and group:
-        source_group = group[:, np.newaxis] & component_source                  # shape: (n_objects, n_features)
-
-        # Compute state counts for all observations assigned to this group and are not NA
-        where = (source_group & ~self.na_features)[..., np.newaxis]             # shape: (n_objects, n_features, 1)
-        state_counts = np.sum(self.features, where=where, axis=0)               # shape: (n_features, n_states)
-
-        # Use the applicable states to construct a uniform prior
-        a = self.shapes.states_per_feature.astype(float)                        # shape: (n_features, n_states)
-
-        # Compute the dirichlet-multinomial likelihood
-        log_lh = dirichlet_categorical_logpdf(counts=state_counts, a=a)
-        # log_lh = dirichlet_multinomial_logpdf(counts=state_counts, a=a)
-        # Using the boolean `states` array implicitly defines a concentration of 1 for
-        # each applicable state (i.e. uniform distribution on the probability simplex)
-        # TODO: Use concentration from config files
-
-        return log_lh.sum()
-
-
-@timeit('µs')
 def compute_component_likelihood(
     features: NDArray[bool],    # shape: (n_objects, n_features, n_states)
     probs: NDArray[float],      # shape: (n_groups, n_features, n_states)
