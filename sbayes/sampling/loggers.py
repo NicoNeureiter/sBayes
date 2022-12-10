@@ -157,7 +157,6 @@ class ParametersCSVLogger(ResultsLogger):
             # Update cluster_sum for matching future samples
             self.cluster_sum += clusters
 
-
         row = {
             "Sample": sample.i_step,
             "posterior": sample.last_lh + sample.last_prior,
@@ -194,12 +193,23 @@ class ParametersCSVLogger(ResultsLogger):
                     row[col_name] = cluster_effect[i_a, i_f, i_s]
 
         # Confounding effects
-        for conf in self.data.confounders.values():
+        for i_conf, conf in enumerate(self.data.confounders.values(), start=1):
+
+            if False:  # TODO Check whether conf is sampled, once that option is available
+                conf_effect = sample.confounding_effects[conf.name].value
+            else:
+                conf_effect = conditional_effect_sample(
+                    features=features.values,
+                    is_source_group=conf.group_assignment[..., np.newaxis] & sample.source.value[np.newaxis, ..., i_conf],
+                    applicable_states=features.states,
+                    prior_counts=self.model.prior.prior_confounding_effects[conf.name].concentration_array,
+                )
+
             for i_g, g in enumerate(conf.group_names):
                 for i_f, f in enumerate(features.names):
                     for i_s, s in enumerate(features.state_names[i_f]):
                         col_name = f"{conf.name}_{g}_{f}_{s}"
-                        row[col_name] = sample.confounding_effects[conf.name].value[i_g, i_f, i_s]
+                        row[col_name] = conf_effect[i_g, i_f, i_s]
 
         # lh, prior, posteriors
         if self.log_contribution_per_cluster:
