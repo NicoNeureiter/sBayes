@@ -127,8 +127,8 @@
 			"labels": {
 				"add": true,
 				"names": [
-					"U",
 					"C",
+					"U",
 					"I"
 				],
 				"font_size": 6
@@ -160,6 +160,34 @@
 			"labels": {
 				"add": true,
 				"font_size": 6
+			},
+			"title": {
+				"add": true,
+				"font_size": 6,
+				"position": [
+					0,
+					1
+				]
+			}
+		},
+		"output": {
+			"width_subplot": 3,
+			"height_subplot": 3,
+			"format": "pdf",
+			"resolution": 300,
+			"n_columns": 5
+		}
+	},
+	"feature_plot": {
+		"legend": {
+			"labels": {
+				"add": true,
+				"font_size": 8,
+				"names": [
+					"contact",
+					"universal",
+					"inheritance"
+				]
 			},
 			"title": {
 				"add": true,

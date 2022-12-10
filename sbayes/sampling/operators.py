@@ -617,7 +617,6 @@ class AlterClusterGibbsish(_AlterCluster):
         all_lh = deepcopy(likelihood_per_component(model, sample, caching=True)[available, :])
         all_lh[..., 0] = cluster_lh_z
 
-        # New:
         weights_z01 = self.compute_feature_weights_with_and_without(sample, available)
         feature_lh_z01 = inner1d(all_lh[np.newaxis, ...], weights_z01)
         marginal_lh_z01 = np.prod(feature_lh_z01, axis=-1)

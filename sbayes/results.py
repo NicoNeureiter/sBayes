@@ -21,6 +21,7 @@ class Results:
             shape: (n_clusters, n_samples, n_sites)
         parameters (pd.DataFrame): Data-frame containing sample information about parameters
                                    and likelihood, prior and posterior probabilities.
+        groups_by_confounders (dict[str, list[str]): A list of groups for each confounder.
     """
 
     def __init__(
@@ -70,30 +71,30 @@ class Results:
         self.prior_single_clusters = Results.read_dictionary(self.parameters, "prior_")
 
     @property
-    def n_features(self):
+    def n_features(self) -> int:
         return len(self.feature_names)
 
     @property
-    def n_clusters(self):
+    def n_clusters(self) -> int:
         return self.clusters.shape[0]
 
     @property
-    def n_samples(self):
+    def n_samples(self) -> int:
         return self.clusters.shape[1]
 
     @property
-    def n_objects(self):
+    def n_objects(self) -> int:
         return self.clusters.shape[2]
 
     @property
-    def confounders(self):
+    def confounders(self) -> list[str]:
         return list(self.groups_by_confounders.keys())
 
     @property
-    def n_confounders(self):
+    def n_confounders(self) -> int:
         return len(self.groups_by_confounders)
 
-    def __getitem__(self, item):
+    def __getitem__(self, item: str):
         if item in [
             "feature_names",
             "sample_id",
@@ -115,7 +116,10 @@ class Results:
 
     @classmethod
     def from_csv_files(
-        cls, clusters_path: PathLike, parameters_path: PathLike, burn_in: float = 0.1
+        cls: type[TResults],
+        clusters_path: PathLike,
+        parameters_path: PathLike,
+        burn_in: float = 0.1
     ) -> TResults:
         clusters = cls.read_clusters(clusters_path)
         parameters = cls.read_stats(parameters_path)
