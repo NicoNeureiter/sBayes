@@ -1,5 +1,7 @@
 from __future__ import annotations
-from typing import TextIO, Optional
+
+from dataclasses import dataclass
+from typing import TextIO, Optional, Callable
 from abc import ABC, abstractmethod
 
 import numpy as np
@@ -128,6 +130,9 @@ class ParametersCSVLogger(ResultsLogger):
             for i in range(sample.n_clusters):
                 column_names += [f"post_a{i}", f"lh_a{i}", f"prior_a{i}"]
 
+        # Prior column
+        column_names += ["cluster_size_prior", "geo_prior", "source_prior", "weights_prior"]
+
         # Store the column names in an attribute (important to keep order consistent)
         self.column_names = column_names
 
@@ -225,6 +230,11 @@ class ParametersCSVLogger(ResultsLogger):
                 row[f"lh_a{i}"] = lh
                 row[f"prior_a{i}"] = prior
                 row[f"post_a{i}"] = lh + prior
+
+        row["cluster_size_prior"] = sample.cache.cluster_size_prior.value
+        row["geo_prior"] = sample.cache.geo_prior.value
+        row["source_prior"] = sample.cache.source_prior.value
+        row["weights_prior"] = sample.cache.weights_prior.value
 
         row_str = "\t".join([self.float_format % row[k] for k in self.column_names])
         self.file.write(row_str + "\n")
