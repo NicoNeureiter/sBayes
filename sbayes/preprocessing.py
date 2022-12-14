@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 from __future__ import annotations
+
+from scipy.sparse import csr_matrix
+
 try:
     from typing import Literal
 except ImportError:
@@ -87,6 +90,14 @@ def load_canvas(config, logger=None):
 
 
 class ComputeNetwork:
+
+    vertices: list[str]
+    edges: NDArray[int]         # edge list
+    locations: NDArray[float]
+    adj_mat: csr_matrix[bool]
+    dist_mat: NDArray[float]
+    n: int
+    m: int
 
     def __init__(
             self,

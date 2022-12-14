@@ -40,7 +40,8 @@ class Prior:
         self.size_prior = ClusterSizePrior(config=self.config.objects_per_cluster,
                                            shapes=self.shapes)
         self.geo_prior = GeoPrior(config=self.config.geo,
-                                  cost_matrix=data.geo_cost_matrix)
+                                  cost_matrix=data.geo_cost_matrix,
+                                  network=data.network)
         self.prior_weights = WeightsPrior(config=self.config.weights,
                                           shapes=self.shapes,
                                           feature_names=data.features.feature_and_state_names)
@@ -522,10 +523,15 @@ class GeoPrior(object):
         AggrStrats.MAX: np.max,
     }
 
-    def __init__(self, config: GeoPriorConfig, cost_matrix=None, initial_counts=1.):
+    def __init__(
+        self,
+        config: GeoPriorConfig,
+        cost_matrix: NDArray[float] = None,
+        network: ComputeNetwork = None,
+    ):
         self.config = config
         self.cost_matrix = cost_matrix
-        self.initial_counts = initial_counts
+        self.network = network
         self.prior_type = config.type
 
         self.covariance = None
@@ -538,6 +544,11 @@ class GeoPrior(object):
         self.linkage = None
 
         self.parse_attributes(config)
+
+        self.mean_edge_length = float(np.mean(
+            network.dist_mat,
+            where=network.adj_mat.toarray().astype(bool)
+        ))
 
     def parse_attributes(self, config: GeoPriorConfig):
         if self.prior_type is config.Types.COST_BASED:
@@ -595,12 +606,18 @@ class GeoPrior(object):
                 aggregator=self.aggregator,
                 probability_function=self.probability_function,
             )
-        elif self.prior_type is self.TYPES.DIAMETER_BASED:
+        elif self.prior_type is self.PriorTypes.DIAMETER_BASED:
             geo_prior = compute_diameter_based_geo_prior(
                 clusters=sample.clusters.value,
                 cost_mat=self.cost_matrix,
                 aggregator=self.aggregator,
                 probability_function=self.probability_function,
+            )
+        elif self.prior_type is self.PriorTypes.SIMULATED:
+            geo_prior = compute_simulation_based_geo_prior(
+                clusters=sample.clusters.value,
+                cost_mat=self.cost_matrix,
+                mean_edge_length=self.mean_edge_length,
             )
         else:
             raise ValueError('geo_prior must be either \"uniform\" or \"cost_based\".')
@@ -693,6 +710,60 @@ def compute_diameter_based_geo_prior(
     for z in clusters:
         cost_mat_z = cost_mat[z][:, z]
         log_prior += probability_function(cost_mat_z.max())
+
+    return log_prior
+
+def compute_simulation_based_geo_prior(
+    clusters: NDArray[bool],    # (n_clusters, n_objects)
+    cost_mat: NDArray[float],   # (n_objects, n_objects)
+    mean_edge_length: float,
+) -> float:
+    """Compute the geo-prior based on characteristics of areas and non-areas in the
+    simulation in [https://github.com/Anaphory/area-priors]. The prior probability is
+    conditioned on the area size and given by as sigmoid curve that is fitted using
+    logistic regression to predict areality/non-areality of a group of languages based on
+    their MST."""
+
+    def sigmoid_intercept(n: int) -> float:
+        a = -1.62973132061948
+        b = 12.7679075267602
+        c = -25.4137798184766
+        d = 17.237407405487
+        logn = np.log(n)
+        return a * logn**3 + b * logn**2 + c * logn + d
+
+    def sigmoid_coeff(n: int) -> float:
+        a = -31.397363895626
+        b = 1.02000702311327
+        c = -94.0788824218419
+        d = 0.93626444975598
+        return a*b**(-n) + c/n + d
+
+    log_prior = 0.0
+    for z in clusters:
+        n = np.count_nonzero(z)
+        y0 = sigmoid_intercept(n)
+        k = sigmoid_coeff(n)
+
+
+        cost_mat_z = cost_mat[z][:, z]
+
+        cost_mat_z = cost_mat_z * 0.039 / mean_edge_length
+
+        if cost_mat_z.shape[0] > 1:
+            graph = csgraph_from_dense(cost_mat_z, null_value=np.inf)
+            mst = minimum_spanning_tree(graph)
+
+            # When there are zero costs between languages the MST might be 0
+            if mst.nnz > 0:
+                distances = mst.tocsr()[mst.nonzero()]
+            else:
+                distances = [0.0]
+        else:
+            raise ValueError("Too few locations to compute distance.")
+
+        x = np.sum(distances)
+        log_prior += log_expit(k*x + y0)
 
     return log_prior
 

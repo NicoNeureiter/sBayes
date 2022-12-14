@@ -365,6 +365,7 @@ class ModelCache:
 
         self.component_likelihoods.add_input('clusters', sample.clusters)
         self.cluster_size_prior.add_input('clusters', sample.clusters)
+        self.geo_prior.add_input('clusters', sample.clusters)
         self.weights_normalized.add_input('has_components', self.has_components)
 
         # self.group_likelihoods['cluster'].add_input('cluster_effect', sample.cluster_effect)
