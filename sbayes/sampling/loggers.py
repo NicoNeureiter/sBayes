@@ -9,10 +9,11 @@ import numpy.typing as npt
 import tables
 
 from sbayes.load_data import Data
-from sbayes.sampling.conditionals import conditional_effect_sample
+from sbayes.sampling.conditionals import conditional_effect_sample, likelihood_per_component
 from sbayes.sampling.operators import Operator
 from sbayes.util import format_cluster_columns, get_best_permutation
 from sbayes.model import Model
+from sbayes.model.likelihood import update_weights
 from sbayes.sampling.state import Sample, ModelCache
 
 
@@ -303,8 +304,10 @@ class LikelihoodLogger(ResultsLogger):
         )
 
     def _write_sample(self, sample: Sample):
-        # self.logged_likelihood_array.append(sample.observation_lhs[None, ...])
-        ...
+        lh_per_comp = likelihood_per_component(model=self.model, sample=sample)
+        weights = update_weights(sample)
+        lh = np.sum(weights * lh_per_comp, axis=2).ravel()
+        self.logged_likelihood_array.append(lh[None, ...])
 
 
 class OperatorStatsLogger(ResultsLogger):
