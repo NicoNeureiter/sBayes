@@ -1056,12 +1056,15 @@ def get_max_size_list(start, end, n_total, k_groups):
     return max_size_list[0:n_total]
 
 
-def log_binom(n, k):
+def log_binom(
+    n: int | NDArray[int],
+    k: int | NDArray[int]
+) -> float | NDArray[float]:
     """Compute the logarithm of (n choose k), i.e. the binomial coefficient of `n` and `k`.
 
     Args:
-        n (int or np.array): Population size.
-        k (int or np.array): Sample size.
+        n: Population size.
+        k: Sample size.
     Returns:
         double: log(n choose k)
 
@@ -1074,7 +1077,7 @@ def log_binom(n, k):
     return -betaln(1 + n - k, 1 + k) - np.log(n + 1)
 
 
-def log_multinom(n, ks):
+def log_multinom(n: int, ks: list[int]) -> float:
     """Compute the logarithm of (n choose k1,k2,...), i.e. the multinomial coefficient of
     `n` and the integers in the list `ks`. The sum of the sample sizes (the numbers in
      `ks`) may not exceed the population size (`n`).
@@ -1086,6 +1089,13 @@ def log_multinom(n, ks):
     Returns:
         double: log(n choose k1,k2,...)
 
+    == Usage ===
+    >>> log_multinom(5, [1,1,1,1])  # == log(5!)
+    4.787491742782046
+    >>> log_multinom(13, [4])  # == log_binom(13, 4)
+    6.572282542694008
+    >>> log_multinom(13, [3, 2])  # == log_binom(13, 3) + log_binom(10, 2)
+    9.462654300590172
     """
     ks = np.asarray(ks)
     # assert np.all(ks >= 0)
