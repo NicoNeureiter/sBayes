@@ -58,14 +58,23 @@ class Experiment:
 
     @staticmethod
     def init_logger() -> logging.Logger:
+        """Initialize the logger with a stream handler"""
         logger = logging.Logger("sbayesLogger", level=logging.DEBUG)
         logger.addHandler(logging.StreamHandler())
         return logger
 
     def add_logger_file(self, path_results: Path):
+        """Add a file handler to write logging information to a log-file"""
         log_path = path_results / "experiment.log"
-        self.logger.addHandler(logging.FileHandler(filename=log_path))
+        log_file_handler = logging.FileHandler(filename=log_path)
+        self.logger.addHandler(log_file_handler)
 
     def log_experiment(self):
+        """Start writing information on the experiment to the logger."""
         self.logger.info("Experiment: %s", self.experiment_name)
         self.logger.info("File location for results: %s", self.path_results)
+
+    def close(self):
+        """Close the log file handlers."""
+        for handler in self.logger.handlers[:]:
+            handler.close()
