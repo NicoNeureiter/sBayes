@@ -426,7 +426,7 @@ class SBayesConfig(BaseConfig):
 #
 
 
-def ruamel_yaml_dumps(thing: yaml.CommentedMap):
+def ruamel_yaml_dumps(thing):
     y = yaml.YAML()
     y.indent(mapping=4, sequence=4, offset=4)
     out = io.StringIO()
