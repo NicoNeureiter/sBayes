@@ -5,9 +5,9 @@ name: Python package
 
 on:
   push:
-    branches: [master, language_sbayes]
+    branches: [master, language_sbayes, devel]
   pull_request:
-    branches: [master, language_sbayes]
+    branches: [master, language_sbayes, devel]
 
 jobs:
   build:
