@@ -182,7 +182,7 @@ class ClusterMCMC(MCMC):
                 raise self.ClusterError
 
             # Add a neighbour to the cluster
-            site_new = _random.choice(neighbours.nonzero()[0])
+            site_new = _random.choice(list(neighbours.nonzero()[0]))
             cluster[site_new] = already_in_cluster[site_new] = 1
 
         return cluster, already_in_cluster

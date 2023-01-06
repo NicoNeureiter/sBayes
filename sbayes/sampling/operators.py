@@ -827,7 +827,7 @@ class AlterCluster(_AlterCluster):
             return sample, 0, -np.inf
 
         # Choose a random candidate and add it to the cluster
-        object_add = random.choice(candidates.nonzero()[0])
+        object_add = RNG.choice(candidates.nonzero()[0])
         sample_new.clusters.add_object(z_id, object_add)
 
         # Transition probability when growing
@@ -870,7 +870,7 @@ class AlterCluster(_AlterCluster):
 
         # Cluster is big enough: shrink
         removal_candidates = self.get_removal_candidates(cluster_current)
-        object_remove = random.choice(removal_candidates)
+        object_remove = RNG.choice(removal_candidates)
         sample_new.clusters.remove_object(z_id, object_remove)
 
         # Transition probability when shrinking.
