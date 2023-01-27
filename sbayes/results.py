@@ -38,9 +38,11 @@ class Results:
         self.cluster_names = self.get_cluster_names(parameters.columns)
 
         # Parse feature, state, family and area names
-        self.feature_names, self.feature_states = extract_features_and_states(
-            parameters=parameters, prefix=f"areal_{self.cluster_names[0]}"
-        )
+        self.feature_names = extract_feature_names(parameters)
+        self.feature_states = [
+            extract_state_names(parameters, prefix=f"areal_{self.cluster_names[0]}_{f}_")
+            for f in self.feature_names
+        ]
 
         # The sample index
         self.sample_id = self.parameters["Sample"].to_numpy(dtype=int)
@@ -270,7 +272,7 @@ class Results:
             parameters: The data-frame of all logged parameters from a sbayes analysis.
 
         Returns:
-            Nested dictionary of form {confounder_name: {feature_name: probabilities}}.
+            Nested dictionary of form {confounder_name: {group_name: {feature_name: probabilities}}}.
                 shape for each cluster and each feature f: (n_states_f,)
         """
         conf_effects = {
@@ -390,3 +392,20 @@ def extract_features_and_states(
         state_names[i_f].append(s)
 
     return feature_names, state_names
+
+
+def extract_feature_names(parameters: pd.DataFrame) -> list[str]:
+    prefix = "w_areal_"
+    feature_names = []
+    for c in parameters.columns:
+        if c.startswith(prefix):
+            feature_names.append(c[len(prefix):])
+    return feature_names
+
+
+def extract_state_names(parameters: pd.DataFrame, prefix: str) -> list[str]:
+    state_names = []
+    for c in parameters.columns:
+        if c.startswith(prefix):
+            state_names.append(c[len(prefix):])
+    return state_names
