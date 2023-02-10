@@ -6,13 +6,13 @@ import time
 import csv
 import os
 from pathlib import Path
-from functools import lru_cache
 from math import sqrt, floor, ceil
 from itertools import combinations, permutations
-from typing import Sequence, Union
+from typing import Sequence, Union, Iterator
 
 import numpy as np
 from numpy.typing import NDArray
+from scipy.optimize import linear_sum_assignment
 
 import pandas as pd
 import scipy
@@ -314,7 +314,9 @@ def normalize_str(s: str) -> str:
 
 
 def read_data_csv(csv_path: PathLike) -> pd.DataFrame:
-    return pd.read_csv(csv_path, dtype=str).applymap(normalize_str)
+    na_values = ["", " ", "\t", "  "]
+    data = pd.read_csv(csv_path, na_values=na_values, keep_default_na=False, dtype=str)
+    return data.applymap(normalize_str)
 
 
 def read_costs_from_csv(file: str, logger=None):
@@ -959,6 +961,7 @@ def normalize(x, axis=-1):
     array([[0.5, 0.5, 0.5, 0.5],
            [0.5, 0.5, 0.5, 0.5]])
     """
+    assert np.all(np.sum(x, axis=axis) > 0)
     return x / np.sum(x, axis=axis, keepdims=True)
 
 
@@ -1077,17 +1080,17 @@ def log_binom(
     return -betaln(1 + n - k, 1 + k) - np.log(n + 1)
 
 
-def log_multinom(n: int, ks: list[int]) -> float:
+def log_multinom(n: int, ks: Sequence[int]) -> float:
     """Compute the logarithm of (n choose k1,k2,...), i.e. the multinomial coefficient of
     `n` and the integers in the list `ks`. The sum of the sample sizes (the numbers in
      `ks`) may not exceed the population size (`n`).
 
     Args:
-        n (int): Population size.
-        ks (list[int] or np.array): Sample sizes
+        n: Population size.
+        ks: Sample sizes
 
     Returns:
-        double: log(n choose k1,k2,...)
+        The log multinomial coefficient: log(n choose k1,k2,...)
 
     == Usage ===
     >>> log_multinom(5, [1,1,1,1])  # == log(5!)
@@ -1182,22 +1185,32 @@ def timeit(units='s'):
 
     return timeit_decorator
 
-@lru_cache(maxsize=128)
-def get_permutations(n: int) -> list[tuple[int]]:
-    return list(permutations(range(n)))
+
+def get_permutations(n: int) -> Iterator[tuple[int]]:
+    return permutations(range(n))
+
+
+# def get_best_permutation(
+#         areas: NDArray[bool],  # shape = (n_areas, n_sites)
+#         prev_area_sum: NDArray[int],  # shape = (n_areas, n_sites)
+# ) -> tuple[int]:
+#     """Return a permutation of areas that would align the areas in the new sample with previous ones."""
+#
+#     def clustering_agreement(p):
+#         """In how many sites does permutation `p` previous samples?"""
+#         return np.sum(prev_area_sum * areas[p, :])
+#
+#     all_permutations = get_permutations(areas.shape[0])
+#     return max(all_permutations, key=clustering_agreement)
 
 
 def get_best_permutation(
         areas: NDArray[bool],  # shape = (n_areas, n_sites)
         prev_area_sum: NDArray[int],  # shape = (n_areas, n_sites)
-) -> tuple[int]:
+) -> NDArray[int]:
     """Return a permutation of areas that would align the areas in the new sample with previous ones."""
-    def clustering_agreement(p):
-        """In how many sites does permutation `p` previous samples?"""
-        return np.sum(prev_area_sum * areas[p, :])
-
-    all_permutations = get_permutations(areas.shape[0])
-    return max(all_permutations, key=clustering_agreement)
+    cluster_agreement_matrix = np.matmul(prev_area_sum, areas.T)
+    return linear_sum_assignment(cluster_agreement_matrix, maximize=True)[1]
 
 
 if scipy.__version__ >= '1.8.0':
@@ -1359,6 +1372,49 @@ def get_along_axis(a: NDArray, index: int, axis: int):
 if __name__ == "__main__":
     import doctest
     doctest.testmod()
+
+    @timeit('ms')
+    def get_best_permutation_2(
+            areas: NDArray[bool],  # shape = (n_areas, n_sites)
+            prev_area_sum: NDArray[int],  # shape = (n_areas, n_sites)
+    ) -> NDArray[int]:
+        """Return a permutation of areas that would align the areas in the new sample with previous ones."""
+        cluster_agreement_matrix = np.matmul(prev_area_sum, areas.T)
+        return linear_sum_assignment(cluster_agreement_matrix, maximize=True)[1]
+
+        # def clustering_agreement(p):
+        #     """In how many sites does permutation `p` previous samples?"""
+        #     return cluster_agreement_matrix[:, p].trace()
+        #
+        # all_permutations = get_permutations(areas.shape[0])
+        # return max(all_permutations, key=clustering_agreement)
+
+    areas = np.array([
+        [0, 1, 1, 0, 0, 0],
+        [1, 1, 0, 0, 0, 0],
+        [0, 0, 0, 1, 0, 0],
+        [1, 0, 0, 1, 0, 0],
+        [1, 0, 1, 0, 0, 0],
+        [1, 0, 1, 0, 1, 1],
+        [1, 0, 0, 0, 1, 0],
+        [0, 0, 0, 0, 1, 1],
+    ])
+
+    prev_areas = np.array([
+        [0, 0, 0.5, 0.9, 0, 0],
+        [0.1, 0.6, 0.8, 0.2, 0, 0],
+        [0.9, 1, 0, 0.1, 0, 0],
+        [1, 0, 0, 1, 0, 0],
+        [1, 0, 1, 0, 0, 0],
+        [0, 0, 0, 0, .8, 1],
+        [1, 0, 1, 0, 1, 1],
+        [1, 0, 0, 0, 1, 0],
+    ])
+
+    best1 = get_best_permutation(areas, prev_areas)
+    best2 = get_best_permutation_2(areas, prev_areas)
+    print(best1, best2)
+    assert best1 == best2
 
     # def sample_diri_mult_pdf(counts, a, S=10000):
     #     n = np.sum(counts)
