@@ -68,7 +68,7 @@ def main(args):
             tk_started = True
 
         # Ask the user for output directory
-        output_file = filedialog.askopenfilename(
+        output_file = filedialog.asksaveasfilename(
             title='Select the output file (for universal prior counts) in JSON format.',
             initialdir=current_directory,
             filetypes=(('json files', '*.json'), ('all files', '*.*'))
@@ -81,7 +81,7 @@ def main(args):
     objects, features, confounders = read_features_from_csv(
         data_path=prior_data_file,
         feature_states_path=feature_states_file,
-        groups_by_confounder={'universal': ['<ALL>']},
+        confounder_names=['universal'],
     )
 
     counts = np.sum(features.values, axis=0)  # shape: (n_features, n_states)

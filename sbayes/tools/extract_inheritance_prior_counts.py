@@ -81,7 +81,7 @@ def main(args):
     objects, features, confounders = read_features_from_csv(
         data_path=prior_data_file,
         feature_states_path=feature_states_file,
-        groups_by_confounder={'family': None},
+        confounder_names=['family'],
     )
     families: Confounder = confounders['family']
 

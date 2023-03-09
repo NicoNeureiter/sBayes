@@ -8,8 +8,7 @@ import pandas as pd
 import tkinter as tk
 from tkinter import filedialog, messagebox
 
-from sbayes.util import normalize_str
-
+from sbayes.util import normalize_str, read_data_csv
 
 ORDER_STATES = True
 '''bool: Whether to order the features states alphabetically'''
@@ -40,7 +39,7 @@ def ask_more_files():
 
 
 def collect_feature_states(features_path):
-    features = pd.read_csv(features_path, sep=',', dtype=str)
+    features = read_data_csv(features_path)
     METADATA_COLUMNS = ['id', 'name', 'family', 'x', 'y']
     for column in METADATA_COLUMNS:
         if column not in features.columns:
@@ -131,7 +130,7 @@ def main(args):
         output_path = select_save_file(default_dir=current_directory)
 
     # Store the feature_states in a csv file
-    feature_states_df.to_csv(output_path, index=False, line_terminator='\n')
+    feature_states_df.to_csv(output_path, index=False, lineterminator='\n')
 
 
 if __name__ == '__main__':
