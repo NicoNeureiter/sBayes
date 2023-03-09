@@ -158,9 +158,13 @@ class ClusterSizePriorConfig(BaseConfig):
 
 
 class DirichletPriorConfig(BaseConfig):
+
     class Types(str, Enum):
         UNIFORM = "uniform"
         DIRICHLET = "dirichlet"
+        JEFFREYS = "jeffreys"
+        BBS = "BBS"
+        UNIVERSAL = "universal"
 
     type: Types = Types.UNIFORM
     """Type of prior distribution (`uniform` or `dirichlet`)."""
@@ -170,6 +174,12 @@ class DirichletPriorConfig(BaseConfig):
 
     parameters: Optional[dict] = None
     """Parameters of the Dirichlet distribution."""
+
+    prior_confounder: Optional[str] = None
+    """A string indicating which confounder should be used as the mean of the prior."""
+
+    prior_concentration: Optional[float] = None
+    """If another confounder is used as mean, we need to manually define the concentration of the Dirichlet prior."""
 
     @root_validator(pre=True)
     def warn_when_using_default_type(cls, values):
@@ -241,8 +251,10 @@ class ModelConfig(BaseConfig):
     clusters: Union[int, List[int]] = 1
     """The number of clusters to be inferred."""
 
-    confounders: OrderedDictType[str, List[str]] = Field(default_factory=OrderedDict)
-    """Dictionary with confounders as keys and lists of corresponding groups as values."""
+    # confounders: OrderedDictType[str, List[str]] = Field(default_factory=OrderedDict)
+    # """Dictionary with confounders as keys and lists of corresponding groups as values."""
+    confounders: List[str] = Field(default_factory=list)
+    """The list of confounder names."""
 
     sample_source: bool = True
     """Sample the source component for each observation (implicitly activates Gibbs sampling)."""
@@ -252,17 +264,10 @@ class ModelConfig(BaseConfig):
 
     @root_validator(pre=True)
     def validate_confounder_priors(cls, values):
-        for conf, groups in values['confounders'].items():
-
-            # Ensure a prior for the confounder is defined
+        """Ensure that priors are defined for each confounder."""
+        for conf in values['confounders']:
             if conf not in values['prior']['confounding_effects']:
                 raise NameError(f"Prior for the confounder \'{conf}\' is not defined in the config file.")
-
-            # Ensure a prior for each group in the confounder is defined
-            for g in groups:
-                if g not in values['prior']['confounding_effects'][conf]:
-                    raise NameError(f"Prior for group `{g}` of confounder `{conf}` is not defined in the config file.")
-
         return values
 
 
