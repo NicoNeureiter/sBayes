@@ -15,9 +15,9 @@ from sbayes.sampling.operators import (
     AlterWeights,
     GibbsSampleWeights,
     AlterClusterGibbsish,
-    AlterClusterGibbsish2,
+    AlterClusterGibbsishWide,
     AlterCluster,
-    GibbsSampleSource,
+    GibbsSampleSource, ObjectSelector, ResampleSourceMode, ClusterJump,
 )
 from sbayes.util import get_neighbours, normalize, get_max_size_list
 from sbayes.config.config import OperatorsConfig
@@ -79,7 +79,7 @@ class ClusterMCMC(MCMC):
     def get_groups_per_confounder(self):
         n_groups = dict()
         for k, v in self.confounders.items():
-            n_groups[k] = len(v)
+            n_groups[k] = v.n_groups
         return n_groups
 
     def get_source_index(self):
@@ -220,7 +220,7 @@ class ClusterMCMC(MCMC):
         """
 
         n_groups = self.n_groups[conf]
-        groups = self.data.confounders[conf].group_assignment
+        groups = self.confounders[conf].group_assignment
 
         initial_confounding_effect = np.zeros((n_groups, self.n_features, self.features.shape[2]))
 
@@ -268,8 +268,8 @@ class ClusterMCMC(MCMC):
 
         # Confounding effects
         initial_confounding_effects = dict()
-        for k, v in self.confounders.items():
-            initial_confounding_effects[k] = self.generate_initial_confounding_effect(k)
+        for conf_name in self.confounders:
+            initial_confounding_effects[conf_name] = self.generate_initial_confounding_effect(conf_name)
 
         if self.model.sample_source:
             initial_source = np.empty((self.n_sites, self.n_features, self.n_sources), dtype=bool)
@@ -301,7 +301,13 @@ class ClusterMCMC(MCMC):
         s = sample.source.value
         assert np.all(s <= (w > 0)), np.max(w)
 
-        source = self.callable_operators['gibbs_sample_sources'].function(sample)[0].source.value
+        full_source_operator = GibbsSampleSource(
+            weight=1,
+            model_by_chain=self.posterior_per_chain,
+            sample_from_prior=False,
+            object_selector=ObjectSelector.ALL,
+        )
+        source = full_source_operator.function(sample)[0].source.value
         sample.source.set_value(source)
         recalculate_feature_counts(self.features, sample)
 
@@ -325,33 +331,55 @@ class ClusterMCMC(MCMC):
                 # 'sample_cluster': AlterCluster(
                 #     weight=operators_config.clusters,
                 #     adjacency_matrix=self.data.network.adj_mat,
-                #     p_grow_connected=0.7,
+                #     p_grow_connected=self.p_grow_connected,
                 #     model_by_chain=self.posterior_per_chain,
-                #     resample_source=True,
-                #     sample_from_prior=True,
+                #     resample_source=self.model.sample_source,
+                #     resample_source_mode=ResampleSourceMode.UNIFORM,
+                #     sample_from_prior=self.sample_from_prior,
                 # ),
-                'gibbsish_sample_cluster': AlterClusterGibbsish(
-                    weight=operators_config.clusters,
+
+                'gibbsish_sample_cluster_1': AlterClusterGibbsish(
+                    weight=0.4 * operators_config.clusters,
                     adjacency_matrix=self.data.network.adj_mat,
-                    p_grow_connected=self.p_grow_connected,
                     model_by_chain=self.posterior_per_chain,
                     features=self.features,
                     resample_source=self.model.sample_source,
+                    resample_source_mode=ResampleSourceMode.GIBBS,
                     sample_from_prior=self.sample_from_prior,
                 ),
-                # 'gibbsish_sample_cluster_2"': AlterClusterGibbsish2(
-                #     weight=0.5 * operators_config.clusters,
-                #     adjacency_matrix=self.data.network.adj_mat,
-                #     p_grow_connected=self.p_grow_connected,
-                #     model_by_chain=self.posterior_per_chain,
-                #     features=self.features,
-                #     resample_source=self.model.sample_source,
-                #     sample_from_prior=self.sample_from_prior,
-                # ),
+
+                'gibbsish_sample_cluster_wide': AlterClusterGibbsishWide(
+                    weight=0.5 * operators_config.clusters,
+                    adjacency_matrix=self.data.network.adj_mat,
+                    model_by_chain=self.posterior_per_chain,
+                    features=self.features,
+                    resample_source=self.model.sample_source,
+                    resample_source_mode=ResampleSourceMode.GIBBS,
+                    sample_from_prior=self.sample_from_prior,
+                    w_stay=0.2,
+                ),
+
+                'cluster_jump': ClusterJump(
+                    weight=0.1 * operators_config.clusters,
+                    model_by_chain=self.posterior_per_chain,
+                    features=self.features,
+                    resample_source=self.model.sample_source,
+                    resample_source_mode=ResampleSourceMode.GIBBS,
+                    sample_from_prior=self.sample_from_prior,
+                ),
+
                 'gibbs_sample_sources': GibbsSampleSource(
+                    weight=0.5*operators_config.source,
+                    model_by_chain=self.posterior_per_chain,
+                    sample_from_prior=self.sample_from_prior,
+                    object_selector=ObjectSelector.RANDOM_SUBSET,
+                    max_size=50,
+                ),
+                'gibbs_sample_sources_groups': GibbsSampleSource(
                     weight=operators_config.source,
                     model_by_chain=self.posterior_per_chain,
-                    sample_from_prior=self.sample_from_prior
+                    sample_from_prior=self.sample_from_prior,
+                    object_selector=ObjectSelector.GROUPS,
                 ),
                 'gibbs_sample_weights': GibbsSampleWeights(
                     weight=operators_config.weights,
@@ -364,29 +392,7 @@ class ClusterMCMC(MCMC):
         return operators
 
 
-def normalize_operator_weights(operators: dict):
-    total = sum(op['weight'] for op in operators.values())
+def normalize_operator_weights(operators: dict[str, Operator]):
+    total = sum(op.weight for op in operators.values())
     for op in operators.values():
-        op['weight'] /= total
-
-
-class ClusterMCMCWarmup(ClusterMCMC):
-
-    IS_WARMUP = True
-
-    def __init__(self, **kwargs):
-        super(ClusterMCMCWarmup, self).__init__(**kwargs)
-
-        # In warmup chains can have a different max_size for clusters
-        self.max_size = get_max_size_list(
-            start=int((self.initial_size + self.max_size) / 2),
-            end=int(1.5*self.max_size),
-            n_total=self.n_chains,
-            k_groups=4
-        )
-
-        # Some chains only have connected steps, whereas others also have random steps
-        self.p_grow_connected = _random.choices(
-            population=[0.95, self.p_grow_connected],
-            k=self.n_chains
-        )
+        op.weight /= total

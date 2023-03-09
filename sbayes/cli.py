@@ -37,9 +37,6 @@ def run_experiment(
     mcmc.warm_up()
     mcmc.sample(run=i_run)
 
-    # Use the last sample as the new initial sample
-    return mcmc.samples.last_sample
-
 
 def runner(args):
     """A wrapper for `run_experiment` to make it callable using the pool.map interface."""

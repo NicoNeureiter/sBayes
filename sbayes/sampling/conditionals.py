@@ -4,12 +4,13 @@ import numpy as np
 from numpy.typing import NDArray
 
 from sbayes.load_data import Features
-from sbayes.model import Model, update_weights
 
 from sbayes.preprocessing import sample_categorical
-from sbayes.model.likelihood import compute_component_likelihood
 from sbayes.sampling.state import Sample, FeatureCounts
 from sbayes.util import normalize
+
+from sbayes.model.likelihood import update_weights, compute_component_likelihood
+# from sbayes.cython.util import compute_component_likelihood
 
 
 def sample_cluster_effect(
@@ -142,7 +143,7 @@ def sample_dirichlet_batched(
 
 
 def likelihood_per_component(
-    model: Model,
+    model,
     sample: Sample,
     feature_counts: dict[str, FeatureCounts] = None,
     caching=True
@@ -182,6 +183,17 @@ def likelihood_per_component(
                 out=component_likelihood[..., 0],
             )
 
+            # with sample.clusters.value_for_cython() as clusters:
+            #     # Update component likelihood for cluster effects:
+            #     compute_component_likelihood(
+            #         features=features.values,
+            #         features_by_group=[features.values[c] for c in clusters],
+            #         probs=cluster_effect,
+            #         groups=clusters,
+            #         changed_groups=changed_clusters,
+            #         out=component_likelihood[..., 0],
+            #     )
+
         # Update component likelihood for confounding effects:
         for i, conf in enumerate(confounders.keys(), start=1):
             changed_groups = cache.what_changed(input_key=[f'c_{conf}', f'{conf}_counts'], caching=caching)
@@ -195,7 +207,7 @@ def likelihood_per_component(
             # The expected confounding effect is given by the normalized posterior counts
             conf_effect_counts = (  # feature counts + prior counts
                 feature_counts[conf].value +
-                model.prior.prior_confounding_effects[conf].concentration_array
+                model.prior.prior_confounding_effects[conf].concentration_array(sample)
             )
             conf_effect = normalize(conf_effect_counts, axis=-1)
 

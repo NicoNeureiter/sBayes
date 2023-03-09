@@ -67,12 +67,14 @@ class ParametersCSVLogger(ResultsLogger):
         log_contribution_per_cluster: bool = False,
         float_format: str = "%.12g",
         match_clusters: bool = True,
+        log_source: bool = False
     ):
         super().__init__(*args)
         self.float_format = float_format
         self.log_contribution_per_cluster = log_contribution_per_cluster
         self.match_clusters = match_clusters
         self.cluster_sum: Optional[npt.NDArray[int]] = None
+        self.log_source = log_source
 
         # For logging single cluster likelihood values we do not want to use the sampled
         # source arrays
@@ -99,15 +101,13 @@ class ParametersCSVLogger(ResultsLogger):
         # weights
         for i_f, f in enumerate(feature_names):
             # Areal effect
-            w_areal = f"w_areal_{f}"
-            column_names += [w_areal]
+            column_names += [f"w_areal_{f}"]
             # index of areal = 0
             # todo: use source_index instead of remembering the order
 
             # Confounding effects
             for i_conf, conf in enumerate(self.data.confounders.values()):
-                w_conf = f"w_{conf.name}_{f}"
-                column_names += [w_conf]
+                column_names += [f"w_{conf.name}_{f}"]
                 # todo: use source_index instead of remembering the order
                 # index of confounding effect starts with 1
 
@@ -115,16 +115,21 @@ class ParametersCSVLogger(ResultsLogger):
         for i_a in range(sample.n_clusters):
             for i_f, f in enumerate(feature_names):
                 for i_s, s in enumerate(state_names[i_f]):
-                    col_name = f"areal_a{i_a+1}_{f}_{s}"
-                    column_names += [col_name]
+                    column_names += [f"areal_a{i_a+1}_{f}_{s}"]
 
         # Confounding effects
         for conf in self.data.confounders.values():
             for i_g, g in enumerate(conf.group_names):
                 for i_f, f in enumerate(feature_names):
                     for i_s, s in enumerate(state_names[i_f]):
-                        feature_name = f"{conf.name}_{g}_{f}_{s}"
-                        column_names += [feature_name]
+                        column_names += [f"{conf.name}_{g}_{f}_{s}"]
+
+        # Contribution of each component to each feature (mean source assignment across objects)
+        if self.log_source:
+            for i_f, f in enumerate(feature_names):
+                for i_s, source in enumerate(sample.component_names):
+                    column_names += [f"source_{source}_{f}"]
+
 
         # lh, prior, posteriors
         if self.log_contribution_per_cluster:
@@ -208,7 +213,7 @@ class ParametersCSVLogger(ResultsLogger):
                     features=features.values,
                     is_source_group=conf.group_assignment[..., np.newaxis] & sample.source.value[np.newaxis, ..., i_conf],
                     applicable_states=features.states,
-                    prior_counts=self.model.prior.prior_confounding_effects[conf.name].concentration_array,
+                    prior_counts=self.model.prior.prior_confounding_effects[conf.name].concentration_array(sample),
                 )
 
             for i_g, g in enumerate(conf.group_names):
@@ -216,6 +221,14 @@ class ParametersCSVLogger(ResultsLogger):
                     for i_s, s in enumerate(features.state_names[i_f]):
                         col_name = f"{conf.name}_{g}_{f}_{s}"
                         row[col_name] = conf_effect[i_g, i_f, i_s]
+
+        # Contribution of each component to each feature (mean source assignment across objects)
+        if self.log_source:
+            mean_source = np.mean(sample.source.value, axis=0)
+            for i_f, f in enumerate(features.names):
+                for i_s, source in enumerate(sample.component_names):
+                    col_name = f"source_{source}_{f}"
+                    row[col_name] = mean_source[i_f, i_s]
 
         # lh, prior, posteriors
         if self.log_contribution_per_cluster:
@@ -315,7 +328,16 @@ class OperatorStatsLogger(ResultsLogger):
     """The OperatorStatsLogger keeps an operator_stats.txt file which contains statistics
      on each MCMC operator. The file is updated at each logged sample."""
 
-    COL_WIDTHS = [20, 8, 8, 8, 10]
+    COLUMNS = {
+        "OPERATOR": 30,
+        "ACCEPTS": 8,
+        "REJECTS": 8,
+        "TOTAL": 8,
+        "ACCEPT-RATE": 11,
+        "STEP-TIME": 11,
+        "STEP-SIZE": 11,
+        "PARAMETERS": 0,
+    }
 
     def __init__(self, *args, operators: list[Operator], **kwargs):
         super().__init__(*args, **kwargs)
@@ -332,27 +354,33 @@ class OperatorStatsLogger(ResultsLogger):
 
     @classmethod
     def get_log_message_header(cls) -> str:
-        name_header = str.ljust('OPERATOR', cls.COL_WIDTHS[0])
-        acc_header = str.ljust('ACCEPTS', cls.COL_WIDTHS[1])
-        rej_header = str.ljust('REJECTS', cls.COL_WIDTHS[2])
-        total_header = str.ljust('TOTAL', cls.COL_WIDTHS[3])
-        acc_rate_header = 'ACC. RATE'
+        headers = [column.ljust(width) for column, width in cls.COLUMNS.items()]
+        return '\t'.join(headers)
 
-        return '\t'.join([name_header, acc_header, rej_header, total_header, acc_rate_header])
+        # name_header = str.ljust('OPERATOR', cls.COL_WIDTHS[0])
+        # acc_header = str.ljust('ACCEPTS', cls.COL_WIDTHS[1])
+        # rej_header = str.ljust('REJECTS', cls.COL_WIDTHS[2])
+        # total_header = str.ljust('TOTAL', cls.COL_WIDTHS[3])
+        # acc_rate_header = str.ljust('ACC. RATE', cls.COL_WIDTHS[4])
+        # parameters_header = str.ljust('PARAMETERS', cls.COL_WIDTHS[5])
+        # return '\t'.join([name_header, acc_header, rej_header, total_header, acc_rate_header])
 
     @classmethod
     def get_log_message_row(cls, operator: Operator) -> str:
         if operator.total == 0:
             row_strings = [operator.operator_name, '-', '-', '-', '-']
-            return '\t'.join([str.ljust(x, cls.COL_WIDTHS[i]) for i, x in enumerate(row_strings)])
+            return '\t'.join([str.ljust(x, width) for x, width in zip(row_strings, cls.COLUMNS.values())])
 
-        name_str = str.ljust(operator.operator_name, cls.COL_WIDTHS[0])
-        acc_str = str.ljust(str(operator.accepts), cls.COL_WIDTHS[1])
-        rej_str = str.ljust(str(operator.rejects), cls.COL_WIDTHS[2])
-        total_str = str.ljust(str(operator.total), cls.COL_WIDTHS[3])
-        acc_rate_str = '%.2f%%' % (100 * operator.acceptance_rate)
+        name_str = operator.operator_name.ljust(cls.COLUMNS["OPERATOR"])
+        acc_str = str(operator.accepts).ljust(cls.COLUMNS["ACCEPTS"])
+        rej_str = str(operator.rejects).ljust(cls.COLUMNS["REJECTS"])
+        total_str = str(operator.total).ljust(cls.COLUMNS["TOTAL"])
+        acc_rate_str = f"{operator.acceptance_rate:.2%}".ljust(cls.COLUMNS["ACCEPT-RATE"])
+        step_time_str = f"{1000 * np.mean(operator.step_times):.2f} ms".ljust(cls.COLUMNS["STEP-TIME"])
+        step_size_str = f"{np.mean(operator.step_sizes):.2f}".ljust(cls.COLUMNS["STEP-SIZE"])
+        paramters_str = operator.get_parameters_string().ljust(cls.COLUMNS["PARAMETERS"])
 
-        return '\t'.join([name_str, acc_str, rej_str, total_str, acc_rate_str])
+        return '\t'.join([name_str, acc_str, rej_str, total_str, acc_rate_str, step_time_str, step_size_str, paramters_str])
 
     def write_header(self, sample: Sample):
         pass

@@ -35,7 +35,7 @@ def recalculate_feature_counts(
     features: NDArray[bool],
     sample: Sample,
 ) -> dict[str, FeatureCounts]:
-    """Update the likelihood values for each of the mixture components"""
+    """Update the likelihood values for each of the mixture components."""
     clusters = sample.clusters.value
     confounders = sample.confounders
     source = sample.source.value

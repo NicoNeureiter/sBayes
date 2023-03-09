@@ -4,7 +4,7 @@
 """ Setup of the MCMC process """
 from __future__ import annotations
 
-from sbayes.sampling.sbayes_sampling import ClusterMCMC, ClusterMCMCWarmup
+from sbayes.sampling.sbayes_sampling import ClusterMCMC
 from sbayes.sampling.state import Sample
 from sbayes.model import Model
 from sbayes.sampling.loggers import ResultsLogger, ParametersCSVLogger, ClustersLogger, LikelihoodLogger, \
@@ -75,12 +75,11 @@ Ratio of confounding_effects steps (changing probabilities in confounders): {op_
 
         self.sampler.generate_samples(mcmc_config.steps, mcmc_config.samples)
 
-        self.samples = self.sampler.statistics  # TODO do we still need this?
-        self.sampler.print_statistics()
+        # self.samples = self.sampler.statistics  # TODO do we still need this?
 
     def warm_up(self):
         mcmc_config = self.config.mcmc
-        warmup = ClusterMCMCWarmup(
+        warmup = ClusterMCMC(
             data=self.data,
             model=self.model,
             sample_loggers=[],
@@ -108,7 +107,7 @@ Ratio of confounding_effects steps (changing probabilities in confounders): {op_
         op_stats_path = base_dir / f'operator_stats_K{k}_{run}.txt'
 
         sample_loggers = [
-            ParametersCSVLogger(params_path, self.data, self.model),
+            ParametersCSVLogger(params_path, self.data, self.model, log_source=False),
             ClustersLogger(clusters_path, self.data, self.model),
             OperatorStatsLogger(op_stats_path, self.data, self.model, operators=[])
         ]

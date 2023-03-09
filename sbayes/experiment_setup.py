@@ -2,6 +2,7 @@ from __future__ import annotations
 import logging
 import os
 import shutil
+from datetime import datetime
 from pathlib import Path
 
 from sbayes.util import set_experiment_name, PathLike
@@ -73,6 +74,7 @@ class Experiment:
         """Start writing information on the experiment to the logger."""
         self.logger.info("Experiment: %s", self.experiment_name)
         self.logger.info("File location for results: %s", self.path_results)
+        self.logger.info("Start time and date: %s", datetime.now().strftime("%H:%M:%S %d.%m.%Y"))
 
     def close(self):
         """Close the log file handlers."""

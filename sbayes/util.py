@@ -1351,6 +1351,7 @@ def dirichlet_categorical_logpdf(
     -1.386294361303224
     """
     a += 1e-10  # TODO Find a better way to fix 0s in a (and still use broadcasting)
+
     n = counts.sum(axis=-1)
     sum_a = a.sum(axis=-1)
     const = gammaln(sum_a) - gammaln(n + sum_a)
@@ -1369,94 +1370,109 @@ def get_along_axis(a: NDArray, index: int, axis: int):
     return a[tuple(I)]
 
 
+def pmf_categorical_with_replacement(idxs: list[int], p: NDArray[float]):
+    prob = 0
+    for idxs_perm in map(list, permutations(idxs)):
+        prob += np.prod(p[idxs_perm]) / np.prod(1-np.cumsum(p[idxs_perm][:-1]))
+    return prob
+
+
+
 if __name__ == "__main__":
     import doctest
     doctest.testmod()
 
-    @timeit('ms')
-    def get_best_permutation_2(
-            areas: NDArray[bool],  # shape = (n_areas, n_sites)
-            prev_area_sum: NDArray[int],  # shape = (n_areas, n_sites)
-    ) -> NDArray[int]:
-        """Return a permutation of areas that would align the areas in the new sample with previous ones."""
-        cluster_agreement_matrix = np.matmul(prev_area_sum, areas.T)
-        return linear_sum_assignment(cluster_agreement_matrix, maximize=True)[1]
+    # @timeit('ms')
+    # def get_best_permutation_2(
+    #         areas: NDArray[bool],  # shape = (n_areas, n_sites)
+    #         prev_area_sum: NDArray[int],  # shape = (n_areas, n_sites)
+    # ) -> NDArray[int]:
+    #     """Return a permutation of areas that would align the areas in the new sample with previous ones."""
+    #     cluster_agreement_matrix = np.matmul(prev_area_sum, areas.T)
+    #     return linear_sum_assignment(cluster_agreement_matrix, maximize=True)[1]
+    #
+    #     # def clustering_agreement(p):
+    #     #     """In how many sites does permutation `p` previous samples?"""
+    #     #     return cluster_agreement_matrix[:, p].trace()
+    #     #
+    #     # all_permutations = get_permutations(areas.shape[0])
+    #     # return max(all_permutations, key=clustering_agreement)
+    #
+    # areas = np.array([
+    #     [0, 1, 1, 0, 0, 0],
+    #     [1, 1, 0, 0, 0, 0],
+    #     [0, 0, 0, 1, 0, 0],
+    #     [1, 0, 0, 1, 0, 0],
+    #     [1, 0, 1, 0, 0, 0],
+    #     [1, 0, 1, 0, 1, 1],
+    #     [1, 0, 0, 0, 1, 0],
+    #     [0, 0, 0, 0, 1, 1],
+    # ])
+    #
+    # prev_areas = np.array([
+    #     [0, 0, 0.5, 0.9, 0, 0],
+    #     [0.1, 0.6, 0.8, 0.2, 0, 0],
+    #     [0.9, 1, 0, 0.1, 0, 0],
+    #     [1, 0, 0, 1, 0, 0],
+    #     [1, 0, 1, 0, 0, 0],
+    #     [0, 0, 0, 0, .8, 1],
+    #     [1, 0, 1, 0, 1, 1],
+    #     [1, 0, 0, 0, 1, 0],
+    # ])
+    #
+    # best1 = get_best_permutation(areas, prev_areas)
+    # best2 = get_best_permutation_2(areas, prev_areas)
+    # print(best1, best2)
+    # assert best1 == best2
 
-        # def clustering_agreement(p):
-        #     """In how many sites does permutation `p` previous samples?"""
-        #     return cluster_agreement_matrix[:, p].trace()
-        #
-        # all_permutations = get_permutations(areas.shape[0])
-        # return max(all_permutations, key=clustering_agreement)
 
-    areas = np.array([
-        [0, 1, 1, 0, 0, 0],
-        [1, 1, 0, 0, 0, 0],
-        [0, 0, 0, 1, 0, 0],
-        [1, 0, 0, 1, 0, 0],
-        [1, 0, 1, 0, 0, 0],
-        [1, 0, 1, 0, 1, 1],
-        [1, 0, 0, 0, 1, 0],
-        [0, 0, 0, 0, 1, 1],
-    ])
+    def sample_diri_mult_pdf(counts, a, S=10000):
+        n = np.sum(counts)
+        p = np.random.dirichlet(a, size=S)
+        # lh_per_observation_and_sample = (p @ t.T)
+        # lh_per_sample = lh_per_observation_and_sample.prod(axis=-1)
+        lh = stats.multinomial.pmf(x=counts, n=n, p=p)
+        return lh.mean()
 
-    prev_areas = np.array([
-        [0, 0, 0.5, 0.9, 0, 0],
-        [0.1, 0.6, 0.8, 0.2, 0, 0],
-        [0.9, 1, 0, 0.1, 0, 0],
-        [1, 0, 0, 1, 0, 0],
-        [1, 0, 1, 0, 0, 0],
-        [0, 0, 0, 0, .8, 1],
-        [1, 0, 1, 0, 1, 1],
-        [1, 0, 0, 0, 1, 0],
-    ])
+    def sample_diri_cat_pdf(t, a, S=10000):
+        print(S)
+        p = np.random.dirichlet(a, size=S)
+        lh_per_observation_and_sample = (p @ t.T)
+        lh_per_sample = lh_per_observation_and_sample.prod(axis=-1)
+        return lh_per_sample.mean()
 
-    best1 = get_best_permutation(areas, prev_areas)
-    best2 = get_best_permutation_2(areas, prev_areas)
-    print(best1, best2)
-    assert best1 == best2
+    a = np.array([0.3, 0.9, 1.5, 0.0])
+    t = np.array([
+        [1, 0, 0, 0],
+        [0, 1, 0, 0],
+        [0, 1, 0, 0],
+        [0, 0, 1, 0],
+        [0, 0, 1, 0],
+    ], dtype=bool)
+    k = t.sum(axis=0)
+    p = normalize(a)
+    counts = np.sum(t, axis=0)
 
-    # def sample_diri_mult_pdf(counts, a, S=10000):
-    #     n = np.sum(counts)
-    #     p = np.random.dirichlet(a, size=S)
-    #     # lh_per_observation_and_sample = (p @ t.T)
-    #     # lh_per_sample = lh_per_observation_and_sample.prod(axis=-1)
-    #     lh = stats.multinomial.pmf(x=counts, n=n, p=p)
-    #     return lh.mean()
-    #
-    # def sample_diri_cat_pdf(t, a, S=10000):
-    #     print(S)
-    #     p = np.random.dirichlet(a, size=S)
-    #     lh_per_observation_and_sample = (p @ t.T)
-    #     lh_per_sample = lh_per_observation_and_sample.prod(axis=-1)
-    #     return lh_per_sample.mean()
-    #
-    # a = np.array([0.3, 0.9, 1.5])
-    # t = np.array([
-    #     [1, 0, 0],
-    #     [0, 1, 0],
-    #     [0, 1, 0],
-    #     [0, 0, 1],
-    # ], dtype=bool)
-    # k = t.sum(axis=0)
-    # p = normalize(a)
-    #
-    # # print(p[None, :][[0, 0, 0, 0, 0, 0]])
-    #
-    # # s_values = np.array([2**(2*i) for i in range(2, 16)])
-    # # s_values = np.arange(5_000, 1_000_000, 5_000)
-    # s_values = np.arange(100, 4_000, 100)**2
-    # pdf_sampled = [sample_diri_cat_pdf(t, a, S=S) for S in s_values]
-    # print(pdf_sampled)
-    #
-    # pdf_exact = np.exp(dirichlet_categorical_logpdf(t, a))
-    # print(pdf_exact)
-    #
-    # import matplotlib.pyplot as plt
-    # plt.scatter(s_values, pdf_sampled, s=10)
-    # plt.axhline(pdf_exact, color='darkorange', zorder=2)
+    # print(p[None, :][[0, 0, 0, 0, 0, 0]])
+
+    # s_values = np.array([2**(2*i) for i in range(2, 16)])
+    # s_values = np.arange(5_000, 1_000_000, 5_000)
+    s_values = np.arange(100, 2_000, 100)**2
+    pdf_sampled = [sample_diri_cat_pdf(t[:, :-1], a[:-1], S=S) for S in s_values]
+    print(pdf_sampled)
+
+    # pdf_exact = np.exp(dirichlet_categorical_logpdf(counts, a))
+    # pdf_exact = np.exp(dirichlet_multinomial_logpdf(counts, a))
+    pdf_exact = np.exp(dirichlet_categorical_logpdf(counts, a))
+    print(pdf_exact)
+    pdf_exact_2 = np.exp(dirichlet_categorical_logpdf(counts[:-1], a[:-1]))
+    print(pdf_exact_2)
+
+    import matplotlib.pyplot as plt
+    plt.scatter(s_values, pdf_sampled, s=10)
+    plt.axhline(pdf_exact, color='darkorange', zorder=2)
     # plt.ylim(0.00286, 0.00289)
-    # plt.show()
+    plt.show()
     #
     # exit()
     # #################################################

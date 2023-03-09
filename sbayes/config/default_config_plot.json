@@ -118,7 +118,7 @@
 			"resolution": 400
 		}
 	},
-	"weight_plot": {
+	"weights_plot": {
 		"content": {
 			"features": [],
 			"burn_in": 0.2

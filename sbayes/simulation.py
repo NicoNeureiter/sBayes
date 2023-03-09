@@ -28,7 +28,6 @@ from sbayes.preprocessing import (
     simulate_weights,
     sample_categorical
 )
-from sbayes import config
 
 try:
     import importlib.resources as pkg_resources     # PYTHON >= 3.7
@@ -36,7 +35,10 @@ except ImportError:
     import importlib_resources as pkg_resources     # PYTHON < 3.7
 
 REQUIRED = '<REQUIRED>'
-DEFAULT_CONFIG_SIMULATION = json.loads(pkg_resources.read_text(config, 'default_config_simulation.json'))
+
+
+default_config_str = pkg_resources.files('sbayes.config').joinpath('default_config_simulation.json').read_text()
+default_config = json.loads(default_config_str)
 
 
 # todo: fix logging
@@ -87,7 +89,7 @@ class Simulation:
             self.config = json.load(f)
 
         # Load defaults
-        set_defaults(self.config, DEFAULT_CONFIG_SIMULATION)
+        set_defaults(self.config, default_config)
 
         # Verify config
         self.verify_config()

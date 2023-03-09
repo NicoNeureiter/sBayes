@@ -19,6 +19,7 @@ class ModelShapes:
     n_states: int
     states_per_feature: NDArray[bool]
     n_confounders: int
+    n_groups: dict[str, int]
 
     @property
     def n_states_per_feature(self):
@@ -39,7 +40,7 @@ class Model:
     Attributes:
         data (Data): The data used in the likelihood
         config (ModelConfig): A dictionary containing configuration parameters of the model
-        confounders (dict): A ict of all confounders and group names
+        confounders (dict): A dict of all confounders and group names
         shapes (ModelShapes): A dictionary with shape information for building the Likelihood and Prior objects
         likelihood (Likelihood): The likelihood of the model
         prior (Prior): Rhe prior of the model
@@ -48,7 +49,7 @@ class Model:
     def __init__(self, data: Data, config: ModelConfig):
         self.data = data
         self.config = config
-        self.confounders = config.confounders
+        self.confounders = data.confounders
         self.n_clusters = config.clusters
         self.min_size = config.prior.objects_per_cluster.min
         self.max_size = config.prior.objects_per_cluster.max
@@ -62,6 +63,7 @@ class Model:
             n_states=n_states,
             states_per_feature=self.data.features.states,
             n_confounders=len(self.confounders),
+            n_groups={name: conf.n_groups for name, conf in self.confounders.items()}
         )
 
         # Create likelihood and prior objects
