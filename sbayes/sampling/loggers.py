@@ -86,7 +86,7 @@ class ParametersCSVLogger(ResultsLogger):
             self.match_clusters = False
 
         # Initialize cluster_sum array for matching
-        self.cluster_sum = np.zeros((sample.n_clusters, sample.n_objects), dtype=np.int)
+        self.cluster_sum = np.zeros((sample.n_clusters, sample.n_objects), dtype=int)
 
         # Cluster sizes
         for i in range(sample.n_clusters):
@@ -233,7 +233,7 @@ class ClustersLogger(ResultsLogger):
             # Nothing to match
             self.match_clusters = False
 
-        self.cluster_sum = np.zeros((sample.n_clusters, sample.n_objects), dtype=np.int)
+        self.cluster_sum = np.zeros((sample.n_clusters, sample.n_objects), dtype=int)
 
     def _write_sample(self, sample):
         if self.match_clusters:

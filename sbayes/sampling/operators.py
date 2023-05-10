@@ -604,6 +604,7 @@ class _AlterCluster(Operator):
         n_features = sample_old.n_features
 
         MODE = "gibbs"
+
         if MODE == "gibbs":
             sample_new, log_q, log_q_back = self.gibbs_sample_source(
                 sample_new, sample_old, object_subset=changed_objects
@@ -1025,7 +1026,7 @@ class AlterCluster(_AlterCluster):
             return sample, 0, -np.inf
 
         # Choose a random candidate and add it to the cluster
-        object_add = random.choice(candidates.nonzero()[0])
+        object_add = np.random.choice(candidates.nonzero()[0])
         sample_new.clusters.add_object(z_id, object_add)
 
         # Transition probability when growing
@@ -1068,7 +1069,7 @@ class AlterCluster(_AlterCluster):
 
         # Cluster is big enough: shrink
         removal_candidates = self.get_removal_candidates(cluster_current)
-        object_remove = random.choice(removal_candidates)
+        object_remove = np.random.choice(removal_candidates)
         sample_new.clusters.remove_object(z_id, object_remove)
 
         # Transition probability when shrinking.
