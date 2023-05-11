@@ -103,7 +103,7 @@ class Features:
             self.feature_and_state_names[f] = states_names_f
 
         object.__setattr__(self, 'na_values', np.sum(self.values, axis=-1) == 0)
-
+    
     def __getitem__(self, key: str) -> NDArray | list | int:
         return getattr(self, key)
 
@@ -114,6 +114,10 @@ class Features:
     @property
     def n_features(self) -> int:
         return self.values.shape[1]
+
+    @property
+    def n_states(self) -> int:
+        return self.values.shape[2]
 
     @property
     def n_states_per_feature(self) -> list[int]:
@@ -131,12 +135,13 @@ class Features:
         return cls(**features_dict, na_number=na_number)
 
 
-@dataclass(frozen=True)
+@dataclass
 class Confounder:
 
     name: str
-    group_assignment: NDArray[bool]  # shape: (n_groups, n_objects)
-    group_names: NDArray[GroupName]  # shape: (n_groups,)
+    group_assignment: NDArray[bool]         # shape: (n_groups, n_objects)
+    group_names: NDArray[GroupName]         # shape: (n_groups,)
+    feature_counts: NDArray[int] = None    # shape: (n_groups, n_features, n_states)
 
     def __getitem__(self, key) -> str | NDArray:
         if key == "names":
@@ -157,7 +162,7 @@ class Confounder:
         cls: Type[S],
         data: pd.DataFrame,
         confounder_name: ConfounderName,
-        # group_names: list[GroupName] = None,
+        features: Features | None = None,
     ) -> S:
         n_objects = data.shape[0]
 
@@ -165,46 +170,29 @@ class Confounder:
             # If there is no column specifying the group assignment for the confounder, it
             # is assumed to apply to all objects in the same way.
             group_assignment = np.ones((1, n_objects), dtype=bool)
-            return cls(
-                name=confounder_name,
-                group_assignment=group_assignment,
-                group_names=["<ALL>"],
-            )
+            group_names = ["<ALL>"]
+        else:
+            group_names_by_site = data[confounder_name]
+            group_names = list(np.unique(group_names_by_site.dropna()))
+            group_assignment = np.zeros((len(group_names), n_objects), dtype=bool)
+            for i_g, name_g in enumerate(group_names):
+                group_assignment[i_g, np.where(group_names_by_site == name_g)] = True
 
-            # SINCE GROUPS ARE NOT LISTED IN THE CONFIG FILE ANYMORE WE ALWAYS ASSUME
-            # <ALL> IF THE CONFOUNDER COLUMN IS MISSING.
-            #
-            # if len(group_names) == 1 and group_names[0] == "<ALL>":
-            #     # Special case: this effect applies to all objects in the same way and
-            #     # does not require a separate column in the data file.
-            #     group_assignment = np.ones((1, n_objects), dtype=bool)
-            #     return cls(
-            #         name=confounder_name,
-            #         group_assignment=group_assignment,
-            #         group_names=group_names,
-            #     )
-            #
-            # else:
-            #     raise KeyError(
-            #         f"The config file lists '{confounder_name}' as a confounder. Remove "
-            #         f"confounder or include '{confounder_name}' in the features.csv file."
-            #     )
+        if features is not None:
+            n_groups = len(group_names)
+            feature_counts = np.zeros((n_groups, features.n_features, features.n_states), dtype=int)
+            for i_g, g in enumerate(group_assignment):
+                feature_counts[i_g] = np.sum(features.values[g], axis=0)
 
-        group_names_by_site = data[confounder_name]
-        group_names = list(np.unique(group_names_by_site.dropna()))
-        # if group_names is None:
-        #     group_names = group_names_in_data
-        # else:
-        #     assert set(group_names) == set(group_names_in_data)
-
-        group_assignment = np.zeros((len(group_names), n_objects), dtype=bool)
-        for g, g_name in enumerate(group_names):
-            group_assignment[g, np.where(group_names_by_site == g_name)] = True
+        else:
+            feature_counts = None
+            approximate_likelihood = None
 
         return cls(
             name=confounder_name,
             group_assignment=group_assignment,
             group_names=group_names,
+            feature_counts=feature_counts,
         )
 
 
@@ -330,7 +318,7 @@ def read_features_from_csv(
     objects = Objects.from_dataframe(data)
     confounders = OrderedDict()
     for c in confounder_names:
-        confounders[c] = Confounder.from_dataframe(data=data, confounder_name=c)
+        confounders[c] = Confounder.from_dataframe(data=data, confounder_name=c, features=features)
 
     if logger:
         logger.info(

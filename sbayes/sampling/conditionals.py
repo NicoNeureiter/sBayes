@@ -3,10 +3,12 @@ from __future__ import annotations
 import numpy as np
 from numpy.typing import NDArray
 
-from sbayes.load_data import Features
+from sbayes.load_data import Features, Confounder
+from sbayes.model import Model
 
 from sbayes.preprocessing import sample_categorical
-from sbayes.sampling.state import Sample, FeatureCounts
+from sbayes.sampling.counts import recalculate_feature_counts
+from sbayes.sampling.state import Sample, Clusters
 from sbayes.util import normalize
 
 from sbayes.model.likelihood import update_weights, compute_component_likelihood
@@ -145,7 +147,6 @@ def sample_dirichlet_batched(
 def likelihood_per_component(
     model,
     sample: Sample,
-    feature_counts: dict[str, FeatureCounts] = None,
     caching=True
 ) -> NDArray[float]:  # shape: (n_objects, n_feature, n_components)
     """Update the likelihood values for each of the mixture components"""
@@ -153,8 +154,7 @@ def likelihood_per_component(
 
     features = model.data.features
     confounders = model.data.confounders
-    if feature_counts is None:
-        feature_counts = sample.feature_counts
+    feature_counts = sample.feature_counts
 
     cache = sample.cache.component_likelihoods
     if caching and not cache.is_outdated():
@@ -164,7 +164,6 @@ def likelihood_per_component(
 
     with cache.edit() as component_likelihood:
         changed_clusters = cache.what_changed(input_key=['clusters', 'clusters_counts'], caching=caching)
-        # print('cluster', changed_clusters)
 
         if len(changed_clusters) > 0:
             # The expected cluster effect is given by the normalized posterior counts
@@ -209,6 +208,7 @@ def likelihood_per_component(
                 feature_counts[conf].value +
                 model.prior.prior_confounding_effects[conf].concentration_array(sample)
             )
+
             conf_effect = normalize(conf_effect_counts, axis=-1)
 
             compute_component_likelihood(
@@ -229,6 +229,83 @@ def likelihood_per_component(
     return cache.value
 
 
+def approx_likelihood_per_component(
+    model: Model,
+    sample: Sample,
+    object_subset,
+) -> NDArray[float]:  # shape: (n_objects, n_feature, n_components)
+    features = model.data.features
+    confounders = model.data.confounders
+
+    likelihoods = np.zeros((sample.n_objects, sample.n_features, sample.n_components))
+    likelihoods[..., 0] = approx_cluster_likelihood(
+        sample.clusters, features, object_subset, sample.source.value, sample.feature_counts
+    )
+
+    # for i_conf, conf in enumerate(confounders.values(), start=1):
+    #     likelihoods[..., i_conf] = approx_confounder_likelihood(conf, features)
+
+    for i_conf, conf in enumerate(confounders.keys(), start=1):
+        confounder = confounders[conf]
+        groups = confounders[conf].group_assignment
+
+        features_conf = features.values * sample.source.value[:, :, i_conf, None]
+
+        changeable_counts = np.array([
+            np.sum(features_conf[g] * object_subset[g, None, None], axis=0)
+            for g in groups
+        ])
+        conf_effect_counts = (  # feature counts + prior counts
+            sample.feature_counts[conf].value - changeable_counts  # We only use the counts from unchanged objects (to keep the transition symmetric)
+            + model.prior.prior_confounding_effects[conf].concentration_array(sample)
+        )
+
+        conf_effect = normalize(conf_effect_counts, axis=-1)
+        compute_component_likelihood(
+            features=features.values,
+            probs=conf_effect,
+            groups=groups,
+            changed_groups=set(np.arange(len(groups))),
+            out=likelihoods[..., i_conf],
+        )
+
+    likelihoods[features.na_values] = 1.
+
+    return likelihoods
+
+
+def approx_cluster_likelihood(
+    clusters: Clusters,
+    features: Features,
+    object_subset,
+    source: NDArray[bool],  # (n_objects, n_features, n_components)
+        feature_counts,
+) -> NDArray[float]:  # (n_objects, n_features)
+    lh = np.zeros((features.n_objects, features.n_features))
+    unchanged_objects = ~object_subset
+    cluster_features = features.values * source[:, :, 0, None]
+
+    for i_c, c in enumerate(clusters.value):
+        feature_counts_c = np.sum(cluster_features[c & unchanged_objects], axis=0)
+        p = normalize(features.states + feature_counts_c, axis=-1)  # TODO: use prior counts, rather than 1+
+        lh[c] = np.sum(p[None, ...] * features.values[c], axis=-1)
+
+    return lh
+
+
+def approx_confounder_likelihood(
+    confounder: Confounder,
+    features: Features,
+    # prior: ConfoundingEffectsPrior
+) -> NDArray[float]:  # (n_objects, n_features)
+    lh = np.zeros((features.n_objects, features.n_features))
+    for i_g, g in enumerate(confounder.group_assignment):
+        p = normalize(features.states + confounder.feature_counts[i_g], axis=-1)  # TODO: use prior counts, rather than 1+
+        lh[g] = np.sum(p[None,...] * features.values[g], axis=-1)
+
+    return lh
+
+
 def sample_source_from_prior(
     sample: Sample,
 ) -> NDArray:
@@ -242,4 +319,26 @@ def logprob_source_from_prior(
 ) -> float:
     p = update_weights(sample)
     return np.log(p[sample.source]).sum()
+
+
+def impute_source(sample: Sample, model: Model):
+    na_features = model.data.features.na_values
+
+    # Next iteration: sample source from prior (allows calculating feature counts)
+    source = sample_source_from_prior(sample)
+    source[na_features] = 0
+    sample.source.set_value(source)
+    recalculate_feature_counts(model.data.features.values, sample)
+
+    # Next step: generate posterior sample of source
+    lh_per_component = likelihood_per_component(model=model, sample=sample, caching=False)
+    weights = update_weights(sample)
+    p = normalize(lh_per_component * weights, axis=-1)
+
+    # Sample the new source assignments
+    with sample.source.edit() as source:
+        source = sample_categorical(p=p, binary_encoding=True)
+        source[na_features] = 0
+
+    recalculate_feature_counts(model.data.features.values, sample)
 
