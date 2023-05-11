@@ -283,6 +283,14 @@ class FeatureCounts(GroupedParameters):
     def n_groups(self):
         return self.value.shape[0]
 
+    @property
+    def n_features(self):
+        return self.value.shape[1]
+
+    @property
+    def n_states(self):
+        return self.value.shape[2]
+
     def add_changes(self, diff: NDArray[int]):  # diff shape: (n_groups, n_features, n_states)
         if self.shared:
             self.resolve_sharing()
@@ -484,7 +492,7 @@ class Sample:
             confounding_effects={k: GroupedParameters(v) for k, v in confounding_effects.items()},
             confounders=confounders,
             source=GroupedParameters(source, group_dim=2),
-            feature_counts={conf: FeatureCounts(c) for conf, c in feature_counts.items()},
+            feature_counts={k: FeatureCounts(v) for k, v in feature_counts.items()},
             chain=chain,
         )
 

@@ -115,7 +115,7 @@ class ParametersCSVLogger(ResultsLogger):
         for i_a in range(sample.n_clusters):
             for i_f, f in enumerate(feature_names):
                 for i_s, s in enumerate(state_names[i_f]):
-                    column_names += [f"areal_a{i_a+1}_{f}_{s}"]
+                    column_names += [f"areal_a{i_a}_{f}_{s}"]
 
         # Confounding effects
         for conf in self.data.confounders.values():
@@ -200,7 +200,7 @@ class ParametersCSVLogger(ResultsLogger):
         for i_a in range(sample.n_clusters):
             for i_f, f in enumerate(features.names):
                 for i_s, s in enumerate(features.state_names[i_f]):
-                    col_name = f"areal_a{i_a+1}_{f}_{s}"
+                    col_name = f"areal_a{i_a}_{f}_{s}"
                     row[col_name] = cluster_effect[i_a, i_f, i_s]
 
         # Confounding effects
@@ -328,7 +328,7 @@ class OperatorStatsLogger(ResultsLogger):
     """The OperatorStatsLogger keeps an operator_stats.txt file which contains statistics
      on each MCMC operator. The file is updated at each logged sample."""
 
-    COLUMNS = {
+    COLUMNS: dict[str, int] = {
         "OPERATOR": 30,
         "ACCEPTS": 8,
         "REJECTS": 8,
@@ -338,6 +338,8 @@ class OperatorStatsLogger(ResultsLogger):
         "STEP-SIZE": 11,
         "PARAMETERS": 0,
     }
+
+    N_COLUMNS: int = len(COLUMNS)
 
     def __init__(self, *args, operators: list[Operator], **kwargs):
         super().__init__(*args, **kwargs)
@@ -368,7 +370,7 @@ class OperatorStatsLogger(ResultsLogger):
     @classmethod
     def get_log_message_row(cls, operator: Operator) -> str:
         if operator.total == 0:
-            row_strings = [operator.operator_name, '-', '-', '-', '-']
+            row_strings = [operator.operator_name] + ['-'] * cls.N_COLUMNS
             return '\t'.join([str.ljust(x, width) for x, width in zip(row_strings, cls.COLUMNS.values())])
 
         name_str = operator.operator_name.ljust(cls.COLUMNS["OPERATOR"])

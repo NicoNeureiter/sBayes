@@ -1325,7 +1325,7 @@ def dirichlet_multinomial_logpdf(
     # valid = a > 0
     # counts = counts[valid]
     # a = a[valid]
-    a += 1e-10      # TODO Find a better way to fix 0s in a (and still use broadcasting)
+    a = a + 1e-12      # TODO Find a better way to fix 0s in a (and still use broadcasting)
 
     n = counts.sum(axis=-1)
     sum_a = a.sum(axis=-1)
@@ -1350,7 +1350,7 @@ def dirichlet_categorical_logpdf(
     >>> dirichlet_multinomial_logpdf(counts=np.array([2, 1, 0, 0]), a=np.array([1., 1., 0., 0.]))
     -1.386294361303224
     """
-    a += 1e-10  # TODO Find a better way to fix 0s in a (and still use broadcasting)
+    a = a + 1e-12  # TODO Find a better way to fix 0s in a (and still use broadcasting)
 
     n = counts.sum(axis=-1)
     sum_a = a.sum(axis=-1)

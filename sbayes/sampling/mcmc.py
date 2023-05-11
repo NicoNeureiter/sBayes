@@ -191,16 +191,15 @@ class MCMC(ABC):
                     sample[c] = self.step(sample[c], c)
                     sample[c].i_step = i_warmup
 
-
             self.logger.info(f"Warm-up finished after {(_time.time() - self.t_start):.1f} seconds")
 
             # For the last sample find the best chain (highest posterior)
             posterior_samples = [self._ll[c] + self._prior[c] for c in self.chain_idx]
             best_chain = posterior_samples.index(max(posterior_samples))
 
-            self.logger.info(f"Posterior density of different warm-up chains: {posterior_samples}")
-            self.logger.info(f"Chain {best_chain} has the highest posterior density and "
-                             f"will be used as the starting state.")
+            self.logger.info(f"Starting state taken from warmup chain {best_chain} with "
+                             f"posterior density {posterior_samples[best_chain]} (posterior "
+                             f"densities of all chains: {posterior_samples}).")
 
             # Return the best sample
             return sample[best_chain]
