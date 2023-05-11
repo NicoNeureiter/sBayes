@@ -165,6 +165,7 @@ class DirichletPriorConfig(BaseConfig):
         JEFFREYS = "jeffreys"
         BBS = "BBS"
         UNIVERSAL = "universal"
+        SYMMETRIC_DIRICHLET = "symmetric_dirichlet"
 
     type: Types = Types.UNIFORM
     """Type of prior distribution (`uniform` or `dirichlet`)."""

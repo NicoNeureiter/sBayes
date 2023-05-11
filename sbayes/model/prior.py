@@ -15,8 +15,9 @@ from sbayes.model.likelihood import update_weights, ModelShapes, normalize_weigh
 from sbayes.preprocessing import sample_categorical
 from sbayes.sampling.state import Sample
 from sbayes.util import (compute_delaunay, n_smallest_distances, log_multinom,
-                         dirichlet_logpdf, log_expit, PathLike)
-from sbayes.config.config import PriorConfig, DirichletPriorConfig, GeoPriorConfig, ClusterSizePriorConfig
+                         dirichlet_logpdf, log_expit, PathLike, log_binom, normalize)
+from sbayes.config.config import PriorConfig, DirichletPriorConfig, GeoPriorConfig, ClusterSizePriorConfig, \
+    ConfoundingEffectPriorConfig
 from sbayes.load_data import Data, ComputeNetwork, GroupName, ConfounderName, StateName, FeatureName, Confounder
 
 
@@ -49,16 +50,17 @@ class Prior:
                                                        shapes=self.shapes,
                                                        feature_names=data.features.feature_and_state_names)
         self.prior_confounding_effects = {}
-
         for k, v in self.config.confounding_effects.items():
             self.prior_confounding_effects[k] = ConfoundingEffectsPrior(
                 config=v,
                 shapes=self.shapes,
                 conf=k,
-                feature_names=data.features.feature_and_state_names
+                feature_names=data.features.feature_and_state_names,
+                group_names=data.confounders[k].group_names,
+                conf_effect_priors = self.prior_confounding_effects,
             )
 
-        self.source_prior = SourcePrior()
+        self.source_prior = SourcePrior(na_features=self.data.features.na_values)
 
     def __call__(self, sample: Sample, caching=True) -> float:
         """Compute the prior of the current sample.
@@ -119,12 +121,18 @@ class Prior:
         has_components = compute_has_components(clusters, confounders)
         source = self.source_prior.generate_sample(weights, has_components)
 
+        feature_counts_cluster = np.zeros((self.shapes.n_clusters, self.shapes.n_features, self.shapes.n_states))
+        feature_counts_by_confounder = {}
+        for conf, n_groups in self.shapes.n_groups.items():
+            feature_counts_by_confounder[conf] = np.zeros((n_groups, self.shapes.n_features, self.shapes.n_states))
+
         # Create a sample object from the generated numpy arrays
         return Sample.from_numpy_arrays(
             clusters=clusters,
             weights=weights,
-            confounding_effects={c: np.empty(0) for c in confounders},
+            confounding_effects={conf: np.empty(n_groups) for conf, n_groups in self.shapes.n_groups.items()},
             confounders=confounders,
+            feature_counts={'clusters': feature_counts_cluster, **feature_counts_by_confounder},
             source=source
         )
 
@@ -208,11 +216,19 @@ class DirichletPrior:
             concentration.append(np.array(conc_f))
         return concentration
 
-    def get_uniform_concentration(self) -> list[np.ndarray]:
+    def get_symmetric_concentration(self, c: float) -> list[np.ndarray]:
         concentration = []
         for n_states_f in self.shapes.n_states_per_feature:
             concentration.append(
-                np.ones(shape=n_states_f)
+                np.full(shape=n_states_f, fill_value=c)
+            )
+        return concentration
+
+    def get_oneovern_concentration(self) -> list[np.ndarray]:
+        concentration = []
+        for n_states_f in self.shapes.n_states_per_feature:
+            concentration.append(
+                np.ones(shape=n_states_f) / n_states_f
             )
         return concentration
 
@@ -232,27 +248,78 @@ class ConfoundingEffectsPrior(DirichletPrior):
 
     conf: ConfounderName
 
-    def __init__(self, *args, conf: ConfounderName, **kwargs):
-        super(ConfoundingEffectsPrior, self).__init__(*args, **kwargs)
+    def __init__(
+        self,
+        *args,
+        conf: ConfounderName,
+        group_names: list[str],
+        conf_effect_priors: dict[str, ConfoundingEffectsPrior],
+        **kwargs
+    ):
         self.conf = conf
+        self.group_names = group_names
+        self.any_dynamic_priors = False
+        self.conf_effect_priors = conf_effect_priors
+        self.precision = 0.0
+        super(ConfoundingEffectsPrior, self).__init__(*args, **kwargs)
+
+    def get_default_prior_config(self) -> ConfoundingEffectPriorConfig:
+        return ConfoundingEffectPriorConfig()
 
     def parse_attributes(self):
-        n_groups = len(self.config)
+        n_groups = len(self.group_names)
         self.concentration = {}
-        self.concentration_array = np.zeros((n_groups, self.shapes.n_features, self.shapes.n_states), dtype=float)
+        self._concentration_array = np.zeros((n_groups, self.shapes.n_features, self.shapes.n_states), dtype=float)
+        self.any_dynamic_priors = False
 
-        for i_g, group in enumerate(self.config.keys()):
-            if self.config[group].type is self.PriorType.UNIFORM:
-                self.concentration[group] = self.get_uniform_concentration()
+        default_config = self.config.get("<DEFAULT>", None)
 
-            elif self.config[group].type is self.PriorType.DIRICHLET:
+        for i_g, group in enumerate(self.group_names):
+            if group not in self.config:
+                if default_config is None:
+                    self.config[group] = self.get_default_prior_config()
+                else:
+                    self.config[group] = default_config
+
+            group_prior_type = self.config[group].type
+
+            if group_prior_type is self.PriorType.UNIFORM:
+                self.concentration[group] = self.get_symmetric_concentration(1.0)
+            elif group_prior_type is self.PriorType.JEFFREYS:
+                self.concentration[group] = self.get_symmetric_concentration(0.5)
+            elif group_prior_type is self.PriorType.BBS:
+                self.concentration = self.get_oneovern_concentration()
+            elif group_prior_type is self.PriorType.DIRICHLET:
                 self.concentration[group] = self.load_concentration(self.config[group])
-
+            elif self.prior_type is self.PriorType.SYMMETRIC_DIRICHLET:
+                self.concentration[group] = self.get_symmetric_concentration(self.config.prior_concentration)
+            elif group_prior_type is self.PriorType.UNIVERSAL:
+                # Concentration will change based on sample of universal distribution...
+                # For initialization: use uniform as dummy concentration to avoid invalid states
+                self.concentration[group] = self.get_symmetric_concentration(self.config.prior_concentration)
+                self.precision = self.config.prior_concentration
+                self.any_dynamic_priors = True
             else:
                 raise ValueError(self.invalid_prior_message(self.config[group].type))
 
             for i_f, conc_f in enumerate(self.concentration[group]):
-                self.concentration_array[i_g, i_f, :len(conc_f)] = conc_f
+                self._concentration_array[i_g, i_f, :len(conc_f)] = conc_f
+
+        if not self.any_dynamic_priors:
+            self._concentration_array.setflags(write=False)
+
+    def concentration_array(self, sample: Sample):
+        if self.any_dynamic_priors:
+            universal_prior_counts = self.conf_effect_priors['universal'].concentration_array(sample)[0]
+            universal_feature_counts = sample.feature_counts['universal'].value[0]
+            for i_g, group in enumerate(self.group_names):
+                if self.config[group].type == self.PriorType.UNIVERSAL:
+                    univ_counts = universal_prior_counts + universal_feature_counts
+                    mean = normalize(univ_counts, axis=-1)
+                    precision = min(self.precision, univ_counts.sum())
+                    self._concentration_array[i_g] = mean * precision
+
+        return self._concentration_array
 
     def __call__(self, sample: Sample, caching=True) -> float:
         """"Calculate the log PDF of the confounding effects prior.
@@ -298,11 +365,14 @@ class ConfoundingEffectsPrior(DirichletPrior):
         """Compile a set-up message for logging."""
         msg = f"Prior on confounding effect {self.conf}:\n"
 
-        for i_g, group in enumerate(self.config):
+        for i_g, group in enumerate(self.group_names):
+        # for i_g, group in enumerate(self.config):
             if self.config[group].type is self.PriorType.UNIFORM:
                 msg += f'\tUniform prior for confounder {self.conf} = {group}.\n'
             elif self.config[group].type is self.PriorType.DIRICHLET:
                 msg += f'\tDirichlet prior for confounder {self.conf} = {group}.\n'
+            elif self.config[group].type is self.PriorType.UNIVERSAL:
+                msg += f'\tDirichlet prior with universal distribution as mean for confounder {self.conf} = {group}.\n'
             else:
                 raise ValueError(self.invalid_prior_message(self.config.type))
         return msg
@@ -313,7 +383,11 @@ class ClusterEffectPrior(DirichletPrior):
     def parse_attributes(self):
         self.prior_type = self.config.type
         if self.prior_type is self.PriorType.UNIFORM:
-            self.concentration = self.get_uniform_concentration()
+            self.concentration = self.get_symmetric_concentration(1.0)
+        elif self.prior_type is self.PriorType.JEFFREYS:
+            self.concentration = self.get_symmetric_concentration(0.5)
+        elif self.prior_type is self.PriorType.BBS:
+            self.concentration = self.get_oneovern_concentration()
         else:
             raise ValueError(self.invalid_prior_message(self.prior_type))
 
@@ -356,6 +430,12 @@ class ClusterEffectPrior(DirichletPrior):
 
 class WeightsPrior(DirichletPrior):
 
+    def get_symmetric_concentration(self, c: float) -> list[np.ndarray]:
+        return [np.full(self.shapes.n_components, c) for _ in range(self.shapes.n_features)]
+
+    def get_oneovern_concentration(self) -> list[np.ndarray]:
+        return self.get_symmetric_concentration(1 / self.shapes.n_components)
+
     def parse_attributes(self):
         self.prior_type = self.config.type
         if self.prior_type is self.PriorType.UNIFORM:
@@ -363,6 +443,12 @@ class WeightsPrior(DirichletPrior):
                 shape=(self.shapes.n_features, self.shapes.n_components),
                 fill_value=self.initial_counts
             ))
+        elif self.prior_type is self.PriorType.JEFFREYS:
+            self.concentration = self.get_symmetric_concentration(0.5)
+        elif self.prior_type is self.PriorType.BBS:
+            self.concentration = self.get_oneovern_concentration()
+        elif self.prior_type is self.PriorType.SYMMETRIC_DIRICHLET:
+            self.concentration = self.get_symmetric_concentration(self.config.prior_concentration)
         else:
             raise ValueError(self.invalid_prior_message(self.prior_type))
 
@@ -379,25 +465,32 @@ class WeightsPrior(DirichletPrior):
         parameter = sample.weights
         cache = sample.cache.weights_prior
         if not cache.is_outdated():
-            # return np.sum(cache.value)
             return cache.value
 
         log_p = 0.0
         if self.prior_type is self.PriorType.UNIFORM:
             pass
-        elif self.prior_type is self.PriorType.DIRICHLET:
+        elif self.prior_type in [self.PriorType.DIRICHLET,
+                                 self.PriorType.JEFFREYS,
+                                 self.PriorType.BBS,
+                                 self.PriorType.SYMMETRIC_DIRICHLET]:
             log_p = compute_group_effect_prior(
                 group_effect=parameter.value,
                 concentration=self.concentration,
-                applicable_states=np.ones_like(parameter.value),
+                applicable_states=np.ones_like(parameter.value, dtype=bool),
             )
         else:
             raise ValueError(self.invalid_prior_message(self.prior_type))
 
         cache.update_value(log_p)
-        # return np.sum(cache.value)
-
         return log_p
+
+    def pointwise_prior(self, sample: Sample) -> NDArray[float]:
+        return compute_group_effect_prior_pointwise(
+            group_effect=sample.weights.value,
+            concentration=self.concentration,
+            applicable_states=np.ones_like(sample.weights.value, dtype=bool),
+        )
 
     def get_setup_message(self):
         """Compile a set-up message for logging."""
@@ -407,7 +500,13 @@ class WeightsPrior(DirichletPrior):
         return np.array([np.random.dirichlet(c) for c in self.concentration])
 
 
-class SourcePrior(object):
+class SourcePrior:
+
+    def __init__(
+        self,
+        na_features: NDArray[bool]
+    ):
+        self.valid_observations = ~na_features
 
     def __call__(self, sample: Sample, caching=True) -> float:
         """Compute the prior for weights (or load from cache).
@@ -417,16 +516,22 @@ class SourcePrior(object):
             Logarithm of the prior probability density.
         """
         cache = sample.cache.source_prior
-        if caching and not cache.is_outdated():
-            return cache.value
+        # if caching and not cache.is_outdated():
+        #     return cache.value
 
         weights = update_weights(sample)
-        is_source = np.where(sample.source.value.ravel())
-        observation_weights = weights.ravel()[is_source]
+        is_source = np.where(sample.source.value[self.valid_observations].ravel())
+        observation_weights = weights[self.valid_observations].ravel()[is_source]
         source_prior = np.log(observation_weights).sum()
 
         cache.update_value(source_prior)
         return source_prior
+
+    def old_source_prior(self, sample):
+        weights = update_weights(sample)
+        is_source = np.where(sample.source.value.ravel())
+        observation_weights = weights.ravel()[is_source]
+        return np.log(observation_weights).sum()
 
     def generate_sample(
             self,
@@ -472,6 +577,7 @@ class ClusterSizePrior:
             # P(size)   =   uniform
             # P(zone | size)   =   1 / |{clusters of size k}|   =   1 / (n choose k)
             logp = -log_multinom(self.shapes.n_sites, sizes)
+            # logp = -log_binom(self.shapes.n_sites, sizes).sum()
 
         elif self.prior_type is self.PriorType.QUADRATIC_SIZE:
             # Here we assume that only a quadratically growing subset of clusters is
@@ -625,6 +731,20 @@ class GeoPrior(object):
         cache.update_value(geo_prior)
         return geo_prior
 
+    def get_add_costs(
+        self,
+        sample: Sample,
+        i_cluster: int,
+    ) -> NDArray[float]:
+        ...
+
+    def get_remove_costs(
+        self,
+        sample: Sample,
+        i_cluster: int,
+    ) -> NDArray[float]:
+        ...
+
     def invalid_prior_message(self, s):
         valid_types = ','.join(self.PriorTypes)
         return f'Invalid prior type {s} for geo-prior (choose from [{valid_types}]).'
@@ -760,6 +880,7 @@ def compute_simulation_based_geo_prior(
             else:
                 distances = [0.0]
         else:
+            print(cost_mat_z)
             raise ValueError("Too few locations to compute distance.")
 
         x = np.sum(distances)
@@ -829,6 +950,30 @@ def compute_group_effect_prior(
         log_p += dirichlet_logpdf(x=conf_group, alpha=concentration[f])
 
     return log_p
+
+
+def compute_group_effect_prior_pointwise(
+        group_effect: NDArray[float],  # shape: (n_features, n_states)
+        concentration: list[NDArray],  # shape: (n_applicable_states[f],) for f in features
+        applicable_states: list[NDArray],  # shape: (n_applicable_states[f],) for f in features
+) -> NDArray[float]:
+    """" This function evaluates the prior on probability vectors in a cluster or confounder group.
+    Args:
+        group_effect: The group effect for a confounder
+        concentration: List of Dirichlet concentration parameters.
+        applicable_states: List of available states per feature
+    Returns:
+        The prior log-pdf of the confounding effect for each feature
+    """
+    n_features, n_states = group_effect.shape
+
+    p = np.zeros(n_features)
+    for f in range(n_features):
+        states_f = applicable_states[f]
+        conf_group = group_effect[f, states_f]
+        p[f] = dirichlet_logpdf(x=conf_group, alpha=concentration[f])
+
+    return p
 
 
 if __name__ == '__main__':
