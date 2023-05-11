@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from numpy.core._umath_tests import inner1d
 
+from sbayes.sampling.counts import recalculate_feature_counts
 from sbayes.util import dirichlet_categorical_logpdf, timeit
 
 try:
@@ -27,6 +28,7 @@ class ModelShapes(Protocol):
     n_states_per_feature: list[int]
     n_confounders: int
     n_components: int
+    n_groups: dict[str, int]
 
 
 class Likelihood(object):
@@ -60,17 +62,19 @@ class Likelihood(object):
                 sample: A Sample object consisting of clusters and weights
             Returns:
                 The joint likelihood of the current sample
-            """
+        """
+        if not caching:
+            recalculate_feature_counts(self.features, sample)
 
         # Sum up log-likelihood of each mixture component:
         log_lh = 0.0
-        log_lh += self.compute_lh_clusters(sample)
+        log_lh += self.compute_lh_clusters(sample, caching=caching)
         for i, conf in enumerate(self.confounders, start=1):
-            log_lh += self.compute_lh_confounder(sample, conf)
+            log_lh += self.compute_lh_confounder(sample, conf, caching=caching)
 
         return log_lh
 
-    def compute_lh_clusters(self, sample: Sample) -> float:
+    def compute_lh_clusters(self, sample: Sample, caching=True) -> float:
         """Compute the log-likelihood of the observations that are assigned to cluster
         effects in the current sample."""
 
@@ -78,7 +82,7 @@ class Likelihood(object):
         feature_counts = sample.feature_counts['clusters'].value
 
         with cache.edit() as lh:
-            for i_cluster in cache.what_changed('counts'):
+            for i_cluster in cache.what_changed('counts', caching=caching):
                 lh[i_cluster] = dirichlet_categorical_logpdf(
                     counts=feature_counts[i_cluster],
                     a=self.prior.prior_cluster_effect.concentration_array,
@@ -86,7 +90,26 @@ class Likelihood(object):
 
         return cache.value.sum()
 
-    def compute_lh_confounder(self, sample: Sample, conf: str) -> float:
+    # def generate_data(self, sample: Sample) -> NDArray[bool]:
+    #     data = np.zeros((sample.n_objects, sample.n_features, sample.n_states))
+    #
+    #     effects = self.generate_effects()
+    #     data_by_confounder = {}
+    #     for i_obj in range(sample.n_objects):
+    #         for i_feat in range(sample.n_features):
+    #             ...
+    #
+    # def generate_effects(self) -> NDArray[bool]:
+    #     # Generate cluster effect
+    #     cluster_effect = self.prior.prior_cluster_effect.generate
+    #
+    #     # Generate confounding effects
+    #     conf_effects = [
+    #
+    #     ]
+
+
+    def compute_lh_confounder(self, sample: Sample, conf: str, caching=True) -> float:
         """Compute the log-likelihood of the observations that are assigned to confounder
         `conf` in the current sample."""
 
@@ -94,10 +117,11 @@ class Likelihood(object):
         feature_counts = sample.feature_counts[conf].value
 
         with cache.edit() as lh:
-            for i_g in cache.what_changed('counts'):
+            prior_concentration = self.prior.prior_confounding_effects[conf].concentration_array(sample)
+            for i_g in cache.what_changed('counts', caching=caching):
                 lh[i_g] = dirichlet_categorical_logpdf(
                     counts=feature_counts[i_g],
-                    a=self.prior.prior_confounding_effects[conf].concentration_array[i_g],
+                    a=prior_concentration[i_g],
                 ).sum()
 
         return cache.value.sum()
@@ -121,9 +145,9 @@ def compute_component_likelihood(
         g = groups[i]
         f_g = features[g, :, :]
         p_g = probs[i, :, :]
-        # out[g, :] = np.einsum('ijk,jk->ij', f_g, p_g, optimize=True)
-        # out[g, :] = np.sum(f_g * p_g[np.newaxis, ...], axis=-1)
-        out[g, :] = inner1d(f_g, p_g[np.newaxis, ...])
+        out[g, :] = np.einsum('ijk,jk->ij', f_g, p_g)
+        assert np.allclose(out[g, :], np.sum(f_g * p_g[np.newaxis, ...], axis=-1))
+        assert np.allclose(out[g, :], inner1d(f_g, p_g[np.newaxis, ...]))
 
     return out
 

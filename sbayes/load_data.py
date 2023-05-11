@@ -103,7 +103,7 @@ class Features:
             self.feature_and_state_names[f] = states_names_f
 
         object.__setattr__(self, 'na_values', np.sum(self.values, axis=-1) == 0)
-    
+
     def __getitem__(self, key: str) -> NDArray | list | int:
         return getattr(self, key)
 
