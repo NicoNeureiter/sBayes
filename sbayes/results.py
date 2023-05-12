@@ -192,9 +192,7 @@ class Results:
         param_dict = {}
         for column_name in dataframe.columns:
             if column_name.startswith(search_key):
-                param_dict[column_name] = dataframe[column_name].to_numpy(
-                    dtype=np.float
-                )
+                param_dict[column_name] = dataframe[column_name].to_numpy(dtype=float)
 
         return param_dict
 
@@ -218,7 +216,7 @@ class Results:
         weights = {}
         for f in self.feature_names:
             weights[f] = np.column_stack(
-                [parameters[f"w_{c}_{f}"].to_numpy(dtype=np.float) for c in components]
+                [parameters[f"w_{c}_{f}"].to_numpy(dtype=float) for c in components]
             )
 
         return weights
