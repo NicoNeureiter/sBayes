@@ -232,76 +232,41 @@ def likelihood_per_component(
 def approx_likelihood_per_component(
     model: Model,
     sample: Sample,
-    object_subset,
+    object_subset: NDArray[bool],  # (n_objects,)
 ) -> NDArray[float]:  # shape: (n_objects, n_feature, n_components)
     features = model.data.features
     confounders = model.data.confounders
 
+    # Compute the normalized weights for each language and feature
+    weights = update_weights(sample, caching=True)
+
+    # Compute approximate likelihood for the clusters and confounders
     likelihoods = np.zeros((sample.n_objects, sample.n_features, sample.n_components))
-    likelihoods[..., 0] = approx_cluster_likelihood(
-        sample.clusters, features, object_subset, sample.source.value, sample.feature_counts
-    )
-
-    # for i_conf, conf in enumerate(confounders.values(), start=1):
-    #     likelihoods[..., i_conf] = approx_confounder_likelihood(conf, features)
-
+    likelihoods[..., 0] = approx_component_likelihood(sample.clusters.value, features, object_subset, weights[..., 0])
     for i_conf, conf in enumerate(confounders.keys(), start=1):
-        confounder = confounders[conf]
         groups = confounders[conf].group_assignment
+        likelihoods[..., i_conf] = approx_component_likelihood(groups, features, object_subset, weights[..., i_conf])
 
-        features_conf = features.values * sample.source.value[:, :, i_conf, None]
-
-        changeable_counts = np.array([
-            np.sum(features_conf[g] * object_subset[g, None, None], axis=0)
-            for g in groups
-        ])
-        conf_effect_counts = (  # feature counts + prior counts
-            sample.feature_counts[conf].value - changeable_counts  # We only use the counts from unchanged objects (to keep the transition symmetric)
-            + model.prior.prior_confounding_effects[conf].concentration_array(sample)
-        )
-
-        conf_effect = normalize(conf_effect_counts, axis=-1)
-        compute_component_likelihood(
-            features=features.values,
-            probs=conf_effect,
-            groups=groups,
-            changed_groups=set(np.arange(len(groups))),
-            out=likelihoods[..., i_conf],
-        )
-
+    # Fix likelihood of NA features to 1
     likelihoods[features.na_values] = 1.
 
     return likelihoods
 
 
-def approx_cluster_likelihood(
-    clusters: Clusters,
+def approx_component_likelihood(
+    groups: NDArray[bool],  # (n_groups, n_objects)
     features: Features,
     object_subset,
-    source: NDArray[bool],  # (n_objects, n_features, n_components)
-        feature_counts,
+    weights: NDArray[float],  # (n_objects, n_features)
 ) -> NDArray[float]:  # (n_objects, n_features)
     lh = np.zeros((features.n_objects, features.n_features))
     unchanged_objects = ~object_subset
-    cluster_features = features.values * source[:, :, 0, None]
+    group_features = features.values * weights[..., None]
 
-    for i_c, c in enumerate(clusters.value):
-        feature_counts_c = np.sum(cluster_features[c & unchanged_objects], axis=0)
-        p = normalize(features.states + feature_counts_c, axis=-1)  # TODO: use prior counts, rather than 1+
-        lh[c] = np.sum(p[None, ...] * features.values[c], axis=-1)
-
-    return lh
-
-
-def approx_confounder_likelihood(
-    confounder: Confounder,
-    features: Features,
-    # prior: ConfoundingEffectsPrior
-) -> NDArray[float]:  # (n_objects, n_features)
-    lh = np.zeros((features.n_objects, features.n_features))
-    for i_g, g in enumerate(confounder.group_assignment):
-        p = normalize(features.states + confounder.feature_counts[i_g], axis=-1)  # TODO: use prior counts, rather than 1+
-        lh[g] = np.sum(p[None,...] * features.values[g], axis=-1)
+    for g in groups:
+        feature_counts_g = np.sum(group_features[g & unchanged_objects], axis=0)
+        p = normalize(features.states + feature_counts_g, axis=-1)  # TODO: use prior counts, rather than 1+
+        lh[g] = np.sum(p[None, ...] * features.values[g], axis=-1)
 
     return lh
 
