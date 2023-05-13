@@ -281,8 +281,8 @@ class ConfoundingEffectsPrior(DirichletPrior):
                 else:
                     self.config[group] = default_config
 
-            group_prior_type = self.config[group].type
-
+            config_g = self.config[group]
+            group_prior_type = config_g.type
             if group_prior_type is self.PriorType.UNIFORM:
                 self.concentration[group] = self.get_symmetric_concentration(1.0)
             elif group_prior_type is self.PriorType.JEFFREYS:
@@ -290,17 +290,18 @@ class ConfoundingEffectsPrior(DirichletPrior):
             elif group_prior_type is self.PriorType.BBS:
                 self.concentration = self.get_oneovern_concentration()
             elif group_prior_type is self.PriorType.DIRICHLET:
-                self.concentration[group] = self.load_concentration(self.config[group])
+                self.concentration[group] = self.load_concentration(config_g)
             elif self.prior_type is self.PriorType.SYMMETRIC_DIRICHLET:
-                self.concentration[group] = self.get_symmetric_concentration(self.config.prior_concentration)
+                self.concentration[group] = self.get_symmetric_concentration(config_g.prior_concentration)
             elif group_prior_type is self.PriorType.UNIVERSAL:
                 # Concentration will change based on sample of universal distribution...
                 # For initialization: use uniform as dummy concentration to avoid invalid states
-                self.concentration[group] = self.get_symmetric_concentration(self.config.prior_concentration)
-                self.precision = self.config.prior_concentration
+                self.concentration[group] = self.get_symmetric_concentration(config_g.prior_concentration)
+                self.precision = config_g.prior_concentration
                 self.any_dynamic_priors = True
+
             else:
-                raise ValueError(self.invalid_prior_message(self.config[group].type))
+                raise ValueError(self.invalid_prior_message(config_g.type))
 
             for i_f, conc_f in enumerate(self.concentration[group]):
                 self._concentration_array[i_g, i_f, :len(conc_f)] = conc_f
@@ -313,10 +314,15 @@ class ConfoundingEffectsPrior(DirichletPrior):
             universal_prior_counts = self.conf_effect_priors['universal'].concentration_array(sample)[0]
             universal_feature_counts = sample.feature_counts['universal'].value[0]
             for i_g, group in enumerate(self.group_names):
-                if self.config[group].type == self.PriorType.UNIVERSAL:
+                if self.config[group].type is self.PriorType.UNIVERSAL:
                     univ_counts = universal_prior_counts + universal_feature_counts
                     mean = normalize(univ_counts, axis=-1)
-                    precision = min(self.precision, univ_counts.sum())
+                    precision = np.minimum(self.precision, univ_counts.sum(axis=-1, keepdims=True))
+
+                    # We add 1 to the precision for each possible feature state
+                    # TODO: discuss whether this makes sense
+                    precision += np.asarray(self.shapes.n_states_per_feature)[:, np.newaxis]
+
                     self._concentration_array[i_g] = mean * precision
 
         return self._concentration_array
