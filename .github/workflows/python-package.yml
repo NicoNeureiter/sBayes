@@ -43,12 +43,9 @@ jobs:
           conda init bash
           conda create -n myenv python=${{ matrix.python-version }}
 
-      - name: Activate conda environment
+      - name: Activate and update conda environment
         run: |
           conda activate myenv
-
-      - name: Config and update conda environment
-        run: |
           conda config --set always_yes yes --set changeps1 no
           conda update -q conda     
 
