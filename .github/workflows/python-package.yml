@@ -33,11 +33,11 @@ jobs:
 
     - name: Create conda environment
       run: |
-        conda init bash
         conda create -n myenv python=${{ matrix.python-version }}
         
     - name: Activate conda environment
       run: |
+        conda init bash
         conda activate myenv
       
     - name: Config and update conda environment
