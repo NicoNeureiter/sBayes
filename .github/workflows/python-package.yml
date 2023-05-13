@@ -42,7 +42,6 @@ jobs:
         run: |
           conda init bash
           conda create -n myenv python=${{ matrix.python-version }}
-          source $HOME/miniconda/etc/profile.d/conda.sh
 
       - name: Activate conda environment
         run: |
