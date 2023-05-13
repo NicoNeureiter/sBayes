@@ -9,7 +9,7 @@ scipy
 Shapely
 seaborn
 setuptools
-cartopy<0.20.0
+cartopy
 typing_extensions
 tables
 pydantic
