@@ -192,11 +192,18 @@ class DirichletPriorConfig(BaseConfig):
 
     @root_validator(pre=True)
     def validate_dirichlet_parameters(cls, values):
-        if values.get("type") == "dirichlet":
+        prior_type = values.get("type")
+
+        if prior_type == "dirichlet":
             if (values.get("file") is None) and (values.get("parameters") is None):
                 raise ValidationError(
                     f"Provide `file` or `parameters` for `{cls.__name__}` of type `dirichlet`."
                 )
+
+        elif prior_type in ["universal", "symmetric_dirichlet"]:
+            if values.get("prior_concentration") is None:
+                raise ValidationError(f"Provide `prior_concentration` for `{cls.__name__}` of type `{prior_type}`.")
+
         return values
 
     def dict(self, *args, **kwargs):
