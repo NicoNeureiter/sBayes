@@ -5,13 +5,9 @@
 	},
 	"model": {
 		"clusters": 2,
-		"confounders": {
-			"age": [
-				"young",
-				"working",
-				"elderly"
-			]
-		},
+		"confounders": [
+			"age"
+		],
 		"prior": {
 			"objects_per_cluster": {
 				"type": "uniform_size",

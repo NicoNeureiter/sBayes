@@ -1,64 +1,62 @@
 mcmc:
-    steps: 2000000
-    samples: 2000
-    runs: 2
-    grow_to_adjacent: 0.8
+    steps: 10_000_000
+    samples: 10_000
+    runs: 4
     operators:
-        clusters: 50
-        weights: 10
-        cluster_effect: 1
-        confounding_effects: 1
+        clusters: 60
+        weights: 8
+        cluster_effect: 0
+        confounding_effects: 0
         source: 12
     init_objects_per_cluster: 10
     warmup:
-        warmup_steps: 100
-        warmup_chains: 4
+        warmup_steps: 100_000
+        warmup_chains: 30
     sample_from_prior: false
 model:
-    clusters: [3,5]
+    clusters: 3
     sample_source: true
     confounders:
-        universal:
-        - "<ALL>"
-        family:
-        - Tucanoan
-        - Panoan
-        - Tacanan
-        - Arawak
-        - Quechuan
-        - Tupian
+        - universal
+        - family
     prior:
         objects_per_cluster:
             type: uniform_area
-            min: 2
+            min: 3
             max: 100
         geo:
             type: uniform
-#            type: cost_based
-#            rate: 200.0
         weights:
             type: uniform
         cluster_effect:
             type: uniform
         confounding_effects:
             universal:
-                "<ALL>":
-                    type: uniform
-#                    type: dirichlet
-#                    file: data/prior_universal/universal_counts.json
+                <ALL>:
+#                    type: uniform
+                    type: dirichlet
+                    file: data/prior_universal/universal_counts.json
             family:
+#                <DEFAULT>:
+#                    type: uniform
                 Tucanoan:
-                    type: uniform
+                    type: dirichlet
+                    file: data/prior_inheritance/tucanoan.json
                 Panoan:
-                    type: uniform
+                    type: dirichlet
+                    file: data/prior_inheritance/panoan.json
                 Tacanan:
                     type: uniform
                 Arawak:
-                    type: uniform
+                    type: dirichlet
+                    file: data/prior_inheritance/arawak.json
                 Quechuan:
-                    type: uniform
+                    type: dirichlet
+                    file: data/prior_inheritance/quechuan.json
                 Tupian:
-                    type: uniform
+                    type: dirichlet
+                    file: data/prior_inheritance/tupian.json
+
 data:
     features: data/features.csv
     feature_states: data/feature_states.csv
