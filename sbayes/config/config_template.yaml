@@ -8,7 +8,7 @@ data:
 model:
     # Configuration of the sBayes model.
     clusters: 1                         # The number of clusters to be inferred.
-    confounders: {}                     # Dictionary with confounders as keys and lists of corresponding groups as values.
+    confounders: []                     # The list of confounder names.
     sample_source: true                 # Sample the source component for each observation (implicitly activates Gibbs sampling).
 
     prior:
@@ -20,6 +20,8 @@ model:
             type: uniform               # Type of prior distribution (`uniform` or `dirichlet`).
             file: <OPTIONAL>            # Path to the parameters of the Dirichlet distribution.
             parameters: <OPTIONAL>      # Parameters of the Dirichlet distribution.
+            prior_confounder: <OPTIONAL> # A string indicating which confounder should be used as the mean of the prior.
+            prior_concentration: <OPTIONAL> # If another confounder is used as mean, we need to manually define the concentration of the Dirichlet prior.
 
         geo:
             # Configuration of the geo-prior.
@@ -29,6 +31,7 @@ model:
             probability_function: exponential # Monotonic function that defines how costs are mapped to prior probabilities.
             rate: <OPTIONAL>            # Rate at which the prior probability decreases for a cost_based geo-prior.
             inflection_point: <OPTIONAL> # The point where a sigmoid probability function reaches 0.5.
+            skeleton: mst               # The graph along which the costs are aggregated. Per default, the cost of edges on the minimum spanning tree are aggregated.
 
         objects_per_cluster:
             # Configuration of the area size prior.
@@ -41,6 +44,8 @@ model:
             type: uniform               # Type of prior distribution (`uniform` or `dirichlet`).
             file: <OPTIONAL>            # Path to the parameters of the Dirichlet distribution.
             parameters: <OPTIONAL>      # Parameters of the Dirichlet distribution.
+            prior_confounder: <OPTIONAL> # A string indicating which confounder should be used as the mean of the prior.
+            prior_concentration: <OPTIONAL> # If another confounder is used as mean, we need to manually define the concentration of the Dirichlet prior.
 
 mcmc:
     # Configuration of MCMC parameters.
