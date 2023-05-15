@@ -1282,17 +1282,71 @@ class ClusterJump(ClusterOperator):
         log_q_back = np.log(1 / (1 + target_size))
 
         if self.resample_source and sample.source is not None:
-            sample_new, log_q_s, log_q_back_s = self.propose_new_sources(
-                sample_old=sample,
+            sample_new, log_q_s, log_q_back_s = self.gibbs_sample_source_jump(
                 sample_new=sample_new,
-                i_cluster=[i_source_cluster, i_target_cluster],
+                sample_old=sample,
+                i_cluster_new=i_target_cluster,
+                i_cluster_old=i_source_cluster,
                 object_subset=[jumping_object],
             )
             log_q += log_q_s
             log_q_back += log_q_back_s
+        else:
+            update_feature_counts(sample, sample_new, model.data.features.values, [jumping_object])
 
         return sample_new, log_q, log_q_back
 
+    def gibbs_sample_source_jump(
+        self,
+        sample_new: Sample,
+        sample_old: Sample,
+        i_cluster_new: int,
+        i_cluster_old: int,
+        object_subset: slice | list[int] | NDArray[int] = slice(None),
+    ) -> tuple[Sample, float, float]:
+        """Resample the observations to mixture components (their source)."""
+        model = self.model_by_chain[sample_old.chain]
+        features = model.data.features.values
+        na_features = model.data.features.na_values
+
+        # Make sure object_subset is a boolean index array
+        object_subset = np.isin(np.arange(sample_new.n_objects), object_subset)
+        w = update_weights(sample_new)[object_subset]
+
+        if self.sample_from_prior:
+            p = w
+        else:
+            lh_per_component_new = component_likelihood_given_unchanged(
+                model, sample_new, object_subset, i_cluster=i_cluster_new
+            )
+            p = normalize(w * lh_per_component_new, axis=-1)
+
+        # Sample the new source assignments
+        with sample_new.source.edit() as source:
+            source[object_subset] = sample_categorical(p=p, binary_encoding=True)
+            source[na_features] = 0
+
+        update_feature_counts(sample_old, sample_new, features, object_subset)
+        if DEBUG:
+            verify_counts(sample_new, features)
+
+        # Transition probability forward:
+        source_new = sample_new.source.value[object_subset]
+        log_q = np.log(p[source_new]).sum()
+
+        # Transition probability backward:
+        if self.sample_from_prior:
+            p_back = w
+        else:
+            lh_per_component_old = component_likelihood_given_unchanged(
+                model, sample_old, object_subset, i_cluster=i_cluster_old
+            )
+            p_back = normalize(w * lh_per_component_old, axis=-1)
+
+        source_old = sample_old.source.value[object_subset]
+        log_q_back = np.log(p_back[source_old]).sum()
+
+        return sample_new, log_q, log_q_back
 
 class OperatorSchedule:
     RW_OPERATORS_BY_NAMES = {
