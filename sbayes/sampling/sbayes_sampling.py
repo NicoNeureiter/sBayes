@@ -195,7 +195,7 @@ class ClusterMCMC(MCMC):
 
         Returns:
             np.array: weights for cluster_effect and each of the i confounding_effects
-            """
+        """
 
         # B: Use weights from a previous run
         if self.initial_sample is not None:
@@ -294,6 +294,7 @@ class ClusterMCMC(MCMC):
         sample.everything_changed()
 
         source = sample_source_from_prior(sample)
+        source[self.data.features.na_values] = 0
         sample.source.set_value(source)
         recalculate_feature_counts(self.features, sample)
 
@@ -325,70 +326,66 @@ class ClusterMCMC(MCMC):
             Dictionary mapping operator names to operator objects
         """
 
-        if self.model.sample_source:
+        operators = {
+            # 'sample_cluster': AlterCluster(
+            #     weight=operators_config.clusters,
+            #     adjacency_matrix=self.data.network.adj_mat,
+            #     p_grow_connected=self.p_grow_connected,
+            #     model_by_chain=self.posterior_per_chain,
+            #     resample_source=self.model.sample_source,
+            #     resample_source_mode=ResampleSourceMode.PRIOR,
+            #     sample_from_prior=self.sample_from_prior,
+            # ),
+            'gibbsish_sample_cluster_1': AlterClusterGibbsish(
+                weight=0.4 * operators_config.clusters,
+                adjacency_matrix=self.data.network.adj_mat,
+                model_by_chain=self.posterior_per_chain,
+                features=self.features,
+                resample_source=self.model.sample_source,
+                resample_source_mode=ResampleSourceMode.GIBBS,
+                sample_from_prior=self.sample_from_prior,
+            ),
+            'gibbsish_sample_cluster_wide': AlterClusterGibbsishWide(
+                weight=0.5 * operators_config.clusters,
+                adjacency_matrix=self.data.network.adj_mat,
+                model_by_chain=self.posterior_per_chain,
+                features=self.features,
+                resample_source=self.model.sample_source,
+                resample_source_mode=ResampleSourceMode.GIBBS,
+                sample_from_prior=self.sample_from_prior,
+                w_stay=0.2,
+            ),
+            'cluster_jump': ClusterJump(
+                weight=0.1 * operators_config.clusters,
+                model_by_chain=self.posterior_per_chain,
+                features=self.features,
+                resample_source=True,
+                sample_from_prior=self.sample_from_prior,
+            ),
 
-            operators = {
-                # 'sample_cluster': AlterCluster(
-                #     weight=operators_config.clusters,
-                #     adjacency_matrix=self.data.network.adj_mat,
-                #     p_grow_connected=self.p_grow_connected,
-                #     model_by_chain=self.posterior_per_chain,
-                #     resample_source=self.model.sample_source,
-                #     resample_source_mode=ResampleSourceMode.UNIFORM,
-                #     sample_from_prior=self.sample_from_prior,
-                # ),
+            'gibbs_sample_sources': GibbsSampleSource(
+                weight=0.5*operators_config.source,
+                model_by_chain=self.posterior_per_chain,
+                sample_from_prior=self.sample_from_prior,
+                object_selector=ObjectSelector.RANDOM_SUBSET,
+                max_size=40,
+            ),
+            'gibbs_sample_sources_groups': GibbsSampleSource(
+                weight=0.5*operators_config.source,
+                model_by_chain=self.posterior_per_chain,
+                sample_from_prior=self.sample_from_prior,
+                object_selector=ObjectSelector.GROUPS,
+            ),
 
-                'gibbsish_sample_cluster_1': AlterClusterGibbsish(
-                    weight=0.4 * operators_config.clusters,
-                    adjacency_matrix=self.data.network.adj_mat,
-                    model_by_chain=self.posterior_per_chain,
-                    features=self.features,
-                    resample_source=self.model.sample_source,
-                    resample_source_mode=ResampleSourceMode.GIBBS,
-                    sample_from_prior=self.sample_from_prior,
-                ),
-
-                'gibbsish_sample_cluster_wide': AlterClusterGibbsishWide(
-                    weight=0.5 * operators_config.clusters,
-                    adjacency_matrix=self.data.network.adj_mat,
-                    model_by_chain=self.posterior_per_chain,
-                    features=self.features,
-                    resample_source=self.model.sample_source,
-                    resample_source_mode=ResampleSourceMode.GIBBS,
-                    sample_from_prior=self.sample_from_prior,
-                    w_stay=0.2,
-                ),
-
-                'cluster_jump': ClusterJump(
-                    weight=0.1 * operators_config.clusters,
-                    model_by_chain=self.posterior_per_chain,
-                    features=self.features,
-                    resample_source=self.model.sample_source,
-                    resample_source_mode=ResampleSourceMode.GIBBS,
-                    sample_from_prior=self.sample_from_prior,
-                ),
-
-                'gibbs_sample_sources': GibbsSampleSource(
-                    weight=0.5*operators_config.source,
-                    model_by_chain=self.posterior_per_chain,
-                    sample_from_prior=self.sample_from_prior,
-                    object_selector=ObjectSelector.RANDOM_SUBSET,
-                    max_size=50,
-                ),
-                'gibbs_sample_sources_groups': GibbsSampleSource(
-                    weight=operators_config.source,
-                    model_by_chain=self.posterior_per_chain,
-                    sample_from_prior=self.sample_from_prior,
-                    object_selector=ObjectSelector.GROUPS,
-                ),
-                'gibbs_sample_weights': GibbsSampleWeights(
-                    weight=operators_config.weights,
-                    model_by_chain=self.posterior_per_chain,
-                    sample_from_prior=self.sample_from_prior,
-                ),
-            }
+            'gibbs_sample_weights': GibbsSampleWeights(
+                weight=operators_config.weights,
+                model_by_chain=self.posterior_per_chain,
+                sample_from_prior=self.sample_from_prior,
+            ),
+        }
 
         normalize_operator_weights(operators)
+
         return operators
 
 
