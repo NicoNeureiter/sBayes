@@ -1,4 +1,5 @@
 import multiprocessing
+from copy import deepcopy
 from itertools import product
 
 import argparse
@@ -7,7 +8,7 @@ import tkinter as tk
 from tkinter import filedialog
 
 from sbayes.experiment_setup import Experiment
-from sbayes.util import PathLike
+from sbayes.util import PathLike, update_recursive
 from sbayes.load_data import Data
 from sbayes.mcmc_setup import MCMCSetup
 
@@ -35,14 +36,19 @@ def run_experiment(
     mcmc.log_setup()
     mcmc.sample(run=i_run, resume=resume)
 
+
 def runner(args):
     """A wrapper for `run_experiment` to make it callable using the pool.map interface."""
-    i_run, n_clusters, config, experiment_name, resume = args
+    i_run, n_clusters, config, experiment_name, custom_settings, resume = args
     # run_experiment(config, f"{experiment_name}/K{n_clusters}_{i_run}",
+
+    run_settings = deepcopy(custom_settings) if custom_settings else {}
+    update_recursive(run_settings, {"model": {"clusters": n_clusters}, "mcmc": {"runs": 1}})
+
     run_experiment(
         config=config,
         experiment_name=experiment_name,
-        custom_settings={"model": {"clusters": n_clusters}, "mcmc": {"runs": 1}},
+        custom_settings=run_settings,
         resume=resume,
         i_run=i_run,
     )
@@ -71,9 +77,9 @@ def main(
         n_clusters_range = [n_clusters_range]
 
     # Define configurations for each distinct sBayes run that needs to be executed
-    run_configurations = product(
-        i_run_range, n_clusters_range, [config], [experiment.experiment_name], [resume]
-    )
+    run_configurations = list(product(
+        i_run_range, n_clusters_range, [config], [experiment.experiment_name], [custom_settings], [resume]
+    ))
 
     # Run all configurations sequentially or in parallel
     if processes <= 1:
