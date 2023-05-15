@@ -18,6 +18,7 @@ class TestExperiment(unittest.TestCase):
         "mcmc": {
             "steps": 40,
             "samples": 20,
+            "runs": 2,
             "warmup": {"warmup_steps": 5, "warmup_chains": 2},
         },
     }
@@ -32,7 +33,7 @@ class TestExperiment(unittest.TestCase):
         )
         print("Mobility simulation passed\n")
 
-        custom_settings = TestExperiment.CUSTOM_SETTINGS
+        custom_settings = deepcopy(TestExperiment.CUSTOM_SETTINGS)
         sbayes_main(
             config="experiments/mobility_behaviour/config.json",
             custom_settings=custom_settings,
@@ -43,7 +44,7 @@ class TestExperiment(unittest.TestCase):
     @staticmethod
     def test_south_america_run():
         """Test whether south america case study is running without errors."""
-        custom_settings = TestExperiment.CUSTOM_SETTINGS
+        custom_settings = deepcopy(TestExperiment.CUSTOM_SETTINGS)
         sbayes_main(
             config="experiments/south_america/config.yaml",
             custom_settings=custom_settings,
@@ -56,6 +57,7 @@ class TestExperiment(unittest.TestCase):
         """Test whether sampling from prior is running without errors."""
         custom_settings = deepcopy(TestExperiment.CUSTOM_SETTINGS)
         custom_settings["mcmc"]["sample_from_prior"] = True
+
         sbayes_main(
             config="experiments/mobility_behaviour/config.json",
             custom_settings=custom_settings,

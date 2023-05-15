@@ -20,9 +20,11 @@ from sbayes.experiment_setup import Experiment
 from sbayes.mcmc_setup import MCMCSetup
 from sbayes.model import Model
 from sbayes.results import Results
+from sbayes.sampling.counts import update_feature_counts, recalculate_feature_counts
 from sbayes.sampling.operators import Operator, AlterCluster, AlterClusterGibbsish
 from sbayes.sampling.state import Sample, Clusters
 from sbayes.load_data import Data
+from sbayes.util import normalize
 from .test_model import (
     dummy_features_from_values,
     dummy_universal_confounder,
@@ -239,23 +241,35 @@ class OperatorsTest(unittest.TestCase):
 
     CONFIG_PATH = Path("test/test_files/config.yaml")
     EXPERIMENT_NAME = "operator_test"
+    N_REFERENCE_SAMPLES = 50_000
 
     def run_sbayes(self):
+        """Run a sbayes analysis which generates the samples to be evaluated."""
         experiment = Experiment(config_file=self.CONFIG_PATH, experiment_name=self.EXPERIMENT_NAME, log=True)
         data = Data.from_experiment(experiment)
         mcmc = MCMCSetup(data=data, experiment=experiment)
-        mcmc.warm_up()
         mcmc.sample()
 
         self.data = data
         self.results_path = experiment.path_results
+
+        experiment.close()
 
     def generate_reference_samples(self):
         """Generate reference samples using importance sampling"""
         experiment = Experiment(config_file=self.CONFIG_PATH, experiment_name=self.EXPERIMENT_NAME, log=True)
         data = Data.from_experiment(experiment)
         model = Model(data, experiment.config.model)
-        self.reference_samples = model.prior.generate_samples(100000)
+
+        # Generate reference samples from prior distribution
+        self.reference_samples = model.prior.generate_samples(self.N_REFERENCE_SAMPLES)
+
+        # Assign importance weights according to the likelihood of each sample
+        for sample in self.reference_samples:
+            recalculate_feature_counts(data.features.values, sample)
+            sample.lh = model.likelihood(sample, caching=False)
+        self.ref_lh = np.array([sample.lh for sample in self.reference_samples])
+        self.ref_importance = normalize(np.exp(self.ref_lh))
 
         self.ref_weights = {}
         for i_feat, feat in enumerate(data.features.names):
@@ -272,7 +286,9 @@ class OperatorsTest(unittest.TestCase):
         self.ref_clusters = np.array([
             s.clusters.value
             for s in self.reference_samples
-        ]).transpose((1,0,2))
+        ]).transpose((1, 0, 2))
+
+        experiment.close()
 
     def setUp(self) -> None:
         self.run_sbayes()
@@ -283,37 +299,32 @@ class OperatorsTest(unittest.TestCase):
         self.generate_reference_samples()
 
     def test_everything(self):
-        for k, v in self.results.weights.items():
-            print(f'weights {k}', kstest(v[:, 0], self.ref_weights[k][:, 0]))
+        # for conf_name, conf_eff in self.results.confounding_effects.items():
+        #     for group_name, group_eff in conf_eff.items():
+        #         for feat_name, probs in group_eff.items():
+        #             print(f'pref {conf_name} {group_name} {feat_name}', kstest(probs[:, 0], self.ref_weights[k][:, 0]))
+        #             plt.hist([v[:, 0], self.ref_weights[k][:, 0]], bins=30, density=True)
+        #             plt.show()
 
         n_samples = self.results.n_samples
-        for i, cluster in enumerate(self.results.clusters):
-            print(np.mean(self.ref_clusters[i][:, 0]),
-                  np.mean(cluster[:, 0]))
-            print(np.mean(self.ref_clusters[i][:, 1]),
-                  np.mean(cluster[:, 1]))
-            print(np.mean(self.ref_clusters[i][:, 2]),
-                  np.mean(cluster[:, 2]))
-            print(np.mean(self.ref_clusters[i][:, 3]),
-                  np.mean(cluster[:, 3]))
+        for i_clust, cluster in enumerate(self.results.clusters):
+            for i_obj in range(self.results.n_objects):
+                print(np.mean(self.ref_clusters[i_clust][:, i_obj]),
+                      np.mean(cluster[:, i_obj]))
+                p_value = binom_test(
+                    x=np.sum(cluster[:, i_obj]),
+                    n=n_samples,
+                    # p=self.ref_clusters[i_clust][:, i_obj].mean()
+                    p=self.ref_importance.dot(self.ref_clusters[i_clust][:, i_obj])
+                )
+                print(f'p-value for cluster {i_clust} object {i_obj}:    {p_value:.3f}')
 
-            print(f'cluster {i} object 0',
-                  binom_test(x=np.sum(cluster[:, 0]), n=n_samples, p=np.mean(self.ref_clusters[i][:, 0])))
-                  # binom_test(x=np.sum(cluster[:, 0]), n=n_samples, p=0.5))
-            print(f'cluster {i} object 1',
-                  binom_test(x=np.sum(cluster[:, 1]), n=n_samples, p=np.mean(self.ref_clusters[i][:, 1])))
-                  # binom_test(x=np.sum(cluster[:, 1]), n=n_samples, p=0.5))
-            print(f'cluster {i} object 2',
-                  binom_test(x=np.sum(cluster[:, 2]), n=n_samples, p=np.mean(self.ref_clusters[i][:, 2])))
-                  # binom_test(x=np.sum(cluster[:, 2]), n=n_samples, p=0.5))
-            print(f'cluster {i} object 3',
-                  binom_test(x=np.sum(cluster[:, 3]), n=n_samples, p=np.mean(self.ref_clusters[i][:, 3])))
-                  # binom_test(x=np.sum(cluster[:, 3]), n=n_samples, p=0.5))
-            print(np.mean(self.ref_clusters[i][:, 3]))
-
-
-        # plt.hist([v[:, 0], self.ref_weights[k][:, 0]], bins=30, density=True)
-        # plt.show()
+            p_value_size = binom_test(
+                x=np.sum(cluster),
+                n=n_samples * self.results.n_objects,
+                p=self.ref_clusters[i_clust].mean()
+            )
+            print(f'p-value for cluster {i_clust} size:    {p_value_size:.3f}')
 
 
 

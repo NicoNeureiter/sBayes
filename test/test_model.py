@@ -101,16 +101,23 @@ class TestLikelihood(unittest.TestCase):
         """Test the likelihood of a minimal example. The minimal example only contains
         three objects, and a single fixed binary feature.
         """
-
         # Define the data shapes
         n_objects = 3
         n_features = 1
         n_states = 2
+        n_clusters = 1
+
+        # Define a single Confounder (universal)
+        universal = dummy_universal_confounder(n_objects)
+        confounders = {universal.name: universal}
+
         shapes = ModelShapes(
-            n_clusters=1,
+            n_clusters=n_clusters,
             n_sites=n_objects,
             n_features=n_features,
             n_states=n_states,
+            n_confounders=1,
+            n_groups={universal.name: universal.n_groups},
             states_per_feature=dummy_applicable_states(n_features, n_states),
         )
 
@@ -123,8 +130,6 @@ class TestLikelihood(unittest.TestCase):
         feature_values = np.array([[[1, 0]], [[0, 1]], [[0, 1]]])
         features = dummy_features_from_values(feature_values)
         objects = dummy_objects(n_objects)
-        universal = dummy_universal_confounder(n_objects)
-        confounders = {universal.name: universal}
         data = Data(objects=objects, features=features, confounders=confounders)
 
         # Make sure dimensions match
@@ -133,7 +138,7 @@ class TestLikelihood(unittest.TestCase):
         assert data.features.states.shape == (n_features, n_states)
         assert len(data.objects.id) == n_objects
 
-        source_prior = SourcePrior()
+        source_prior = SourcePrior(na_features=data.features.na_values)
 
         # Create a simple sample
         p_cluster = broadcast_weights([0.0, 1.0], n_features)[np.newaxis,...]
@@ -142,10 +147,11 @@ class TestLikelihood(unittest.TestCase):
         sample = Sample.from_numpy_arrays(
             clusters=np.ones((1, n_objects),  dtype=np.bool),
             weights=broadcast_weights([0.5, 0.5], n_features),
-            cluster_effect=p_cluster,
             confounding_effects={"universal": p_global},
             confounders=confounders,
             source=source,
+            feature_counts={'clusters': np.zeros((n_clusters, n_features, n_states)),
+                            universal.name: np.zeros((universal.n_groups, n_features, n_states))},
         )
 
         """Comment on analytical solutions:

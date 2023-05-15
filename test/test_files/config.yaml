@@ -1,28 +1,25 @@
 mcmc:
-    steps: 10000
-    samples: 1000
+    steps: 600_000
+    samples: 20_000
     runs: 1
     grow_to_adjacent: 0.85
     operators:
         clusters: 40
         weights: 10
-        cluster_effect: 20
-        confounding_effects: 10
+        cluster_effect: 0
+        confounding_effects: 0
         source: 10
     init_objects_per_cluster: 1
     warmup:
         warmup_steps: 50
         warmup_chains: 2
-    sample_from_prior: true
+    sample_from_prior: false
 model:
     clusters: 1
     sample_source: true
     confounders:
-        universal:
-        - "<ALL>"
-        family:
-        - fam1
-        - fam2
+        - universal
+        - family
     prior:
         objects_per_cluster:
             type: uniform_area
@@ -40,7 +37,14 @@ model:
                     type: uniform
             family:
                 fam1:
-                    type: uniform
+                    type: dirichlet
+                    parameters:
+                        F1:
+                            A: 8.0
+                            B: 2.0
+                        F2:
+                            "True": 2.0
+                            "False": 3.0
                 fam2:
                     type: uniform
 data:

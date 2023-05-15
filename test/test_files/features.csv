@@ -3,3 +3,4 @@ l1,language1,fam1,0.0,1.0,A,True
 l2,language2,fam1,0.1,1.1,B,True
 l3,language3,fam2,1.0,0.0,B,False
 l4,language4,fam2,1.1,0.1,B,False
+l5,language5,fam2,0.3,0.8,A,False
