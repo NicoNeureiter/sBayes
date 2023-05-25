@@ -511,7 +511,7 @@ class ClusterOperator(Operator):
         self.n_changes = n_changes
 
     @staticmethod
-    def available(sample: Sample, i_cluster: int):
+    def available(sample: Sample, i_cluster: int) -> NDArray[bool]:
         return (~sample.clusters.any_cluster()) | sample.clusters.value[i_cluster]
 
     @staticmethod
@@ -747,9 +747,9 @@ class ClusterOperator(Operator):
     STEP_SIZE_UNIT: str = "objects reassigned"
 
     def get_parameters(self) -> dict[str, Any]:
-        return super().get_parameters() | {
-            "resample_source_mode": self.resample_source_mode.value,
-        }
+        params = super().get_parameters()
+        params["resample_source_mode"] = self.resample_source_mode.value
+        return params
 
 
 def component_likelihood_given_unchanged(
