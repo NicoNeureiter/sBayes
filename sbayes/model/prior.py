@@ -313,17 +313,19 @@ class ConfoundingEffectsPrior(DirichletPrior):
         if self.any_dynamic_priors:
             universal_prior_counts = self.conf_effect_priors['universal'].concentration_array(sample)[0]
             universal_feature_counts = sample.feature_counts['universal'].value[0]
+            univ_counts = universal_prior_counts + universal_feature_counts
+            mean = normalize(univ_counts, axis=-1)
+            precision = np.minimum(self.precision, univ_counts.sum(axis=-1, keepdims=True))
+
+            # We add 1 to the precision for each possible feature state
+            # TODO: discuss whether this makes sense
+            precision += np.asarray(self.shapes.n_states_per_feature)[:, np.newaxis]
+
+            concentration = mean * precision
+
             for i_g, group in enumerate(self.group_names):
                 if self.config[group].type is self.PriorType.UNIVERSAL:
-                    univ_counts = universal_prior_counts + universal_feature_counts
-                    mean = normalize(univ_counts, axis=-1)
-                    precision = np.minimum(self.precision, univ_counts.sum(axis=-1, keepdims=True))
-
-                    # We add 1 to the precision for each possible feature state
-                    # TODO: discuss whether this makes sense
-                    precision += np.asarray(self.shapes.n_states_per_feature)[:, np.newaxis]
-
-                    self._concentration_array[i_g] = mean * precision
+                    self._concentration_array[i_g] = concentration
 
         return self._concentration_array
 
@@ -737,19 +739,34 @@ class GeoPrior(object):
         cache.update_value(geo_prior)
         return geo_prior
 
-    def get_add_costs(
+    def get_costs_per_object(
         self,
         sample: Sample,
         i_cluster: int,
-    ) -> NDArray[float]:
-        ...
+    ) -> NDArray[float]:  # shape: (n_objects)
+        """Compute the change in the geo-prior (difference in log-probability) when adding each possible object."""
 
-    def get_remove_costs(
-        self,
-        sample: Sample,
-        i_cluster: int,
-    ) -> NDArray[float]:
-        ...
+        if self.prior_type is self.PriorTypes.UNIFORM:
+            # Uniform prior -> no changes in cost possible
+            return np.zeros(sample.n_objects)
+
+        cluster = sample.clusters.value[i_cluster]
+        m = np.count_nonzero(cluster)
+        cost_to_cluster = np.min(self.cost_matrix[cluster], axis=0)
+
+        distances_before = compute_mst_distances(self.cost_matrix[cluster][:, cluster])
+        aggr_cost_before = self.aggregator(distances_before)
+
+        if self.aggregation_policy == self.AggrStrats.MEAN:
+            aggr_cost_after = (cost_to_cluster + m*aggr_cost_before) / (1 + m)
+        elif self.aggregation_policy == self.AggrStrats.SUM:
+            aggr_cost_after = cost_to_cluster + aggr_cost_before
+        elif self.aggregation_policy == self.AggrStrats.MAX:
+            aggr_cost_after = np.maximum(cost_to_cluster, aggr_cost_before)
+        else:
+            raise ValueError(f"Aggregation strategy {self.aggregation_policy} not fully implemented yet.")
+
+        return self.probability_function(aggr_cost_after) - self.probability_function(aggr_cost_before)
 
     def invalid_prior_message(self, s):
         valid_types = ','.join(self.PriorTypes)
@@ -913,25 +930,26 @@ def compute_cost_based_geo_prior(
         float: the log geo-prior of the cluster
     """
     log_prior = 0.0
-    for z in clusters:
-        cost_mat_z = cost_mat[z][:, z]
-
-        if cost_mat_z.shape[0] > 1:
-            graph = csgraph_from_dense(cost_mat_z, null_value=np.inf)
-            mst = minimum_spanning_tree(graph)
-
-            # When there are zero costs between languages the MST might be 0
-            if mst.nnz > 0:
-                distances = mst.tocsr()[mst.nonzero()]
-            else:
-                distances = [0.0]
-        else:
-            raise ValueError("Too few locations to compute distance.")
-
+    for c in clusters:
+        distances = compute_mst_distances(cost_mat[c][:, c])
         agg_distance = aggregator(distances)
         log_prior += probability_function(agg_distance)
 
     return log_prior
+
+
+def compute_mst_distances(cost_mat):
+    if cost_mat.shape[0] <= 1:
+        raise ValueError("Too few locations to compute distance.")
+
+    graph = csgraph_from_dense(cost_mat, null_value=np.inf)
+    mst = minimum_spanning_tree(graph)
+
+    # When there are zero costs between languages the MST might be 0
+    if mst.nnz == 0:
+        return np.zeros(1)
+    else:
+        return mst.tocsr()[mst.nonzero()]
 
 
 def compute_group_effect_prior(
