@@ -122,7 +122,6 @@ class MCMC(ABC):
             # assert log_lh == log_lh_stable, f'{log_lh} != {log_lh_stable}'
 
         sample.last_lh = log_lh
-        # print(log_lh)
         return log_lh
 
     @abstractmethod

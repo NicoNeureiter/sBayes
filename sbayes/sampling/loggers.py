@@ -379,7 +379,10 @@ class OperatorStatsLogger(ResultsLogger):
         total_str = str(operator.total).ljust(cls.COLUMNS["TOTAL"])
         acc_rate_str = f"{operator.acceptance_rate:.2%}".ljust(cls.COLUMNS["ACCEPT-RATE"])
         step_time_str = f"{1000 * np.mean(operator.step_times):.2f} ms".ljust(cls.COLUMNS["STEP-TIME"])
-        step_size_str = f"{np.mean(operator.step_sizes):.2f}".ljust(cls.COLUMNS["STEP-SIZE"])
+        if operator.step_sizes:
+            step_size_str = f"{np.mean(operator.step_sizes):.2f}".ljust(cls.COLUMNS["STEP-SIZE"])
+        else:
+            step_size_str = "-"
         paramters_str = operator.get_parameters_string().ljust(cls.COLUMNS["PARAMETERS"])
 
         return '\t'.join([name_str, acc_str, rej_str, total_str, acc_rate_str, step_time_str, step_size_str, paramters_str])
