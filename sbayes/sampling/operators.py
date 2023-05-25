@@ -92,7 +92,7 @@ class Operator(ABC):
     def register_reject(self, step_time: float):
         self.rejects += 1
         self.step_times.append(step_time)
-        self.step_sizes.append(0)
+        # self.step_sizes.append(0)
 
     @property
     def total(self):
@@ -811,11 +811,13 @@ class AlterClusterGibbsish(ClusterOperator):
         *args,
         adjacency_matrix,
         features: NDArray[bool],
+        consider_geo_prior: bool = False,
         **kwargs,
     ):
         super().__init__(*args, **kwargs)
         self.adjacency_matrix = adjacency_matrix
         self.features = features
+        self.consider_geo_prior = consider_geo_prior
 
     def _propose(self, sample: Sample, **kwargs) -> tuple[Sample, float, float]:
         log_q = 0.
@@ -865,6 +867,9 @@ class AlterClusterGibbsish(ClusterOperator):
         feature_lh_z01 = inner1d(all_lh[np.newaxis, ...], weights_z01)
         marginal_lh_z01 = np.prod(feature_lh_z01, axis=-1)
         cluster_posterior = marginal_lh_z01[1] / (marginal_lh_z01[0] + marginal_lh_z01[1])
+
+        if self.consider_geo_prior:
+            cluster_posterior *= np.exp(model.prior.geo_prior.get_costs_per_object(sample, i_cluster)[available])
 
         return cluster_posterior
 
@@ -938,13 +943,6 @@ class AlterClusterGibbsish(ClusterOperator):
         for obj in new_objects:
             sample_new.clusters.add_object(i_cluster, obj)
 
-        # The removal probability of an inverse step
-        shrink_candidates = self.shrink_candidates(sample_new, i_cluster)
-        p_remove = normalize((1 - cluster_posterior) * shrink_candidates)
-
-        log_q = np.log(p_add[new_objects]).sum()
-        log_q_back = np.log(p_remove[new_objects]).sum()
-
         if self.resample_source and sample.source is not None:
             sample_new, log_q_s, log_q_back_s = self.propose_new_sources(
                 sample_old=sample,
@@ -952,8 +950,17 @@ class AlterClusterGibbsish(ClusterOperator):
                 i_cluster=i_cluster,
                 object_subset=new_objects,
             )
-            log_q += log_q_s
-            log_q_back += log_q_back_s
+        else:
+            log_q_s = log_q_back_s = 0
+
+        # The removal probability of an inverse step
+        cluster_posterior_back = np.zeros(sample_new.n_objects)
+        cluster_posterior_back[available] = self.compute_cluster_posterior(sample_new, i_cluster, available)
+        shrink_candidates = self.shrink_candidates(sample_new, i_cluster)
+        p_remove = normalize((1 - cluster_posterior_back) * shrink_candidates)
+
+        log_q = np.log(p_add[new_objects]).sum() + log_q_s
+        log_q_back = np.log(p_remove[new_objects]).sum() + log_q_back_s
 
         return sample_new, log_q, log_q_back
 
@@ -995,13 +1002,6 @@ class AlterClusterGibbsish(ClusterOperator):
         for obj in removed_objects:
             sample_new.clusters.remove_object(i_cluster, obj)
 
-        # The add probability of an inverse step
-        grow_candidates = self.grow_candidates(sample_new)
-        p_add = normalize(cluster_posterior * grow_candidates)
-
-        log_q = np.log(p_remove[removed_objects]).sum()
-        log_q_back = np.log(p_add[removed_objects]).sum()
-
         if self.resample_source and sample.source is not None:
             sample_new, log_q_s, log_q_back_s = self.propose_new_sources(
                 sample_old=sample,
@@ -1009,17 +1009,108 @@ class AlterClusterGibbsish(ClusterOperator):
                 i_cluster=i_cluster,
                 object_subset=removed_objects,
             )
-            log_q += log_q_s
-            log_q_back += log_q_back_s
+        else:
+            log_q_s = log_q_back_s = 0
+
+        # The add probability of an inverse step
+        cluster_posterior_back = np.zeros(sample_new.n_objects)
+        cluster_posterior_back[available] = self.compute_cluster_posterior(sample_new, i_cluster, available)
+        grow_candidates = self.grow_candidates(sample_new)
+        p_add = normalize(cluster_posterior_back * grow_candidates)
+
+        log_q = np.log(p_remove[removed_objects]).sum() + log_q_s
+        log_q_back = np.log(p_add[removed_objects]).sum() + log_q_back_s
 
         return sample_new, log_q, log_q_back
 
     def get_parameters(self) -> dict[str, Any]:
-        return super().get_parameters() | {
-            "n_changes": self.n_changes,
-            # "p_grow_connected": self.p_grow_connected,
-            # "resample_source_mode": self.resample_source_mode.value,
-        }
+        params = super().get_parameters()
+        params["n_changes"] = self.n_changes
+        if self.consider_geo_prior:
+            params["consider_geo_prior"] = True
+        return params
+
+
+class ClusterEffectProposals:
+
+    @staticmethod
+    def gibbs(model: Model, sample: Sample, i_cluster: int) -> NDArray[float]:
+        return conditional_effect_mean(
+            prior_counts=model.prior.prior_cluster_effect.concentration_array,
+            feature_counts=sample.feature_counts['clusters'].value[[i_cluster]]
+        )
+
+    @staticmethod
+    def residual(model: Model, sample: Sample, i_cluster: int) -> NDArray[float]:
+        features = model.data.features.values
+        free_objects = ~sample.clusters.any_cluster()
+
+        # Create counts in free objects
+        prior_counts = model.prior.prior_cluster_effect.concentration_array
+        feature_counts = features[free_objects].sum(axis=0)
+
+        # The expected effect is given by the normalized posterior counts
+        return normalize(feature_counts + prior_counts, axis=-1)
+
+    @staticmethod
+    def residual4(model: Model, sample: Sample, i_cluster: int) -> NDArray[float]:
+        features = model.data.features.values
+        free_objects = ~sample.clusters.any_cluster()
+
+        # Create counts in free objects
+        prior_counts = model.prior.prior_cluster_effect.concentration_array
+        exp_counts_conf = ClusterEffectProposals.expected_confounder_features(model, sample)
+        residual_features = features[free_objects] - exp_counts_conf[free_objects]
+        residual_counts = residual_features.clip(0).sum(axis=0)
+
+        # Create counts in free objects
+        prior_counts = model.prior.prior_cluster_effect.concentration_array
+        exp_counts_conf = ClusterEffectProposals.expected_confounder_features(model, sample)
+        residual_features = features[free_objects] - exp_counts_conf[free_objects]
+        residual_counts = residual_features.clip(0).sum(axis=0)
+
+        # The expected effect is given by the normalized posterior counts
+        return normalize(residual_counts + prior_counts, axis=-1)
+
+    @staticmethod
+    def residual_counts(model: Model, sample: Sample, i_cluster: int) -> NDArray[float]:
+        features = model.data.features.values
+
+        cluster = sample.clusters.value[i_cluster]
+        size = np.count_nonzero(cluster)
+        free_objects = (~sample.clusters.any_cluster()) | cluster
+        n_free = np.count_nonzero(free_objects)
+
+        # Create counts in free objects
+        prior_counts = model.prior.prior_cluster_effect.concentration_array
+        exp_counts_conf = ClusterEffectProposals.expected_confounder_features(model, sample)
+        residual_features = np.clip(features[free_objects] - exp_counts_conf[free_objects], 0, None)
+        residual_counts = np.sum(residual_features, axis=0)
+
+        # The expected effect is given by the normalized posterior counts
+        p = normalize(residual_counts + prior_counts, axis=-1)
+
+        # Only consider objects with likelihood contribution above median
+        lh = np.sum(p * residual_features, axis=(1,2))
+        relevant = lh >= np.quantile(lh, 1-size/n_free)
+        residual_counts = np.sum(residual_features[relevant], axis=0)
+
+        # The expected effect is given by the normalized posterior counts
+        return normalize(residual_counts + prior_counts, axis=-1)
+
+    @staticmethod
+    def expected_confounder_features(model: Model, sample: Sample) -> NDArray[float]:
+        expected_features = np.zeros((sample.n_objects, sample.n_features, sample.n_states))
+        weights = update_weights(sample, caching=False)
+        confounders = model.data.confounders
+        for i_comp, (name_conf, conf) in enumerate(confounders.items(), start=1):
+            prior_counts = model.prior.prior_confounding_effects[name_conf].concentration_array(sample)
+
+            p_conf = normalize(conf.feature_counts + prior_counts, axis=-1)  # (n_features, n_states)
+            for i_g, g in enumerate(conf.group_assignment):
+                expected_features[g] += weights[g, :, [i_comp], None] * p_conf[np.newaxis, i_g, ...]
+
+        return expected_features
 
 
 class AlterClusterGibbsishWide(AlterClusterGibbsish):
@@ -1028,33 +1119,61 @@ class AlterClusterGibbsishWide(AlterClusterGibbsish):
         self,
         *args,
         w_stay: float = 0.1,
+        cluster_effect_proposal: callable = ClusterEffectProposals.gibbs,
         **kwargs,
     ):
         super().__init__(*args, **kwargs)
         self.w_stay = w_stay
-        self.eps = 0.0000001
+        self.eps = 0.001
+        self.cluster_effect_proposal = cluster_effect_proposal
 
-    def get_proposal_cluster_effect(self, sample, i_cluster, available):
+    def get_cluster_membership_proposal(self, sample, i_cluster, available):
         cluster = sample.clusters.value[i_cluster]
-        p = self.compute_cluster_posterior(sample, i_cluster, available)
+        p = self.compute_cluster_probs(sample, i_cluster, available)
 
         # For more local steps: proposal is a mixture of posterior and current cluster
         p = (1 - self.w_stay) * normalize(p + self.eps) + self.w_stay * normalize(cluster[available])
 
-        # Expected size is the same as current size
+        # Expected size should be the same as current size
         old_size = np.sum(cluster[available])
-        p = normalize(p) * old_size
-        p = p.clip(self.eps, 1-self.eps)
-
+        new_expected_size = np.sum(p)
         for _ in range(10):
-            new_expected_size = np.sum(p)
-
-            if new_expected_size > 0.975 * old_size:
-                break
             p = p * old_size / new_expected_size
             p = p.clip(self.eps, 1-self.eps)
 
+            new_expected_size = np.sum(p)
+            if new_expected_size > 0.975 * old_size:
+                break
+
         return p
+
+    def compute_cluster_probs(
+        self,
+        sample: Sample,
+        i_cluster: int,
+        available: NDArray[bool],
+    ) -> NDArray[float]:  # shape: (n_available, )
+        model = self.model_by_chain[sample.chain]
+
+        if self.sample_from_prior:
+            n_available = np.count_nonzero(available)
+            return 0.5*np.ones(n_available)
+
+        p = self.cluster_effect_proposal(model, sample, i_cluster)
+
+        cluster_lh_z = inner1d(self.features[available], p)
+        all_lh = deepcopy(likelihood_per_component(model, sample, caching=True)[available, :])
+        all_lh[..., 0] = cluster_lh_z
+
+        weights_z01 = self.compute_feature_weights_with_and_without(sample, available)
+        feature_lh_z01 = inner1d(all_lh[np.newaxis, ...], weights_z01)
+        marginal_lh_z01 = np.prod(feature_lh_z01, axis=-1)
+        cluster_posterior = marginal_lh_z01[1] / (marginal_lh_z01[0] + marginal_lh_z01[1])
+
+        if self.consider_geo_prior:
+            cluster_posterior *= np.exp(model.prior.geo_prior.get_costs_per_object(sample, i_cluster)[available])
+
+        return cluster_posterior
 
     def _propose(self, sample: Sample, **kwargs) -> tuple[Sample, float, float]:
         sample_new = sample.copy()
@@ -1064,7 +1183,7 @@ class AlterClusterGibbsishWide(AlterClusterGibbsish):
         n_available = np.count_nonzero(available)
         model = self.model_by_chain[sample.chain]
 
-        p = self.get_proposal_cluster_effect(sample, i_cluster, available)
+        p = self.get_cluster_membership_proposal(sample, i_cluster, available)
 
         cluster_new = (RNG.random(n_available) < p)
         if not (model.min_size <= np.count_nonzero(cluster_new) <= model.max_size):
@@ -1087,7 +1206,7 @@ class AlterClusterGibbsishWide(AlterClusterGibbsish):
             i_cluster=i_cluster, object_subset=changed,
         )
 
-        p_back = self.get_proposal_cluster_effect(sample_new, i_cluster, available)
+        p_back = self.get_cluster_membership_proposal(sample_new, i_cluster, available)
         q_back_per_site = p_back * cluster_old[available] + (1 - p_back) * (1 - cluster_old[available])
         log_q_back = np.log(q_back_per_site).sum()
 
@@ -1103,6 +1222,7 @@ class AlterClusterGibbsishWide(AlterClusterGibbsish):
         params = super().get_parameters()
         params.pop("n_changes")
         params["w_stay"] = self.w_stay
+        params["cluster_effect_proposal"] = self.cluster_effect_proposal.__name__
         return params
 
 
