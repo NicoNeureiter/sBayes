@@ -347,7 +347,7 @@ class ClusterMCMC(MCMC):
                 n_changes=1,
             ),
             'gibbsish_sample_cluster_geo': AlterClusterGibbsish(
-                weight=0.3 * operators_config.clusters,
+                weight=0.2 * operators_config.clusters,
                 adjacency_matrix=self.data.network.adj_mat,
                 model_by_chain=self.posterior_per_chain,
                 features=self.features,
@@ -385,6 +385,15 @@ class ClusterMCMC(MCMC):
                 features=self.features,
                 resample_source=True,
                 sample_from_prior=self.sample_from_prior,
+                gibbsish=False
+            ),
+            'cluster_jump_gibbsish': ClusterJump(
+                weight=0.1 * operators_config.clusters,
+                model_by_chain=self.posterior_per_chain,
+                features=self.features,
+                resample_source=True,
+                sample_from_prior=self.sample_from_prior,
+                gibbsish=True
             ),
 
             'gibbs_sample_sources': GibbsSampleSource(
