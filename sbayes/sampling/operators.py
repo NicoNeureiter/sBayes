@@ -537,14 +537,12 @@ class ClusterOperator(Operator):
         features = self.model_by_chain[sample_old.chain].data.features.values
         na_features = self.model_by_chain[sample_old.chain].data.features.na_values
 
-        MODE = self.resample_source_mode
-
-        if MODE == ResampleSourceMode.GIBBS:
+        if self.resample_source_mode == ResampleSourceMode.GIBBS:
             sample_new, log_q, log_q_back = self.gibbs_sample_source(
                 sample_new, sample_old, i_cluster, object_subset=object_subset
             )
 
-        elif MODE == ResampleSourceMode.PRIOR:
+        elif self.resample_source_mode == ResampleSourceMode.PRIOR:
             p = update_weights(sample_new)[object_subset]
             p_back = update_weights(sample_old)[object_subset]
             with sample_new.source.edit() as source:
@@ -560,7 +558,7 @@ class ClusterOperator(Operator):
             if DEBUG:
                 verify_counts(sample_new, features)
 
-        elif MODE == ResampleSourceMode.UNIFORM:
+        elif self.resample_source_mode == ResampleSourceMode.UNIFORM:
             has_components_new = sample_new.cache.has_components.value
             p = normalize(
                 np.tile(has_components_new[object_subset, None, :], (1, n_features, 1))
@@ -582,7 +580,7 @@ class ClusterOperator(Operator):
             if DEBUG:
                 verify_counts(sample_new, features)
         else:
-            raise ValueError(f"Invalid mode `{MODE}`. Choose from (gibbs, prior and uniform)")
+            raise ValueError(f"Invalid resample_source_mode `{self.resample_source_mode}` is not implemented.")
 
         return sample_new, log_q, log_q_back
 
@@ -1375,6 +1373,43 @@ class AlterCluster(ClusterOperator):
 
 class ClusterJump(ClusterOperator):
 
+    def __init__(
+        self,
+        *args,
+        gibbsish: bool = True,
+        **kwargs,
+    ):
+        super().__init__(*args, **kwargs)
+        self.gibbsish = gibbsish
+
+    def get_jump_lh(self, sample: Sample, i_source_cluster: int, i_target_cluster: int) -> NDArray[float]:
+        model = self.model_by_chain[sample.chain]
+        features = model.data.features.values
+        source_cluster = sample.clusters.value[i_source_cluster]
+        w_clust = update_weights(sample)[source_cluster, :, 0]
+
+        p_clust_source = conditional_effect_mean(
+            prior_counts=model.prior.prior_cluster_effect.concentration_array,
+            feature_counts=sample.feature_counts['clusters'].value[[i_source_cluster]]
+        )
+        p_clust_target = conditional_effect_mean(
+            prior_counts=model.prior.prior_cluster_effect.concentration_array,
+            feature_counts=sample.feature_counts['clusters'].value[[i_target_cluster]]
+        )
+        p_conf = ClusterEffectProposals.expected_confounder_features(model, sample)[source_cluster]
+
+        p_total_source = p_conf + w_clust[..., np.newaxis] * p_clust_source
+        p_total_target = p_conf + w_clust[..., np.newaxis] * p_clust_target
+
+        lh_stay_per_feature = np.sum(features[source_cluster] * p_total_source, axis=-1)
+        lh_stay = np.prod(lh_stay_per_feature, axis=-1,
+                          where=~model.data.features.na_values[source_cluster])
+        lh_jump_per_feature = np.sum(features[source_cluster] * p_total_target, axis=-1)
+        lh_jump = np.prod(lh_jump_per_feature, axis=-1,
+                          where=~model.data.features.na_values[source_cluster])
+
+        return lh_jump / (lh_jump + lh_stay)
+
     def _propose(self, sample: Sample, **kwargs) -> tuple[Sample, float, float]:
         """Reassign an object from one cluster to another."""
         sample_new = sample.copy()
@@ -1393,13 +1428,14 @@ class ClusterJump(ClusterOperator):
             return sample, self.Q_REJECT, self.Q_BACK_REJECT
 
         # Choose a random candidate and add it to the cluster
-        jumping_object = RNG.choice(source_cluster.nonzero()[0])
+        if self.gibbsish:
+            p_jump = normalize(self.get_jump_lh(sample, i_source_cluster, i_target_cluster))
+        else:
+            p_jump = np.ones(source_size) / source_size
+
+        jumping_object = RNG.choice(np.flatnonzero(source_cluster), p=p_jump)
         sample_new.clusters.remove_object(i_source_cluster, jumping_object)
         sample_new.clusters.add_object(i_target_cluster, jumping_object)
-
-        # Transition probabilities
-        log_q = np.log(1 / source_size)
-        log_q_back = np.log(1 / (1 + target_size))
 
         if self.resample_source and sample.source is not None:
             sample_new, log_q_s, log_q_back_s = self.gibbs_sample_source_jump(
@@ -1409,10 +1445,21 @@ class ClusterJump(ClusterOperator):
                 i_cluster_old=i_source_cluster,
                 object_subset=[jumping_object],
             )
-            log_q += log_q_s
-            log_q_back += log_q_back_s
         else:
             update_feature_counts(sample, sample_new, model.data.features.values, [jumping_object])
+            log_q_s = log_q_back_s = 0
+
+        if self.gibbsish:
+            p_jump_back = normalize(self.get_jump_lh(sample_new, i_target_cluster, i_source_cluster))
+        else:
+            p_jump_back = np.ones(target_size+1) / (target_size+1)
+
+        # Transition probabilities
+        new_source_cluster = sample_new.clusters.value[i_target_cluster, :]
+        i_forward = np.flatnonzero(source_cluster).tolist().index(jumping_object)
+        i_back = np.flatnonzero(new_source_cluster).tolist().index(jumping_object)
+        log_q = np.log(p_jump[i_forward]) + log_q_s
+        log_q_back = np.log(p_jump_back[i_back]) + log_q_back_s
 
         return sample_new, log_q, log_q_back
 
@@ -1467,6 +1514,7 @@ class ClusterJump(ClusterOperator):
         log_q_back = np.log(p_back[source_old]).sum()
 
         return sample_new, log_q, log_q_back
+
 
 class OperatorSchedule:
     RW_OPERATORS_BY_NAMES = {
