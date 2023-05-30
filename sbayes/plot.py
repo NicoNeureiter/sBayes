@@ -16,6 +16,9 @@ try:
 except ImportError:
     import importlib_resources as pkg_resources     # PYTHON < 3.7
 
+# Disable PyGEOS for geo-pandas (will be deprecated soon)
+os.environ['USE_PYGEOS'] = '0'
+
 import pandas as pd
 import geopandas as gpd
 import matplotlib as mpl
@@ -47,10 +50,11 @@ from sbayes.util import parse_cluster_columns
 from sbayes.util import read_data_csv
 from sbayes.util import PathLike
 from sbayes.load_data import Objects
-from sbayes import config as config_package
 from sbayes import maps as maps_package
 
-DEFAULT_CONFIG = json.loads(pkg_resources.read_text(config_package, 'default_config_plot.json'))
+
+default_config_text = pkg_resources.files('sbayes.config').joinpath('default_config_plot.json').read_text()
+DEFAULT_CONFIG = json.loads(default_config_text)
 
 
 class Plot:
@@ -92,7 +96,7 @@ class Plot:
         self.results: typ.Dict[str, Results] = {}
 
         # Needed for the weights and parameters plotting
-        plt.style.use('seaborn-paper')
+        plt.style.use('seaborn-v0_8-paper')
         # plt.tight_layout()
 
     ####################################
@@ -254,7 +258,7 @@ class Plot:
     def get_extent(cfg_geo, locations):
         if not cfg_geo['extent']['x']:
             x_min, x_max = np.min(locations[:, 0]), np.max(locations[:, 0])
-            x_offset = (x_max - x_min) * 0.3
+            x_offset = (x_max - x_min) * 0.1
             x_min = x_min - x_offset
             x_max = x_max + x_offset
         else:
@@ -417,7 +421,6 @@ class Plot:
 
     @staticmethod
     def initialize_map(locations, cfg_graphic, ax):
-
         ax.scatter(*locations.T, s=cfg_graphic['languages']['size'],
                    color=cfg_graphic['languages']['color'], linewidth=0)
 
@@ -1089,6 +1092,7 @@ class Plot:
         mean_weights: bool = False,
         plot_samples: bool = False,
         lw: float | None = None,
+        color: str | tuple | None = None,
     ):
         """Plot a set of weight vectors in a 2D representation of the probability simplex.
 
@@ -1100,61 +1104,88 @@ class Plot:
             mean_weights: Plot the mean of the weights?
             plot_samples: Add a scatter plot overlay of the actual samples?
             lw: Line width of the triangular border delineating the probability simplex.
+            color: The fill-color for 2D weights plots.
         """
+        title = cfg_legend['title']
+        labels = cfg_legend['labels']
 
         if ax is None:
             ax = plt.gca()
 
         n_samples, n_weights = samples.shape
 
-        # Compute corners
-        corners = Plot.get_corner_points(n_weights)
+        if n_weights == 2:
+            if color is None:
+                color = 'g'
 
-        # Bounding box
-        xmin, ymin = np.min(corners, axis=0)
-        xmax, ymax = np.max(corners, axis=0)
+            x = samples.T[1]
+            sns.kdeplot(x, color=color, ax=ax, fill=True, lw=1, clip=(0, 1))
+            ax.axes.get_yaxis().set_visible(False)
 
-        # Project the samples
-        samples_projected = samples.dot(corners)
+            if labels['add']:
+                # TODO use component names from Results and define name -> label mapping in config
+                for x, label in enumerate(labels['names'][:n_weights]):
+                    x = np.clip(x, 0.05, 0.95)
+                    ax.text(x, -0.05, label, ha='center', va='top',
+                             fontdict={'fontsize': labels['font_size']}, transform=ax.transAxes)
+            if title['add']:
+                ax.text(title['position'][0], title['position'][1],
+                         str(feature), fontsize=title['font_size'], fontweight='bold', transform=ax.transAxes)
 
-        # Density and scatter plot
-        title = cfg_legend['title']
-        if title['add']:
-            # ax.set_title(str(feature), pad=15,
-            #              fontdict={'fontweight': 'bold', 'fontsize': title['font_size']})
-            ax.text(
-                title['position'][0], title['position'][1], str(feature),
-                fontdict={'fontweight': 'bold', 'fontsize': title['font_size']},
-                transform=ax.transAxes
-            )
+            ax.plot([0, 1], [0, 0], lw=1, color=color, clip_on=False)
 
-        x = samples_projected.T[0]
-        y = samples_projected.T[1]
+            ax.set_ylim(0, None)
+            ax.set_xlim(-0.01, 1.01)
+            ax.axis('off')
 
-        sns.kdeplot(x=x, y=y, shade=True,  cut=30, n_levels=20,
-                    clip=([xmin, xmax], [ymin, ymax]), cmap=Plot.pref_color_map, ax=ax)
+        elif n_weights > 2:
+            # Compute corners
+            corners = Plot.get_corner_points(n_weights)
 
-        if plot_samples:
-            ax.scatter(x, y, color='k', lw=0, s=1, alpha=0.2)
+            # Bounding box
+            xmin, ymin = np.min(corners, axis=0)
+            xmax, ymax = np.max(corners, axis=0)
 
-        # Draw simplex and crop outside
-        ax.fill(*corners.T, edgecolor='k', fill=False, lw=lw)
-        Plot.fill_outside(corners, color='w', ax=ax)
+            # Project the samples
+            samples_projected = samples.dot(corners)
 
-        if mean_weights:
-            mean_projected = np.mean(samples, axis=0).dot(corners)
-            ax.scatter(*mean_projected.T, color="#ed1696", lw=0, s=50, marker="o")
+            # Density and scatter plot
+            if title['add']:
+                # ax.set_title(str(feature), pad=15,
+                #              fontdict={'fontweight': 'bold', 'fontsize': title['font_size']})
+                ax.text(
+                    title['position'][0], title['position'][1], str(feature),
+                    fontdict={'fontweight': 'bold', 'fontsize': title['font_size']},
+                    transform=ax.transAxes
+                )
 
-        labels = cfg_legend['labels']
+            x = samples_projected.T[0]
+            y = samples_projected.T[1]
 
-        if labels['add']:
-            for xy, label in zip(corners, labels['names']):
-                xy = xy*1.15 - 0.05  # Stretch, s.t. labels don't overlap with corners
-                ax.text(*xy, label, ha='center', va='center', fontdict={'fontsize': labels['font_size']})
+            sns.kdeplot(x=x, y=y, fill=True,  cut=30, n_levels=20,
+                        clip=([xmin, xmax], [ymin, ymax]), cmap=Plot.pref_color_map, ax=ax)
 
-        ax.set_xlim([xmin - 0.1, xmax + 0.1])
-        ax.set_ylim([ymin - 0.1, ymax + 0.1])
-        ax.axis('off')
+            if plot_samples:
+                ax.scatter(x, y, color='k', lw=0, s=1, alpha=0.2)
+
+            # Draw simplex and crop outside
+            ax.fill(*corners.T, edgecolor='k', fill=False, lw=lw)
+            Plot.fill_outside(corners, color='w', ax=ax)
+
+            if mean_weights:
+                mean_projected = np.mean(samples, axis=0).dot(corners)
+                ax.scatter(*mean_projected.T, color="#ed1696", lw=0, s=50, marker="o")
+
+            if labels['add']:
+                for xy, label in zip(corners, labels['names']):
+                    xy = xy*1.15 - 0.05  # Stretch, s.t. labels don't overlap with corners
+                    ax.text(*xy, label, ha='center', va='center', fontdict={'fontsize': labels['font_size']})
+
+            ax.set_xlim(xmin - 0.1, xmax + 0.1)
+            ax.set_ylim(ymin - 0.1, ymax + 0.1)
+            ax.axis('off')
+        else:
+            raise ValueError("Cannot plot weights for a single mixture component (i.e. no confounders).")
 
     @staticmethod
     def plot_preference(samples, feature, cfg_legend, label_names, ax=None, plot_samples=False, color=None):
@@ -1224,8 +1255,12 @@ class Plot:
             x = samples_projected.T[0]
             y = samples_projected.T[1]
 
-            sns.kdeplot(x=x, y=y, shade=True, thresh=0, cut=30, n_levels=100, ax=ax,
-                        clip=([xmin, xmax], [ymin, ymax]), cmap=Plot.pref_color_map)
+            try:
+                sns.kdeplot(x=x, y=y, fill=True, thresh=0, cut=30, n_levels=100, ax=ax,
+                            clip=([xmin, xmax], [ymin, ymax]), cmap=Plot.pref_color_map)
+            except ValueError as e:
+                print(e)
+                return
 
             if plot_samples:
                 ax.scatter(x, y, color='k', lw=0, s=1, alpha=0.05)
@@ -1254,7 +1289,7 @@ class Plot:
     def plot_weights(self, results: Results, file_name: PathLike):
         print('Plotting weights...')
 
-        cfg_weights = self.config['weight_plot']
+        cfg_weights = self.config['weights_plot']
         feature_subset = cfg_weights['content']['features']
         weights = results.weights
         if feature_subset:
@@ -1297,10 +1332,11 @@ class Plot:
         self,
         results: Results,
         feature_name: str,
-        # file_name: PathLike,
+        file_name: PathLike,
     ):
         n_components = 1 + results.n_confounders
         max_groups = max(len(groups) for groups in results.groups_by_confounders.values())
+        max_groups = max(max_groups, results.n_clusters)
         fig, axes = plt.subplots(nrows=n_components, ncols=2 + max_groups,
                                  figsize=(4 + max_groups, 2 + n_components),
                                  gridspec_kw={'width_ratios': [1.8, .8] + [1]*max_groups})
@@ -1319,12 +1355,12 @@ class Plot:
 
         self.plot_weight(
             samples=results.weights[feature_name],
-            # feature='weights',
             feature='',
             cfg_legend=self.config['feature_plot']['legend'],
             mean_weights=True,
             ax=axes[n_components // 2, 0],
             lw=.8,
+            color='#005570',
         )
 
         preferences = {
@@ -1351,9 +1387,11 @@ class Plot:
                     color='#005570',
                 )
 
-
-
-        plt.show()
+        # plt.show()
+        file_format = self.config['feature_plot']['output']['format']
+        resolution = self.config['feature_plot']['output']['resolution']
+        plt.savefig(self.path_plots / f'{file_name}.{file_format}',
+                    bbox_inches='tight', dpi=resolution, format=file_format)
 
     # This is not changed yet
     def plot_preferences(self, results: Results, file_name: str):
@@ -1836,11 +1874,13 @@ def main(config, plot_types: list[PlotType] = None, args: Namespace = None):
 
         # if should_be_plotted(PlotType.feature_plot):
         if should_be_plotted(PlotType.feature_plot):
-            if args.feature_name is None:
-                logging.warning("Skipping 'feature_plot', since not feature_name was provided.")
-                # TODO: If feature_name is None, iterate over all features and save to file.
+            if args.feature_name:
+                features = [args.feature_name]
             else:
-                plot.plot_weights_and_prefs(results, args.feature_name)
+                features = results.feature_names
+
+            for f in features:
+                plot.plot_weights_and_prefs(results, f, file_name=f'feature_plot_{m}_{f}')
 
     # Plot DIC over all models
     if should_be_plotted(PlotType.dic_plot):
@@ -1851,10 +1891,10 @@ def plot_map(plot: Plot, results: Results, m: str):
     config_map = plot.config['map']
     map_type = config_map['content']['type']
 
-    if map_type == config_map['content']['type'] == 'density_map':
+    if map_type == 'density_map':
         plot.posterior_map(results, file_name='posterior_map_' + m)
 
-    elif map_type == config_map['content']['type'] == 'consensus_map':
+    elif map_type == 'consensus_map':
         min_posterior_frequency = config_map['content']['min_posterior_frequency']
         if min_posterior_frequency in [tuple, list, set]:
             for mpf in min_posterior_frequency:
