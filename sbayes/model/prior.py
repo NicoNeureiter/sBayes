@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 
+from functools import lru_cache
 from typing import List, Sequence, Callable, Optional, OrderedDict
 import json
 
@@ -13,7 +14,7 @@ from scipy.sparse.csgraph import minimum_spanning_tree, csgraph_from_dense
 
 from sbayes.model.likelihood import update_weights, ModelShapes, normalize_weights
 from sbayes.preprocessing import sample_categorical
-from sbayes.sampling.state import Sample
+from sbayes.sampling.state import Sample, Clusters
 from sbayes.util import (compute_delaunay, n_smallest_distances, log_multinom,
                          dirichlet_logpdf, log_expit, PathLike, log_binom, normalize)
 from sbayes.config.config import PriorConfig, DirichletPriorConfig, GeoPriorConfig, ClusterSizePriorConfig, \
@@ -523,28 +524,36 @@ class SourcePrior:
         Returns:
             Logarithm of the prior probability density.
         """
+
         cache = sample.cache.source_prior
-        # if caching and not cache.is_outdated():
-        #     return cache.value
+        if caching and not cache.is_outdated():
+            return cache.value.sum()
 
-        weights = update_weights(sample)
-        is_source = np.where(sample.source.value[self.valid_observations].ravel())
-        observation_weights = weights[self.valid_observations].ravel()[is_source]
-        source_prior = np.log(observation_weights).sum()
+        with cache.edit() as source_prior:
+            if cache.ahead_of("clusters") or cache.ahead_of("weights"):
+                changed = list(range(sample.n_objects))
+            else:
+                changed = cache.what_changed(input_key=["source"], caching=caching)
 
-        cache.update_value(source_prior)
-        return source_prior
+            if changed:
+                w = update_weights(sample)[changed]
+                s = sample.source.value[changed]
+                observation_weights = np.sum(w*s, axis=-1)
+                source_prior[changed] = np.sum(np.log(observation_weights), axis=-1, where=self.valid_observations[changed])
 
-    def old_source_prior(self, sample):
+        return cache.value.sum()
+
+    @staticmethod
+    def old_source_prior(sample: Sample) -> float:
         weights = update_weights(sample)
         is_source = np.where(sample.source.value.ravel())
         observation_weights = weights.ravel()[is_source]
         return np.log(observation_weights).sum()
 
+    @staticmethod
     def generate_sample(
-            self,
-            weights: NDArray[float],
-            has_components: NDArray[bool],
+        weights: NDArray[float],
+        has_components: NDArray[bool],
     ) -> NDArray[float]:  # shape: (n_objects, n_features)
         p = normalize_weights(weights, has_components)
         return sample_categorical(p, binary_encoding=True)
@@ -659,10 +668,8 @@ class GeoPrior(object):
 
         self.parse_attributes(config)
 
-        self.mean_edge_length = float(np.mean(
-            network.dist_mat,
-            where=network.adj_mat.toarray().astype(bool)
-        ))
+        # x = network.dist_mat[network.adj_mat.nonzero()].mean()
+        self.mean_edge_length = compute_mst_distances(network.dist_mat).mean()
 
     def parse_attributes(self, config: GeoPriorConfig):
         if self.prior_type is config.Types.COST_BASED:
@@ -707,37 +714,34 @@ class GeoPrior(object):
         Returns:
             Logarithm of the prior probability density
         """
+        if self.prior_type is self.PriorTypes.UNIFORM:
+            return 0.0
+
         cache = sample.cache.geo_prior
         if caching and not cache.is_outdated():
-            return cache.value
+            return cache.value.sum()
 
-        if self.prior_type is self.PriorTypes.UNIFORM:
-            geo_prior = 0.
-        elif self.prior_type is self.PriorTypes.COST_BASED:
-            geo_prior = compute_cost_based_geo_prior(
-                clusters=sample.clusters.value,
-                cost_mat=self.cost_matrix,
-                aggregator=self.aggregator,
-                probability_function=self.probability_function,
-            )
-        elif self.prior_type is self.PriorTypes.DIAMETER_BASED:
-            geo_prior = compute_diameter_based_geo_prior(
-                clusters=sample.clusters.value,
-                cost_mat=self.cost_matrix,
-                aggregator=self.aggregator,
-                probability_function=self.probability_function,
-            )
-        elif self.prior_type is self.PriorTypes.SIMULATED:
-            geo_prior = compute_simulation_based_geo_prior(
-                clusters=sample.clusters.value,
-                cost_mat=self.cost_matrix,
-                mean_edge_length=self.mean_edge_length,
-            )
-        else:
-            raise ValueError('geo_prior must be either \"uniform\" or \"cost_based\".')
+        with cache.edit() as geo_priors:
+            for i_c in cache.what_changed("clusters", caching=caching):
+                c = sample.clusters.value[i_c]
+                cost_mat_c = self.cost_matrix[c][:, c]
+                n = np.count_nonzero(c)
 
-        cache.update_value(geo_prior)
-        return geo_prior
+                if self.prior_type is self.PriorTypes.COST_BASED:
+                    distances = compute_mst_distances(cost_mat_c)
+                    agg_distance = self.aggregator(distances)
+                    geo_priors[i_c] = self.probability_function(agg_distance)
+                elif self.prior_type is self.PriorTypes.DIAMETER_BASED:
+                    geo_priors[i_c] = self.probability_function(cost_mat_c.max())
+                elif self.prior_type is self.PriorTypes.SIMULATED:
+                    cost_mat_c = cost_mat_c * 0.020838 / self.mean_edge_length
+                    distances = compute_mst_distances(cost_mat_c)
+                    geo_priors[i_c] = SimulatedSigmoid.sigmoid(distances.sum(), n)
+                else:
+                    raise ValueError('geo_prior must be either \"uniform\" or \"cost_based\".')
+
+        # cache.update_value(geo_prior)
+        return cache.value.sum()
 
     def get_costs_per_object(
         self,
@@ -856,6 +860,34 @@ def compute_diameter_based_geo_prior(
 
     return log_prior
 
+class SimulatedSigmoid:
+
+    @staticmethod
+    @lru_cache(maxsize=128)
+    def intercept(n: int) -> float:
+        a = -1.62973132061948
+        b = 12.7679075267602
+        c = -25.4137798184766
+        d = 17.237407405487
+        logn = np.log(n)
+        return a * logn**3 + b * logn**2 + c * logn + d
+
+    @staticmethod
+    @lru_cache(maxsize=128)
+    def coeff(n: int) -> float:
+        a = -31.397363895626
+        b = 1.02000702311327
+        c = -94.0788824218419
+        d = 0.93626444975598
+        return a*b**(-n) + c/n + d
+
+    @staticmethod
+    def sigmoid(total_distance: float, n: int) -> float:
+        y0 = SimulatedSigmoid.intercept(n)
+        k = SimulatedSigmoid.coeff(n)
+        return log_expit(k * total_distance + y0)
+
+
 def compute_simulation_based_geo_prior(
     clusters: NDArray[bool],    # (n_clusters, n_objects)
     cost_mat: NDArray[float],   # (n_objects, n_objects)
@@ -867,73 +899,13 @@ def compute_simulation_based_geo_prior(
     logistic regression to predict areality/non-areality of a group of languages based on
     their MST."""
 
-    def sigmoid_intercept(n: int) -> float:
-        a = -1.62973132061948
-        b = 12.7679075267602
-        c = -25.4137798184766
-        d = 17.237407405487
-        logn = np.log(n)
-        return a * logn**3 + b * logn**2 + c * logn + d
-
-    def sigmoid_coeff(n: int) -> float:
-        a = -31.397363895626
-        b = 1.02000702311327
-        c = -94.0788824218419
-        d = 0.93626444975598
-        return a*b**(-n) + c/n + d
-
     log_prior = 0.0
     for z in clusters:
         n = np.count_nonzero(z)
-        y0 = sigmoid_intercept(n)
-        k = sigmoid_coeff(n)
-
-
-        cost_mat_z = cost_mat[z][:, z]
-
-        cost_mat_z = cost_mat_z * 0.039 / mean_edge_length
-
-        if cost_mat_z.shape[0] > 1:
-            graph = csgraph_from_dense(cost_mat_z, null_value=np.inf)
-            mst = minimum_spanning_tree(graph)
-
-            # When there are zero costs between languages the MST might be 0
-            if mst.nnz > 0:
-                distances = mst.tocsr()[mst.nonzero()]
-            else:
-                distances = [0.0]
-        else:
-            print(cost_mat_z)
-            raise ValueError("Too few locations to compute distance.")
-
-        x = np.sum(distances)
-        log_prior += log_expit(k*x + y0)
-
-    return log_prior
-
-
-def compute_cost_based_geo_prior(
-    clusters: NDArray[bool],  # shape: (n_clusters, n_objects)
-    cost_mat: NDArray,        # shape: (n_objects, n_objects)
-    aggregator: Aggregator,
-    probability_function: Callable[[float], float],
-) -> float:
-    """ This function computes the geo prior for the sum of all distances of the mst of a zone
-    Args:
-        clusters: The current cluster (boolean array)
-        cost_mat: The cost matrix between locations
-        aggregator: The aggregation policy, defining how the single edge
-            costs are combined into one joint cost for the area.
-        probability_function: Function mapping aggregate distances to log-probabilities
-
-    Returns:
-        float: the log geo-prior of the cluster
-    """
-    log_prior = 0.0
-    for c in clusters:
-        distances = compute_mst_distances(cost_mat[c][:, c])
-        agg_distance = aggregator(distances)
-        log_prior += probability_function(agg_distance)
+        # cost_mat_z = cost_mat[z][:, z] * 0.039 / mean_edge_length
+        cost_mat_z = cost_mat[z][:, z] * 0.020838 / mean_edge_length
+        distances = compute_mst_distances(cost_mat_z)
+        log_prior += SimulatedSigmoid.sigmoid(distances.sum(), n)
 
     return log_prior
 
