@@ -66,7 +66,7 @@ Ratio of confounding_effects steps (changing probabilities in confounders): {op_
         mcmc_config = self.config.mcmc
 
         # Initialize loggers
-        sample_loggers = self.get_sample_loggers(run=run)
+        sample_loggers = self.get_sample_loggers(run, resume)
 
         if initial_sample is not None:
             pass
@@ -107,7 +107,7 @@ Ratio of confounding_effects steps (changing probabilities in confounders): {op_
 
         self.sampler.generate_samples(mcmc_config.steps, mcmc_config.samples)
 
-    def get_sample_loggers(self, run=1) -> list[ResultsLogger]:
+    def get_sample_loggers(self, run: int, resume: bool) -> list[ResultsLogger]:
         k = self.model.n_clusters
         base_dir = self.path_results / f'K{k}'
         base_dir.mkdir(exist_ok=True)
@@ -117,13 +117,13 @@ Ratio of confounding_effects steps (changing probabilities in confounders): {op_
         op_stats_path = base_dir / f'operator_stats_K{k}_{run}.txt'
 
         sample_loggers = [
-            ParametersCSVLogger(params_path, self.data, self.model, log_source=True),
-            ClustersLogger(clusters_path, self.data, self.model),
-            OperatorStatsLogger(op_stats_path, self.data, self.model, operators=[])
+            ParametersCSVLogger(params_path, self.data, self.model, log_source=True, resume=resume),
+            ClustersLogger(clusters_path, self.data, self.model, resume=resume),
+            OperatorStatsLogger(op_stats_path, self.data, self.model, operators=[], resume=resume)
         ]
 
         if not self.config.mcmc.sample_from_prior:
-            sample_loggers.append(LikelihoodLogger(likelihood_path, self.data, self.model))
+            sample_loggers.append(LikelihoodLogger(likelihood_path, self.data, self.model, resume=resume))
 
         return sample_loggers
 

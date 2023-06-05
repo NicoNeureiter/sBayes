@@ -24,6 +24,7 @@ class ResultsLogger(ABC):
         path: str,
         data: Data,
         model: Model,
+        resume: bool,
     ):
         self.path: str = path
         self.data: Data = data
@@ -31,6 +32,8 @@ class ResultsLogger(ABC):
 
         self.file: Optional[TextIO] = None
         self.column_names: Optional[list] = None
+
+        self.resume = resume
 
     @abstractmethod
     def write_header(self, sample: Sample):
@@ -47,7 +50,7 @@ class ResultsLogger(ABC):
         self._write_sample(sample)
 
     def open(self):
-        self.file = open(self.path, "w", buffering=1)
+        self.file = open(self.path, "a" if self.resume else "w", buffering=1)
         # ´buffering=1´ activates line-buffering, i.e. flushing to file after each line
 
     def close(self):
@@ -67,19 +70,21 @@ class ParametersCSVLogger(ResultsLogger):
         log_contribution_per_cluster: bool = False,
         float_format: str = "%.12g",
         match_clusters: bool = True,
-        log_source: bool = False
+        log_source: bool = False,
+        **kwargs,
     ):
-        super().__init__(*args)
+        super().__init__(*args, **kwargs)
         self.float_format = float_format
         self.log_contribution_per_cluster = log_contribution_per_cluster
         self.match_clusters = match_clusters
-        self.cluster_sum: Optional[npt.NDArray[int]] = None
         self.log_source = log_source
 
         # For logging single cluster likelihood values we do not want to use the sampled
         # source arrays
         self.model.sample_source = False
         self.model.prior.sample_source = False
+
+        self.cluster_sum = np.zeros((self.model.shapes.n_clusters, self.model.shapes.n_sites), dtype=int)
 
     def write_header(self, sample: Sample):
         feature_names = self.data.features.names
@@ -91,8 +96,8 @@ class ParametersCSVLogger(ResultsLogger):
         if sample.n_clusters <= 1:
             self.match_clusters = False
 
-        # Initialize cluster_sum array for matching
-        self.cluster_sum = np.zeros((sample.n_clusters, sample.n_objects), dtype=int)
+        # # Initialize cluster_sum array for matching
+        # self.cluster_sum = np.zeros((sample.n_clusters, sample.n_objects), dtype=int)
 
         # Cluster sizes
         for i in range(sample.n_clusters):
@@ -143,7 +148,8 @@ class ParametersCSVLogger(ResultsLogger):
         self.column_names = column_names
 
         # Write the column names to the logger file
-        self.file.write("\t".join(column_names) + "\n")
+        if not self.resume:
+            self.file.write("\t".join(column_names) + "\n")
 
     def _write_sample(self, sample: Sample):
         features = self.data.features
@@ -246,8 +252,8 @@ class ParametersCSVLogger(ResultsLogger):
                 row[f"post_a{i}"] = lh + prior
 
         row["cluster_size_prior"] = sample.cache.cluster_size_prior.value
-        row["geo_prior"] = sample.cache.geo_prior.value
-        row["source_prior"] = sample.cache.source_prior.value
+        row["geo_prior"] = sample.cache.geo_prior.value.sum()
+        row["source_prior"] = sample.cache.source_prior.value.sum()
         row["weights_prior"] = sample.cache.weights_prior.value
 
         row_str = "\t".join([self.float_format % row[k] for k in self.column_names])
@@ -263,8 +269,9 @@ class ClustersLogger(ResultsLogger):
         self,
         *args,
         match_clusters: bool = True,
+        **kwargs,
     ):
-        super().__init__(*args)
+        super().__init__(*args, **kwargs)
         self.match_clusters = match_clusters
         self.cluster_sum: Optional[npt.NDArray[int]] = None
 
@@ -302,19 +309,20 @@ class LikelihoodLogger(ResultsLogger):
         super().__init__(*args, **kwargs)
 
     def open(self):
-        self.file = tables.open_file(self.path, mode="w")
+        self.file = tables.open_file(self.path, mode="a" if self.resume else "w")
 
     def write_header(self, sample: Sample):
-        # Create the likelihood array
-        self.logged_likelihood_array = self.file.create_earray(
-            where=self.file.root,
-            name="likelihood",
-            atom=tables.Float32Col(),
-            filters=tables.Filters(
-                complevel=9, complib="blosc:zlib", bitshuffle=True, fletcher32=True
-            ),
-            shape=(0, sample.n_objects * sample.n_features),
-        )
+        if not self.resume:
+            # Create the likelihood array
+            self.logged_likelihood_array = self.file.create_earray(
+                where=self.file.root,
+                name="likelihood",
+                atom=tables.Float32Col(),
+                filters=tables.Filters(
+                    complevel=9, complib="blosc:zlib", bitshuffle=True, fletcher32=True
+                ),
+                shape=(0, sample.n_objects * sample.n_features),
+            )
 
     def _write_sample(self, sample: Sample):
         lh_per_comp = likelihood_per_component(model=self.model, sample=sample)
