@@ -143,7 +143,7 @@ class MCMC(ABC):
             The operator objects with a proposal function and weights
         """
 
-    def generate_samples(self, n_steps, n_samples, warm_up=False, warm_up_steps=None):
+    def generate_samples(self, n_steps, n_samples, warm_up=False, warm_up_steps=None) -> Sample:
         """Run the MCMC sampling procedure with Metropolis Hastings rejection step and options for multiple chains. \
         Samples are returned, statistics saved in self.statistics.
         Args:
@@ -224,11 +224,13 @@ class MCMC(ABC):
                 if (i_step+1) % 1000 == 0:
                     self.print_screen_log(i_step+1, sample)
 
-        # Close files of all sample_loggers
-        for logger in self.sample_loggers:
-            logger.close()
+            # Close files of all sample_loggers
+            for logger in self.sample_loggers:
+                logger.close()
 
-        self.logger.info(f"MCMC run finished after {(_time.time() - self.t_start):.1f} seconds")
+            self.logger.info(f"MCMC run finished after {(_time.time() - self.t_start):.1f} seconds")
+
+            return sample[0]
 
     def choose_operator(self) -> Operator:
         # Randomly choose one operator to propose a new sample
