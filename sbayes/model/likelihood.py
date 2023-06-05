@@ -108,7 +108,6 @@ class Likelihood(object):
     #
     #     ]
 
-
     def compute_lh_confounder(self, sample: Sample, conf: str, caching=True) -> float:
         """Compute the log-likelihood of the observations that are assigned to confounder
         `conf` in the current sample."""
@@ -181,11 +180,21 @@ def normalize_weights(
     Return:
         the weight_per site
     """
-    # Broadcast weights to each site and mask with the has_components arrays
-    # Broadcasting:
-    #   `weights` does not know about sites -> add axis to broadcast to the sites-dimension of `has_component`
-    #   `has_components` does not know about features -> add axis to broadcast to the features-dimension of `weights`
-    weights_per_site = weights[np.newaxis, :, :] * has_components[:, np.newaxis, :]
+    # Find the unique patterns in `has_components` and remember the inverse mapping
+    pattern, pattern_inv = np.unique(has_components, axis=0, return_inverse=True)
 
-    # Re-normalize the weights, where weights were masked
-    return weights_per_site / weights_per_site.sum(axis=2, keepdims=True)
+    # Calculate the normalized weights per pattern
+    w_per_pattern = pattern[:, None, :] * weights[None, :, :]
+    w_per_pattern /= np.sum(w_per_pattern, axis=-1, keepdims=True)
+
+    # Broadcast the normalized weights per pattern to the objects where the patterns appeared using pattern_inv
+    return w_per_pattern[pattern_inv]
+
+    # # Broadcast weights to each site and mask with the has_components arrays
+    # # Broadcasting:
+    # #   `weights` does not know about sites -> add axis to broadcast to the sites-dimension of `has_component`
+    # #   `has_components` does not know about features -> add axis to broadcast to the features-dimension of `weights`
+    # weights_per_site = weights[np.newaxis, :, :] * has_components[:, np.newaxis, :]
+    #
+    # # Re-normalize the weights, where weights were masked
+    # return weights_per_site / weights_per_site.sum(axis=2, keepdims=True)
