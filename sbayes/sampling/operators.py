@@ -319,9 +319,12 @@ class GibbsSampleSource(Operator):
             p = self.calculate_source_posterior(sample, object_subset)
 
         # Sample the new source assignments
-        with sample_new.source.edit() as source:
-            source[object_subset] = sample_categorical(p=p, binary_encoding=True)
-            source[na_features] = 0
+        x = sample_categorical(p=p, binary_encoding=True)
+        x[na_features[object_subset]] = False
+        sample_new.source.set_groups(object_subset, x)
+        # with sample_new.source.edit() as source:
+        #     source[object_subset] = sample_categorical(p=p, binary_encoding=True)
+        #     source[na_features] = 0
 
         update_feature_counts(sample, sample_new, features, object_subset)
 
@@ -1122,7 +1125,7 @@ class AlterClusterGibbsishWide(AlterClusterGibbsish):
     ):
         super().__init__(*args, **kwargs)
         self.w_stay = w_stay
-        self.eps = 0.001
+        self.eps = 0.0001
         self.cluster_effect_proposal = cluster_effect_proposal
 
     def get_cluster_membership_proposal(self, sample, i_cluster, available):

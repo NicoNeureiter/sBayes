@@ -69,6 +69,10 @@ class ArrayParameter(Parameter[NDArray[DType]], Generic[DType]):
         yield self.value
         self._value.flags.writeable = False
         self.version += 1
+        self.tidy()
+
+    def tidy(self):
+        pass
 
     def copy(self: S) -> S:
         self.shared = True
@@ -125,6 +129,39 @@ class GroupedParameters(ArrayParameter):
         self.version += 1
         self.group_versions[i] = self.version
 
+    @contextmanager
+    def edit_groups(self, idxs) -> NDArray[Value]:
+        if not self.group_dim == 0:
+            raise NotImplementedError
+
+        if self.shared:
+            self.resolve_sharing()
+
+        self._value.flags.writeable = True
+        yield self.value[idxs]
+        self._value.flags.writeable = False
+        self.version += 1
+        self.group_versions[idxs] = self.version
+        self.tidy()
+
+    def set_groups(self, group_idxs: NDArray[int], new_values: NDArray[DType]):
+        if not self.group_dim == 0:
+            raise NotImplementedError
+        if self.shared:
+            self.resolve_sharing()
+        self._value.flags.writeable = True
+        self.value[group_idxs] = new_values
+        self._value.flags.writeable = False
+        self.version += 1
+        self.group_versions[group_idxs] = self.version
+        # self.tidy()
+
+    def tidy(self):
+        self.group_versions = np.full_like(self.group_versions, self.version)
+
+    # def edit(self) -> NDArray[DType]:
+    #     raise NotImplementedError
+
     def resolve_sharing(self):
         self.group_versions = self.group_versions.copy()
         super().resolve_sharing()
@@ -137,6 +174,10 @@ class Clusters(GroupedParameters):
 
     # alias for edit_group
     edit_cluster = GroupedParameters.edit_group
+
+    @property
+    def sizes(self):
+        return np.count_nonzero(self._value, axis=1)
 
     @property
     def n_clusters(self):
@@ -163,20 +204,21 @@ class Clusters(GroupedParameters):
         yield self.value
         self._value.flags.writeable = False
 
+
 @lru_cache(maxsize=128)
 def outdated_group_version(shape: tuple[int]) -> NDArray[int]:
-    """To manually mark the calculation node as outdated we use a constant -1."""
+    """To manually mark the cache node as outdated we use a constant -1."""
     return -np.ones(shape)
 
 
-class CalculationNode(Generic[Value]):
+class CacheNode(Generic[Value]):
 
     """Wrapper for cached calculated values (array or scalar). Keeps track of whether a
-     calculation node and its derived values are outdated."""
+     cache node and its derived values are outdated."""
 
     _value: Value
     cached_version: VersionType
-    inputs: OrderedDict[str, CalculationNode | Parameter]
+    inputs: OrderedDict[str, CacheNode | Parameter]
     cached_group_versions: dict[str, NDArray[int]]
 
     def __init__(self, value: Value):
@@ -193,18 +235,18 @@ class CalculationNode(Generic[Value]):
         i = self.input_idx[input_key]
         return self.cached_version[i] != self.inputs[input_key].version
 
-    def what_changed(self, input_key: str | list[str], caching=True) -> set[int]:
+    def what_changed(self, input_key: str | list[str], caching=True) -> list[int]:
         if isinstance(input_key, list):
-            return set.union(*(self.what_changed(k, caching=caching) for k in input_key))
+            return list(set.union(*(set(self.what_changed(k, caching=caching)) for k in input_key)))
 
         inpt = self.inputs[input_key]
         if isinstance(inpt, GroupedParameters):
             if caching:
-                return set(np.nonzero(
+                return list(np.flatnonzero(
                     self.cached_group_versions[input_key] != inpt.group_versions
-                )[0])
+                ))
             else:
-                return set(range(inpt.n_groups))
+                return list(range(inpt.n_groups))
         else:
             raise ValueError('Can only track what changed for GroupedParameters')
 
@@ -229,11 +271,11 @@ class CalculationNode(Generic[Value]):
         self.set_up_to_date()
 
     def outdated_version(self) -> tuple[int]:
-        """To manually mark the calculation node as outdated we use a constant -1."""
+        """To manually mark the cache node as outdated we use a constant -1."""
         return (-1,) * len(self.inputs)
 
-    def add_input(self, key: str, inpt: CalculationNode | Parameter):
-        """Add an input to this calculation node."""
+    def add_input(self, key: str, inpt: CacheNode | Parameter):
+        """Add an input to this cache node."""
         self.input_idx[key] = len(self.inputs)
         self.inputs[key] = inpt
         self.cached_version = self.outdated_version()
@@ -256,7 +298,7 @@ class CalculationNode(Generic[Value]):
         return self._value.shape
 
     def clear(self):
-        """Mark the calculation node as outdated."""
+        """Mark the cache node as outdated."""
         self.cached_version = self.outdated_version()
         for key in self.cached_group_versions:
             self.clear_group_version(key)
@@ -268,8 +310,8 @@ class CalculationNode(Generic[Value]):
         self.cached_group_versions[key] = new_group_version
         new_group_version.flags.writeable = False
 
-    def assign_from(self, other: CalculationNode):
-        """Assign the calculation node's value and version nr from another calc node."""
+    def assign_from(self, other: CacheNode):
+        """Assign the cache node's value and version nr from another calc node."""
         self._value = copy(other._value)
         self.cached_version = other.cached_version
         self.cached_group_versions = {k: v for k, v in other.cached_group_versions.items()}
@@ -304,10 +346,10 @@ class FeatureCounts(GroupedParameters):
         self.group_versions[changed_groups] = self.version
 
 
-class HasComponents(CalculationNode[NDArray[bool]]):
+class HasComponents(CacheNode[NDArray[bool]]):
 
     """
-    Array calculation node with shape (n_objects, n_components)
+    Array cache node with shape (n_objects, n_components)
     """
 
     def __init__(self, clusters: Clusters, confounders: dict[str, Confounder]):
@@ -332,44 +374,44 @@ class HasComponents(CalculationNode[NDArray[bool]]):
 
 class ModelCache:
 
-    # likelihood: CalculationNode[float]
-    component_likelihoods: CalculationNode[NDArray[float]]
-    group_likelihoods: dict[str, CalculationNode[NDArray[float]]]
-    weights_normalized: CalculationNode[NDArray[float]]
+    # likelihood: CacheNode[float]
+    component_likelihoods: CacheNode[NDArray[float]]
+    group_likelihoods: dict[str, CacheNode[NDArray[float]]]
+    weights_normalized: CacheNode[NDArray[float]]
 
-    prior: CalculationNode[float]
-    source_prior: CalculationNode[float]
-    geo_prior: CalculationNode[float]
-    cluster_size_prior: CalculationNode[float]
-    cluster_effect_prior: CalculationNode[float]
-    confounding_effects_prior: dict[str, CalculationNode[float]]
-    weights_prior: CalculationNode[float]
+    prior: CacheNode[float]
+    source_prior: CacheNode[NDArray[float]]
+    geo_prior: CacheNode[NDArray[float]]
+    cluster_size_prior: CacheNode[float]
+    cluster_effect_prior: CacheNode[float]
+    confounding_effects_prior: dict[str, CacheNode[float]]
+    weights_prior: CacheNode[float]
 
-    has_components: CalculationNode[bool]
+    has_components: CacheNode[bool]
 
     def __init__(self, sample: Sample, ):
-        # self.likelihood = CalculationNode(0.)
-        self.component_likelihoods = CalculationNode(
+        # self.likelihood = CacheNode(0.)
+        self.component_likelihoods = CacheNode(
             value=np.empty((sample.n_objects, sample.n_features, sample.n_components))
         )
         self.group_likelihoods = {
-            conf: CalculationNode(value=np.empty(sample.n_groups(conf)))
+            conf: CacheNode(value=np.empty(sample.n_groups(conf)))
             for conf in sample.component_names
         }
-        self.weights_normalized = CalculationNode(
+        self.weights_normalized = CacheNode(
             value=np.empty((sample.n_objects, sample.n_features, sample.n_components))
         )
-        self.geo_prior = CalculationNode(value=0.0)
-        self.cluster_size_prior = CalculationNode(value=0.0)
-        self.cluster_effect_prior = CalculationNode(value=0.0)
+        self.geo_prior = CacheNode(value=np.zeros(sample.n_clusters))
+        self.cluster_size_prior = CacheNode(value=0.0)
+        self.cluster_effect_prior = CacheNode(value=0.0)
         self.confounding_effects_prior = {
-            conf: CalculationNode(value=np.ones(sample.n_groups(conf)))
+            conf: CacheNode(value=np.ones(sample.n_groups(conf)))
             for conf in sample.confounders
         }
-        self.weights_prior = CalculationNode(value=0.0)
+        self.weights_prior = CacheNode(value=0.0)
         self.has_components = HasComponents(sample.clusters, sample.confounders)
 
-        # Set up the dependencies in form of CalculationNode inputs:
+        # Set up the dependencies in form of CacheNode inputs:
 
         self.component_likelihoods.add_input('clusters', sample.clusters)
         self.cluster_size_prior.add_input('clusters', sample.clusters)
@@ -385,10 +427,11 @@ class ModelCache:
         self.weights_prior.add_input('weights', sample.weights)
         self.weights_normalized.add_input('weights', sample.weights)
 
-        # Differences between Gibbs/Non-Gibbs models:
-        self.source_prior = CalculationNode(value=0.0)
+        self.source_prior = CacheNode(value=np.zeros(sample.n_objects))
         self.source_prior.add_input('weights_normalized', self.weights_normalized)
         self.source_prior.add_input('source', sample.source)
+        self.source_prior.add_input('clusters', sample.clusters)
+        self.source_prior.add_input('weights', sample.weights)
         self.component_likelihoods.add_input('source', sample.source)
 
         for comp, counts in sample.feature_counts.items():
@@ -408,6 +451,7 @@ class ModelCache:
         self.component_likelihoods.clear()
         self.weights_normalized.clear()
         self.geo_prior.clear()
+        self.source_prior.clear()
         self.cluster_size_prior.clear()
         self.cluster_effect_prior.clear()
         self.weights_prior.clear()
@@ -422,9 +466,11 @@ class ModelCache:
         new_cache.component_likelihoods.assign_from(self.component_likelihoods)
         new_cache.weights_normalized.assign_from(self.weights_normalized)
         new_cache.geo_prior.assign_from(self.geo_prior)
+        new_cache.source_prior.assign_from(self.source_prior)
         new_cache.cluster_size_prior.assign_from(self.cluster_size_prior)
         new_cache.cluster_effect_prior.assign_from(self.cluster_effect_prior)
         new_cache.weights_prior.assign_from(self.weights_prior)
+        new_cache.has_components.assign_from(self.has_components)
         for conf, conf_eff_prior in new_cache.confounding_effects_prior.items():
             conf_eff_prior.assign_from(self.confounding_effects_prior[conf])
         for comp, group_lh in new_cache.group_likelihoods.items():
@@ -491,7 +537,7 @@ class Sample:
             weights=ArrayParameter(weights),
             confounding_effects={k: GroupedParameters(v) for k, v in confounding_effects.items()},
             confounders=confounders,
-            source=GroupedParameters(source, group_dim=2),
+            source=GroupedParameters(source, group_dim=0),
             feature_counts={k: FeatureCounts(v) for k, v in feature_counts.items()},
             chain=chain,
         )
@@ -534,7 +580,7 @@ class Sample:
         return self._confounding_effects
 
     @property
-    def source(self) -> ArrayParameter[bool]:  # shape: (n_objects, n_features, n_components)
+    def source(self) -> GroupedParameters[bool]:  # shape: (n_objects, n_features, n_components)
         return self._source
 
     @property
