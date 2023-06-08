@@ -140,38 +140,42 @@ class Results:
         return clusters, parameters
 
     @staticmethod
-    def read_clusters(txt_path: PathLike) -> NDArray[bool]:  # shape: (n_clusters, n_samples, n_sites)
-        """Read the cluster samples from the text file at `txt_path` and return as a
-        boolean numpy array."""
+    def read_clusters_from_str(clusters_samples: str) -> NDArray[bool]:  # shape: (n_clusters, n_samples, n_sites)
         clusters_list = []
-        with open(txt_path, "r") as f_sample:
-            # This makes len(result) = number of clusters (flipped array)
+        # This makes len(result) = number of clusters (flipped array)
 
-            # Split the sample
-            # len(byte_results) equals the number of samples
-            byte_results = (f_sample.read()).split("\n")
+        # Split the sample
+        # len(byte_results) equals the number of samples
+        byte_results = clusters_samples.split("\n")
 
-            # Get the number of clusters
-            n_clusters = len(byte_results[0].split("\t"))
+        # Get the number of clusters
+        n_clusters = len(byte_results[0].split("\t"))
 
-            # Append empty arrays to result, so that len(result) = n_clusters
-            for i in range(n_clusters):
-                clusters_list.append([])
+        # Append empty arrays to result, so that len(result) = n_clusters
+        for i in range(n_clusters):
+            clusters_list.append([])
 
-            # Process each sample
-            for sample in byte_results:
-                if len(sample) == 0:
-                    continue
+        # Process each sample
+        for sample in byte_results:
+            if len(sample) == 0:
+                continue
 
-                # Parse each sample
-                parsed_sample = parse_cluster_columns(sample)
-                # shape: (n_clusters, n_sites)
+            # Parse each sample
+            parsed_sample = parse_cluster_columns(sample)
+            # shape: (n_clusters, n_sites)
 
-                # Add each item in parsed_area_columns to the corresponding array in result
-                for j in range(len(parsed_sample)):
-                    clusters_list[j].append(parsed_sample[j])
+            # Add each item in parsed_area_columns to the corresponding array in result
+            for j in range(len(parsed_sample)):
+                clusters_list[j].append(parsed_sample[j])
 
         return np.array(clusters_list, dtype=bool)
+
+    @staticmethod
+    def read_clusters(txt_path: PathLike) -> NDArray[bool]:  # shape: (n_clusters, n_samples, n_sites)
+        """Read the cluster samples from the text file at `txt_path` and return as a
+                boolean numpy array."""
+        with open(txt_path, "r") as f_sample:
+            return Results.read_clusters_from_str("".join(f_sample.readlines()))
 
     @staticmethod
     def read_stats(txt_path: PathLike) -> pd.DataFrame:
