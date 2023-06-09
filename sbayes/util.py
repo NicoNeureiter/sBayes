@@ -13,13 +13,13 @@ from typing import Sequence, Union, Iterator
 import numpy as np
 from numpy.typing import NDArray
 from scipy.optimize import linear_sum_assignment
-
 import pandas as pd
 import scipy
 import scipy.spatial as spatial
 from scipy.special import betaln, expit, gammaln
 import scipy.stats as stats
 from scipy.sparse import csr_matrix
+from unidecode import unidecode
 
 
 EPS = np.finfo(float).eps
@@ -310,12 +310,13 @@ def encode_states(features_raw, feature_states):
 def normalize_str(s: str) -> str:
     if pd.isna(s):
         return s
-    return str.strip(s)
+    return str.strip(unidecode(s))
 
 
 def read_data_csv(csv_path: PathLike) -> pd.DataFrame:
     na_values = ["", " ", "\t", "  "]
-    data = pd.read_csv(csv_path, na_values=na_values, keep_default_na=False, dtype=str)
+    data: pd.DataFrame = pd.read_csv(csv_path, na_values=na_values, keep_default_na=False, dtype=str)
+    data.columns = [unidecode(c) for c in data.columns]
     return data.applymap(normalize_str)
 
 
