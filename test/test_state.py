@@ -1,7 +1,7 @@
 import numpy as np
 import unittest
 
-from sbayes.sampling.state import CalculationNode, GroupedParameters
+from sbayes.sampling.state import CacheNode, GroupedParameters
 
 
 class TestArrayParameter(unittest.TestCase):
@@ -12,7 +12,7 @@ class TestArrayParameter(unittest.TestCase):
     def setUp(self) -> None:
         arr = np.arange(12).reshape((self.N_GROUPS, self.N_ITEMS))
         self.param = GroupedParameters(arr)
-        self.calc = CalculationNode(np.empty((self.N_GROUPS, self.N_ITEMS)))
+        self.calc = CacheNode(np.empty((self.N_GROUPS, self.N_ITEMS)))
 
     def test_initial_state(self):
         self.assertEqual(self.param.value[1, 2], 6)
