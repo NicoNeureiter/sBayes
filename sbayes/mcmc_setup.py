@@ -83,7 +83,6 @@ Ratio of confounding_effects steps (changing probabilities in confounders): {op_
                 n_chains=mcmc_config.warmup.warmup_chains,
                 operators=mcmc_config.operators,
                 p_grow_connected=mcmc_config.grow_to_adjacent,
-                initial_sample=None,
                 initial_size=mcmc_config.init_objects_per_cluster,
                 sample_from_prior=mcmc_config.sample_from_prior,
                 logger=self.logger,
@@ -97,7 +96,6 @@ Ratio of confounding_effects steps (changing probabilities in confounders): {op_
             data=self.data,
             model=self.model,
             sample_loggers=sample_loggers,
-            initial_sample=initial_sample,
             operators=mcmc_config.operators,
             p_grow_connected=mcmc_config.grow_to_adjacent,
             initial_size=mcmc_config.init_objects_per_cluster,
@@ -105,7 +103,8 @@ Ratio of confounding_effects steps (changing probabilities in confounders): {op_
             logger=self.logger,
         )
 
-        self.sampler.generate_samples(mcmc_config.steps, mcmc_config.samples)
+        self.sampler.generate_samples(mcmc_config.steps, mcmc_config.samples,
+                                      initial_sample=initial_sample)
 
     def get_sample_loggers(self, run: int, resume: bool) -> list[ResultsLogger]:
         k = self.model.n_clusters
@@ -147,8 +146,6 @@ Ratio of confounding_effects steps (changing probabilities in confounders): {op_
                 for i_f, f in enumerate(self.data.features.names):
                     n_states_f = shapes.n_states_per_feature[i_f]
                     conf_effects[conf][:, i_f, :n_states_f] = conf_eff[g][f][-1]
-            # exit()
-            # print(conf_effects[conf].shape)
 
         dummy_source = np.empty((shapes.n_sites,
                                  shapes.n_features,

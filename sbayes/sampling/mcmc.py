@@ -8,7 +8,7 @@ import random as _random
 import time as _time
 
 import numpy as _np
-from copy import copy
+from copy import copy, deepcopy
 import typing as typ
 
 import numpy as np
@@ -143,14 +143,22 @@ class MCMC(ABC):
             The operator objects with a proposal function and weights
         """
 
-    def generate_samples(self, n_steps, n_samples, warm_up=False, warm_up_steps=None) -> Sample:
+    def generate_samples(
+        self,
+        n_steps: int,
+        n_samples: int,
+        initial_sample: Sample | None = None,
+        warm_up: bool = False,
+        warm_up_steps: int | None = None
+    ) -> Sample:
         """Run the MCMC sampling procedure with Metropolis Hastings rejection step and options for multiple chains. \
         Samples are returned, statistics saved in self.statistics.
         Args:
-            n_steps (int): The number of steps taken by the sampler (without burn-in steps)
-            n_samples (int): The number of samples
-            warm_up (bool): Warm-up run or real sampling?
-            warm_up_steps (int): Number of warm-up steps
+            n_steps: The number of steps taken by the sampler (without burn-in steps)
+            n_samples: The number of samples
+            initial_sample: The starting sample
+            warm_up: Warm-up run or real sampling?
+            warm_up_steps: Number of warm-up steps
         Returns:
             list: The generated samples
         """
@@ -158,13 +166,16 @@ class MCMC(ABC):
         # Generate initial samples
         sample = []
         for c in self.chain_idx:
-            sample.append(
-                self.generate_initial_sample(c)
-            )
+            if initial_sample is None:
+                init_sample_c = self.generate_initial_sample(c)
+            else:
+                init_sample_c = deepcopy(initial_sample)
+
+            sample.append(init_sample_c)
 
             # Compute the (log)-likelihood and the prior for each sample
-            self._ll[c] = self.likelihood(sample[c], c)
-            self._prior[c] = self.prior(sample[c], c)
+            self._ll[c] = self.likelihood(init_sample_c, c)
+            self._prior[c] = self.prior(init_sample_c, c)
 
         # # Probability of operators is different if there are zero clusters
         # if self.n_clusters == 0:

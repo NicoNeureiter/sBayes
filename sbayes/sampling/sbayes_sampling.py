@@ -20,7 +20,7 @@ from sbayes.sampling.operators import (
     AlterCluster,
     GibbsSampleSource, ObjectSelector, ResampleSourceMode, ClusterJump, ClusterEffectProposals,
 )
-from sbayes.util import get_neighbours, normalize, get_max_size_list
+from sbayes.util import get_neighbours, normalize
 from sbayes.config.config import OperatorsConfig
 
 
@@ -33,14 +33,13 @@ class ClusterMCMC(MCMC):
         model: Model,
         data: Data,
         p_grow_connected: float,
-        initial_sample: Sample | None,
         initial_size: int,
         **kwargs
     ):
         """
         Args:
             p_grow_connected: Probability at which grow operator only considers neighbours to add to the cluster
-            initial_sample: The starting sample
+
             initial_size: The initial size of a cluster
             **kwargs: Other arguments that are passed on to MCMC
         """
@@ -73,13 +72,6 @@ class ClusterMCMC(MCMC):
         self.n_groups = self.get_groups_per_confounder()
 
         super().__init__(model=model, data=data, **kwargs)
-
-        # Initial Sample
-        if initial_sample is None:
-            # self.initial_sample = Sample.empty_sample(self.confounders)
-            self.initial_sample = None
-        else:
-            self.initial_sample = initial_sample
 
         # Variance of the proposal distribution
         self.var_proposal_weight = 10
@@ -116,16 +108,6 @@ class ClusterMCMC(MCMC):
 
         occupied = np.zeros(self.n_sites, bool)
         initial_clusters = np.zeros((self.n_clusters, self.n_sites), bool)
-        n_generated = 0
-
-        # B: When clusters from a previous run exist use them as the initial sample
-        if self.initial_sample is not None:
-            for i in range(self.initial_sample.clusters.n_clusters):
-                initial_clusters[i, :] = self.initial_sample.clusters.value[i]
-                occupied += self.initial_sample.clusters.value[i]
-                n_generated += 1
-
-        not_initialized = range(n_generated, self.n_clusters)
 
         # A: Grow the remaining clusters
         # With many clusters new ones can get stuck due to unfavourable seeds.
@@ -134,7 +116,7 @@ class ClusterMCMC(MCMC):
         max_attempts = 1000
 
         while True:
-            for i in not_initialized:
+            for i in range(self.n_clusters):
                 try:
                     initial_size = self.initial_size
                     cl, in_cl = self.grow_cluster_of_size_k(k=initial_size, already_in_cluster=occupied)
@@ -143,18 +125,18 @@ class ClusterMCMC(MCMC):
                     # Rerun: Error might be due to an unfavourable seed
                     if attempts < max_attempts:
                         attempts += 1
-                        not_initialized = range(n_generated, self.n_clusters)
+                        if attempts % 10 == 0 and self.initial_size > 3:
+                            self.initial_size -= 1
+                            self.logger.warning(f"Reduced 'initial_size' to {self.initial_size} after "
+                                                f"{attempts} unsuccessful initialization attempts.")
                         break
                     # Seems there is not enough sites to grow n_clusters of size k
                     else:
                         raise ValueError(f"Failed to add additional cluster. Try fewer clusters "
                                          f"or set initial_sample to None.")
 
-                n_generated += 1
                 initial_clusters[i, :] = cl
-                occupied = in_cl
-
-            if n_generated == self.n_clusters:
+            else:  # No break -> no cluster exception
                 return initial_clusters
 
     def grow_cluster_of_size_k(self, k, already_in_cluster=None):
@@ -206,16 +188,7 @@ class ClusterMCMC(MCMC):
         Returns:
             np.array: weights for cluster_effect and each of the i confounding_effects
         """
-
-        # B: Use weights from a previous run
-        if self.initial_sample is not None:
-            initial_weights = self.initial_sample.weights.value
-
-        # A: Initialize new weights
-        else:
-            initial_weights = np.full((self.n_features, self.n_sources), 1.)
-
-        return normalize(initial_weights)
+        return normalize(np.ones((self.n_features, self.n_sources)))
 
     def generate_initial_confounding_effect(self, conf: str):
         """This function generates initial state probabilities for each group in confounding effect [i], either by
@@ -234,32 +207,25 @@ class ClusterMCMC(MCMC):
 
         initial_confounding_effect = np.zeros((n_groups, self.n_features, self.features.shape[2]))
 
-        # B: Use confounding_effect from a previous run
-        if self.initial_sample is not None:
-            for i in range(self.initial_sample.confounding_effects[conf].n_groups):
-                initial_confounding_effect[i, :] = self.initial_sample.confounding_effects[conf].value[i]
+        for g in range(n_groups):
 
-        # A: Initialize new confounding_effect using the MLE
-        else:
-            for g in range(n_groups):
+            idx = groups[g].nonzero()[0]
+            features_group = self.features[idx, :, :]
 
-                idx = groups[g].nonzero()[0]
-                features_group = self.features[idx, :, :]
+            sites_per_state = np.nansum(features_group, axis=0)
 
-                sites_per_state = np.nansum(features_group, axis=0)
+            # Compute the MLE for each state and each group in the confounding effect
+            # Some groups have only NAs for some features, resulting in a non-defined MLE
+            # other groups have only a single state, resulting in an MLE including 1.
+            # To avoid both, we add 1 to all applicable states of each feature,
+            # which gives a well-defined initial confounding effect, slightly nudged away from the MLE
 
-                # Compute the MLE for each state and each group in the confounding effect
-                # Some groups have only NAs for some features, resulting in a non-defined MLE
-                # other groups have only a single state, resulting in an MLE including 1.
-                # To avoid both, we add 1 to all applicable states of each feature,
-                # which gives a well-defined initial confounding effect, slightly nudged away from the MLE
+            sites_per_state[np.isnan(sites_per_state)] = 0
+            sites_per_state[self.applicable_states] += 1
 
-                sites_per_state[np.isnan(sites_per_state)] = 0
-                sites_per_state[self.applicable_states] += 1
-
-                state_sums = np.sum(sites_per_state, axis=1)
-                p_group = sites_per_state / state_sums[:, np.newaxis]
-                initial_confounding_effect[g, :, :] = p_group
+            state_sums = np.sum(sites_per_state, axis=1)
+            p_group = sites_per_state / state_sums[:, np.newaxis]
+            initial_confounding_effect[g, :, :] = p_group
 
         return initial_confounding_effect
 
