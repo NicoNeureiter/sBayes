@@ -208,7 +208,7 @@ class MCMC(ABC):
             print("Sampling from posterior...")
             steps_per_sample = int(_np.ceil(n_steps / n_samples))
 
-            for i_step in range(n_steps):
+            for i_step in range(sample[0].i_step, n_steps):
                 # Generate samples for each chain
                 for c in self.chain_idx:
                     sample[c] = self.step(sample[c], c)

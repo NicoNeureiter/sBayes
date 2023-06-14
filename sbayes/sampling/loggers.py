@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass
+from pathlib import Path
 from typing import TextIO, Optional, Callable
 from abc import ABC, abstractmethod
 
@@ -26,7 +28,7 @@ class ResultsLogger(ABC):
         model: Model,
         resume: bool,
     ):
-        self.path: str = path
+        self.path: Path = Path(path)
         self.data: Data = data
         self.model: Model = model.__copy__()
 
@@ -309,10 +311,24 @@ class LikelihoodLogger(ResultsLogger):
         super().__init__(*args, **kwargs)
 
     def open(self):
-        self.file = tables.open_file(self.path, mode="a" if self.resume else "w")
+        if self.resume:
+            try:
+                self.file = tables.open_file(self.path, mode="a")
+
+            except tables.exceptions.HDF5ExtError as e:
+                logging.warning(f"Could not append to existing likelihood file '{self.path.name}' ({type(e).__name__})."
+                                f" Overwriting previously likelihood values instead.")
+                # Set resume to False and open again
+                self.resume = False
+                self.open()
+
+        else:
+            self.file = tables.open_file(self.path, mode="w")
 
     def write_header(self, sample: Sample):
-        if not self.resume:
+        if self.resume:
+            self.logged_likelihood_array = self.file.root.likelihood
+        else:
             # Create the likelihood array
             self.logged_likelihood_array = self.file.create_earray(
                 where=self.file.root,

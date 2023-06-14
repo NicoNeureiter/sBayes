@@ -173,6 +173,7 @@ Ratio of confounding_effects steps (changing probabilities in confounders): {op_
             source=dummy_source,
             feature_counts=dummy_feature_counts,
         )
+        sample.i_step = results.sample_id[-1]
 
         # Next iteration: sample source from prior (allows calculating feature counts)
         impute_source(sample, self.model)
