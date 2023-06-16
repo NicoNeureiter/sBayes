@@ -375,7 +375,7 @@ class ClusterMCMC(MCMC):
             #     gibbsish=False
             # ),
             'cluster_jump_gibbsish': ClusterJump(
-                weight=0.2 * operators_config.clusters,
+                weight=0.2 * operators_config.clusters if self.n_clusters > 1 else 0.0,
                 model_by_chain=self.posterior_per_chain,
                 features=self.features,
                 resample_source=True,
