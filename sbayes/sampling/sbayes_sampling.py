@@ -28,7 +28,6 @@ class ClusterMCMC(MCMC):
         model: Model,
         data: Data,
         p_grow_connected: float,
-        initial_size: int,
         **kwargs
     ):
         """

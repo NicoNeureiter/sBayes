@@ -84,7 +84,6 @@ Ratio of confounding_effects steps (changing probabilities in confounders): {op_
                 n_chains=mcmc_config.warmup.warmup_chains,
                 operators=mcmc_config.operators,
                 p_grow_connected=mcmc_config.grow_to_adjacent,
-                initial_size=mcmc_config.init_objects_per_cluster,
                 sample_from_prior=mcmc_config.sample_from_prior,
                 logger=self.logger,
             )
@@ -105,7 +104,6 @@ Ratio of confounding_effects steps (changing probabilities in confounders): {op_
             sample_loggers=sample_loggers,
             operators=mcmc_config.operators,
             p_grow_connected=mcmc_config.grow_to_adjacent,
-            initial_size=mcmc_config.init_objects_per_cluster,
             sample_from_prior=mcmc_config.sample_from_prior,
             logger=self.logger,
         )
