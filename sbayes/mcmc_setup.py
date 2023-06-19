@@ -8,6 +8,7 @@ import numpy as np
 from sbayes.results import Results
 from sbayes.sampling.conditionals import sample_source_from_prior, impute_source
 from sbayes.sampling.counts import recalculate_feature_counts
+from sbayes.sampling.initializers import SbayesInitializer
 from sbayes.sampling.sbayes_sampling import ClusterMCMC
 from sbayes.sampling.state import Sample
 from sbayes.model import Model
@@ -87,9 +88,15 @@ Ratio of confounding_effects steps (changing probabilities in confounders): {op_
                 sample_from_prior=mcmc_config.sample_from_prior,
                 logger=self.logger,
             )
+            initializer = SbayesInitializer(
+                model=self.model,
+                data=self.data,
+                initial_size=mcmc_config.init_objects_per_cluster,
+            )
             initial_sample = warmup.generate_samples(
                 n_steps=0, n_samples=0, warm_up=True,
-                warm_up_steps=mcmc_config.warmup.warmup_steps
+                warm_up_steps=mcmc_config.warmup.warmup_steps,
+                initializer=initializer,
             )
 
         self.sampler = ClusterMCMC(
@@ -102,9 +109,10 @@ Ratio of confounding_effects steps (changing probabilities in confounders): {op_
             sample_from_prior=mcmc_config.sample_from_prior,
             logger=self.logger,
         )
-
-        self.sampler.generate_samples(mcmc_config.steps, mcmc_config.samples,
-                                      initial_sample=initial_sample)
+        self.sampler.generate_samples(
+            mcmc_config.steps, mcmc_config.samples,
+            initial_sample=initial_sample
+        )
 
     def get_sample_loggers(self, run: int, resume: bool) -> list[ResultsLogger]:
         k = self.model.n_clusters
@@ -170,7 +178,7 @@ Ratio of confounding_effects steps (changing probabilities in confounders): {op_
             source=dummy_source,
             feature_counts=dummy_feature_counts,
         )
-        sample.i_step = results.sample_id[-1]
+        sample.i_step = results.sample_id[-1] + 1
 
         # Next iteration: sample source from prior (allows calculating feature counts)
         impute_source(sample, self.model)
