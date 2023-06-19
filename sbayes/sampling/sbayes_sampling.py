@@ -33,8 +33,6 @@ class ClusterMCMC(MCMC):
         """
         Args:
             p_grow_connected: Probability at which grow operator only considers neighbours to add to the cluster
-
-            initial_size: The initial size of a cluster
             **kwargs: Other arguments that are passed on to MCMC
         """
         super().__init__(model=model, data=data, **kwargs)
