@@ -61,7 +61,6 @@ class ResultsLogger(ABC):
 
 
 class ParametersCSVLogger(ResultsLogger):
-
     """The ParametersCSVLogger collects all real-valued parameters (weights, alpha, beta,
     gamma) and some statistics (cluster size, likelihood, prior, posterior) and continually
     writes them to a tab-separated text-file."""

@@ -1,11 +1,14 @@
 import os
 import argparse
-from pathlib import Path
-
-import numpy as np
-import pandas as pd
-
 import tkinter as tk
+
+import pandas as pd
+try:
+    import ruamel.yaml as yaml
+except ImportError:
+    import ruamel_yaml as yaml
+
+from pathlib import Path
 from tkinter import filedialog, messagebox
 
 from sbayes.util import normalize_str, read_data_csv
@@ -23,18 +26,18 @@ def select_open_file(default_dir='.'):
     return path
 
 
-def select_save_file(default_dir='.', default_name='feature_states.csv'):
+def select_save_file(default_dir='.', default_name='feature_types.yaml'):
     path = filedialog.asksaveasfile(
-        title='Select an output file in CSV format.',
+        title='Select an output file in YAML format.',
         initialdir=default_dir,
         initialfile=default_name,
-        filetypes=(('csv files', '*.csv'), ('all files', '*.*'))
+        filetypes=(('YAML files', '*.yaml'), ('all files', '*.*'))
     )
     return path
 
 
 def ask_more_files():
-    MsgBox = tk.messagebox.askquestion ('Additional data files','Would you like to add more data files?')
+    MsgBox = tk.messagebox.askquestion('Additional data files', 'Would you like to add more data files?')
     return MsgBox == 'yes'
 
 
@@ -61,11 +64,88 @@ def dict_to_df(d):
     return pd.DataFrame(d_padded)
 
 
+def is_number(s):
+    """Helper function to check if a string is a number
+    :param s: string to check
+    :return(bool) is s a number
+    """
+    try:
+        float(s)
+        return True
+    except ValueError:
+        return False
+
+
+def is_integer(s):
+    """Helper function to check if a string is an integer
+    :param s: string to check
+    :return(bool) is s an integer?
+    """
+    try:
+        int(s)
+        return True
+    except ValueError:
+        return False
+
+
+def is_binary_integer(s):
+    """Helper function to check if a string is a binary integer
+    :param s: string to check
+    :return(bool) is s a binary integer?
+    """
+    try:
+        if int(s) == 0 or int(s) == 1:
+            return True
+        else:
+            return False
+    except ValueError:
+        return False
+
+
+def is_percentage(s):
+    """Helper function to check if a string is a percentage
+    :param s: string to check
+    :return(bool) is s an integer
+    """
+    try:
+        if 0 < float(s) < 1:
+            return True
+        else:
+            return False
+    except ValueError:
+        return False
+
+
+def guess_feature_type(f):
+    """ Guesses the type of the features in f
+    categorical: observations belong to two or more categories
+    gaussian: observations are continuous measurements
+    poisson: observations are count variables
+    logit-normal: observations are percentages
+    :param f: feature vector
+    :return type guess for each feature vector
+    """
+    if not all(is_number(o) for o in f):
+        type_guess = "categorical"
+    else:
+        if all(is_integer(o) for o in f):
+            if all(is_binary_integer(o) for o in f):
+                type_guess = "categorical"
+            else:
+                type_guess = "poisson"
+        else:
+            if all(is_percentage(o) for o in f):
+                type_guess = "logit-normal"
+            else:
+                type_guess = "gaussian"
+    return type_guess
+
+
 def main(args):
     # CLI
     parser = argparse.ArgumentParser(description="Tool to extract feature states from sBayes data files.")
     parser.add_argument("--input", nargs="*", type=Path, help="The input CSV files")
-    parser.add_argument("--output", nargs="?", type=Path, help="The output CSV file")
+    parser.add_argument("--output", nargs="?", type=Path, help="The output YAML file")
 
     args = parser.parse_args(args)
     csv_paths = args.input
@@ -113,15 +193,24 @@ def main(args):
                 feature_states[f].update(new_feature_states[f])
 
     # Remove NAs and order states alphabetically (if ´ORDER_STATES´ is set)
-    for f in feature_states:
+    for f in feature_states.copy():
         # if np.nan in feature_states[f]:
         #     feature_states[f].remove(np.nan)
 
         if ORDER_STATES:
             feature_states[f] = sorted(feature_states[f])
+        # Guess the type of each feature
+        type_guess = guess_feature_type(feature_states[f])
 
-    # Cast into a pandas dataframe
-    feature_states_df = dict_to_df(feature_states)
+        # Return the type and the applicable states / range of states
+        if type_guess == "categorical":
+            feature_states[f] = dict(type=type_guess, states=feature_states[f])
+        elif type_guess == "poisson":
+            int_features = [int(s) for s in feature_states[f]]
+            feature_states[f] = dict(type=type_guess, states=dict(min=min(int_features), max=max(int_features)))
+        else:
+            float_features = [float(s) for s in feature_states[f]]
+            feature_states[f] = dict(type=type_guess, states=dict(min=min(float_features), max=max(float_features)))
 
     # Ask user for the output file and save the feature_states there
     if args.output:
@@ -129,8 +218,10 @@ def main(args):
     else:
         output_path = select_save_file(default_dir=current_directory)
 
-    # Store the feature_states in a csv file
-    feature_states_df.to_csv(output_path, index=False, lineterminator='\n')
+    yml = yaml.YAML()
+    yml.indent(offset=2)
+    yml.default_flow_style = False
+    yml.dump(feature_states, output_path)
 
 
 if __name__ == '__main__':

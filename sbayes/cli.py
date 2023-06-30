@@ -28,7 +28,7 @@ def run_experiment(
         log=True,
     )
 
-    # Experiment based on a specified (in config) data-set
+    # Experiment based on a data-set specified in config
     data = Data.from_experiment(experiment)
 
     # Set up and run MCMC
@@ -61,6 +61,7 @@ def main(
     processes: int = 1,
     resume: bool = False,
 ):
+
     # Initialize the experiment
     experiment = Experiment(
         config_file=config,
@@ -100,7 +101,7 @@ def cli():
     parser.add_argument(
         "config",
         type=Path,
-        help="The JSON configuration file"
+        help="The JSON / YAML configuration file"
     )
 
     # Optional named arguments:
@@ -134,7 +135,7 @@ def cli():
         config = filedialog.askopenfilename(
             title="Select a config file in JSON format.",
             initialdir="..",
-            filetypes=(("json files", "*.json"), ("all files", "*.*")),
+            filetypes=(("json files", "*.json"), ("yaml files", "*.yaml"), ("all files", "*.*")),
         )
 
     main(config=config, experiment_name=args.name, processes=args.threads, resume=args.resume)

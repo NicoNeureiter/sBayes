@@ -3,7 +3,7 @@
 import os
 import unittest
 
-from sbayes.tools import extract_feature_states
+from sbayes.tools import guess_feature_types
 
 
 class TestExctactFeatureStates(unittest.TestCase):

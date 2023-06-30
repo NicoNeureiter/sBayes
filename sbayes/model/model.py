@@ -13,13 +13,18 @@ from sbayes.load_data import Data
 
 @dataclass(frozen=True)
 class ModelShapes:
-    n_clusters: int
-    n_sites: int
-    n_features: int
-    n_states: int
-    states_per_feature: NDArray[bool]
-    n_confounders: int
     n_groups: dict[str, int]
+    n_confounders: int
+    n_features: int
+    n_clusters: int
+    n_objects: int
+    n_features: int
+    n_features_categorical: int
+    n_states_categorical: int
+    states_per_feature: NDArray[bool]
+    n_features_gaussian: int
+    n_features_poisson: int
+    n_features_logitnormal: int
 
     @property
     def n_states_per_feature(self):
@@ -43,7 +48,7 @@ class Model:
         confounders (dict): A dict of all confounders and group names
         shapes (ModelShapes): A dictionary with shape information for building the Likelihood and Prior objects
         likelihood (Likelihood): The likelihood of the model
-        prior (Prior): Rhe prior of the model
+        prior (Prior): The prior of the model
 
     """
     def __init__(self, data: Data, config: ModelConfig):
@@ -54,20 +59,47 @@ class Model:
         self.min_size = config.prior.objects_per_cluster.min
         self.max_size = config.prior.objects_per_cluster.max
         self.sample_source = config.sample_source
-        n_sites, n_features, n_states = self.data.features.values.shape
+
+        try:
+            n_categorical = data.features.categorical.n_features
+            n_states = data.features.categorical.states.shape[1]
+            states_per_feature = data.features.categorical.states
+        except AttributeError:
+            n_categorical = None
+            n_states = None
+            states_per_feature = None
+
+        try:
+            n_gaussian = data.features.gaussian.n_features
+        except AttributeError:
+            n_gaussian = None
+
+        try:
+            n_poisson = data.features.poisson.n_features
+        except AttributeError:
+            n_poisson = None
+
+        try:
+            n_logit_normal = data.features.logitnormal.n_features
+        except AttributeError:
+            n_logit_normal = None
 
         self.shapes = ModelShapes(
+            n_objects=self.data.objects.n_objects,
             n_clusters=self.n_clusters,
-            n_sites=n_sites,
-            n_features=n_features,
-            n_states=n_states,
-            states_per_feature=self.data.features.states,
             n_confounders=len(self.confounders),
-            n_groups={name: conf.n_groups for name, conf in self.confounders.items()}
+            n_groups={name: conf.n_groups for name, conf in self.confounders.items()},
+            n_features=data.features.n_features,
+            n_features_categorical=n_categorical,
+            n_features_gaussian=n_gaussian,
+            n_features_poisson=n_poisson,
+            n_features_logitnormal=n_logit_normal,
+            n_states_categorical=n_states,
+            states_per_feature=states_per_feature
         )
 
         # Create likelihood and prior objects
-        self.prior = Prior(shapes=self.shapes, config=self.config.prior, data=data, sample_source=self.sample_source)
+        self.prior = Prior(data=data, config=self.config.prior, shapes=self.shapes, sample_source=self.sample_source)
         self.likelihood = Likelihood(data=self.data, shapes=self.shapes, prior=self.prior)
 
     def __call__(self, sample, caching=True):

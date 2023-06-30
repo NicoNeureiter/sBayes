@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 
+from abc import ABC
 from functools import lru_cache
 from typing import List, Sequence, Callable, Optional, OrderedDict
 import json
@@ -17,9 +18,12 @@ from sbayes.preprocessing import sample_categorical
 from sbayes.sampling.state import Sample, Clusters
 from sbayes.util import (compute_delaunay, n_smallest_distances, log_multinom,
                          dirichlet_logpdf, log_expit, PathLike, log_binom, normalize)
-from sbayes.config.config import PriorConfig, DirichletPriorConfig, GeoPriorConfig, ClusterSizePriorConfig, \
-    ConfoundingEffectPriorConfig
-from sbayes.load_data import Data, ComputeNetwork, GroupName, ConfounderName, StateName, FeatureName, Confounder
+from sbayes.config.config import PriorConfig, DirichletPriorConfig, PoissonPriorConfig, \
+    GaussianMeanPriorConfig, GaussianVariancePriorConfig, GaussianPriorConfig, \
+    GeoPriorConfig, ClusterSizePriorConfig, ClusterEffectPriorConfig, \
+    ConfoundingEffectsPriorConfig
+from sbayes.load_data import Data, ComputeNetwork, GroupName, ConfounderName, StateName, Features, \
+    FeatureName, Confounder, CategoricalFeatures
 
 
 class Prior:
@@ -44,24 +48,27 @@ class Prior:
         self.geo_prior = GeoPrior(config=self.config.geo,
                                   cost_matrix=data.geo_cost_matrix,
                                   network=data.network)
+
         self.prior_weights = WeightsPrior(config=self.config.weights,
-                                          shapes=self.shapes,
-                                          feature_names=data.features.feature_and_state_names)
+                                          shapes=self.shapes)
+
         self.prior_cluster_effect = ClusterEffectPrior(config=self.config.cluster_effect,
                                                        shapes=self.shapes,
-                                                       feature_names=data.features.feature_and_state_names)
+                                                       features=data.features)
+
         self.prior_confounding_effects = {}
         for k, v in self.config.confounding_effects.items():
-            self.prior_confounding_effects[k] = ConfoundingEffectsPrior(
-                config=v,
-                shapes=self.shapes,
-                conf=k,
-                feature_names=data.features.feature_and_state_names,
-                group_names=data.confounders[k].group_names,
-                conf_effect_priors = self.prior_confounding_effects,
-            )
+            self.prior_confounding_effects[k] = \
+                ConfoundingEffectsPrior(config=v,
+                                        shapes=self.shapes,
+                                        conf=k,
+                                        features=data.features,
+                                        group_names=data.confounders[k].group_names)
 
-        self.source_prior = SourcePrior(na_features=self.data.features.na_values)
+        self.source_prior = SourcePrior(categorical_na=data.features.categorical.na_values,
+                                        gaussian_na=data.features.gaussian.na_values,
+                                        poisson_na=data.features.poisson.na_values,
+                                        logitnormal_na=data.features.logitnormal.na_values)
 
     def __call__(self, sample: Sample, caching=True) -> float:
         """Compute the prior of the current sample.
@@ -96,9 +103,19 @@ class Prior:
         setup_msg = self.geo_prior.get_setup_message()
         setup_msg += self.size_prior.get_setup_message()
         setup_msg += self.prior_weights.get_setup_message()
-        setup_msg += self.prior_cluster_effect.get_setup_message()
+        setup_msg += self.prior_cluster_effect.categorical.get_setup_message()
+        setup_msg += self.prior_cluster_effect.gaussian.mean.get_setup_message()
+        setup_msg += self.prior_cluster_effect.gaussian.variance.get_setup_message()
         for k, v in self.prior_confounding_effects.items():
             setup_msg += v.get_setup_message()
+            setup_msg += v.categorical.get_setup_message()
+            setup_msg += v.gaussian.get_setup_message()
+            setup_msg += v.gaussian.mean.get_setup_message()
+            setup_msg += v.gaussian.variance.get_setup_message()
+            setup_msg += v.poisson.get_setup_message()
+            setup_msg += v.logitnormal.get_setup_message()
+            setup_msg += v.logitnormal.mean.get_setup_message()
+            setup_msg += v.logitnormal.variance.get_setup_message()
 
         return setup_msg
 
@@ -154,6 +171,116 @@ def compute_has_components(clusters: NDArray[bool], confounders: dict[str, Confo
     return np.array(has_components)
 
 
+class PoissonPrior:
+    PriorType = PoissonPriorConfig.Types
+
+    config: PoissonPriorConfig | dict[GroupName, PoissonPriorConfig]
+    shapes: ModelShapes
+    prior_type: Optional[PriorType]
+    alpha_0_array: NDArray[float]
+    beta_0_array: NDArray[float]
+
+    def __init__(
+        self,
+        config: PoissonPriorConfig | dict[GroupName, PoissonPriorConfig],
+        shapes: ModelShapes,
+        feature_names: NDArray
+    ):
+        self.config = config
+        self.shapes = shapes
+        self.feature_names = feature_names
+
+        self.prior_type = None
+        self.parse_attributes()
+
+    def parse_attributes(self):
+        raise NotImplementedError()
+
+    # todo: activate loading or reading shape and rate for defining a gamma prior on the Poisson rate
+    # def load_shape_rate
+    # def parse_shape_rate_json
+    # def parse_shape_rate_dict
+
+    def __call__(self, sample: Sample):
+        raise NotImplementedError()
+
+    def invalid_prior_message(self, s):
+        name = self.__class__.__name__
+        valid_types = ', '.join(self.PriorType)
+        return f'Invalid prior type {s} for {name} (choose from [{valid_types}]).'
+
+
+class GaussianMeanPrior:
+
+    PriorType = GaussianMeanPriorConfig.Types
+    config: GaussianMeanPriorConfig | dict[GroupName, GaussianMeanPriorConfig]
+    shapes: ModelShapes
+    prior_type: Optional[PriorType]
+    mu_0_array: NDArray[float]
+    sigma_0_array: NDArray[float]
+
+    def __init__(
+        self,
+        config: GaussianMeanPriorConfig | dict[GroupName, GaussianMeanPriorConfig],
+        shapes: ModelShapes,
+        feature_names: NDArray,
+    ):
+        self.config = config
+        self.shapes = shapes
+        self.feature_names = feature_names
+        self.prior_type = None
+
+        self.parse_attributes()
+
+    def parse_attributes(self):
+            raise NotImplementedError()
+
+    # todo: activate loading or reading mu_0 and sigma_0 for defining a Gaussian prior on the mean
+    # def load_mu0_sigma_0
+    # def parse_mu0_sigma_0
+    # def parse_mu_0_sigma_0
+
+    def __call__(self, sample: Sample):
+        raise NotImplementedError()
+
+    def invalid_prior_message(self, s):
+        name = self.__class__.__name__
+        valid_types = ', '.join(self.PriorType)
+        return f'Invalid prior type {s} for {name} (choose from [{valid_types}]).'
+
+
+class GaussianVariancePrior:
+
+    PriorType = GaussianVariancePriorConfig.Types
+    config: GaussianVariancePriorConfig | dict[GroupName, GaussianVariancePriorConfig]
+    shapes: ModelShapes
+    prior_type: Optional[PriorType]
+
+    def __init__(
+        self,
+        config: GaussianVariancePriorConfig | dict[GroupName, GaussianVariancePriorConfig],
+        shapes: ModelShapes,
+        feature_names: NDArray,
+    ):
+        self.config = config
+        self.shapes = shapes
+        self.feature_names = feature_names
+        self.prior_type = None
+
+        self.parse_attributes()
+
+    def parse_attributes(self):
+        raise NotImplementedError()
+
+    def __call__(self, sample: Sample):
+            raise NotImplementedError()
+
+    def invalid_prior_message(self, s):
+        name = self.__class__.__name__
+        valid_types = ', '.join(self.PriorType)
+        return f'Invalid prior type {s} for {name} (choose from [{valid_types}]).'
+
+
 Concentration = List[NDArray[float]]
 
 
@@ -165,15 +292,15 @@ class DirichletPrior:
     shapes: ModelShapes
     initial_counts: float
     prior_type: Optional[PriorType]
-    concentration: Concentration | dict[GroupName, Concentration]
+    concentration: Concentration | dict[GroupName, Concentration] | None
     concentration_array: NDArray[float]
 
     def __init__(
         self,
         config: DirichletPriorConfig | dict[GroupName, DirichletPriorConfig],
         shapes: ModelShapes,
-        feature_names: OrderedDict[FeatureName, list[StateName]],
-        initial_counts=1.
+        feature_names: OrderedDict[FeatureName, list[StateName]] = None,
+        initial_counts=1.,
     ):
         self.config = config
         self.shapes = shapes
@@ -183,10 +310,6 @@ class DirichletPrior:
         self.concentration = None
 
         self.parse_attributes()
-
-    @property
-    def n_features(self):
-        return len(self.feature_names)
 
     def load_concentration(self, config: DirichletPriorConfig) -> list[np.ndarray]:
         if config.file:
@@ -219,6 +342,7 @@ class DirichletPrior:
 
     def get_symmetric_concentration(self, c: float) -> list[np.ndarray]:
         concentration = []
+
         for n_states_f in self.shapes.n_states_per_feature:
             concentration.append(
                 np.full(shape=n_states_f, fill_value=c)
@@ -245,45 +369,307 @@ class DirichletPrior:
         return f'Invalid prior type {s} for {name} (choose from [{valid_types}]).'
 
 
-class ConfoundingEffectsPrior(DirichletPrior):
+def get_default_prior_config() -> ConfoundingEffectsPriorConfig:
+    return ConfoundingEffectsPriorConfig()
 
-    conf: ConfounderName
+
+class ConfoundingEffectsPrior:
+
+    categorical: CategoricalConfoundingEffectsPrior | None
+    gaussian: GaussianConfoundingEffectsPrior | None
+    poisson: PoissonConfoundingEffectsPrior | None
+    logitnormal: LogitNormalConfoundingEffectsPrior | None
 
     def __init__(
         self,
-        *args,
+        config: ConfoundingEffectsPriorConfig | dict[str, ConfoundingEffectsPriorConfig],
+        shapes: ModelShapes,
+        features: Features,
         conf: ConfounderName,
         group_names: list[str],
-        conf_effect_priors: dict[str, ConfoundingEffectsPrior],
-        **kwargs
     ):
         self.conf = conf
+        self.config = config
+        self.shapes = shapes
+        self.features = features
         self.group_names = group_names
-        self.any_dynamic_priors = False
-        self.conf_effect_priors = conf_effect_priors
-        self.precision = 0.0
-        super(ConfoundingEffectsPrior, self).__init__(*args, **kwargs)
 
-    def get_default_prior_config(self) -> ConfoundingEffectPriorConfig:
-        return ConfoundingEffectPriorConfig()
+        self.default_config = self.config.get("<DEFAULT>", None)
+        self.categorical_config = {}
+        self.gaussian_config = {}
+        self.poisson_config = {}
+        self.parse_attributes()
+
+        if self.features.categorical is not None:
+            self.categorical = CategoricalConfoundingEffectsPrior(config=self.categorical_config,
+                                                                  shapes=self.shapes,
+                                                                  feature_names=self.features.categorical.names)
+        else:
+            self.categorical = None
+
+        if self.features.gaussian is not None:
+            self.gaussian = GaussianConfoundingEffectsPrior(config=self.gaussian_config,
+                                                            shapes=self.shapes,
+                                                            feature_names=self.features.gaussian.names)
+        else:
+            self.gaussian = None
+
+        if self.features.poisson is not None:
+            self.poisson = PoissonConfoundingEffectsPrior(config=self.poisson_config,
+                                                          shapes=self.shapes,
+                                                          feature_names=self.features.poisson.names)
+        else:
+            self.poisson = None
+
+        # Logit-normal features use the same config entries as Gaussian features
+        if self.features.logitnormal is not None:
+            self.logitnormal = LogitNormalConfoundingEffectsPrior(config=self.gaussian_config,
+                                                                  shapes=self.shapes,
+                                                                  feature_names=self.features.logitnormal.names)
+        else:
+            self.logitnormal = None
 
     def parse_attributes(self):
-        n_groups = len(self.group_names)
-        self.concentration = {}
-        self._concentration_array = np.zeros((n_groups, self.shapes.n_features, self.shapes.n_states), dtype=float)
-        self.any_dynamic_priors = False
-
-        default_config = self.config.get("<DEFAULT>", None)
-
         for i_g, group in enumerate(self.group_names):
             if group not in self.config:
-                if default_config is None:
-                    self.config[group] = self.get_default_prior_config()
+                if self.default_config is None:
+
+                    self.config[group] = get_default_prior_config()
                 else:
-                    self.config[group] = default_config
+                    self.config[group] = self.default_config
+
+            self.categorical_config[group] = self.config[group].categorical
+            self.gaussian_config[group] = self.config[group].gaussian
+            self.poisson_config[group] = self.config[group].poisson
+
+    def get_setup_message(self):
+        """Compile a set-up message for logging."""
+        msg = f"Prior on confounding effect {self.conf}:\n"
+        return msg
+
+
+class LogitNormalConfoundingEffectsPrior:
+    mean: LogitNormalMeanConfoundingEffectsPrior
+    variance: LogitNormalVarianceConfoundingEffectsPrior
+
+    def __init__(
+        self,
+        config: GaussianPriorConfig | dict[GroupName, GaussianPriorConfig],
+        shapes: ModelShapes,
+        feature_names: NDArray[FeatureName]
+    ):
+        self.config = config
+        self.shapes = shapes
+        self.feature_names = feature_names
+        self.config_mean = {}
+        self.config_variance = {}
+        self.parse_attributes()
+
+        self.mean = LogitNormalMeanConfoundingEffectsPrior(config=self.config_mean,
+                                                           shapes=self.shapes,
+                                                           feature_names=self.feature_names)
+
+        self.variance = LogitNormalVarianceConfoundingEffectsPrior(config=self.config_variance,
+                                                                   shapes=self.shapes,
+                                                                   feature_names=self.feature_names)
+
+    def parse_attributes(self):
+        for k, v in self.config.items():
+            self.config_mean[k] = v.mean
+            self.config_variance[k] = v.variance
+
+    @staticmethod
+    def get_setup_message():
+        """Compile a set-up message for logging."""
+        msg = f"\tPrior for continuous features: \n"
+        return msg
+
+
+class LogitNormalVarianceConfoundingEffectsPrior(GaussianVariancePrior, ABC):
+    def parse_attributes(self):
+
+        for i_g, group in enumerate(self.config):
+            config_g = self.config[group]
+            group_prior_type = config_g.type
+
+            if group_prior_type is self.PriorType.JEFFREYS:
+                pass
+
+            else:
+                raise ValueError(self.invalid_prior_message(self.prior_type))
+
+    def get_setup_message(self):
+        """Compile a set-up message for logging."""
+        msg = ""
+        for i_g, group in enumerate(self.config):
+            if self.config[group].type is self.PriorType.JEFFREYS:
+                msg += f'\t\tJeffreys prior on the variance for {group}.\n'
+            else:
+                raise ValueError(self.invalid_prior_message(self.config.type))
+        return msg
+
+
+class LogitNormalMeanConfoundingEffectsPrior(GaussianMeanPrior, ABC):
+    def parse_attributes(self):
+        self.mu_0_array = np.zeros((len(self.config), self.shapes.n_features_logitnormal), dtype=float)
+        self.sigma_0_array = np.zeros((len(self.config), self.shapes.n_features_logitnormal), dtype=float)
+
+        for i_g, group in enumerate(self.config):
+            config_g = self.config[group]
+            group_prior_type = config_g.type
+
+            if group_prior_type is self.PriorType.GAUSSIAN:
+                for i_f in range(self.shapes.n_features_logitnormal):
+                    self.mu_0_array[i_g, i_f] = config_g.parameters['mu_0']
+                    self.sigma_0_array[i_g, i_f] = config_g.parameters['sigma_0']
+
+            else:
+                raise ValueError(self.invalid_prior_message(group_prior_type))
+
+    def get_setup_message(self):
+        """Compile a set-up message for logging."""
+        msg = ""
+        for i_g, group in enumerate(self.config):
+            if self.config[group].type is self.PriorType.GAUSSIAN:
+                msg += f'\t\tGaussian prior on the mean for {group}.\n'
+            else:
+                raise ValueError(self.invalid_prior_message(self.config.type))
+        return msg
+
+
+class GaussianConfoundingEffectsPrior:
+    mean: GaussianMeanConfoundingEffectsPrior
+    variance: GaussianVarianceConfoundingEffectsPrior
+
+    def __init__(
+        self,
+        config: GaussianPriorConfig | dict[GroupName, GaussianPriorConfig],
+        shapes: ModelShapes,
+        feature_names: NDArray[FeatureName]
+    ):
+        self.config = config
+        self.shapes = shapes
+        self.feature_names = feature_names
+        self.config_mean = {}
+        self.config_variance = {}
+        self.parse_attributes()
+
+        self.mean = GaussianMeanConfoundingEffectsPrior(config=self.config_mean,
+                                                        shapes=self.shapes,
+                                                        feature_names=self.feature_names)
+
+        self.variance = GaussianVarianceConfoundingEffectsPrior(config=self.config_variance,
+                                                                shapes=self.shapes,
+                                                                feature_names=self.feature_names)
+
+    def parse_attributes(self):
+        for k, v in self.config.items():
+            self.config_mean[k] = v.mean
+            self.config_variance[k] = v.variance
+
+    @staticmethod
+    def get_setup_message():
+        """Compile a set-up message for logging."""
+        msg = f"\tPrior for continuous features: \n"
+        return msg
+
+
+class GaussianVarianceConfoundingEffectsPrior(GaussianVariancePrior, ABC):
+    def parse_attributes(self):
+
+        for i_g, group in enumerate(self.config):
+            config_g = self.config[group]
+            group_prior_type = config_g.type
+
+            if group_prior_type is self.PriorType.JEFFREYS:
+                pass
+
+            else:
+                raise ValueError(self.invalid_prior_message(self.prior_type))
+
+    def get_setup_message(self):
+        """Compile a set-up message for logging."""
+        msg = ""
+        for i_g, group in enumerate(self.config):
+            if self.config[group].type is self.PriorType.JEFFREYS:
+                msg += f'\t\tJeffreys prior on the variance for {group}.\n'
+            else:
+                raise ValueError(self.invalid_prior_message(self.config.type))
+        return msg
+
+
+class GaussianMeanConfoundingEffectsPrior(GaussianMeanPrior, ABC):
+
+    def parse_attributes(self):
+        self.mu_0_array = np.zeros((len(self.config), self.shapes.n_features_gaussian), dtype=float)
+        self.sigma_0_array = np.zeros((len(self.config), self.shapes.n_features_gaussian), dtype=float)
+
+        for i_g, group in enumerate(self.config):
+            config_g = self.config[group]
+            group_prior_type = config_g.type
+
+            if group_prior_type is self.PriorType.GAUSSIAN:
+                for i_f in range(self.shapes.n_features_gaussian):
+                    self.mu_0_array[i_g, i_f] = config_g.parameters['mu_0']
+                    self.sigma_0_array[i_g, i_f] = config_g.parameters['sigma_0']
+
+            else:
+                raise ValueError(self.invalid_prior_message(group_prior_type))
+
+    def get_setup_message(self):
+        """Compile a set-up message for logging."""
+        msg = ""
+        for i_g, group in enumerate(self.config):
+            if self.config[group].type is self.PriorType.GAUSSIAN:
+                msg += f'\t\tGaussian prior on the mean for {group}.\n'
+            else:
+                raise ValueError(self.invalid_prior_message(self.config.type))
+        return msg
+
+
+class PoissonConfoundingEffectsPrior(PoissonPrior, ABC):
+    def parse_attributes(self):
+
+        self.alpha_0_array = np.zeros((len(self.config), self.shapes.n_features_poisson), dtype=float)
+        self.beta_0_array = np.zeros((len(self.config), self.shapes.n_features_poisson), dtype=float)
+
+        for i_g, group in enumerate(self.config):
+            config_g = self.config[group]
+            group_prior_type = config_g.type
+
+            if group_prior_type is self.PriorType.GAMMA:
+                for i_f in range(self.shapes.n_features_poisson):
+                    self.alpha_0_array[i_g, i_f] = config_g.parameters['alpha_0']
+                    self.beta_0_array[i_g, i_f] = config_g.parameters['beta_0']
+            else:
+                raise ValueError(self.invalid_prior_message(group_prior_type))
+
+    def get_setup_message(self):
+        """Compile a set-up message for logging."""
+        msg = f"\tPrior for count features: \n"
+
+        for i_g, group in enumerate(self.config):
+            if self.config[group].type is self.PriorType.GAMMA:
+                msg += f'\t\tGamma prior for {group}.\n'
+            elif self.config[group].type is self.PriorType.JEFFREYS:
+                msg += f'\t\tJeffreys prior for {group}.\n'
+            else:
+                raise ValueError(self.invalid_prior_message(self.config.type))
+        return msg
+
+
+class CategoricalConfoundingEffectsPrior(DirichletPrior, ABC):
+    def parse_attributes(self):
+
+        self.concentration = {}
+        self.concentration_array = np.zeros((len(self.config), self.shapes.n_features_categorical,
+                                             self.shapes.n_states_categorical), dtype=float)
+
+        for i_g, group in enumerate(self.config):
 
             config_g = self.config[group]
             group_prior_type = config_g.type
+
             if group_prior_type is self.PriorType.UNIFORM:
                 self.concentration[group] = self.get_symmetric_concentration(1.0)
             elif group_prior_type is self.PriorType.JEFFREYS:
@@ -294,73 +680,12 @@ class ConfoundingEffectsPrior(DirichletPrior):
                 self.concentration[group] = self.load_concentration(config_g)
             elif self.prior_type is self.PriorType.SYMMETRIC_DIRICHLET:
                 self.concentration[group] = self.get_symmetric_concentration(config_g.prior_concentration)
-            elif group_prior_type is self.PriorType.UNIVERSAL:
-                # Concentration will change based on sample of universal distribution...
-                # For initialization: use uniform as dummy concentration to avoid invalid states
-                self.concentration[group] = self.get_symmetric_concentration(config_g.prior_concentration)
-                self.precision = config_g.prior_concentration
-                self.any_dynamic_priors = True
 
             else:
-                raise ValueError(self.invalid_prior_message(config_g.type))
+                raise ValueError(self.invalid_prior_message(group_prior_type))
 
             for i_f, conc_f in enumerate(self.concentration[group]):
-                self._concentration_array[i_g, i_f, :len(conc_f)] = conc_f
-
-        if not self.any_dynamic_priors:
-            self._concentration_array.setflags(write=False)
-
-    def concentration_array(self, sample: Sample):
-        if self.any_dynamic_priors:
-            universal_prior_counts = self.conf_effect_priors['universal'].concentration_array(sample)[0]
-            universal_feature_counts = sample.feature_counts['universal'].value[0]
-            univ_counts = universal_prior_counts + universal_feature_counts
-            mean = normalize(univ_counts, axis=-1)
-            precision = np.minimum(self.precision, univ_counts.sum(axis=-1, keepdims=True))
-
-            # We add 1 to the precision for each possible feature state
-            # TODO: discuss whether this makes sense
-            precision += np.asarray(self.shapes.n_states_per_feature)[:, np.newaxis]
-
-            concentration = mean * precision
-
-            for i_g, group in enumerate(self.group_names):
-                if self.config[group].type is self.PriorType.UNIVERSAL:
-                    self._concentration_array[i_g] = concentration
-
-        return self._concentration_array
-
-    def __call__(self, sample: Sample, caching=True) -> float:
-        """"Calculate the log PDF of the confounding effects prior.
-
-        Args:
-            sample: Current MCMC sample.
-
-        Returns:
-            Logarithm of the prior probability density.
-        """
-
-        parameter = sample.confounding_effects[self.conf]
-        cache = sample.cache.confounding_effects_prior[self.conf]
-        if caching and not cache.is_outdated():
-            return cache.value.sum()
-
-        group_names = sample.confounders[self.conf].group_names
-        with cache.edit() as cached_priors:
-            for i_group in cache.what_changed(f'c_{self.conf}', caching=caching):
-                group = group_names[i_group]
-
-                if self.config[group].type is self.PriorType.UNIFORM:
-                    cached_priors[i_group] = 0.0
-                    continue
-
-                cached_priors[i_group] = compute_group_effect_prior(
-                    group_effect=parameter.value[i_group],
-                    concentration=self.concentration[group],
-                    applicable_states=self.shapes.states_per_feature,
-                )
-
-        return cache.value.sum()
+                self.concentration_array[i_g, i_f, :len(conc_f)] = conc_f
 
     def generate_sample(self) -> dict[GroupName, NDArray[float]]:  # shape: (n_samples, n_features, n_states)
         group_effects = {}
@@ -372,25 +697,199 @@ class ConfoundingEffectsPrior(DirichletPrior):
 
     def get_setup_message(self):
         """Compile a set-up message for logging."""
-        msg = f"Prior on confounding effect {self.conf}:\n"
+        msg = f"\tPrior for categorical features: \n"
 
-        for i_g, group in enumerate(self.group_names):
-        # for i_g, group in enumerate(self.config):
+        for i_g, group in enumerate(self.config):
             if self.config[group].type is self.PriorType.UNIFORM:
-                msg += f'\tUniform prior for confounder {self.conf} = {group}.\n'
+                msg += f'\t\tUniform prior for {group}.\n'
             elif self.config[group].type is self.PriorType.DIRICHLET:
-                msg += f'\tDirichlet prior for confounder {self.conf} = {group}.\n'
-            elif self.config[group].type is self.PriorType.UNIVERSAL:
-                msg += f'\tDirichlet prior with universal distribution as mean for confounder {self.conf} = {group}.\n'
+                msg += f'\t\tDirichlet prior for {group}.\n'
             else:
                 raise ValueError(self.invalid_prior_message(self.config.type))
         return msg
 
 
-class ClusterEffectPrior(DirichletPrior):
+class ClusterEffectPrior:
+    categorical: CategoricalClusterEffectPrior | None
+    poisson: PoissonClusterEffectPrior | None
+    gaussian: GaussianClusterEffectPrior | None
+    logitnormal: LogitNormalClusterEffectPrior | None
+
+    def __init__(
+        self,
+        config: ClusterEffectPriorConfig,
+        shapes: ModelShapes,
+        features: Features
+    ):
+        self.config = config
+        self.shapes = shapes
+        self.features = features
+
+        if self.features.categorical is not None:
+            self.categorical = CategoricalClusterEffectPrior(config=self.config.categorical, shapes=self.shapes,
+                                                             feature_names=self.features.categorical.names)
+        else:
+            self.categorical = None
+
+        if self.features.gaussian is not None:
+            self.gaussian = GaussianClusterEffectPrior(config=self.config.gaussian, shapes=self.shapes,
+                                                       feature_names=self.features.gaussian.names)
+        else:
+            self.gaussian = None
+
+        if self.features.poisson is not None:
+            self.poisson = PoissonClusterEffectPrior(config=self.config.poisson, shapes=self.shapes,
+                                                     feature_names=self.features.poisson.names)
+        else:
+            self.poisson = None
+
+        # Logit-normal features use the same config entries as Gaussian features
+        if self.features.logitnormal is not None:
+            self.logitnormal = LogitNormalClusterEffectPrior(config=self.config.gaussian, shapes=self.shapes,
+                                                             feature_names=self.features.logitnormal.names)
+        else:
+            self.logitnormal = None
+
+
+class GaussianClusterEffectPrior:
+    mean: GaussianMeanClusterEffectPrior
+    variance: GaussianVarianceClusterEffectPrior
+
+    def __init__(
+        self,
+        config: GaussianPriorConfig,
+        shapes: ModelShapes,
+        feature_names: NDArray[FeatureName]
+    ):
+        self.config = config
+        self.shapes = shapes
+        self.feature_names = feature_names
+
+        self.mean = GaussianMeanClusterEffectPrior(config=self.config.mean,
+                                                   shapes=self.shapes,
+                                                   feature_names=self.feature_names)
+
+        self.variance = GaussianVarianceClusterEffectPrior(config=self.config.variance,
+                                                           shapes=self.shapes,
+                                                           feature_names=self.feature_names)
+
+
+class LogitNormalClusterEffectPrior:
+    mean: LogitNormalMeanClusterEffectPrior
+    variance: LogitNormalVarianceClusterEffectPrior
+
+    def __init__(
+        self,
+        config: GaussianPriorConfig,
+        shapes: ModelShapes,
+        feature_names: NDArray[FeatureName]
+    ):
+        self.config = config
+        self.shapes = shapes
+        self.feature_names = feature_names
+
+        self.mean = LogitNormalMeanClusterEffectPrior(config=self.config.mean,
+                                                      shapes=self.shapes,
+                                                      feature_names=self.feature_names)
+
+        self.variance = LogitNormalVarianceClusterEffectPrior(config=self.config.variance,
+                                                              shapes=self.shapes,
+                                                              feature_names=self.feature_names)
+
+
+class LogitNormalVarianceClusterEffectPrior(GaussianVariancePrior, ABC):
+    def parse_attributes(self):
+        self.prior_type = self.config.type
+
+        if self.prior_type is self.PriorType.JEFFREYS:
+            pass
+
+        else:
+            raise ValueError(self.invalid_prior_message(self.prior_type))
+
+    def get_setup_message(self):
+        """Compile a set-up message for logging."""
+        return f'Prior on the cluster effect for Gaussian features (variance): {self.prior_type.value}\n'
+
+
+class LogitNormalMeanClusterEffectPrior(GaussianMeanPrior, ABC):
+    def parse_attributes(self):
+        self.prior_type = self.config.type
+
+        if self.prior_type is self.PriorType.GAUSSIAN:
+            self.mu_0_array = np.zeros(self.shapes.n_features_logitnormal)
+            self.sigma_0_array = np.zeros(self.shapes.n_features_logitnormal)
+
+            for i_f in range(self.shapes.n_features_logitnormal):
+                self.mu_0_array[i_f] = self.config.parameters['mu_0']
+                self.sigma_0_array[i_f] = self.config.parameters['sigma_0']
+
+        else:
+            raise ValueError(self.invalid_prior_message(self.prior_type))
+
+
+class GaussianMeanClusterEffectPrior(GaussianMeanPrior, ABC):
+    def parse_attributes(self):
+        self.prior_type = self.config.type
+
+        if self.prior_type is self.PriorType.GAUSSIAN:
+            self.mu_0_array = np.zeros(self.shapes.n_features_gaussian, dtype=float)
+            self.sigma_0_array = np.zeros(self.shapes.n_features_gaussian, dtype=float)
+
+            for i_f in range(self.shapes.n_features_gaussian):
+                self.mu_0_array[i_f] = self.config.parameters['mu_0']
+                self.sigma_0_array[i_f] = self.config.parameters['sigma_0']
+
+        else:
+            raise ValueError(self.invalid_prior_message(self.prior_type))
+
+    def get_setup_message(self):
+        """Compile a set-up message for logging."""
+        return f'Prior on the cluster effect for Gaussian features (mean): {self.prior_type.value}\n'
+
+
+class GaussianVarianceClusterEffectPrior(GaussianVariancePrior, ABC):
+    def parse_attributes(self):
+        self.prior_type = self.config.type
+
+        if self.prior_type is self.PriorType.JEFFREYS:
+            pass
+
+        else:
+            raise ValueError(self.invalid_prior_message(self.prior_type))
+
+    def get_setup_message(self):
+        """Compile a set-up message for logging."""
+        return f'Prior on the cluster effect for Gaussian features (variance): {self.prior_type.value}\n'
+
+
+class PoissonClusterEffectPrior(PoissonPrior, ABC):
 
     def parse_attributes(self):
         self.prior_type = self.config.type
+
+        if self.prior_type is self.PriorType.GAMMA:
+            self.alpha_0_array = np.zeros(self.shapes.n_features_poisson, dtype=float)
+            self.beta_0_array = np.zeros(self.shapes.n_features_poisson, dtype=float)
+
+            for i_f in range(self.shapes.n_features_poisson):
+                self.alpha_0_array[i_f] = self.config.parameters['alpha_0']
+                self.beta_0_array[i_f] = self.config.parameters['beta_0']
+
+        else:
+            raise ValueError(self.invalid_prior_message(self.prior_type))
+
+    def get_setup_message(self):
+        """Compile a set-up message for logging."""
+        return f'Prior on the cluster effect for Poisson features: {self.prior_type.value}\n'
+
+
+class CategoricalClusterEffectPrior(DirichletPrior, ABC):
+
+    def parse_attributes(self):
+
+        self.prior_type = self.config.type
+
         if self.prior_type is self.PriorType.UNIFORM:
             self.concentration = self.get_symmetric_concentration(1.0)
         elif self.prior_type is self.PriorType.JEFFREYS:
@@ -400,41 +899,13 @@ class ClusterEffectPrior(DirichletPrior):
         else:
             raise ValueError(self.invalid_prior_message(self.prior_type))
 
-        self.concentration_array = np.zeros((self.shapes.n_features, self.shapes.n_states))
+        self.concentration_array = np.zeros((self.shapes.n_features_categorical, self.shapes.n_states_categorical))
         for i_f, conc_f in enumerate(self.concentration):
             self.concentration_array[i_f, :len(conc_f)] = conc_f
 
-    def __call__(self, sample: Sample, caching=True) -> float:
-        """Compute the prior for the areal effect (or load from cache).
-        Args:
-            sample: Current MCMC sample.
-        Returns:
-            Logarithm of the prior probability density.
-        """
-        parameter = sample.cluster_effect
-        cache = sample.cache.cluster_effect_prior
-        if not cache.is_outdated():
-            # return np.sum(cache.value)
-            return cache.value
-
-        log_p = 0.0
-        if self.prior_type is self.PriorType.UNIFORM:
-            pass
-        else:
-            for i_cluster in range(sample.n_clusters):
-                log_p += compute_group_effect_prior(
-                    group_effect=parameter.value[i_cluster],
-                    concentration=self.concentration,
-                    applicable_states=self.shapes.states_per_feature,
-                )
-
-        cache.update_value(log_p)
-        # return np.sum(cache.value)
-        return log_p
-
     def get_setup_message(self):
         """Compile a set-up message for logging."""
-        return f'Prior on cluster effect: {self.prior_type.value}\n'
+        return f'Prior on the cluster effect for categorical features: {self.prior_type.value}\n'
 
 
 class WeightsPrior(DirichletPrior):
@@ -447,6 +918,7 @@ class WeightsPrior(DirichletPrior):
 
     def parse_attributes(self):
         self.prior_type = self.config.type
+        # Weights prior applies to all features, irrespective of their type
         if self.prior_type is self.PriorType.UNIFORM:
             self.concentration = list(np.full(
                 shape=(self.shapes.n_features, self.shapes.n_components),
@@ -472,9 +944,9 @@ class WeightsPrior(DirichletPrior):
         """
         # TODO: reactivate caching once we implement more complex priors
         parameter = sample.weights
-        cache = sample.cache.weights_prior
-        if not cache.is_outdated():
-            return cache.value
+        # cache = sample.cache.weights_prior
+        # if not cache.is_outdated():
+        #     return cache.value
 
         log_p = 0.0
         if self.prior_type is self.PriorType.UNIFORM:
@@ -491,7 +963,7 @@ class WeightsPrior(DirichletPrior):
         else:
             raise ValueError(self.invalid_prior_message(self.prior_type))
 
-        cache.update_value(log_p)
+        # cache.update_value(log_p)
         return log_p
 
     def pointwise_prior(self, sample: Sample) -> NDArray[float]:
@@ -513,9 +985,15 @@ class SourcePrior:
 
     def __init__(
         self,
-        na_features: NDArray[bool]
+        categorical_na: NDArray[bool] = None,
+        gaussian_na: NDArray[bool] = None,
+        poisson_na: NDArray[bool] = None,
+        logitnormal_na: NDArray[bool] = None
     ):
-        self.valid_observations = ~na_features
+        self.valid_categorical = ~categorical_na
+        self.valid_gaussian = ~gaussian_na
+        self.valid_poisson = ~poisson_na
+        self.valid_logitnormal = ~logitnormal_na
 
     def __call__(self, sample: Sample, caching=True) -> float:
         """Compute the prior for weights (or load from cache).
@@ -539,7 +1017,9 @@ class SourcePrior:
                 w = update_weights(sample)[changed]
                 s = sample.source.value[changed]
                 observation_weights = np.sum(w*s, axis=-1)
-                source_prior[changed] = np.sum(np.log(observation_weights), axis=-1, where=self.valid_observations[changed])
+                # todo: fix for categorical, gaussian, poisson, logitnormal features
+                source_prior[changed] = np.sum(np.log(observation_weights), axis=-1,
+                                               where=self.valid_observations[changed])
 
         return cache.value.sum()
 
@@ -593,7 +1073,7 @@ class ClusterSizePrior:
         if self.prior_type is self.PriorType.UNIFORM_SIZE:
             # P(size)   =   uniform
             # P(zone | size)   =   1 / |{clusters of size k}|   =   1 / (n choose k)
-            logp = -log_multinom(self.shapes.n_sites, sizes)
+            logp = -log_multinom(self.shapes.n_objects, sizes)
             # logp = -log_binom(self.shapes.n_sites, sizes).sum()
 
         elif self.prior_type is self.PriorType.QUADRATIC_SIZE:
@@ -859,6 +1339,7 @@ def compute_diameter_based_geo_prior(
         log_prior += probability_function(cost_mat_z.max())
 
     return log_prior
+
 
 class SimulatedSigmoid:
 

@@ -157,6 +157,181 @@ class ClusterSizePriorConfig(BaseConfig):
     """Maximum cluster size."""
 
 
+class GaussianMeanPriorConfig(BaseConfig):
+    """Configuration of the prior on the mean of a normal distribution"""
+
+    class Types(str, Enum):
+        IMPROPER_UNIFORM = "improper_uniform"
+        GAUSSIAN = "gaussian"
+
+    type: Types = Types.IMPROPER_UNIFORM
+    """Type of prior distribution (`improper_uniform` or `gaussian`)."""
+
+    file: Optional[RelativeFilePath] = None
+    """Path to the parameters of the Gaussian distribution."""
+
+    parameters: Optional[dict] = None
+    """Parameters of the Gaussian distribution."""
+
+    @root_validator(pre=True)
+    def warn_when_using_default_type(cls, values):
+        if "type" not in values:
+            warnings.warn(
+                f"No `type` defined for `{cls.__name__}`. Using `improper_uniform` as a default."
+            )
+        return values
+
+    @root_validator(pre=True)
+    def validate_gamma_parameters(cls, values):
+        prior_type = values.get("type")
+
+        if prior_type == "gaussian":
+            if (values.get("file") is None) and (values.get("parameters") is None):
+                raise ValidationError(
+                    f"Provide `file` or `parameters` for `{cls.__name__}` of type `gaussian`."
+                )
+        return values
+
+    def dict(self, *args, **kwargs):
+        """A custom dict method to hide non-applicable attributes depending on prior type."""
+        self_dict = super().dict(*args, **kwargs)
+        if self.type is self.Types.IMPROPER_UNIFORM:
+            self_dict.pop("file")
+            self_dict.pop("parameters")
+        else:
+            if self.file is not None:
+                self_dict.pop("parameters")
+            elif self.parameters is not None:
+                self_dict.pop("file")
+
+        return self_dict
+
+    @classmethod
+    def get_attr_doc(cls, attr):
+        doc = super().get_attr_doc(attr)
+        if not doc:
+            return GaussianMeanPriorConfig.__attrdocs__.get(attr)
+
+
+class GaussianVariancePriorConfig(BaseConfig):
+    """Configuration of the prior on the variance of a normal distribution"""
+
+    class Types(str, Enum):
+        JEFFREYS = "jeffreys"
+        INV_GAMMA = "inv-gamma"
+
+    type: Types = Types.JEFFREYS
+    """Type of prior distribution (`improper_uniform` or `gaussian`)."""
+
+    file: Optional[RelativeFilePath] = None
+    """Path to the parameters of the Gaussian distribution."""
+
+    parameters: Optional[dict] = None
+    """Parameters of the Gaussian distribution."""
+
+    @root_validator(pre=True)
+    def warn_when_using_default_type(cls, values):
+        if "type" not in values:
+            warnings.warn(
+                f"No `type` defined for `{cls.__name__}`. Using `jeffreys` as a default."
+            )
+        return values
+
+    @root_validator(pre=True)
+    def validate_gamma_parameters(cls, values):
+        prior_type = values.get("type")
+
+        if prior_type == "inv-gamma":
+            if (values.get("file") is None) and (values.get("parameters") is None):
+                raise ValidationError(
+                    f"Provide `file` or `parameters` for `{cls.__name__}` of type `inv-gamma`."
+                )
+        return values
+
+    def dict(self, *args, **kwargs):
+        """A custom dict method to hide non-applicable attributes depending on prior type."""
+        self_dict = super().dict(*args, **kwargs)
+        if self.type is self.Types.JEFFREYS:
+            self_dict.pop("file")
+            self_dict.pop("parameters")
+        else:
+            if self.file is not None:
+                self_dict.pop("parameters")
+            elif self.parameters is not None:
+                self_dict.pop("file")
+
+        return self_dict
+
+    @classmethod
+    def get_attr_doc(cls, attr):
+        doc = super().get_attr_doc(attr)
+        if not doc:
+            return GaussianVariancePriorConfig.__attrdocs__.get(attr)
+
+
+class GaussianPriorConfig(BaseConfig):
+    """Configuration of the prior on the mean and variance of a normal distribution"""
+
+    mean: GaussianMeanPriorConfig
+    variance: GaussianVariancePriorConfig
+
+
+class PoissonPriorConfig(BaseConfig):
+    """Configuration of the prior on the rate parameter of a Poisson distribution"""
+
+    class Types(str, Enum):
+        JEFFREYS = "jeffreys"
+        GAMMA = "gamma"
+
+    type: Types = Types.JEFFREYS
+    """Type of prior distribution (`jeffreys` or `gamma`)."""
+
+    file: Optional[RelativeFilePath] = None
+    """Path to the parameters of the Gamma distribution."""
+
+    parameters: Optional[dict] = None
+    """Parameters of the Gamma distribution."""
+
+    @root_validator(pre=True)
+    def warn_when_using_default_type(cls, values):
+        if "type" not in values:
+            warnings.warn(
+                f"No `type` defined for `{cls.__name__}`. Using `jeffreys` as a default."
+            )
+        return values
+
+    @root_validator(pre=True)
+    def validate_gamma_parameters(cls, values):
+        prior_type = values.get("type")
+
+        if prior_type == "gamma":
+            if (values.get("file") is None) and (values.get("parameters") is None):
+                raise ValidationError(
+                    f"Provide `file` or `parameters` for `{cls.__name__}` of type `gamma`."
+                )
+        return values
+
+    def dict(self, *args, **kwargs):
+        """A custom dict method to hide non-applicable attributes depending on prior type."""
+        self_dict = super().dict(*args, **kwargs)
+        if self.type is self.Types.JEFFREYS:
+            self_dict.pop("file")
+            self_dict.pop("parameters")
+        else:
+            if self.file is not None:
+                self_dict.pop("parameters")
+            elif self.parameters is not None:
+                self_dict.pop("file")
+
+        return self_dict
+
+    @classmethod
+    def get_attr_doc(cls, attr):
+        doc = super().get_attr_doc(attr)
+        if not doc:
+            return PoissonPriorConfig.__attrdocs__.get(attr)
+
+
 class DirichletPriorConfig(BaseConfig):
 
     class Types(str, Enum):
@@ -231,22 +406,52 @@ class WeightsPriorConfig(DirichletPriorConfig):
     """Configuration of the prion on the weights of the mixture components."""
 
 
-class ConfoundingEffectPriorConfig(DirichletPriorConfig):
+class ClusterEffectCategoricalPriorConfig(DirichletPriorConfig):
+    """Configuration of the prior on the cluster-effect for categorical features."""
+
+
+class ClusterEffectGaussianPriorConfig(GaussianPriorConfig):
+    """Configuration of the prior on the cluster-effect of continuous features."""
+
+
+class ClusterEffectPoissonPriorConfig(PoissonPriorConfig):
+    """Configuration of the prior on the cluster-effect of count features."""
+
+
+class ConfoundingEffectsCategoricalPriorConfig(DirichletPriorConfig):
+    """Configuration of the prior on the confounding-effects of categorical features."""
+
+
+class ConfoundingEffectsGaussianPriorConfig(GaussianPriorConfig):
+    """Configuration of the prior on the confounding-effects of continuous features."""
+
+
+class ConfoundingEffectsPoissonPriorConfig(PoissonPriorConfig):
+    """Configuration of the prior on the confounding-effects of count features."""
+
+
+class ConfoundingEffectsPriorConfig(BaseConfig):
     """Configuration of the prior on the parameters of the confounding-effects."""
+    categorical: ConfoundingEffectsCategoricalPriorConfig
+    gaussian: ConfoundingEffectsGaussianPriorConfig
+    poisson: ConfoundingEffectsPoissonPriorConfig
 
 
-class ClusterEffectConfig(DirichletPriorConfig):
+class ClusterEffectPriorConfig(BaseConfig):
     """Configuration of the prior on the parameters of the cluster-effect."""
+    categorical: ClusterEffectCategoricalPriorConfig
+    gaussian: ClusterEffectGaussianPriorConfig
+    poisson: ClusterEffectPoissonPriorConfig
 
 
 class PriorConfig(BaseConfig):
 
     """Configuration of all priors of a sBayes model."""
 
-    confounding_effects: Dict[str, Dict[str, ConfoundingEffectPriorConfig]]
+    confounding_effects: Dict[str, Dict[str, ConfoundingEffectsPriorConfig]]
     """The priors for the confounding_effects in each group of each confounder."""
 
-    cluster_effect: ClusterEffectConfig
+    cluster_effect: ClusterEffectPriorConfig
     geo: GeoPriorConfig
     objects_per_cluster: ClusterSizePriorConfig
     weights: WeightsPriorConfig
@@ -343,6 +548,7 @@ class MCMCConfig(BaseConfig):
             raise ValueError("Inconsistent spacing between samples. Set ´steps´ to be a multiple of ´samples´.")
         return values
 
+
 class DataConfig(BaseConfig):
 
     """Information on the data for an sBayes analysis."""
@@ -350,8 +556,8 @@ class DataConfig(BaseConfig):
     features: RelativeFilePath
     """Path to the CSV file with features used for the analysis."""
 
-    feature_states: RelativeFilePath
-    """Path to the CSV file defining the possible states for each feature."""
+    feature_types: RelativeFilePath
+    """Path to the YAML file defining the type of each feature including applicable states."""
 
     projection: str = "epsg:4326"
     """String identifier of the projection in which locations are given."""
@@ -405,7 +611,7 @@ class SBayesConfig(BaseConfig):
         base_directory, config_file = decompose_config_path(path)
         RelativePath.BASE_DIR = base_directory
 
-        # Load a config dictionary from the json file
+        # Load a config dictionary from the json / YAML file
         with open(path, "r") as f:
             path_str = str(path).lower()
             if path_str.endswith(".yaml"):

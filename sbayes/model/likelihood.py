@@ -20,12 +20,20 @@ from sbayes.load_data import Data
 
 
 class ModelShapes(Protocol):
+    def __init__(self):
+        self.n_features_poisson = None
+        self.n_features_categorical = None
+
     n_clusters: int
     n_sites: int
     n_features: int
-    n_states: int
+    n_features_categorical: int
+    n_states_categorical: int
     states_per_feature: NDArray[bool]
     n_states_per_feature: list[int]
+    n_features_gaussian: int
+    n_features_logitnormal: int
+    n_features_poisson: int
     n_confounders: int
     n_components: int
     n_groups: dict[str, int]
@@ -46,10 +54,11 @@ class Likelihood(object):
     """
 
     def __init__(self, data: Data, shapes: ModelShapes, prior):
-        self.features = data.features.values
+
+        self.features = data.features
         self.confounders = data.confounders
         self.shapes = shapes
-        self.na_features = (np.sum(self.features, axis=-1) == 0)
+        # self.na_features = (np.sum(self.features, axis=-1) == 0)
         self.prior = prior
 
         self.source_index = {'clusters': 0}
@@ -63,8 +72,9 @@ class Likelihood(object):
             Returns:
                 The joint likelihood of the current sample
         """
-        if not caching:
-            recalculate_feature_counts(self.features, sample)
+        # todo: activate again
+        # if not caching:
+        #     recalculate_feature_counts(self.features, sample)
 
         # Sum up log-likelihood of each mixture component:
         log_lh = 0.0

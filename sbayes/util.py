@@ -252,59 +252,56 @@ def range_like(a):
 
 
 # Encoding
-def encode_states(features_raw, feature_states):
-    # Define shapes
-    n_states, n_features = feature_states.shape
-    features_bin_shape = features_raw.shape + (n_states,)
-    n_sites, _ = features_raw.shape
+def encode_categorical_data(data: pd.DataFrame, feature_states: dict) -> dict:
+    """Binary encodes all categorical features in the data
+    :param data: all categorical features
+    :param feature_states: applicable states of each categorical feature
+    :return: one-hot encoded features
+    """
+
+    n_sites, n_features = data.shape
+    n_states = max([len(v) for v in feature_states.values()])
+    features_bin_shape = data.shape + (n_states,)
+    _ = len(feature_states)
+
     assert n_features == _
 
-    # Initialize arrays and counts
+    # Initialize arrays
     features_bin = np.zeros(features_bin_shape, dtype=int)
     applicable_states = np.zeros((n_features, n_states), dtype=bool)
-    state_names = []
-    na_number = 0
 
-    # Binary vectors used for encoding
-    one_hot = np.eye(n_states)
+    for i, f in enumerate(feature_states):
 
-    for f_idx in range(n_features):
-        f_name = feature_states.columns[f_idx]
-        f_states = feature_states[f_name]
+        if not (set(data[f].dropna()).issubset(set(feature_states[f]))):
+            print(set(data[f].dropna()) - set(feature_states[f]))
+            print(feature_states[f])
+        assert set(data[f].dropna()).issubset(set(feature_states[f]))
 
-        # Define applicable states for feature f
-        applicable_states[f_idx] = ~f_states.isna()
+        # Applicable states for each feature (e.g. a feature might have two, another four states, yet another six)
+        applicable_states[i, :len(feature_states[f])] = True
 
-        # Define external and internal state names
-        s_ext = f_states.dropna().to_list()
-        s_int = range_like(s_ext)
-        state_names.append(s_ext)
+        # Map state names to index
+        mapping = dict(zip(feature_states[f], range_like(feature_states[f])))
 
-        # Map external to internal states for feature f
-        ext_to_int = dict(zip(s_ext, s_int))
-        f_raw = features_raw[f_name]
-        f_enc = f_raw.map(ext_to_int)
-        if not (set(f_raw.dropna()).issubset(set(s_ext))):
-            print(set(f_raw.dropna()) - set(s_ext))
-            print(s_ext)
-        assert set(f_raw.dropna()).issubset(set(s_ext))  # All states should map to an encoding
+        # Map features
+        mapped_feature = data[f].map(mapping)
+        available_states = ~mapped_feature.isna().to_numpy()
+        mapped_feature = mapped_feature[available_states].astype(int)
 
-        # Binarize features
-        f_applicable = ~f_enc.isna().to_numpy()
-        f_enc_applicable = f_enc[f_applicable].astype(int)
+        features_bin[available_states, i] = np.eye(n_states)[mapped_feature]
 
-        features_bin[f_applicable, f_idx] = one_hot[f_enc_applicable]
-
-        # Count NA
-        na_number += np.count_nonzero(f_enc.isna())
+    feature_names = [f for f in feature_states.keys()]
+    state_names = [n for n in feature_states.values()]
 
     features = {
         'values': features_bin.astype(bool),
         'states': applicable_states,
-        'state_names': state_names
+        'feature_names': feature_names,
+        'state_names': state_names,
+        'na_number': data.isna().sum().sum()
     }
 
-    return features, na_number
+    return features
 
 
 def normalize_str(s: str) -> str:

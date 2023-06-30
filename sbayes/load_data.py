@@ -2,23 +2,27 @@
 # -*- coding: utf-8 -*-
 """ Imports the real world data """
 from __future__ import annotations
-import pyproj
-from dataclasses import dataclass, field
-from logging import Logger
-from collections import OrderedDict
-from typing import Optional, TypeVar, Type
 
+import pyproj
+import pandas as pd
+import numpy as np
+try:
+    import ruamel.yaml as yaml
+except ImportError:
+    import ruamel_yaml as yaml
 try:
     from typing import Literal
 except ImportError:
     from typing_extensions import Literal
 
-import pandas as pd
-import numpy as np
 from numpy.typing import NDArray
+from dataclasses import dataclass, field
+from logging import Logger
+from collections import OrderedDict
+from typing import Optional, TypeVar, Type
 
 from sbayes.preprocessing import ComputeNetwork, read_geo_cost_matrix
-from sbayes.util import PathLike, read_data_csv, encode_states
+from sbayes.util import PathLike, read_data_csv, encode_categorical_data
 from sbayes.config.config import SBayesConfig
 from sbayes.experiment_setup import Experiment
 
@@ -83,33 +87,41 @@ class Objects:
 
 
 @dataclass
-class Features:
-
-    values: NDArray[bool]  # shape: (n_objects, n_features, n_states)
-    names: NDArray[FeatureName]  # shape: (n_features,)
-    states: NDArray[bool]  # shape: (n_features, n_states)
-    state_names: list[list[StateName]]  # shape for each feature f: (n_states[f],)
+class CategoricalFeatures:
+    # Binary representation of all categorical features
+    values: NDArray[bool]                     # shape: (n_objects, n_features, n_states)
+    states: NDArray[bool]                     # shape: (n_features, n_states)
+    names: OrderedDict[FeatureName, list[StateName]] = field(init=False)
+    feature_names: NDArray[FeatureName]  # shape: (n_features,)
+    state_names: dict[list[StateName]]  # shape for each feature f: (n_states[f],)
     na_number: int
-    features_by_group = None
-
-    feature_and_state_names: OrderedDict[FeatureName, list[StateName]] = field(init=False)
-    # TODO This could replace names and state_names
-
-    na_values: NDArray[bool] = field(init=False)  # shape: (n_objects, n_features)
+    na_values: NDArray[bool] = field(init=False)                # shape: (n_objects, n_features)
 
     def __post_init__(self):
-        object.__setattr__(self, 'feature_and_state_names', OrderedDict())
-        for f, states_names_f in zip(self.names, self.state_names):
-            self.feature_and_state_names[f] = states_names_f
+        object.__setattr__(self, 'names', OrderedDict())
+        for f, s in zip(self.feature_names, self.state_names):
+            self.names[f] = s
 
         object.__setattr__(self, 'na_values', np.sum(self.values, axis=-1) == 0)
 
-    def __getitem__(self, key: str) -> NDArray | list | int:
-        return getattr(self, key)
+    @classmethod
+    def from_dataframes(
+        cls: Type[S],
+        data: pd.DataFrame,
+        feature_types: pd.DataFrame,
+    ) -> S:
 
-    @property
-    def n_objects(self) -> int:
-        return self.values.shape[0]
+        # Retrieve all categorical features
+        categorical_columns = [k for k, v in feature_types.items() if v['type'] == "categorical"]
+        categorical_data = data.loc[:, categorical_columns]
+        feature_states = dict((c, feature_types[c]['states']) for c in categorical_columns)
+
+        if categorical_data.empty:
+            return None
+        else:
+            categorical_features_dict = encode_categorical_data(categorical_data, feature_states)
+            # return Feature class consisting of all binarised categorical features
+            return cls(**categorical_features_dict)
 
     @property
     def n_features(self) -> int:
@@ -123,16 +135,171 @@ class Features:
     def n_states_per_feature(self) -> list[int]:
         return [sum(applicable) for applicable in self.states]
 
+
+@dataclass
+class GaussianFeatures:
+    # All features that are continuous measurements
+    values: NDArray[float]                          # shape: (n_objects, n_gaussian_features)
+    names: NDArray[FeatureName]                     # shape: (n_gaussian_features,)
+    na_number: int
+    na_values: NDArray[bool] = field(init=False)    # shape: (n_objects, n_features)
+
+    def __post_init__(self):
+        object.__setattr__(self, 'na_values', np.sum(self.values, axis=-1) == 0)
+
     @classmethod
     def from_dataframes(
         cls: Type[S],
         data: pd.DataFrame,
-        feature_states: pd.DataFrame,
+        feature_types: pd.DataFrame,
     ) -> S:
-        feature_data = data.loc[:, feature_states.columns]
-        features_dict, na_number = encode_states(feature_data, feature_states)
-        features_dict["names"] = feature_states.columns.to_numpy()
-        return cls(**features_dict, na_number=na_number)
+
+        # Retrieve all gaussian features
+        gaussian_columns = [k for k, v in feature_types.items() if v['type'] == "gaussian"]
+        gaussian_data = data.loc[:, gaussian_columns]
+
+        if gaussian_data.empty:
+            return None
+        else:
+            gaussian_features_dict = dict(values=gaussian_data.to_numpy(dtype=float, na_value=np.nan),
+                                          names=np.asarray(gaussian_columns),
+                                          na_number=gaussian_data.isna().sum().sum())
+
+            # return Feature class consisting of all gaussian features
+            return cls(**gaussian_features_dict)
+
+    @property
+    def n_features(self) -> int:
+        return self.values.shape[1]
+
+
+@dataclass
+class PoissonFeatures:
+    # All features that are count variables
+    values: NDArray[int]                            # shape: (n_objects, n_poisson_features)
+    names: NDArray[FeatureName]                     # shape: (n_poisson_features,)
+    na_number: int
+    na_values: NDArray[bool] = field(init=False)    # shape: (n_objects, n_features)
+
+    def __post_init__(self):
+        object.__setattr__(self, 'na_values', np.sum(self.values, axis=-1) == 0)
+
+    @classmethod
+    def from_dataframes(
+            cls: Type[S],
+            data: pd.DataFrame,
+            feature_types: pd.DataFrame,
+    ) -> S:
+        # Retrieve all Poisson features
+        poisson_columns = [k for k, v in feature_types.items() if v['type'] == "poisson"]
+        poisson_data = data.loc[:, poisson_columns]
+
+        if poisson_data.empty:
+            return None
+        else:
+            poisson_features_dict = dict(values=poisson_data.to_numpy(dtype=float, na_value=np.nan),
+                                         names=np.asarray(poisson_columns),
+                                         na_number=poisson_data.isna().sum().sum())
+
+            # return Feature class consisting of all poisson features
+            return cls(**poisson_features_dict)
+
+    @property
+    def n_features(self) -> int:
+        return self.values.shape[1]
+
+
+@dataclass
+class LogitNormalFeatures:
+    # All features that are percentages
+    values: NDArray[int]                            # shape: (n_objects, n_logit_normal_features)
+    names: NDArray[FeatureName]                     # shape: (n_logit_normal_features, )
+    na_number: int
+    na_values: NDArray[bool] = field(init=False)    # shape: (n_objects, n_features)
+
+    def __post_init__(self):
+        object.__setattr__(self, 'na_values', np.sum(self.values, axis=-1) == 0)
+
+    @classmethod
+    def from_dataframes(
+            cls: Type[S],
+            data: pd.DataFrame,
+            feature_types: pd.DataFrame,
+    ) -> S:
+        # Retrieve all Poisson features
+        logit_normal_columns = [k for k, v in feature_types.items() if v['type'] == "logit-normal"]
+        logit_normal_data = data.loc[:, logit_normal_columns]
+
+        if logit_normal_data.empty:
+            return None
+        else:
+            logit_normal_features_dict = dict(values=logit_normal_data.to_numpy(dtype=float, na_value=np.nan),
+                                              names=np.asarray(logit_normal_columns),
+                                              na_number=logit_normal_data.isna().sum().sum())
+
+            # return Feature class consisting of all logit-normal features
+            return cls(**logit_normal_features_dict)
+
+    @property
+    def n_features(self) -> int:
+        return self.values.shape[1]
+
+
+@dataclass
+class Features:
+    categorical: CategoricalFeatures | None
+    gaussian: GaussianFeatures | None
+    poisson: PoissonFeatures | None
+    logitnormal: LogitNormalFeatures | None
+
+    def __getitem__(self, key: str) -> NDArray | list | int:
+        return getattr(self, key)
+
+    @property
+    def n_features(self) -> int:
+        if self.categorical is not None:
+            n_categorical = self.categorical.n_features
+        else:
+            n_categorical = 0
+        if self.gaussian is not None:
+            n_gaussian = self.gaussian.n_features
+        else:
+            n_gaussian = 0
+        if self.poisson is not None:
+            n_poisson = self.poisson.n_features
+        else:
+            n_poisson = 0
+        if self.logitnormal is not None:
+            n_logitnormal = self.logitnormal.n_features
+        else:
+            n_logitnormal = 0
+
+        return n_categorical + n_gaussian + n_poisson + n_logitnormal
+
+    @classmethod
+    def from_dataframes(
+        cls: Type[S],
+        data: pd.DataFrame,
+        feature_types: pd.DataFrame,
+    ) -> S:
+
+        # Retrieve and one-hot encode all categorical features
+        categorical_features = CategoricalFeatures.from_dataframes(data, feature_types)
+
+        # Retrieve all Gaussian features
+        gaussian_features = GaussianFeatures.from_dataframes(data, feature_types)
+
+        # Retrieve all Poisson features
+        poisson_features = PoissonFeatures.from_dataframes(data, feature_types)
+
+        # Retrieve all logit-normal features
+        logit_normal_features = LogitNormalFeatures.from_dataframes(data, feature_types)
+
+        # return Feature class consisting of all different types of features
+        return cls(categorical=categorical_features,
+                   gaussian=gaussian_features,
+                   poisson=poisson_features,
+                   logitnormal=logit_normal_features)
 
 
 @dataclass
@@ -140,10 +307,9 @@ class Confounder:
 
     name: str
     group_assignment: NDArray[bool]         # shape: (n_groups, n_objects)
-    group_names: NDArray[GroupName]         # shape: (n_groups,)
-    feature_counts: NDArray[int] = None    # shape: (n_groups, n_features, n_states)
+    group_names: list[GroupName]            # shape: (n_groups,)
 
-    def __getitem__(self, key) -> str | NDArray:
+    def __getitem__(self, key) -> str | list | NDArray[bool]:
         if key == "names":
             return self.group_names
         elif key == "values":
@@ -161,8 +327,7 @@ class Confounder:
     def from_dataframe(
         cls: Type[S],
         data: pd.DataFrame,
-        confounder_name: ConfounderName,
-        features: Features | None = None,
+        confounder_name: ConfounderName
     ) -> S:
         n_objects = data.shape[0]
 
@@ -178,21 +343,10 @@ class Confounder:
             for i_g, name_g in enumerate(group_names):
                 group_assignment[i_g, np.where(group_names_by_site == name_g)] = True
 
-        if features is not None:
-            n_groups = len(group_names)
-            feature_counts = np.zeros((n_groups, features.n_features, features.n_states), dtype=int)
-            for i_g, g in enumerate(group_assignment):
-                feature_counts[i_g] = np.sum(features.values[g], axis=0)
-
-        else:
-            feature_counts = None
-            approximate_likelihood = None
-
         return cls(
             name=confounder_name,
             group_assignment=group_assignment,
             group_names=group_names,
-            feature_counts=feature_counts,
         )
 
 
@@ -224,11 +378,11 @@ class Data:
         self.confounders = confounders
         self.logger = logger
 
-        self.features_by_group = {
-            conf_name: [features.values[g] for g in conf.group_assignment]
-            for conf_name, conf in self.confounders.items()
-        }
-        self.features.features_by_group = self.features_by_group
+        # self.features_by_group = {
+        #     conf_name: [features.values[g] for g in conf.group_assignment]
+        #     for conf_name, conf in self.confounders.items()
+        # }
+        # self.features.features_by_group = self.features_by_group
 
         self.crs = pyproj.CRS(projection)
         self.network = ComputeNetwork(self.objects, crs=self.crs)
@@ -246,9 +400,9 @@ class Data:
             cls.log_loading(logger)
 
         # Load objects, features, confounders
-        objects, features, confounders = read_features_from_csv(
+        objects, features, confounders = read_features_from_file(
             data_path=config.data.features,
-            feature_states_path=config.data.feature_states,
+            feature_types_path=config.data.feature_types,
             confounder_names=config.model.confounders,
             logger=logger,
         )
@@ -294,39 +448,68 @@ class Data:
 #     )
 
 
-def read_features_from_csv(
+def read_features_from_file(
     data_path: PathLike,
-    feature_states_path: PathLike,
+    feature_types_path: PathLike,
     confounder_names: list[ConfounderName],
     logger: Optional[Logger] = None,
 ) -> (Objects, Features, dict[ConfounderName, Confounder]):
-    """This is a helper function to import data (objects, features, confounders) from a csv file
+    """This is a helper function to import data (objects, features, confounders) from csv and yaml files
     Args:
         data_path: path to the data csv file.
-        feature_states_path: path to the feature states csv file.
-        groups_by_confounder: dict mapping confounder name to list of corresponding groups
+        feature_types_path: path to the feature types yaml file
+        confounder_names: dict mapping confounder name to list of corresponding groups
         logger: A Logger instance for writing log messages.
 
     Returns:
         The parsed data objects (objects, features and confounders).
     """
-    # Load the data and features-states
+    # Load the data and feature types
     data = read_data_csv(data_path)
-    feature_states = read_data_csv(feature_states_path)
 
-    features = Features.from_dataframes(data, feature_states)
+    with open(feature_types_path, "r") as f:
+        yaml_loader = yaml.YAML(typ='safe')
+        feature_types = yaml_loader.load(f)
+
+    features = Features.from_dataframes(data, feature_types)
     objects = Objects.from_dataframe(data)
     confounders = OrderedDict()
+
     for c in confounder_names:
-        confounders[c] = Confounder.from_dataframe(data=data, confounder_name=c, features=features)
+        confounders[c] = Confounder.from_dataframe(data=data, confounder_name=c)
 
     if logger:
         logger.info(
-            f"{features.n_objects} objects with {features.n_features} features read from {data_path}."
+            f"{objects.n_objects} objects with {features.n_features} features read from {data_path}."
         )
-        logger.info(f"{features.na_number} NA value(s) found.")
-        logger.info(
-            f"The maximum number of states in a single feature was {feature_states.shape[0]}."
-        )
+        logger.info(f"Feature types:")
+        try:
+            logger.info(
+                f"Categorical: {features.categorical.n_features} qualitative feature(s) with "
+                f"{features.categorical.na_number} NA value(s)"
+            )
+        except AttributeError:
+            pass
+        try:
+            logger.info(
+                f"Gaussian: {features.gaussian.n_features} continuous feature(s) "
+                f"{features.gaussian.na_number} NA value(s)"
+            )
+        except AttributeError:
+            pass
+        try:
+            logger.info(
+                f"Poisson: {features.poisson.n_features} count feature(s) with "
+                f"{features.poisson.na_number} NA value(s)"
+            )
+        except AttributeError:
+            pass
+        try:
+            logger.info(
+                f"Logit-normal: {features.poisson.n_features} percentage features(s) with "
+                f"{features.logitnormal.na_number} NA value(s)"
+            )
+        except AttributeError:
+            pass
 
     return objects, features, confounders
