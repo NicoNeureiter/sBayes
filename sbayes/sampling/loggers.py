@@ -70,7 +70,7 @@ class ParametersCSVLogger(ResultsLogger):
         self,
         *args,
         log_contribution_per_cluster: bool = False,
-        float_format: str = "%.12g",
+        float_format: str = "%.8g",
         match_clusters: bool = True,
         log_source: bool = False,
         **kwargs,

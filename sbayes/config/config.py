@@ -369,6 +369,15 @@ class ResultsConfig(BaseConfig):
     log_file: bool = True
     """Whether to write log-messages to a file."""
 
+    log_likelihood: bool = True
+    """Whether to log the likelihood of each observation in a .h5 file (used for model comparison)."""
+
+    log_source: bool = False
+    """Whether to log the proportion of objects assigned to each component in each feature."""
+
+    float_precision: PositiveInt = 8
+    """The precision (number of decimal places) of real valued parameters in the stats file."""
+
 
 class SettingsForLinguists(BaseConfig):
 
