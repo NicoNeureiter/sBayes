@@ -172,6 +172,7 @@ class MCMC(ABC):
                 init_sample_c = initializer.generate_sample(c)
             else:
                 init_sample_c = deepcopy(initial_sample)
+                init_sample_c.chain = c
 
             sample.append(init_sample_c)
 
