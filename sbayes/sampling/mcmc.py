@@ -6,6 +6,7 @@ import math
 from abc import ABC, abstractmethod
 import random as _random
 import time as _time
+from typing import Protocol
 
 import numpy as _np
 from copy import copy, deepcopy
@@ -20,6 +21,12 @@ from sbayes.sampling.operators import Operator
 from sbayes.config.config import OperatorsConfig
 
 from sbayes.sampling.state import Sample
+
+
+class Initializer(Protocol):
+
+    def generate_sample(self, c: int = 0) -> Sample:
+        ...
 
 
 class MCMC(ABC):
@@ -125,15 +132,6 @@ class MCMC(ABC):
         return log_lh
 
     @abstractmethod
-    def generate_initial_sample(self, c=0):
-        """Generate an initial sample from which the run should be started.
-        Preferably in high density areas.
-        Returns:
-            SampleType: Initial sample.
-        """
-        pass
-
-    @abstractmethod
     def get_operators(self, operators: OperatorsConfig) -> dict[str, Operator]:
         """Get relevant operators and weights for proposing MCMC update steps
 
@@ -148,6 +146,7 @@ class MCMC(ABC):
         n_steps: int,
         n_samples: int,
         initial_sample: Sample | None = None,
+        initializer: Initializer | None = None,
         warm_up: bool = False,
         warm_up_steps: int | None = None
     ) -> Sample:
@@ -157,6 +156,7 @@ class MCMC(ABC):
             n_steps: The number of steps taken by the sampler (without burn-in steps)
             n_samples: The number of samples
             initial_sample: The starting sample
+            initializer: Initializer object for creating initial_sample (required if initial_sample is not provided)
             warm_up: Warm-up run or real sampling?
             warm_up_steps: Number of warm-up steps
         Returns:
@@ -167,9 +167,12 @@ class MCMC(ABC):
         sample = []
         for c in self.chain_idx:
             if initial_sample is None:
-                init_sample_c = self.generate_initial_sample(c)
+                if initializer is None:
+                    raise AttributeError("Either initial_sample or initializer needs to be defined.")
+                init_sample_c = initializer.generate_sample(c)
             else:
                 init_sample_c = deepcopy(initial_sample)
+                init_sample_c.chain = c
 
             sample.append(init_sample_c)
 

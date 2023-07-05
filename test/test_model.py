@@ -145,7 +145,7 @@ class TestLikelihood(unittest.TestCase):
         p_global = np.full(shape=(1, n_features, n_states), fill_value=0.5)
         source = np.zeros((n_objects, n_features, 2), dtype=bool)
         sample = Sample.from_numpy_arrays(
-            clusters=np.ones((1, n_objects),  dtype=np.bool),
+            clusters=np.ones((1, n_objects),  dtype=bool),
             weights=broadcast_weights([0.5, 0.5], n_features),
             confounding_effects={"universal": p_global},
             confounders=confounders,
