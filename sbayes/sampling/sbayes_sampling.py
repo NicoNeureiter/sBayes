@@ -123,7 +123,7 @@ class ClusterMCMC(MCMC):
             #     gibbsish=False
             # ),
             'cluster_jump_gibbsish': ClusterJump(
-                weight=0.2 * operators_config.clusters if self.n_clusters > 1 else 0.0,
+                weight=0.2 * operators_config.clusters if self.model.n_clusters > 1 else 0.0,
                 model_by_chain=self.posterior_per_chain,
                 resample_source=True,
                 sample_from_prior=self.sample_from_prior,

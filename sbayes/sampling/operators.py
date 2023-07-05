@@ -499,7 +499,7 @@ class ClusterOperator(Operator):
         *args,
         model_by_chain: list[Model],
         resample_source: bool,
-        sample_from_prior: bool,
+        sample_from_prior: bool = False,
         p_grow: float = 0.5,
         n_changes: int = 1,
         resample_source_mode: ResampleSourceMode = ResampleSourceMode.GIBBS,
@@ -839,8 +839,8 @@ class AlterClusterGibbsish(ClusterOperator):
                 log_q_back += log_q_back_i
 
         if DEBUG:
-            verify_counts(sample, self.model_by_chain[sample.chain].data.features.values)
-            verify_counts(sample_new, self.model_by_chain[sample.chain].data.features.values)
+            verify_counts(sample, self.features)
+            verify_counts(sample_new, self.features)
 
         return sample_new, log_q, log_q_back
 
@@ -900,9 +900,16 @@ class AlterClusterGibbsish(ClusterOperator):
     def shrink_candidates(sample: Sample, i_cluster: int) -> NDArray[bool]:
         return sample.clusters.value[i_cluster]
 
-    def grow_cluster(self, sample: Sample) -> tuple[Sample, float, float]:
-        # Choose a cluster
-        i_cluster = RNG.choice(range(sample.n_clusters))
+    def grow_cluster(
+        self,
+        sample: Sample,
+        i_cluster: int = None
+    ) -> tuple[Sample, float, float]:
+
+        if i_cluster is None:
+            # Choose a cluster
+            i_cluster = RNG.choice(range(sample.n_clusters))
+
         cluster = sample.clusters.value[i_cluster, :]
 
         # Load and precompute useful variables
@@ -1107,7 +1114,8 @@ class ClusterEffectProposals:
         for i_comp, (name_conf, conf) in enumerate(confounders.items(), start=1):
             prior_counts = model.prior.prior_confounding_effects[name_conf].concentration_array(sample)
 
-            p_conf = normalize(conf.feature_counts + prior_counts, axis=-1)  # (n_features, n_states)
+            feature_counts = sample.feature_counts[name_conf].value
+            p_conf = normalize(feature_counts + prior_counts, axis=-1)  # (n_features, n_states)
             for i_g, g in enumerate(conf.group_assignment):
                 expected_features[g] += weights[g, :, [i_comp], None] * p_conf[np.newaxis, i_g, ...]
 
@@ -1176,9 +1184,10 @@ class AlterClusterGibbsishWide(AlterClusterGibbsish):
 
         return cluster_posterior
 
-    def _propose(self, sample: Sample, **kwargs) -> tuple[Sample, float, float]:
+    def _propose(self, sample: Sample, i_cluster=None, **kwargs) -> tuple[Sample, float, float]:
         sample_new = sample.copy()
-        i_cluster = RNG.choice(range(sample.n_clusters))
+        if i_cluster is None:
+            i_cluster = RNG.choice(range(sample.n_clusters))
         cluster_old = sample.clusters.value[i_cluster]
         available = self.available(sample, i_cluster)
         n_available = np.count_nonzero(available)
@@ -1416,6 +1425,7 @@ class ClusterJump(ClusterOperator):
     def _propose(self, sample: Sample, **kwargs) -> tuple[Sample, float, float]:
         """Reassign an object from one cluster to another."""
         sample_new = sample.copy()
+        # print(sample.chain, self.model_by_chain)
         model = self.model_by_chain[sample.chain]
 
         # Randomly choose a source and target cluster
@@ -1551,7 +1561,7 @@ class OperatorSchedule:
             return self.RW_OPERATORS_BY_NAMES[name]
 
 
-def verify_counts(sample, features: NDArray[bool]):
+def verify_counts(sample: Sample, features: NDArray[bool]):
     cached_counts = deepcopy(sample.feature_counts)
     new_counts = recalculate_feature_counts(features, sample)
     assert set(cached_counts.keys()) == set(new_counts.keys())
