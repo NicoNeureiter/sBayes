@@ -116,7 +116,7 @@ Ratio of confounding_effects steps (changing probabilities in confounders): {op_
         op_stats_path = base_dir / f'operator_stats_K{k}_{run}.txt'
 
         sample_loggers = [
-            ParametersCSVLogger(params_path, self.data, self.model, log_source=True, resume=resume),
+            ParametersCSVLogger(params_path, self.data, self.model, log_source=False, resume=resume),
             ClustersLogger(clusters_path, self.data, self.model, resume=resume),
             OperatorStatsLogger(op_stats_path, self.data, self.model, operators=[], resume=resume)
         ]
