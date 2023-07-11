@@ -11,7 +11,8 @@ from sbayes.sampling.counts import recalculate_feature_counts
 from sbayes.sampling.state import Sample, Clusters
 from sbayes.util import normalize
 
-from sbayes.model.likelihood import update_weights, compute_component_likelihood
+from sbayes.model.likelihood import update_categorical_weights, update_gaussian_weights, update_poisson_weights,\
+    update_logitnormal_weights
 # from sbayes.cython.util import compute_component_likelihood
 
 
@@ -144,91 +145,6 @@ def sample_dirichlet_batched(
     return p
 
 
-def likelihood_per_component(
-    model,
-    sample: Sample,
-    caching=True
-) -> NDArray[float]:  # shape: (n_objects, n_feature, n_components)
-    """Update the likelihood values for each of the mixture components"""
-    CHECK_CACHING = False
-
-    features = model.data.features
-    confounders = model.data.confounders
-    feature_counts = sample.feature_counts
-
-    cache = sample.cache.component_likelihoods
-    if caching and not cache.is_outdated():
-        if CHECK_CACHING:
-            assert np.all(cache.value == likelihood_per_component(model, sample, caching=False))
-        return cache.value
-
-    with cache.edit() as component_likelihood:
-        changed_clusters = cache.what_changed(input_key=['clusters', 'clusters_counts'], caching=caching)
-
-        if len(changed_clusters) > 0:
-            # The expected cluster effect is given by the normalized posterior counts
-            cluster_effect_counts = (  # feature counts + prior counts
-                feature_counts['clusters'].value +
-                model.prior.prior_cluster_effect.concentration_array
-            )
-            cluster_effect = normalize(cluster_effect_counts, axis=-1)
-
-            # Update component likelihood for cluster effects:
-            compute_component_likelihood(
-                features=features.values,
-                probs=cluster_effect,
-                groups=sample.clusters.value,
-                changed_groups=changed_clusters,
-                out=component_likelihood[..., 0],
-            )
-
-            # with sample.clusters.value_for_cython() as clusters:
-            #     # Update component likelihood for cluster effects:
-            #     compute_component_likelihood(
-            #         features=features.values,
-            #         features_by_group=[features.values[c] for c in clusters],
-            #         probs=cluster_effect,
-            #         groups=clusters,
-            #         changed_groups=changed_clusters,
-            #         out=component_likelihood[..., 0],
-            #     )
-
-        # Update component likelihood for confounding effects:
-        for i, conf in enumerate(confounders.keys(), start=1):
-            changed_groups = cache.what_changed(input_key=[f'c_{conf}', f'{conf}_counts'], caching=caching)
-            # print(conf, changed_groups)
-
-            if len(changed_groups) == 0:
-                continue
-
-            groups = confounders[conf].group_assignment
-
-            # The expected confounding effect is given by the normalized posterior counts
-            conf_effect_counts = (  # feature counts + prior counts
-                feature_counts[conf].value +
-                model.prior.prior_confounding_effects[conf].concentration_array(sample)
-            )
-
-            conf_effect = normalize(conf_effect_counts, axis=-1)
-
-            compute_component_likelihood(
-                features=features.values,
-                probs=conf_effect,
-                groups=groups,
-                changed_groups=changed_groups,
-                out=component_likelihood[..., i],
-            )
-
-        component_likelihood[features.na_values] = 1.
-
-    if caching and CHECK_CACHING:
-        cached = np.copy(cache.value)
-        recomputed = likelihood_per_component(model, sample, caching=False)
-        assert np.allclose(cached, recomputed)
-
-    return cache.value
-
-
 def approx_likelihood_per_component(
     model: Model,
     sample: Sample,
@@ -273,10 +189,27 @@ def approx_component_likelihood(
 
 def sample_source_from_prior(
     sample: Sample,
-) -> NDArray:
-    """Sample the source array from the prior, i.e. from the weights array"""
-    p = update_weights(sample)
-    return sample_categorical(p, binary_encoding=True)
+) -> dict[str, NDArray | None]:
+    """Sample the source array for all different feature types from the prior, i.e. from the weights array"""
+    source = dict(categorical=None, gaussian=None, poisson=None, logitnormal=None)
+
+    if sample.categorical is not None:
+        p = update_categorical_weights(sample)
+        source['categorical'] = sample_categorical(p, binary_encoding=True)
+
+    if sample.gaussian is not None:
+        p = update_gaussian_weights(sample)
+        source['gaussian'] = sample_categorical(p, binary_encoding=True)
+
+    if sample.poisson is not None:
+        p = update_poisson_weights(sample)
+        source['poisson'] = sample_categorical(p, binary_encoding=True)
+
+    if sample.logitnormal is not None:
+        p = update_logitnormal_weights(sample)
+        source['logitnormal'] = sample_categorical(p, binary_encoding=True)
+
+    return source
 
 
 def logprob_source_from_prior(

@@ -11,11 +11,11 @@ import numpy.typing as npt
 import tables
 
 from sbayes.load_data import Data
-from sbayes.sampling.conditionals import conditional_effect_sample, likelihood_per_component
+from sbayes.sampling.conditionals import conditional_effect_sample
 from sbayes.sampling.operators import Operator
 from sbayes.util import format_cluster_columns, get_best_permutation
 from sbayes.model import Model
-from sbayes.model.likelihood import update_weights
+from sbayes.model.likelihood import update_categorical_weights, Likelihood
 from sbayes.sampling.state import Sample, ModelCache
 
 
@@ -85,7 +85,7 @@ class ParametersCSVLogger(ResultsLogger):
         self.model.sample_source = False
         self.model.prior.sample_source = False
 
-        self.cluster_sum = np.zeros((self.model.shapes.n_clusters, self.model.shapes.n_sites), dtype=int)
+        self.cluster_sum = np.zeros((self.model.shapes.n_clusters, self.model.shapes.n_objects), dtype=int)
 
     def write_header(self, sample: Sample):
         feature_names = self.data.features.names

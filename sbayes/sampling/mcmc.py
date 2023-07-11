@@ -138,6 +138,7 @@ class MCMC(ABC):
         """Get relevant operators and weights for proposing MCMC update steps
 
         Args:
+
             operators: dictionary mapping operator names to operator objects
         Returns:
             The operator objects with a proposal function and weights
@@ -162,7 +163,6 @@ class MCMC(ABC):
         Returns:
             list: The generated samples
         """
-
         # Generate initial samples
         sample = []
         for c in self.chain_idx:

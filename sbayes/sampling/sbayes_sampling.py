@@ -6,7 +6,8 @@ import random as _random
 import numpy as np
 
 from sbayes.load_data import Data
-from sbayes.model import update_weights, Model
+from sbayes.model import update_categorical_weights, update_gaussian_weights, \
+                         update_poisson_weights, update_logitnormal_weights
 from sbayes.sampling.conditionals import sample_source_from_prior
 from sbayes.sampling.counts import recalculate_feature_counts
 from sbayes.sampling.mcmc import MCMC
@@ -18,7 +19,8 @@ from sbayes.sampling.operators import (
     AlterClusterGibbsish,
     AlterClusterGibbsishWide,
     AlterCluster,
-    GibbsSampleSource, ObjectSelector, ResampleSourceMode, ClusterJump, ClusterEffectProposals,
+    GibbsSampleSource, GibbsSampleSourceCategorical, GibbsSampleSourceGaussian, GibbsSampleSourcePoisson,
+    ObjectSelector, ResampleSourceMode, ClusterJump, ClusterEffectProposals
 )
 from sbayes.util import get_neighbours, normalize
 from sbayes.config.config import OperatorsConfig
@@ -45,24 +47,13 @@ class ClusterMCMC(MCMC):
         """
 
         # Data
-        self.features = data.features.values
-        self.applicable_states = data.features.states
-        self.n_states_by_feature = np.sum(data.features.states, axis=-1)
-        self.n_features = self.features.shape[1]
-        self.n_states = self.features.shape[2]
-        self.n_sites = self.features.shape[0]
-
-        # Locations and network
-        self.locations = data.network.locations
-        self.adj_mat = data.network.adj_mat
+        self.shapes = model.shapes
+        self.features = data.features
 
         # Sampling
         self.p_grow_connected = p_grow_connected
 
         # Clustering
-        self.n_clusters = model.n_clusters
-        self.min_size = model.min_size
-        self.max_size = model.max_size
         self.initial_size = initial_size
 
         # Confounders and sources
@@ -72,11 +63,6 @@ class ClusterMCMC(MCMC):
         self.n_groups = self.get_groups_per_confounder()
 
         super().__init__(model=model, data=data, **kwargs)
-
-        # Variance of the proposal distribution
-        self.var_proposal_weight = 10
-        self.var_proposal_cluster_effect = 20
-        self.var_proposal_confounding_effects = 10
 
     def get_groups_per_confounder(self):
         n_groups = dict()
@@ -93,30 +79,27 @@ class ClusterMCMC(MCMC):
         return source_index
 
     def generate_initial_clusters(self):
-        """For each chain (c) generate initial clusters by
-        A) growing through random grow-steps up to self.min_size,
-        B) using the last sample of a previous run of the MCMC
+        """For each chain generate initial clusters by growing through random grow-steps up to self.min_size,
 
         Returns:
             np.array: The generated initial clusters.
                 shape(n_clusters, n_sites)
         """
 
-        # If there are no clusters in the model, return empty matrix
-        if self.n_clusters == 0:
-            return np.zeros((self.n_clusters, self.n_sites), bool)
+        # No clusters in the model --> return empty matrix
+        if self.shapes.n_clusters == 0:
+            return np.zeros((self.shapes.n_clusters, self.shapes.n_objects), bool)
 
-        occupied = np.zeros(self.n_sites, bool)
-        initial_clusters = np.zeros((self.n_clusters, self.n_sites), bool)
+        initial_clusters = np.zeros((self.shapes.n_clusters, self.shapes.n_objects), bool)
+        occupied = np.zeros(self.shapes.n_objects, bool)
 
-        # A: Grow the remaining clusters
         # With many clusters new ones can get stuck due to unfavourable seeds.
         # We perform several attempts to initialize the clusters.
         attempts = 0
         max_attempts = 1000
 
         while True:
-            for i in range(self.n_clusters):
+            for i in range(self.shapes.n_clusters):
                 try:
                     initial_size = self.initial_size
                     cl, in_cl = self.grow_cluster_of_size_k(k=initial_size, already_in_cluster=occupied)
@@ -140,7 +123,7 @@ class ClusterMCMC(MCMC):
                 return initial_clusters
 
     def grow_cluster_of_size_k(self, k, already_in_cluster=None):
-        """ This function grows a cluster of size k excluding any of the sites in <already_in_cluster>.
+        """ This function grows a cluster of size k, excluding any of the objects in <already_in_cluster>.
         Args:
             k (int): The size of the cluster, i.e. the number of sites in the cluster
             already_in_cluster (np.array): All sites already assigned to a cluster (boolean)
@@ -151,14 +134,14 @@ class ClusterMCMC(MCMC):
 
         """
         if already_in_cluster is None:
-            already_in_cluster = np.zeros(self.n_sites, bool)
+            already_in_cluster = np.zeros(self.shapes.n_objects, bool)
 
         # Initialize the cluster
-        cluster = np.zeros(self.n_sites, bool)
+        cluster = np.zeros(self.shapes.n_objects, bool)
 
         # Find all sites that are occupied by a cluster and those that are still free
         sites_occupied = np.nonzero(already_in_cluster)[0]
-        sites_free = list(set(range(self.n_sites)) - set(sites_occupied))
+        sites_free = list(set(range(self.shapes.n_objects)) - set(sites_occupied))
 
         # Take a random free site and use it as seed for the new cluster
         try:
@@ -169,7 +152,7 @@ class ClusterMCMC(MCMC):
 
         # Grow the cluster if possible
         for _ in range(k - 1):
-            neighbours = get_neighbours(cluster, already_in_cluster, self.adj_mat)
+            neighbours = get_neighbours(cluster, already_in_cluster, self.data.network.adj_mat)
             if not np.any(neighbours):
                 raise self.ClusterError
 
@@ -180,52 +163,144 @@ class ClusterMCMC(MCMC):
         return cluster, already_in_cluster
 
     def generate_initial_weights(self):
-        """This function generates initial weights for the Bayesian additive mixture model, either by
-        A) proposing them (randomly) from scratch
-        B) using the last sample of a previous run of the MCMC
-        Weights are in log-space and not normalized.
+        """This function generates initial weights for each feature in the Bayesian additive mixture model
 
         Returns:
             np.array: weights for cluster_effect and each of the i confounding_effects
         """
-        return normalize(np.ones((self.n_features, self.n_sources)))
+        initial_weights = {}
+        if self.features.categorical is not None:
+            initial_weights['categorical'] = normalize(np.ones((self.shapes.n_features_categorical, self.n_sources)))
+        else:
+            initial_weights['categorical'] = None
 
-    def generate_initial_confounding_effect(self, conf: str):
-        """This function generates initial state probabilities for each group in confounding effect [i], either by
-        A) using the MLE
-        B) using the last sample of a previous run of the MCMC
-        Probabilities are in log-space and not normalized.
+        if self.features.gaussian is not None:
+            initial_weights['gaussian'] = normalize(np.ones((self.shapes.n_features_gaussian, self.n_sources)))
+        else:
+            initial_weights['gaussian'] = None
+
+        if self.features.poisson is not None:
+            initial_weights['poisson'] = normalize(np.ones((self.shapes.n_features_poisson, self.n_sources)))
+        else:
+            initial_weights['poisson'] = None
+
+        if self.features.logitnormal is not None:
+            initial_weights['logitnormal'] = normalize(np.ones((self.shapes.n_features_logitnormal, self.n_sources)))
+        else:
+            initial_weights['logitnormal'] = None
+
+        return initial_weights
+
+    def generate_initial_source(self) -> dict[np.ndarray | None]:
+        """Generate initial source arrays
+            Returns:
+                probabilities for states in each group of confounding effect [i]
+        """
+        initial_source = dict()
+
+        if self.features.categorical is not None:
+            initial_source['categorical'] = np.empty((self.shapes.n_objects,
+                                                      self.shapes.n_features_categorical,
+                                                      self.n_sources), dtype=bool)
+        else:
+            initial_source['categorical'] = None
+
+        if self.features.gaussian is not None:
+            initial_source['gaussian'] = np.empty((self.shapes.n_objects,
+                                                   self.shapes.n_features_gaussian,
+                                                   self.n_sources), dtype=bool)
+        else:
+            initial_source['gaussian'] = None
+
+        if self.features.poisson is not None:
+            initial_source['poisson'] = np.empty((self.shapes.n_objects,
+                                                  self.shapes.n_features_poisson,
+                                                  self.n_sources), dtype=bool)
+        else:
+            initial_source['gaussian'] = None
+
+        if self.features.logitnormal is not None:
+            initial_source['logitnormal'] = np.empty((self.shapes.n_objects,
+                                                      self.shapes.n_features_logitnormal,
+                                                      self.n_sources), dtype=bool)
+        else:
+            initial_source['logitnormal'] = None
+
+        return initial_source
+
+    def generate_initial_confounding_effect(self, conf: str) -> dict[str, np.ndarray | None]:
+        """Generates initial state probabilities for each group in confounding effect conf
         Args:
-            conf: The confounding effect [i]
+            conf: The confounding effect
         Returns:
-            np.array: probabilities for states in each group of confounding effect [i]
-                shape (n_groups, n_features, max(n_states))
+            probabilities for states in each group of confounding effect [i]
         """
 
         n_groups = self.n_groups[conf]
         groups = self.confounders[conf].group_assignment
+        initial_confounding_effect = dict()
 
-        initial_confounding_effect = np.zeros((n_groups, self.n_features, self.features.shape[2]))
+        if self.features.categorical is not None:
+            initial_confounding_effect['categorical'] = np.zeros((n_groups,
+                                                                  self.shapes.n_features_categorical,
+                                                                  self.shapes.n_states_categorical))
 
-        for g in range(n_groups):
+            for g in range(n_groups):
+                idx = groups[g].nonzero()[0]
+                features_group = self.features.categorical.values[idx, :, :]
+                objects_per_state = np.nansum(features_group, axis=0)
 
-            idx = groups[g].nonzero()[0]
-            features_group = self.features[idx, :, :]
+                # Compute the MLE for each state and each group in the confounding effect
+                # Some groups have only NAs for some features, resulting in a non-defined MLE
+                # other groups have only a single state, resulting in an MLE of 1.
+                # To avoid both, we add 1 to all applicable states in this case
+                # which gives a well-defined initial confounding effect, slightly nudged away from the MLE
 
-            sites_per_state = np.nansum(features_group, axis=0)
+                objects_per_state[np.count_nonzero(objects_per_state, axis=1) < 2] += 1
+                p = objects_per_state / np.sum(objects_per_state, axis=1, keepdims=True)
 
-            # Compute the MLE for each state and each group in the confounding effect
-            # Some groups have only NAs for some features, resulting in a non-defined MLE
-            # other groups have only a single state, resulting in an MLE including 1.
-            # To avoid both, we add 1 to all applicable states of each feature,
-            # which gives a well-defined initial confounding effect, slightly nudged away from the MLE
+                initial_confounding_effect['categorical'][g, :, :] = p
 
-            sites_per_state[np.isnan(sites_per_state)] = 0
-            sites_per_state[self.applicable_states] += 1
+        else:
+            initial_confounding_effect['categorical'] = None
 
-            state_sums = np.sum(sites_per_state, axis=1)
-            p_group = sites_per_state / state_sums[:, np.newaxis]
-            initial_confounding_effect[g, :, :] = p_group
+        if self.features.gaussian is not None:
+            initial_confounding_effect['gaussian'] = np.zeros((n_groups, self.shapes.n_features_gaussian, 2))
+            for g in range(n_groups):
+                idx = groups[g].nonzero()[0]
+                features_group = self.features.gaussian.values[idx, :]
+
+                m = np.nanmean(features_group, axis=0)
+                std = np.nanstd(features_group, axis=0)
+
+                initial_confounding_effect['gaussian'][g, :, 0] = m
+                initial_confounding_effect['gaussian'][g, :, 1] = std
+
+        else:
+            initial_confounding_effect['gaussian'] = None
+
+        if self.features.poisson is not None:
+            initial_confounding_effect['poisson'] = np.zeros((n_groups, self.shapes.n_features_poisson))
+            for g in range(n_groups):
+                idx = groups[g].nonzero()[0]
+                features_group = self.features.poisson.values[idx, :]
+
+                r = np.nanmean(features_group, axis=0)
+                initial_confounding_effect['poisson'][g, :] = r
+        else:
+            initial_confounding_effect['poisson'] = None
+
+        if self.features.logitnormal is not None:
+            initial_confounding_effect['logitnormal'] = np.zeros((n_groups, self.shapes.n_features_logitnormal, 2))
+            for g in range(n_groups):
+                idx = groups[g].nonzero()[0]
+                features_group = self.features.logitnormal.values[idx, :]
+
+                m = np.nanmean(features_group, axis=0)
+                std = np.nanstd(features_group, axis=0)
+
+                initial_confounding_effect['logitnormal'][g, :, 0] = m
+                initial_confounding_effect['logitnormal'][g, :, 1] = std
 
         return initial_confounding_effect
 
@@ -247,10 +322,18 @@ class ClusterMCMC(MCMC):
         for conf_name in self.confounders:
             initial_confounding_effects[conf_name] = self.generate_initial_confounding_effect(conf_name)
 
+        # Source arrays
         if self.model.sample_source:
-            initial_source = np.empty((self.n_sites, self.n_features, self.n_sources), dtype=bool)
+            initial_source = self.generate_initial_source()
         else:
             initial_source = None
+
+        feature_counts = {'clusters': np.zeros((self.shapes.n_clusters,
+                                                self.shapes.n_features_categorical,
+                                                self.shapes.n_states_categorical)),
+                          **{conf: np.zeros((n_groups, self.shapes.n_features_categorical,
+                                             self.shapes.n_states_categorical))
+                             for conf, n_groups in self.n_groups.items()}}
 
         sample = Sample.from_numpy_arrays(
             clusters=initial_clusters,
@@ -258,34 +341,15 @@ class ClusterMCMC(MCMC):
             confounding_effects=initial_confounding_effects,
             confounders=self.data.confounders,
             source=initial_source,
-            feature_counts={'clusters': np.zeros((self.n_clusters, self.n_features, self.n_states)),
-                            **{conf: np.zeros((n_groups, self.n_features, self.n_states))
-                               for conf, n_groups in self.n_groups.items()}},
-            chain=c,
+            feature_counts=feature_counts,
+            chain=c
         )
 
-        assert ~np.any(np.isnan(initial_weights)), initial_weights
+        for t in ['categorical', 'gaussian', 'poisson', 'logitnormal']:
+            assert ~np.any(np.isnan(initial_weights[t])), initial_weights[t]
 
-        # Generate the initial source using a Gibbs sampling step
-        sample.everything_changed()
+        self.generate_inital_source_with_gibbs(sample)
 
-        source = sample_source_from_prior(sample)
-        source[self.data.features.na_values] = 0
-        sample.source.set_value(source)
-        recalculate_feature_counts(self.features, sample)
-
-        w = update_weights(sample, caching=False)
-        s = sample.source.value
-        assert np.all(s <= (w > 0)), np.max(w)
-
-        full_source_operator = GibbsSampleSource(
-            weight=1,
-            model_by_chain=self.posterior_per_chain,
-            sample_from_prior=False,
-            object_selector=ObjectSelector.ALL,
-        )
-        source = full_source_operator.function(sample)[0].source.value
-        sample.source.set_value(source)
         recalculate_feature_counts(self.features, sample)
 
         sample.everything_changed()
@@ -293,6 +357,77 @@ class ClusterMCMC(MCMC):
 
     class ClusterError(Exception):
         pass
+
+    def generate_inital_source_with_gibbs(self, sample):
+
+        # Generate the initial source using a Gibbs sampling step
+        sample.everything_changed()
+        source = sample_source_from_prior(sample)
+
+        if sample.categorical is not None:
+            source['categorical'][self.data.features.categorical.na_values] = 0
+            sample.categorical.source.set_value(source['categorical'])
+            # Recalculate the counts for categorical features
+            recalculate_feature_counts(self.features.categorical.values, sample)
+            w = update_categorical_weights(sample, caching=False)
+            s = sample.categorical.source.value
+            assert np.all(s <= (w > 0)), np.max(w)
+
+            full_source_operator = GibbsSampleSourceCategorical(
+                weight=1,
+                model_by_chain=self.posterior_per_chain,
+                sample_from_prior=False,
+                object_selector=ObjectSelector.ALL,
+            )
+
+            source['categorical'] = full_source_operator.function(sample)[0].categorical.source.value
+            sample.categorical.source.set_value(source['categorical'])
+
+        if sample.gaussian is not None:
+
+            source['gaussian'][self.data.features.gaussian.na_values] = 0
+            sample.gaussian.source.set_value(source['gaussian'])
+            w = update_gaussian_weights(sample, caching=False)
+            s = sample.gaussian.source.value
+            assert np.all(s <= (w > 0)), np.max(w)
+
+            full_source_operator = GibbsSampleSourceGaussian(
+                weight=1,
+                model_by_chain=self.posterior_per_chain,
+                sample_from_prior=False,
+                object_selector=ObjectSelector.ALL,
+            )
+
+            #source['gaussian'] = full_source_operator.function(sample)[0].gaussian.source.value
+            #sample.categorical.source.set_value(source['gaussian'])
+
+        if sample.poisson is not None:
+            source['poisson'][self.data.features.poisson.na_values] = 0
+            sample.poisson.source.set_value(source['poisson'])
+            w = update_poisson_weights(sample, caching=False)
+            s = sample.poisson.source.value
+            assert np.all(s <= (w > 0)), np.max(w)
+
+            full_source_operator = GibbsSampleSourcePoisson(
+                weight=1,
+                model_by_chain=self.posterior_per_chain,
+                sample_from_prior=False,
+                object_selector=ObjectSelector.ALL,
+            )
+
+        if sample.logitnormal is not None:
+            source['logitnormal'][self.data.features.logitnormal.na_values] = 0
+            sample.logitnormal.source.set_value(source['logitnormal'])
+            w = update_logitnormal_weights(sample, caching=False)
+            s = sample.logitnormal.source.value
+            assert np.all(s <= (w > 0)), np.max(w)
+            # full_source_operator = GibbsSampleSourceLogitnormal(
+            #     weight=1,
+            #     model_by_chain=self.posterior_per_chain,
+            #     sample_from_prior=False,
+            #     object_selection=ObjectSelector.ALL
+            # )
+        return source
 
     def get_operators(self, operators_config: OperatorsConfig) -> dict[str, Operator]:
         """Get all relevant operator functions for proposing MCMC update steps and their probabilities
@@ -375,7 +510,7 @@ class ClusterMCMC(MCMC):
             #     gibbsish=False
             # ),
             'cluster_jump_gibbsish': ClusterJump(
-                weight=0.2 * operators_config.clusters if self.n_clusters > 1 else 0.0,
+                weight=0.2 * operators_config.clusters if self.shapes.n_clusters > 1 else 0.0,
                 model_by_chain=self.posterior_per_chain,
                 features=self.features,
                 resample_source=True,

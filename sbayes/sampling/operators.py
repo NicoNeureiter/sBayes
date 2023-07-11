@@ -12,13 +12,15 @@ from numpy.core.umath_tests import inner1d
 import scipy.stats as stats
 
 from sbayes.load_data import Features
-from sbayes.sampling.conditionals import likelihood_per_component, conditional_effect_mean
+from sbayes.sampling.conditionals import conditional_effect_mean
 from sbayes.sampling.counts import recalculate_feature_counts, update_feature_counts
 from sbayes.sampling.state import Sample
 from sbayes.util import dirichlet_logpdf, normalize, get_neighbours
-from sbayes.model import Model, Likelihood, normalize_weights, update_weights
+from sbayes.model import Model, normalize_weights, update_categorical_weights, \
+                                update_gaussian_weights, update_poisson_weights
 from sbayes.preprocessing import sample_categorical
 from sbayes.config.config import OperatorsConfig
+from sbayes.model.likelihood import Likelihood
 
 
 DEBUG = 0
@@ -235,10 +237,11 @@ class GibbsSampleSource(Operator):
         self.sample_from_prior = sample_from_prior
         self.object_selector = object_selector
         self.min_size = 10
-        self.max_size = min(max_size, self.model_by_chain[0].shapes.n_sites)
-
-        if self.model_by_chain[0].shapes.n_sites <= self.min_size:
-            self.object_selector = ObjectSelector.ALL
+        self.max_size = max_size
+        # self.max_size = min(max_size, self.model_by_chain[0].shapes.n_sites)
+        #
+        # if self.model_by_chain[0].shapes.n_sites <= self.min_size:
+        #     self.object_selector = ObjectSelector.ALL
 
     def get_parameters(self) -> dict[str, Any]:
         return {
@@ -255,7 +258,7 @@ class GibbsSampleSource(Operator):
         subset[subset_idxs] = True
         return subset
 
-    def select_object_subset(self, sample) -> NDArray[bool]:  # shape: (n_objects,)
+    def select_object_subset(self, sample) -> NDArray[bool] | slice:  # shape: (n_objects,)
         """Choose a subset of objects for which the source will be resampled"""
 
         if self.object_selector is ObjectSelector.ALL:
@@ -277,7 +280,8 @@ class GibbsSampleSource(Operator):
 
             # If the group is too large (would lead to low acceptance rate), take a random subset
             if np.count_nonzero(object_subset) > self.max_size:
-                object_subset = self.random_subset(n=sample.n_objects, k=self.max_size, population=np.where(object_subset)[0])
+                object_subset = self.random_subset(n=sample.n_objects, k=self.max_size,
+                                                   population=np.where(object_subset)[0])
 
         elif self.object_selector is ObjectSelector.RANDOM_SUBSET:
             # Choose a random subset for which the source is resampled
@@ -290,11 +294,23 @@ class GibbsSampleSource(Operator):
 
         return object_subset
 
+    def _propose(self, sample: Sample, object_subset: slice | list[int] | NDArray[bool] = slice(None), **kwargs,) -> \
+            tuple[Sample, float, float]:
+        raise NotImplementedError
+
+    def get_step_size(self, sample_old: Sample, sample_new: Sample) -> float:
+        return np.count_nonzero(sample_old.categorical.source.value ^ sample_new.categorical.source.value)
+
+    STEP_SIZE_UNIT: str = "observations reassigned"
+
+
+class GibbsSampleSourceCategorical(GibbsSampleSource):
+    """Gibbs operator for sampling the source for categorical features."""
     def _propose(
-        self,
-        sample: Sample,
-        object_subset: slice | list[int] = slice(None),
-        **kwargs,
+            self,
+            sample: Sample,
+            object_subset: slice | list[int] | NDArray[bool] = slice(None),
+            **kwargs,
     ) -> tuple[Sample, float, float]:
         """Resample the observations to mixture components (their source).
 
@@ -305,23 +321,23 @@ class GibbsSampleSource(Operator):
         Returns:
             The modified sample and forward and backward transition log-probabilities
         """
-        features = self.model_by_chain[sample.chain].data.features.values
-        na_features = self.model_by_chain[sample.chain].data.features.na_values
+        features = self.model_by_chain[sample.chain].data.features.categorical.values
+        na_features = self.model_by_chain[sample.chain].data.features.categorical.na_values
         sample_new = sample.copy()
 
-        assert np.all(sample.source.value[na_features] == 0)
+        assert np.all(sample.categorical.source.value[na_features] == 0)
 
         object_subset = self.select_object_subset(sample)
 
         if self.sample_from_prior:
-            p = update_weights(sample)[object_subset]
+            p = update_categorical_weights(sample)[object_subset]
         else:
             p = self.calculate_source_posterior(sample, object_subset)
 
         # Sample the new source assignments
         x = sample_categorical(p=p, binary_encoding=True)
         x[na_features[object_subset]] = False
-        sample_new.source.set_groups(object_subset, x)
+        sample_new.categorical.source.set_groups(object_subset, x)
         # with sample_new.source.edit() as source:
         #     source[object_subset] = sample_categorical(p=p, binary_encoding=True)
         #     source[na_features] = 0
@@ -332,10 +348,10 @@ class GibbsSampleSource(Operator):
             verify_counts(sample_new, features)
 
         # Transition probability forward:
-        log_q = np.log(p[sample_new.source.value[object_subset]]).sum()
+        log_q = np.log(p[sample_new.categorical.source.value[object_subset]]).sum()
 
-        assert np.all(sample_new.source.value[na_features] == 0)
-        assert np.all(sample_new.source.value[~na_features].sum(axis=-1) == 1)
+        assert np.all(sample_new.categorical.source.value[na_features] == 0)
+        assert np.all(sample_new.categorical.source.value[~na_features].sum(axis=-1) == 1)
 
         # Transition probability backward:
         if self.sample_from_prior:
@@ -343,21 +359,25 @@ class GibbsSampleSource(Operator):
         else:
             p_back = self.calculate_source_posterior(sample_new, object_subset)
 
-        log_q_back = np.log(p_back[sample.source.value[object_subset]]).sum()
+        log_q_back = np.log(p_back[sample.categorical.source.value[object_subset]]).sum()
 
         return sample_new, log_q, log_q_back
 
     def calculate_source_posterior(
-        self, sample: Sample, object_subset: slice | list[int] = slice(None)
+        self, sample: Sample, object_subset: NDArray[bool] | list[int] | slice = slice(None)
     ) -> NDArray[float]:  # shape: (n_objects_in_subset, n_features, n_components)
+
         """Compute the posterior support for source assignments of every object and feature."""
 
-        # 1. compute likelihood for each component
+        # 1. compute pointwise likelihood for each component
         model: Model = self.model_by_chain[sample.chain]
-        lh_per_component = likelihood_per_component(model=model, sample=sample, caching=True)
+        lh = Likelihood(data=model.data, shapes=model.shapes, prior=model.prior)
+        lh_per_component = lh.categorical.pointwise_likelihood(model=model, sample=sample,
+                                                               cache=sample.cache.categorical.component_likelihoods,
+                                                               caching=True)
 
         # 2. multiply by weights and normalize over components to get the source posterior
-        weights = update_weights(sample)
+        weights = update_categorical_weights(sample)
 
         # 3. The posterior of the source for each observation is likelihood times prior
         # (normalized to sum up to one across source components):
@@ -365,10 +385,159 @@ class GibbsSampleSource(Operator):
             lh_per_component[object_subset] * weights[object_subset], axis=-1
         )
 
-    def get_step_size(self, sample_old: Sample, sample_new: Sample) -> float:
-        return np.count_nonzero(sample_old.source.value ^ sample_new.source.value)
 
-    STEP_SIZE_UNIT: str = "observations reassigned"
+class GibbsSampleSourceGaussian(GibbsSampleSource):
+    """Gibbs operator for sampling the source for gaussian features."""
+    def _propose(
+            self,
+            sample: Sample,
+            object_subset: slice | list[int] | NDArray[bool] = slice(None),
+            **kwargs,
+    ) -> tuple[Sample, float, float]:
+        """Resample the observations to mixture components (their source).
+
+        Args:
+            sample: The current sample with clusters and parameters
+            object_subset: A subset of sites to be updated
+
+        Returns:
+            The modified sample and forward and backward transition log-probabilities
+        """
+        na_features = self.model_by_chain[sample.chain].data.features.gaussian.na_values
+        sample_new = sample.copy()
+
+        assert np.all(sample.gaussian.source.value[na_features] == 0)
+
+        object_subset = self.select_object_subset(sample)
+
+        if self.sample_from_prior:
+            p = update_gaussian_weights(sample)[object_subset]
+        else:
+            p = self.calculate_source_posterior(sample, object_subset)
+
+        # Sample the new source assignments
+        x = sample_categorical(p=p, binary_encoding=True)
+        x[na_features[object_subset]] = False
+        sample_new.gaussian.source.set_groups(object_subset, x)
+        # with sample_new.source.edit() as source:
+        #     source[object_subset] = sample_categorical(p=p, binary_encoding=True)
+        #     source[na_features] = 0
+
+        # Transition probability forward:
+        log_q = np.log(p[sample_new.gaussian.source.value[object_subset]]).sum()
+
+        assert np.all(sample_new.gaussian.source.value[na_features] == 0)
+        assert np.all(sample_new.gaussian.source.value[~na_features].sum(axis=-1) == 1)
+
+        # Transition probability backward:
+        if self.sample_from_prior:
+            p_back = p
+        else:
+            p_back = self.calculate_source_posterior(sample_new, object_subset)
+
+        log_q_back = np.log(p_back[sample.gaussian.source.value[object_subset]]).sum()
+
+        return sample_new, log_q, log_q_back
+
+    def calculate_source_posterior(
+        self, sample: Sample, object_subset: NDArray[bool] | list[int] | slice = slice(None)
+    ) -> NDArray[float]:  # shape: (n_objects_in_subset, n_features, n_components)
+
+        """Compute the posterior support for source assignments of every object and feature."""
+
+        # 1. compute pointwise likelihood for each component
+        model: Model = self.model_by_chain[sample.chain]
+        lh = Likelihood(data=model.data, shapes=model.shapes, prior=model.prior)
+        lh_per_component = lh.gaussian.pointwise_likelihood(model=model, sample=sample,
+                                                            cache=sample.cache.poisson.component_likelihoods,
+                                                            caching=True)
+
+        # 2. multiply by weights and normalize over components to get the source posterior
+        weights = update_gaussian_weights(sample)
+
+        # 3. The posterior of the source for each observation is likelihood times prior
+        # (normalized to sum up to one across source components):
+        return normalize(
+            lh_per_component[object_subset] * weights[object_subset], axis=-1
+        )
+
+
+class GibbsSampleSourcePoisson(GibbsSampleSource):
+    """Gibbs operator for sampling the source for gaussian features."""
+
+    def _propose(
+            self,
+            sample: Sample,
+            object_subset: slice | list[int] | NDArray[bool] = slice(None),
+            **kwargs,
+    ) -> tuple[Sample, float, float]:
+        """Resample the observations to mixture components (their source).
+
+        Args:
+            sample: The current sample with clusters and parameters
+            object_subset: A subset of sites to be updated
+
+        Returns:
+            The modified sample and forward and backward transition log-probabilities
+        """
+
+        na_features = self.model_by_chain[sample.chain].data.features.poisson.na_values
+        sample_new = sample.copy()
+
+        assert np.all(sample.poisson.source.value[na_features] == 0)
+
+        object_subset = self.select_object_subset(sample)
+
+        if self.sample_from_prior:
+            p = update_poisson_weights(sample)[object_subset]
+        else:
+            p = self.calculate_source_posterior(sample, object_subset)
+
+        # Sample the new source assignments
+        x = sample_categorical(p=p, binary_encoding=True)
+        x[na_features[object_subset]] = False
+        sample_new.poisson.source.set_groups(object_subset, x)
+        # with sample_new.source.edit() as source:
+        #     source[object_subset] = sample_categorical(p=p, binary_encoding=True)
+        #     source[na_features] = 0
+
+        # Transition probability forward:
+        log_q = np.log(p[sample_new.poisson.source.value[object_subset]]).sum()
+
+        assert np.all(sample_new.poisson.source.value[na_features] == 0)
+        assert np.all(sample_new.poisson.source.value[~na_features].sum(axis=-1) == 1)
+
+        # Transition probability backward:
+        if self.sample_from_prior:
+            p_back = p
+        else:
+            p_back = self.calculate_source_posterior(sample_new, object_subset)
+
+        log_q_back = np.log(p_back[sample.poisson.source.value[object_subset]]).sum()
+
+        return sample_new, log_q, log_q_back
+
+    def calculate_source_posterior(
+        self, sample: Sample, object_subset: NDArray[bool] | list[int] | slice = slice(None)
+    ) -> NDArray[float]:  # shape: (n_objects_in_subset, n_features, n_components)
+
+        """Compute the posterior support for source assignments of every object and feature."""
+
+        # 1. compute pointwise likelihood for each component
+        model: Model = self.model_by_chain[sample.chain]
+        lh = Likelihood(data=model.data, shapes=model.shapes, prior=model.prior)
+        lh_per_component = lh.gaussian.pointwise_likelihood(model=model, sample=sample,
+                                                            cache=sample.cache.poisson.component_likelihoods,
+                                                            caching=True)
+
+        # 2. multiply by weights and normalize over components to get the source posterior
+        weights = update_poisson_weights(sample)
+
+        # 3. The posterior of the source for each observation is likelihood times prior
+        # (normalized to sum up to one across source components):
+        return normalize(
+            lh_per_component[object_subset] * weights[object_subset], axis=-1
+        )
 
 
 class GibbsSampleWeights(Operator):
@@ -387,6 +556,7 @@ class GibbsSampleWeights(Operator):
         self.last_accept_rate = 0
 
     def _propose(self, sample: Sample, **kwargs) -> tuple[Sample, float, float]:
+
         # The likelihood object contains relevant information on the areal and the confounding effect
         model = self.model_by_chain[sample.chain]
         na_features = model.likelihood.na_features
@@ -1552,7 +1722,7 @@ class OperatorSchedule:
 
 
 def verify_counts(sample, features: NDArray[bool]):
-    cached_counts = deepcopy(sample.feature_counts)
+    cached_counts = deepcopy(sample.categorical.feature_counts)
     new_counts = recalculate_feature_counts(features, sample)
     assert set(cached_counts.keys()) == set(new_counts.keys())
     for k in cached_counts.keys():

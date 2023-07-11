@@ -13,7 +13,7 @@ from numpy.typing import NDArray
 import scipy.stats as stats
 from scipy.sparse.csgraph import minimum_spanning_tree, csgraph_from_dense
 
-from sbayes.model.likelihood import update_weights, ModelShapes, normalize_weights
+from sbayes.model.likelihood import update_categorical_weights, ModelShapes, normalize_weights
 from sbayes.preprocessing import sample_categorical
 from sbayes.sampling.state import Sample, Clusters
 from sbayes.util import (compute_delaunay, n_smallest_distances, log_multinom,
@@ -233,7 +233,7 @@ class GaussianMeanPrior:
         self.parse_attributes()
 
     def parse_attributes(self):
-            raise NotImplementedError()
+        raise NotImplementedError()
 
     # todo: activate loading or reading mu_0 and sigma_0 for defining a Gaussian prior on the mean
     # def load_mu0_sigma_0
@@ -662,7 +662,7 @@ class CategoricalConfoundingEffectsPrior(DirichletPrior, ABC):
     def parse_attributes(self):
 
         self.concentration = {}
-        self.concentration_array = np.zeros((len(self.config), self.shapes.n_features_categorical,
+        self._concentration_array = np.zeros((len(self.config), self.shapes.n_features_categorical,
                                              self.shapes.n_states_categorical), dtype=float)
 
         for i_g, group in enumerate(self.config):
@@ -685,7 +685,10 @@ class CategoricalConfoundingEffectsPrior(DirichletPrior, ABC):
                 raise ValueError(self.invalid_prior_message(group_prior_type))
 
             for i_f, conc_f in enumerate(self.concentration[group]):
-                self.concentration_array[i_g, i_f, :len(conc_f)] = conc_f
+                self._concentration_array[i_g, i_f, :len(conc_f)] = conc_f
+
+    def concentration_array(self, sample: Sample):
+        return self._concentration_array
 
     def generate_sample(self) -> dict[GroupName, NDArray[float]]:  # shape: (n_samples, n_features, n_states)
         group_effects = {}
