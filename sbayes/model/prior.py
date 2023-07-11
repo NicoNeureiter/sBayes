@@ -316,12 +316,15 @@ class ConfoundingEffectsPrior(DirichletPrior):
             universal_feature_counts = sample.feature_counts['universal'].value[0]
             univ_counts = universal_prior_counts + universal_feature_counts
             mean = normalize(univ_counts, axis=-1)
+
+            # Clip precision at the actual universal posterior counts
             precision = np.minimum(self.precision, univ_counts.sum(axis=-1, keepdims=True))
 
             # We add 1 to the precision for each possible feature state
             # TODO: discuss whether this makes sense
             precision += np.asarray(self.shapes.n_states_per_feature)[:, np.newaxis]
 
+            # Scale the mean vector to length precision
             concentration = mean * precision
 
             for i_g, group in enumerate(self.group_names):

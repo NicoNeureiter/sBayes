@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from numpy.core._umath_tests import inner1d
-
 from sbayes.sampling.counts import recalculate_feature_counts
 from sbayes.util import dirichlet_categorical_logpdf, timeit
 
