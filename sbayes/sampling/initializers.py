@@ -9,15 +9,22 @@ from sbayes.load_data import Data
 from sbayes.model import Model, update_weights
 from sbayes.sampling.conditionals import sample_source_from_prior
 from sbayes.sampling.counts import recalculate_feature_counts
-from sbayes.sampling.operators import ObjectSelector, GibbsSampleSource
+from sbayes.sampling.operators import ObjectSelector, GibbsSampleSource, AlterClusterGibbsish, AlterClusterGibbsishWide
 from sbayes.sampling.state import Sample
 from sbayes.util import get_neighbours, normalize
 
+
+EPS = 1E-10
+
 USE_SKLEARN = False
 if USE_SKLEARN:
-    from sklearn.cluster import DBSCAN, KMeans
+    from sklearn.cluster import KMeans
 else:
     DBSCAN = KMeans = None
+
+
+class ClusterError(Exception):
+    pass
 
 
 class SbayesInitializer:
@@ -38,7 +45,7 @@ class SbayesInitializer:
         self.n_states_by_feature = np.sum(data.features.states, axis=-1)
         self.n_features = self.features.shape[1]
         self.n_states = self.features.shape[2]
-        self.n_sites = self.features.shape[0]
+        self.n_objects = self.features.shape[0]
 
         # Locations and network
         self.adj_mat = data.network.adj_mat
@@ -66,6 +73,9 @@ class SbayesInitializer:
             n_groups[k] = v.n_groups
         return n_groups
 
+    initialization_attempts = 20
+    initial_cluster_steps = True
+
     def generate_sample(self, c: int = 0) -> Sample:
         """Generate initial Sample object (clusters, weights, cluster_effect, confounding_effects)
         Kwargs:
@@ -73,7 +83,20 @@ class SbayesInitializer:
         Returns:
             The generated initial Sample
         """
+        best_sample = None
+        best_lh = -np.inf
+        assert self.initialization_attempts > 0
+        for _ in range(self.initialization_attempts):
+            sample = self.generate_sample_attempt(c)
+            # lh = self.model.likelihood(sample, caching=False)
+            lh = self.model(sample)
+            if lh > best_lh:
+                best_sample = sample
+                best_lh = lh
 
+        return best_sample
+
+    def generate_sample_attempt(self, c: int = 0) -> Sample:
         # Clusters
         initial_clusters = self.generate_initial_clusters(c)
 
@@ -86,7 +109,7 @@ class SbayesInitializer:
             initial_confounding_effects[conf_name] = self.generate_initial_confounding_effect(conf_name)
 
         if self.model.sample_source:
-            initial_source = np.empty((self.n_sites, self.n_features, self.n_sources), dtype=bool)
+            initial_source = np.empty((self.n_objects, self.n_features, self.n_sources), dtype=bool)
         else:
             initial_source = None
 
@@ -122,44 +145,95 @@ class SbayesInitializer:
             sample_from_prior=False,
             object_selector=ObjectSelector.ALL,
         )
+        cluster_operator = AlterClusterGibbsishWide(
+            weight=0,
+            adjacency_matrix=self.data.network.adj_mat,
+            model_by_chain=defaultdict(lambda: self.model),
+            features=self.data.features.values,
+            resample_source=True,
+        )
         source = full_source_operator.function(sample)[0].source.value
         sample.source.set_value(source)
         recalculate_feature_counts(self.features, sample)
 
+        for _ in range(1, self.initial_size):
+            for i_c in range(self.n_clusters):
+                sample = cluster_operator.grow_cluster(sample, i_cluster=i_c)[0]
+
+        source = full_source_operator.function(sample)[0].source.value
+        sample.source.set_value(source)
+        recalculate_feature_counts(self.features, sample)
+
+        if self.initial_cluster_steps:
+            for i_c in range(self.n_clusters):
+                sample = self.grow(sample, cluster_operator, i_c)
+
         sample.everything_changed()
         return sample
 
-    class ClusterError(Exception):
-        pass
+    @staticmethod
+    def grow(sample: Sample, cluster_operator: AlterClusterGibbsish, i_cluster: int) -> Sample:
+        for _ in range(20):
+            sample, q, q_back = cluster_operator.grow_cluster(sample, i_cluster=i_cluster)
+            if q != cluster_operator.Q_REJECT:
+                return sample
+
+        # Give up and rase exception after 20 attempts
+        raise ClusterError
+
+    # def cluster_score(self, cluster: NDArray[bool]) -> float:
+    #     x = self.data.features.values[cluster]
+    #     k = 0.1 + x.sum(axis=0)
+    #     n = x.shape[0]
+    #     p = (k / n).clip(EPS, 1 - EPS)
+    #     ll = k * np.log(p) + (n - k) * np.log(1 - p)
+    #     return ll.sum()
 
     def generate_initial_clusters(self, c : int = 0):
-        return self.grow_random_clusters()
+        return self.initialize_clusters()
+        # return self.grow_random_clusters()
         # return self.generate_kmeans_clusters()
 
     # def generate_kmeans_clusters(self):
-    #     features = self.data.features.values.shape
-    #     n_objects, n_features, n_states = features
+    #     features = self.data.features.values
+    #     n_objects, n_features, n_states = features.shape
     #
     #     k = self.n_clusters
     #     kmeans = KMeans(n_clusters=k)
-    #     kmeans.fit(self.data.features.values.reshape(n_objects, n_features*n_states))
+    #     kmeans.fit(
+    #         features.reshape(n_objects, n_features*n_states)
+    #     )
     #     centroids = kmeans.cluster_centers_
     #     p = centroids.reshape((k, n_features, n_states))
+    #
     #     print(p)
-    #     exit()
 
-    def generate_dbscan_clusters(self):
-        return
+    def initialize_clusters(self) -> NDArray[bool]:
+        """Grow clusters in parallel, each starting from a random point, and
+        incrementally adding similar objects."""
 
-    def grow_random_clusters(self) -> NDArray[bool]:  # (n_clusters, n_sites)
+        # Start with empty clusters
+        clusters = np.zeros((self.n_clusters, self.n_objects), bool)
+        free_objs = list(range(self.n_objects))
+
+        # Choose a random starting object for each cluster
+        for i_c in range(self.n_clusters):
+            # Take a random free site and use it as seed for the new cluster
+            j = random.sample(free_objs, 1)[0]
+            clusters[i_c, j] = True
+            free_objs.remove(j)
+
+        return clusters
+
+    def grow_random_clusters(self) -> NDArray[bool]:  # (n_clusters, n_objects)
         """Generate initial clusters by growing through random grow-steps up to self.min_size."""
 
         # If there are no clusters in the model, return empty matrix
         if self.n_clusters == 0:
-            return np.zeros((self.n_clusters, self.n_sites), bool)
+            return np.zeros((self.n_clusters, self.n_objects), bool)
 
-        occupied = np.zeros(self.n_sites, bool)
-        initial_clusters = np.zeros((self.n_clusters, self.n_sites), bool)
+        occupied = np.zeros(self.n_objects, bool)
+        initial_clusters = np.zeros((self.n_clusters, self.n_objects), bool)
 
         # A: Grow the remaining clusters
         # With many clusters new ones can get stuck due to unfavourable seeds.
@@ -167,19 +241,28 @@ class SbayesInitializer:
         attempts = 0
         max_attempts = 1000
         n_initialized = 0
+        restart = False
 
         while True:
+            if restart:
+                occupied = np.zeros(self.n_objects, bool)
+                initial_clusters = np.zeros((self.n_clusters, self.n_objects), bool)
+                n_initialized = 0
+                restart = False
+
             for i in range(n_initialized, self.n_clusters):
                 try:
                     initial_size = self.initial_size
                     cl, in_cl = self.grow_cluster_of_size_k(k=initial_size, already_in_cluster=occupied)
 
-                except self.ClusterError:
+                except ClusterError:
                     # Rerun: Error might be due to an unfavourable seed
                     if attempts < max_attempts:
                         attempts += 1
-                        if attempts % 10 == 0 and self.initial_size > 3:
+                        if attempts % 20 == 0 and self.initial_size > 3:
+                            print(np.sum(initial_clusters, axis=-1))
                             self.initial_size -= 1
+                            restart = True
                             self.logger.warning(f"Reduced 'initial_size' to {self.initial_size} after "
                                                 f"{attempts} unsuccessful initialization attempts.")
                         break
@@ -193,7 +276,7 @@ class SbayesInitializer:
             else:  # No break -> no cluster exception
                 return initial_clusters
 
-    def grow_cluster_of_size_k(self, k, already_in_cluster=None):
+    def grow_cluster_of_size_k(self, k, already_in_cluster=None, ):
         """ This function grows a cluster of size k excluding any of the sites in <already_in_cluster>.
         Args:
             k (int): The size of the cluster, i.e. the number of sites in the cluster
@@ -205,27 +288,27 @@ class SbayesInitializer:
 
         """
         if already_in_cluster is None:
-            already_in_cluster = np.zeros(self.n_sites, bool)
+            already_in_cluster = np.zeros(self.n_objects, bool)
 
         # Initialize the cluster
-        cluster = np.zeros(self.n_sites, bool)
+        cluster = np.zeros(self.n_objects, bool)
 
         # Find all sites that are occupied by a cluster and those that are still free
         sites_occupied = np.nonzero(already_in_cluster)[0]
-        sites_free = list(set(range(self.n_sites)) - set(sites_occupied))
+        sites_free = list(set(range(self.n_objects)) - set(sites_occupied))
 
         # Take a random free site and use it as seed for the new cluster
         try:
             i = random.sample(sites_free, 1)[0]
             cluster[i] = already_in_cluster[i] = 1
         except ValueError:
-            raise self.ClusterError
+            raise ClusterError
 
         # Grow the cluster if possible
         for _ in range(k - 1):
             neighbours = get_neighbours(cluster, already_in_cluster, self.adj_mat)
             if not np.any(neighbours):
-                raise self.ClusterError
+                raise ClusterError
 
             # Add a neighbour to the cluster
             site_new = random.choice(list(neighbours.nonzero()[0]))
@@ -282,10 +365,3 @@ class SbayesInitializer:
             initial_confounding_effect[g, :, :] = p_group
 
         return initial_confounding_effect
-
-
-# Cluster initialization functions
-
-
-def grow_random_cluster(data: Data, ) -> NDArray:
-    ...
