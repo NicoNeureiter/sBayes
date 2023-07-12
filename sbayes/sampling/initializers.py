@@ -16,11 +16,11 @@ from sbayes.util import get_neighbours, normalize
 
 EPS = 1E-10
 
-USE_SKLEARN = False
-if USE_SKLEARN:
-    from sklearn.cluster import KMeans
-else:
-    DBSCAN = KMeans = None
+# USE_SKLEARN = False
+# if USE_SKLEARN:
+#     from sklearn.cluster import KMeans
+# else:
+#     KMeans = None
 
 
 class ClusterError(Exception):
@@ -34,10 +34,15 @@ class SbayesInitializer:
         model: Model,
         data: Data,
         initial_size: int,
+        attempts: int,
+        initial_cluster_steps: bool,
         logger: logging.Logger = None,
     ):
         self.model = model
         self.data = data
+
+        self.initialization_attempts = attempts
+        self.initial_cluster_steps = initial_cluster_steps
 
         # Data
         self.features = data.features.values
@@ -72,9 +77,6 @@ class SbayesInitializer:
         for k, v in self.confounders.items():
             n_groups[k] = v.n_groups
         return n_groups
-
-    initialization_attempts = 20
-    initial_cluster_steps = True
 
     def generate_sample(self, c: int = 0) -> Sample:
         """Generate initial Sample object (clusters, weights, cluster_effect, confounding_effects)

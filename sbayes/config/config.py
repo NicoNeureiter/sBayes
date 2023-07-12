@@ -310,6 +310,17 @@ class WarmupConfig(BaseConfig):
     """The number parallel chains used in the warm-up phase."""
 
 
+class InitializationConfig(BaseConfig):
+
+    """Configuration for the initialization of the MCMC / each warm-up chain."""
+
+    attempts: PositiveInt = 10
+    """Number of initial samples for each warm-up chain. Only the one with highest posterior will be used."""
+
+    initial_cluster_steps: bool = True
+    """Whether to apply an initial cluster operator to each cluster before selecting the best sample."""
+
+
 class MCMCConfig(BaseConfig):
 
     """Configuration of MCMC parameters."""
@@ -334,6 +345,7 @@ class MCMCConfig(BaseConfig):
 
     operators: OperatorsConfig = Field(default_factory=OperatorsConfig)
     warmup: WarmupConfig = Field(default_factory=WarmupConfig)
+    initialization: InitializationConfig = Field(default_factory=InitializationConfig)
 
     @root_validator
     def validate_sample_spacing(cls, values):
@@ -342,6 +354,7 @@ class MCMCConfig(BaseConfig):
         if spacing != 0.:
             raise ValueError("Inconsistent spacing between samples. Set ´steps´ to be a multiple of ´samples´.")
         return values
+
 
 class DataConfig(BaseConfig):
 
@@ -395,7 +408,6 @@ class SBayesConfig(BaseConfig):
     model: ModelConfig
     mcmc: MCMCConfig
     results: ResultsConfig = Field(default_factory=ResultsConfig)
-    # settings_for_linguists: SettingsForLinguists = Field(default_factory=SettingsForLinguists)
 
     @root_validator(pre=True)
     def validate_operators(cls, values):

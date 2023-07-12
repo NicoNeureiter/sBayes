@@ -91,6 +91,8 @@ Ratio of confounding_effects steps (changing probabilities in confounders): {op_
                 model=self.model,
                 data=self.data,
                 initial_size=mcmc_config.init_objects_per_cluster,
+                attempts=mcmc_config.initialization.attempts,
+                initial_cluster_steps=mcmc_config.initialization.initial_cluster_steps,
             )
             initial_sample = warmup.generate_samples(
                 n_steps=0, n_samples=0, warm_up=True,
