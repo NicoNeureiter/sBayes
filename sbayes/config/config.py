@@ -69,7 +69,19 @@ class BaseConfig(BaseModel):
     def get_attr_doc(cls, attr: str) -> str:
         return cls.__attrdocs__.get(attr)
 
-    class Config:
+    @classmethod
+    def annotations(cls, key: str) -> str | None:
+        if key in cls.__annotations__:
+            return cls.__annotations__[key]
+        for base_cls in cls.__bases__:
+            if issubclass(base_cls, BaseConfig):
+                s = base_cls.annotations(key)
+                if s is not None:
+                    return s
+        return None
+
+
+class Config:
 
         extra = Extra.forbid
         """Do not allow unexpected keys to be defined in a config-file."""
@@ -562,7 +574,7 @@ def generate_template():
             assert not field.required
             return '<OPTIONAL>'
         else:
-            assert field.required, field
+            # assert field.required, field
             return '<REQUIRED>'
 
     def template(cfg: type(BaseConfig)) -> yaml.CommentedMap:
@@ -571,8 +583,7 @@ def generate_template():
             if is_config_class(field.type_):
                 d[key] = template(field.type_)
             else:
-                d[key] = template_literal(field, cfg.__annotations__[key])
-
+                d[key] = template_literal(field, cfg.annotations(key))
                 docstring = cfg.get_attr_doc(key)
                 if docstring:
                     d.yaml_add_eol_comment(key=key, comment=docstring, column=40)

@@ -18,10 +18,10 @@ model:
         cluster_effect:
             # Configuration of the prior on the parameters of the cluster-effect.
             type: uniform               # Type of prior distribution (`uniform` or `dirichlet`).
-            file: <OPTIONAL>            # Path to the parameters of the Dirichlet distribution.
-            parameters: <OPTIONAL>      # Parameters of the Dirichlet distribution.
-            prior_confounder: <OPTIONAL> # A string indicating which confounder should be used as the mean of the prior.
-            prior_concentration: <OPTIONAL> # If another confounder is used as mean, we need to manually define the concentration of the Dirichlet prior.
+            file: <REQUIRED>            # Path to the parameters of the Dirichlet distribution.
+            parameters: <REQUIRED>      # Parameters of the Dirichlet distribution.
+            prior_confounder: <REQUIRED> # A string indicating which confounder should be used as the mean of the prior.
+            prior_concentration: <REQUIRED> # If another confounder is used as mean, we need to manually define the concentration of the Dirichlet prior.
 
         geo:
             # Configuration of the geo-prior.
@@ -29,8 +29,8 @@ model:
             costs: from_data            # Source of the geographic costs used for cost_based geo-prior. Either `from_data` (derive geodesic distances from locations) or path to a CSV file.
             aggregation: mean           # Policy defining how costs of single edges are aggregated (`mean`, `sum` or `max`).
             probability_function: exponential # Monotonic function that defines how costs are mapped to prior probabilities.
-            rate: <OPTIONAL>            # Rate at which the prior probability decreases for a cost_based geo-prior.
-            inflection_point: <OPTIONAL> # The point where a sigmoid probability function reaches 0.5.
+            rate: <REQUIRED>            # Rate at which the prior probability decreases for a cost_based geo-prior.
+            inflection_point: <REQUIRED> # The point where a sigmoid probability function reaches 0.5.
             skeleton: mst               # The graph along which the costs are aggregated. Per default, the cost of edges on the minimum spanning tree are aggregated.
 
         objects_per_cluster:
@@ -42,10 +42,10 @@ model:
         weights:
             # Configuration of the prion on the weights of the mixture components.
             type: uniform               # Type of prior distribution (`uniform` or `dirichlet`).
-            file: <OPTIONAL>            # Path to the parameters of the Dirichlet distribution.
-            parameters: <OPTIONAL>      # Parameters of the Dirichlet distribution.
-            prior_confounder: <OPTIONAL> # A string indicating which confounder should be used as the mean of the prior.
-            prior_concentration: <OPTIONAL> # If another confounder is used as mean, we need to manually define the concentration of the Dirichlet prior.
+            file: <REQUIRED>            # Path to the parameters of the Dirichlet distribution.
+            parameters: <REQUIRED>      # Parameters of the Dirichlet distribution.
+            prior_confounder: <REQUIRED> # A string indicating which confounder should be used as the mean of the prior.
+            prior_concentration: <REQUIRED> # If another confounder is used as mean, we need to manually define the concentration of the Dirichlet prior.
 
 mcmc:
     # Configuration of MCMC parameters.
@@ -69,7 +69,15 @@ mcmc:
         warmup_steps: 50000             # The number of steps performed in the warm-up phase.
         warmup_chains: 10               # The number parallel chains used in the warm-up phase.
 
+    initialization:
+        # Configuration for the initialization of the MCMC / each warm-up chain.
+        attempts: 10                    # Number of initial samples for each warm-up chain. Only the one with highest posterior will be used.
+        initial_cluster_steps: true     # Whether to apply an initial cluster operator to each cluster before selecting the best sample.
+
 results:
     # Information on where and how results are written.
     path: results                       # Path to the results directory.
     log_file: true                      # Whether to write log-messages to a file.
+    log_likelihood: true                # Whether to log the likelihood of each observation in a .h5 file (used for model comparison).
+    log_source: false                   # Whether to log the proportion of objects assigned to each component in each feature.
+    float_precision: 8                  # The precision (number of decimal places) of real valued parameters in the stats file.
