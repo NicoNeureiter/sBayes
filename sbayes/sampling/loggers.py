@@ -11,7 +11,8 @@ import numpy.typing as npt
 import tables
 
 from sbayes.load_data import Data
-from sbayes.sampling.conditionals import conditional_effect_sample, likelihood_per_component
+from sbayes.sampling.conditionals import conditional_effect_sample, likelihood_per_component, \
+    likelihood_per_component_exact
 from sbayes.sampling.operators import Operator
 from sbayes.util import format_cluster_columns, get_best_permutation
 from sbayes.model import Model
@@ -341,9 +342,9 @@ class LikelihoodLogger(ResultsLogger):
             )
 
     def _write_sample(self, sample: Sample):
-        lh_per_comp = likelihood_per_component(model=self.model, sample=sample)
         weights = update_weights(sample)
-        lh = np.sum(weights * lh_per_comp, axis=2).ravel()
+        lh_per_comp_exact = likelihood_per_component_exact(model=self.model, sample=sample, caching=False)
+        lh = np.sum(weights * lh_per_comp_exact, axis=2).ravel()
         self.logged_likelihood_array.append(lh[None, ...])
 
 
@@ -382,14 +383,6 @@ class OperatorStatsLogger(ResultsLogger):
     def get_log_message_header(cls) -> str:
         headers = [column.ljust(width) for column, width in cls.COLUMNS.items()]
         return '\t'.join(headers)
-
-        # name_header = str.ljust('OPERATOR', cls.COL_WIDTHS[0])
-        # acc_header = str.ljust('ACCEPTS', cls.COL_WIDTHS[1])
-        # rej_header = str.ljust('REJECTS', cls.COL_WIDTHS[2])
-        # total_header = str.ljust('TOTAL', cls.COL_WIDTHS[3])
-        # acc_rate_header = str.ljust('ACC. RATE', cls.COL_WIDTHS[4])
-        # parameters_header = str.ljust('PARAMETERS', cls.COL_WIDTHS[5])
-        # return '\t'.join([name_header, acc_header, rej_header, total_header, acc_rate_header])
 
     @classmethod
     def get_log_message_row(cls, operator: Operator) -> str:

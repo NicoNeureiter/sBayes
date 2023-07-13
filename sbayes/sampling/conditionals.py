@@ -11,8 +11,7 @@ from sbayes.sampling.counts import recalculate_feature_counts
 from sbayes.sampling.state import Sample, Clusters
 from sbayes.util import normalize
 
-from sbayes.model.likelihood import update_weights, compute_component_likelihood
-# from sbayes.cython.util import compute_component_likelihood
+from sbayes.model.likelihood import update_weights, compute_component_likelihood, compute_component_likelihood_exact
 
 
 def sample_cluster_effect(
@@ -182,21 +181,9 @@ def likelihood_per_component(
                 out=component_likelihood[..., 0],
             )
 
-            # with sample.clusters.value_for_cython() as clusters:
-            #     # Update component likelihood for cluster effects:
-            #     compute_component_likelihood(
-            #         features=features.values,
-            #         features_by_group=[features.values[c] for c in clusters],
-            #         probs=cluster_effect,
-            #         groups=clusters,
-            #         changed_groups=changed_clusters,
-            #         out=component_likelihood[..., 0],
-            #     )
-
         # Update component likelihood for confounding effects:
         for i, conf in enumerate(confounders.keys(), start=1):
             changed_groups = cache.what_changed(input_key=[f'c_{conf}', f'{conf}_counts'], caching=caching)
-            # print(conf, changed_groups)
 
             if len(changed_groups) == 0:
                 continue
@@ -208,7 +195,6 @@ def likelihood_per_component(
                 feature_counts[conf].value +
                 model.prior.prior_confounding_effects[conf].concentration_array(sample)
             )
-
             conf_effect = normalize(conf_effect_counts, axis=-1)
 
             compute_component_likelihood(
@@ -228,6 +214,94 @@ def likelihood_per_component(
 
     return cache.value
 
+
+def likelihood_per_component_exact(
+    model,
+    sample: Sample,
+    caching=True
+) -> NDArray[float]:  # shape: (n_objects, n_feature, n_components)
+    """Update the likelihood values for each of the mixture components"""
+    CHECK_CACHING = False
+
+    features = model.data.features
+    confounders = model.data.confounders
+    feature_counts = sample.feature_counts
+
+    cache = sample.cache.component_likelihoods
+    if caching and not cache.is_outdated():
+        if CHECK_CACHING:
+            assert np.all(cache.value == likelihood_per_component_exact(model, sample, caching=False))
+        return cache.value
+
+    with cache.edit() as component_likelihood:
+        changed_clusters = cache.what_changed(input_key=['clusters', 'clusters_counts'], caching=caching)
+
+        if len(changed_clusters) > 0:
+            # The expected cluster effect is given by the normalized posterior counts
+            cluster_effect_counts = (  # feature counts + prior counts
+                feature_counts['clusters'].value +
+                model.prior.prior_cluster_effect.concentration_array
+            )
+
+            cluster_effect = []
+            for i_c in changed_clusters:
+                c = sample.clusters.value[i_c]
+                f_g = features.values[c] * sample.source.value[c, :, 0, None]
+                cluster_effect_counts_c = cluster_effect_counts[None, i_c, :, :] - f_g
+                cluster_effect.append(
+                    normalize(cluster_effect_counts_c, axis=-1)
+                )
+
+            # Update component likelihood for cluster effects:
+            compute_component_likelihood_exact(
+                features=features.values,
+                probs=cluster_effect,
+                groups=sample.clusters.value,
+                changed_groups=changed_clusters,
+                out=component_likelihood[..., 0],
+            )
+
+        # Update component likelihood for confounding effects:
+        for i, conf in enumerate(confounders.keys(), start=1):
+            changed_groups = cache.what_changed(input_key=[f'c_{conf}', f'{conf}_counts'], caching=caching)
+
+            if len(changed_groups) == 0:
+                continue
+
+            groups = confounders[conf].group_assignment
+
+            # The expected confounding effect is given by the normalized posterior counts
+            conf_effect_counts = (  # feature counts + prior counts
+                feature_counts[conf].value +
+                model.prior.prior_confounding_effects[conf].concentration_array(sample)
+            )
+
+            # conf_effect = normalize(conf_effect_counts, axis=-1)
+            conf_effect = []
+            for i_g in changed_groups:
+                g = groups[i_g]
+                f_g = features.values[g] * sample.source.value[g, :, i, None]
+                conf_effect_counts_g = conf_effect_counts[None, i_g, :, :] - f_g
+                conf_effect.append(
+                    normalize(conf_effect_counts_g, axis=-1)
+                )
+
+            compute_component_likelihood_exact(
+                features=features.values,
+                probs=conf_effect,
+                groups=groups,
+                changed_groups=changed_groups,
+                out=component_likelihood[..., i],
+            )
+
+        component_likelihood[features.na_values] = 1.
+
+    if caching and CHECK_CACHING:
+        cached = np.copy(cache.value)
+        recomputed = likelihood_per_component_exact(model, sample, caching=False)
+        assert np.allclose(cached, recomputed)
+
+    return cache.value
 
 def approx_likelihood_per_component(
     model: Model,
@@ -306,4 +380,3 @@ def impute_source(sample: Sample, model: Model):
         source[na_features] = 0
 
     recalculate_feature_counts(model.data.features.values, sample)
-

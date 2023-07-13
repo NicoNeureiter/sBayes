@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from numpy.core._umath_tests import inner1d
 from sbayes.sampling.counts import recalculate_feature_counts
-from sbayes.util import dirichlet_categorical_logpdf, timeit
+from sbayes.util import dirichlet_categorical_logpdf
 
 try:
     from typing import Protocol
@@ -147,6 +147,24 @@ def compute_component_likelihood(
         assert np.allclose(out[g, :], np.sum(f_g * p_g[np.newaxis, ...], axis=-1))
         assert np.allclose(out[g, :], inner1d(f_g, p_g[np.newaxis, ...]))
 
+    return out
+
+
+def compute_component_likelihood_exact(
+    features: NDArray[bool],    # shape: (n_objects, n_features, n_states)
+    probs: list[NDArray[float]],      # shape: (n_objects_in_g, n_features, n_states) for each group
+    groups: NDArray[bool],      # shape: (n_groups, n_objects)
+    changed_groups: set[int],
+    out: NDArray[float]         # shape: (n_objects, n_features)
+) -> NDArray[float]:            # shape: (n_objects, n_features)
+    out[~groups.any(axis=0), :] = 0.
+    for i in changed_groups:
+        g = groups[i]
+        f_g = features[g, :, :]
+        p_g = probs[i]  # shape: (n_objects_in_g, n_features, n_states)
+        out[g, :] = inner1d(f_g, p_g)
+        assert np.allclose(out[g, :], np.einsum('ijk,ijk->ij', f_g, p_g))
+        assert np.allclose(out[g, :], np.sum(f_g * p_g[np.newaxis, ...], axis=-1))
     return out
 
 
