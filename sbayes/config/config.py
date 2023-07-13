@@ -1,12 +1,12 @@
+from __future__ import annotations
+
 import os
-from collections import OrderedDict
 from pathlib import Path
 from enum import Enum
 import warnings
 import json
 import io
 from typing import Union, List, Dict, Optional, Any
-from typing import OrderedDict as OrderedDictType
 
 try:
     from typing import Literal

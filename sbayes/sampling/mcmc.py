@@ -169,7 +169,9 @@ class MCMC(ABC):
             if initial_sample is None:
                 if initializer is None:
                     raise AttributeError("Either initial_sample or initializer needs to be defined.")
+                t_start_initialize = _time.time()
                 init_sample_c = initializer.generate_sample(c)
+                self.logger.info(f"Initialization finished after {(_time.time() - t_start_initialize):.1f} seconds")
             else:
                 init_sample_c = deepcopy(initial_sample)
                 init_sample_c.chain = c
