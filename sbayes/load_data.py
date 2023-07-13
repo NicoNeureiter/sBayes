@@ -16,6 +16,7 @@ except ImportError:
     from typing_extensions import Literal
 
 from numpy.typing import NDArray
+from scipy.special import logit
 from dataclasses import dataclass, field
 from logging import Logger
 from collections import OrderedDict
@@ -25,6 +26,8 @@ from sbayes.preprocessing import ComputeNetwork, read_geo_cost_matrix
 from sbayes.util import PathLike, read_data_csv, encode_categorical_data
 from sbayes.config.config import SBayesConfig
 from sbayes.experiment_setup import Experiment
+
+EPS = np.finfo(float).eps
 
 # Type variables and constants
 S = TypeVar('S')  # Self type
@@ -229,11 +232,18 @@ class LogitNormalFeatures:
         # Retrieve all Poisson features
         logit_normal_columns = [k for k, v in feature_types.items() if v['type'] == "logit-normal"]
         logit_normal_data = data.loc[:, logit_normal_columns]
-
         if logit_normal_data.empty:
             return None
         else:
-            logit_normal_features_dict = dict(values=logit_normal_data.to_numpy(dtype=float, na_value=np.nan),
+            values = logit_normal_data.to_numpy(dtype=float, na_value=np.nan)
+
+            # Adding machine epsilon to 0 and subtract it from 1 avoids -inf/inf in logit transform
+            values = np.where(values == 0.0, EPS, values)
+            values = np.where(values == 1.0, values-EPS, values)
+
+            logit_values = logit(values)
+
+            logit_normal_features_dict = dict(values=logit_values,
                                               names=np.asarray(logit_normal_columns),
                                               na_number=logit_normal_data.isna().sum().sum())
 

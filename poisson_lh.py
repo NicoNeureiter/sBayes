@@ -6,6 +6,7 @@ from scipy.stats import gamma as gamma_distribution, poisson, nbinom
 from scipy.special import factorial
 from scipy.special import gamma as gamma_function, loggamma
 from scipy.special import logsumexp
+from scipy.stats import nbinom
 
 
 def lh_poisson_lambda_marginalised(x: np.array, alpha_0: float, beta_0: float, log_lh: bool = True) -> float:
@@ -36,14 +37,17 @@ start_grid, end_grid, grid_size = 0.001, 100, 1000000
 lambda_grid = np.linspace(start_grid, end_grid, grid_size)
 delta = (end_grid - start_grid) / grid_size
 
+
 # Gamma prior on the rate (lambda)
 alpha_0 = 3
 beta_0 = 2
-prior_lambda = gamma_distribution.pdf(x=lambda_grid, a=alpha_0, loc=0, scale=1/beta_0)
-log_prior_lambda = gamma_distribution.logpdf(x=lambda_grid, a=alpha_0, loc=0, scale=1/beta_0)
+
+prior_lambda = gamma_distribution.pdf(lambda_grid, alpha_0, scale=1/beta_0)
+log_prior_lambda = gamma_distribution.logpdf(lambda_grid, alpha_0, scale=1/beta_0)
+
 
 # Data
-d = np.array([3, 4, 89])
+d = np.array([4, 5])
 
 # Likelihood
 lh = poisson.pmf(d[:, None], lambda_grid[None, :])
@@ -59,3 +63,29 @@ marginal_log_lh_analytical = lh_poisson_lambda_marginalised(x=d, alpha_0=alpha_0
 
 print(marginal_lh, marginal_lh_analytical, "likelihood")
 print(marginal_log_lh, marginal_log_lh_analytical, "log likelihood")
+
+
+# Conditional likelihood for observing a new data point given the data in the cluster and the prior
+
+old_data_point = 4
+new_data_point = 5
+
+alpha_1 = alpha_0 + old_data_point
+beta_1 = beta_0 + 1
+
+# beta_1 = beta_0 + len(d)
+# alpha_1 = alpha_0 + d.sum()
+
+lh1 = nbinom.logpmf(old_data_point, alpha_0, beta_0/(1+beta_0))
+lh2 = nbinom.logpmf(new_data_point, alpha_1, beta_1/(1+beta_1))
+
+print(lh1 + lh2, "Negative binomial")
+
+data_in_cluster = np.array([3, 4, 3, 4])
+alpha_1 = alpha_0 + data_in_cluster.sum()
+beta_1 = beta_0 + len(data_in_cluster)
+
+new_data_point = 4
+conditional_lh_nb = nbinom.pmf(new_data_point, alpha_1, beta_1/(1+beta_1))
+print(conditional_lh_nb, "Conditional lh")
+

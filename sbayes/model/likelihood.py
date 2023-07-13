@@ -16,6 +16,7 @@ except ImportError:
 import numpy as np
 from numpy.typing import NDArray
 
+from scipy.stats import nbinom
 from sbayes.sampling.state import Sample, GenericTypeSample
 from sbayes.load_data import Data, Confounder, Features
 
@@ -43,7 +44,8 @@ class ModelShapes(Protocol):
 class Likelihood(object):
 
     categorical: LikelihoodCategorical
-    gaussian: LikelihoodGaussian
+    #gaussian: LikelihoodGaussian
+    poisson: LikelihoodPoisson
 
     def __init__(self, data: Data, shapes: ModelShapes, prior):
         self.features = data.features
@@ -55,9 +57,11 @@ class Likelihood(object):
             self.source_index[conf] = i
 
         self.categorical = LikelihoodCategorical(features=self.features, confounders=self.confounders,
-                                                 shapes=self.shapes, prior=self.prior)
-        self.gaussian = LikelihoodGaussian(features=self.features, confounders=self.confounders,
-                                           shapes=self.shapes, prior=self.prior)
+                                                 shapes=self.shapes, prior=self.prior, has_counts=True)
+        # self.gaussian = LikelihoodGaussian(features=self.features, confounders=self.confounders,
+        #                                    shapes=self.shapes, prior=self.prior)
+        self.poisson = LikelihoodPoisson(features=self.features, confounders=self.confounders,
+                                         shapes=self.shapes, prior=self.prior)
 
 
 class LikelihoodGenericType(object):
@@ -70,15 +74,16 @@ class LikelihoodGenericType(object):
         confounders (dict): Assignment of objects to confounders. For each confounder (c) one np.array
             with shape: (n_groups(c), n_objects)
         shapes (ModelShapes): A dataclass with shape information for building the Likelihood and Prior objects
-        na_features (np.array): A boolean array indicating missing observations
-            shape: (n_objects, n_features)
+        has_counts: Does the likelihood use counts and should they be cached/recalculated? (currently only for
+            categorical features)
     """
-    def __init__(self, features: Features, confounders, shapes: ModelShapes, prior):
+    def __init__(self, features: Features, confounders, shapes: ModelShapes, prior, has_counts=False):
         """"""
         self.features = features
         self.confounders = confounders
         self.shapes = shapes
         self.prior = prior
+        self.has_counts = has_counts
 
     def __call__(self, sample: Sample, caching=True) -> float:
         """Compute the likelihood of all sites. The likelihood is defined as a mixture of areal and confounding effects.
@@ -87,9 +92,10 @@ class LikelihoodGenericType(object):
             Returns:
                 The joint likelihood of the current sample
         """
-        # todo: activate again
-        # if not caching:
-        #     recalculate_feature_counts(self.features, sample)
+
+        if self.has_counts:
+            if not caching:
+                recalculate_feature_counts(self.features.categorical.values, sample)
 
         # Sum up log-likelihood of each mixture component:
         log_lh = 0.0
@@ -125,7 +131,13 @@ class LikelihoodGenericType(object):
             return cache.value
 
         with cache.edit() as component_likelihood:
-            changed_clusters = cache.what_changed(input_key=['clusters', 'clusters_counts'], caching=caching)
+
+            # only categorical features have cluster_counts
+            if self.has_counts:
+                changed_clusters = cache.what_changed(input_key=['clusters', 'clusters_counts'], caching=caching)
+
+            else:
+                changed_clusters = cache.what_changed(input_key=['clusters'], caching=caching)
 
             if len(changed_clusters) > 0:
                 # Update component likelihood for cluster effects:
@@ -138,8 +150,14 @@ class LikelihoodGenericType(object):
 
             # Update component likelihood for confounding effects:
             for i, conf in enumerate(self.confounders.values(), start=1):
-                changed_groups = cache.what_changed(input_key=[f'c_{conf.name}', f'{conf.name}_counts'],
-                                                    caching=caching)
+                # only categorical features have *_counts (maybe find more elegant solution)
+
+                if self.has_counts:
+                    changed_groups = cache.what_changed(input_key=[f'c_{conf.name}', f'{conf.name}_counts'],
+                                                        caching=caching)
+                else:
+                    changed_groups = cache.what_changed(input_key=[f'c_{conf.name}'],
+                                                        caching=caching)
 
                 if len(changed_groups) == 0:
                     continue
@@ -230,23 +248,15 @@ class LikelihoodCategorical(LikelihoodGenericType):
             self.prior.prior_cluster_effect.categorical.concentration_array
         )
 
-        print(cluster_effect_counts, "Cluster effect")
         cluster_effect = normalize(cluster_effect_counts, axis=-1)
 
-        print(compute_component_likelihood(
+        compute_component_likelihood(
             features=self.features.categorical.values,
             probs=cluster_effect,
             groups=sample.clusters.value,
             changed_groups=changed_clusters,
             out=out,
-        ), "component lh")
-
-        # Test
-        diricat = dirichlet_categorical_logpdf(
-            counts=cluster_effect_counts,
-            a=self.prior.prior_cluster_effect.categorical.concentration_array,
         )
-        print(diricat, "diricat")
 
     def compute_pointwise_confounder_likelihood(
         self,
@@ -256,9 +266,9 @@ class LikelihoodCategorical(LikelihoodGenericType):
         out: NDArray[float],
     ):
         groups = confounder.group_assignment
-
         # The expected confounding effect is given by the normalized posterior counts
         prior = self.prior.prior_confounding_effects[confounder.name].categorical
+
         conf_effect_counts = (  # feature counts + prior counts
             sample.categorical.feature_counts[confounder.name].value +
             prior.concentration_array(sample)
@@ -277,97 +287,151 @@ class LikelihoodCategorical(LikelihoodGenericType):
         return self.features.categorical.na_values
 
 
-class LikelihoodGaussian(LikelihoodGenericType):
+# class LikelihoodGaussian(LikelihoodGenericType):
+#
+#     def compute_lh_clusters(self, sample: Sample, caching=True) -> float:
+#         """Compute the log-likelihood of the observations that are assigned to cluster
+#         effects in the current sample."""
+#
+#         cache = sample.cache.gaussian.group_likelihoods['clusters']
+#
+#         with cache.edit() as lh:
+#             # todo: check if this works
+#             for i_cluster in cache.what_changed('clusters', caching=caching):
+#                 x = self.features.gaussian.values[sample.clusters][i_cluster]
+#                 mu_0 = self.prior.prior_cluster_effect.gaussian.mean
+#                 sigma_0 = self.prior.prior_cluster_effect.gaussian.std
+#
+#                 # use the maximum likelihood value for sigma_fixed
+#                 sigma_fixed = np.nanstd(x)
+#                 # todo: how to treat NAs?
+#                 lh[i_cluster] = self.gaussian_mu_marginalised_logpdf(x=x, mu_0=mu_0, sigma_0=sigma_0,
+#                                                                      sigma_fixed=sigma_fixed)
+#
+#         return cache.value.sum()
+#
+#     def compute_lh_confounder(self, sample: Sample, conf: str, caching=True) -> float:
+#         """Compute the log-likelihood of the observations that are assigned to confounder
+#         `conf` in the current sample."""
+#
+#         cache = sample.cache.gaussian.group_likelihoods[conf]
+#
+#         with cache.edit() as lh:
+#             # todo: check which what_changed is the right one
+#             for i_g in cache.what_changed('groups', caching=caching):
+#
+#                 x = self.features.gaussian.values[sample.confounders][conf][i_g]
+#                 mu_0 = self.prior.prior_confounding_effects[conf].gaussian.mean
+#                 sigma_0 = self.prior.prior_confounding_effects[conf].gaussian.std
+#
+#                 # use the maximum likelihood value for sigma_fixed
+#                 sigma_fixed = np.nanstd(x)
+#                 # todo: how to treat NAs?
+#                 lh[i_g] = self.gaussian_mu_marginalised_logpdf(x=x, mu_0=mu_0, sigma_0=sigma_0,
+#                                                                sigma_fixed=sigma_fixed)
+#
+#         return cache.value.sum()
+#
+#     def compute_pointwise_cluster_likelihood(
+#         self,
+#         sample: Sample,
+#         changed_clusters: list[int],
+#         out: NDArray[float],
+#     ):
+#
+#         # The expected cluster effect is given by the normalized posterior counts
+#         cluster_effect_counts = (  # feature counts + prior counts
+#             sample.categorical.feature_counts['clusters'].value +
+#             self.prior.prior_cluster_effect.categorical.concentration_array
+#         )
+#         cluster_effect = normalize(cluster_effect_counts, axis=-1)
+#
+#         compute_component_likelihood(
+#             features=self.features.categorical.values,
+#             probs=cluster_effect,
+#             groups=sample.clusters.value,
+#             changed_groups=changed_clusters,
+#             out=out,
+#         )
+#
+#
+#     @staticmethod
+#     def gaussian_mu_marginalised_logpdf(x: np.array, sigma_fixed: NDArray, mu_0: float,
+#                                         sigma_0: float) -> float:
+#         """
+#         Computes the marginal likelihood for a Gaussian model with the mean (mu) marginalised out and standard deviation
+#         (sigma) fixed where the prior on mu is a normal distribution with N(mu_0, sigma_0**2).
+#         :param x: the data, measurements following a normal distribution
+#         :param mu_0: mean of the prior on mu
+#         :param sigma_0: standard deviation of the prior on mu
+#         :param sigma_fixed: known standard deviation of the normal distribution
+#         :return: the marginal (log)-likelihood of the data
+#         """
+#
+#         n = len(x)
+#         x_bar = x.mean()
+#         x_2_bar = (x ** 2).mean()
+#
+#         loga = -log(sigma_0) - 1 / 2 * log(2 * pi) + - n * (log(sigma_fixed) + 1 / 2 * log(2 * pi))
+#         logb = (-mu_0 ** 2 / (2 * sigma_0 ** 2) - n * x_2_bar / (2 * sigma_fixed ** 2))
+#         c = (sigma_fixed ** 2 + sigma_0 ** 2 * n) / (2 * sigma_0 ** 2 * sigma_fixed ** 2)
+#         f = (mu_0 * sigma_fixed ** 2 + n * x_bar * sigma_0 ** 2) / (sigma_0 ** 2 * sigma_fixed ** 2)
+#
+#         return loga + logb + 1 / 2 * log(pi) - log(sqrt(c)) + (f ** 2 / (4 * c))
 
-    def compute_lh_clusters(self, sample: Sample, caching=True) -> float:
-        """Compute the log-likelihood of the observations that are assigned to cluster
-        effects in the current sample."""
-
-        cache = sample.cache.gaussian.group_likelihoods['clusters']
-
-        with cache.edit() as lh:
-            # todo: check if this works
-            for i_cluster in cache.what_changed('clusters', caching=caching):
-                x = self.features.gaussian.values[sample.clusters][i_cluster]
-                mu_0 = self.prior.prior_cluster_effect.gaussian.mean
-                sigma_0 = self.prior.prior_cluster_effect.gaussian.std
-
-                # use the maximum likelihood value for sigma_fixed
-                sigma_fixed = np.nanstd(x)
-                # todo: how to treat NAs?
-                lh[i_cluster] = self.gaussian_mu_marginalised_logpdf(x=x, mu_0=mu_0, sigma_0=sigma_0,
-                                                                     sigma_fixed=sigma_fixed)
-
-        return cache.value.sum()
-
-    def compute_lh_confounder(self, sample: Sample, conf: str, caching=True) -> float:
-        """Compute the log-likelihood of the observations that are assigned to confounder
-        `conf` in the current sample."""
-
-        cache = sample.cache.gaussian.group_likelihoods[conf]
-
-        with cache.edit() as lh:
-            # todo: check which what_changed is the right one
-            for i_g in cache.what_changed('groups', caching=caching):
-
-                x = self.features.gaussian.values[sample.confounders][conf][i_g]
-                mu_0 = self.prior.prior_confounding_effects[conf].gaussian.mean
-                sigma_0 = self.prior.prior_confounding_effects[conf].gaussian.std
-
-                # use the maximum likelihood value for sigma_fixed
-                sigma_fixed = np.nanstd(x)
-                # todo: how to treat NAs?
-                lh[i_g] = self.gaussian_mu_marginalised_logpdf(x=x, mu_0=mu_0, sigma_0=sigma_0,
-                                                               sigma_fixed=sigma_fixed)
-
-        return cache.value.sum()
+class LikelihoodPoisson(LikelihoodGenericType):
 
     def compute_pointwise_cluster_likelihood(
-        self,
-        sample: Sample,
-        changed_clusters: list[int],
-        out: NDArray[float],
+            self,
+            sample: Sample,
+            changed_clusters: list[int],
+            out: NDArray[float],
+    ):
+        alpha_0 = self.prior.prior_cluster_effect.poisson.alpha_0_array
+        beta_0 = self.prior.prior_cluster_effect.poisson.beta_0_array
+        groups = sample.clusters.value
+        features = self.features.poisson.values
+
+        out[~groups.any(axis=0), :] = 0.
+
+        for i in changed_clusters:
+            g = groups[i]
+            f_g = features[g, :]
+
+            for j in range(f_g.shape[1]):
+
+                f = f_g[:, j]
+                n = len(f) - 1
+                alpha_1 = alpha_0[j] + f.sum() - f
+                beta_1 = beta_0[j] + n
+                out[g, j] = nbinom.pmf(f, alpha_1, beta_1 / (1 + beta_1))
+
+    def compute_pointwise_confounder_likelihood(
+            self,
+            confounder: Confounder,
+            sample: Sample,
+            changed_groups: list[int],
+            out: NDArray[float],
     ):
 
-        # The expected cluster effect is given by the normalized posterior counts
-        cluster_effect_counts = (  # feature counts + prior counts
-            sample.categorical.feature_counts['clusters'].value +
-            self.prior.prior_cluster_effect.categorical.concentration_array
-        )
-        cluster_effect = normalize(cluster_effect_counts, axis=-1)
+        alpha_0 = self.prior.prior_confounding_effects[confounder.name].poisson.alpha_0_array
+        beta_0 = self.prior.prior_confounding_effects[confounder.name].poisson.beta_0_array
+        groups = confounder.group_assignment
+        features = self.features.poisson.values
 
-        compute_component_likelihood(
-            features=self.features.categorical.values,
-            probs=cluster_effect,
-            groups=sample.clusters.value,
-            changed_groups=changed_clusters,
-            out=out,
-        )
+        out[~groups.any(axis=0), :] = 0.
 
+        for i in changed_groups:
+            g = groups[i]
+            f_g = features[g, :]
 
-    @staticmethod
-    def gaussian_mu_marginalised_logpdf(x: np.array, sigma_fixed: NDArray, mu_0: float,
-                                        sigma_0: float) -> float:
-        """
-        Computes the marginal likelihood for a Gaussian model with the mean (mu) marginalised out and standard deviation
-        (sigma) fixed where the prior on mu is a normal distribution with N(mu_0, sigma_0**2).
-        :param x: the data, measurements following a normal distribution
-        :param mu_0: mean of the prior on mu
-        :param sigma_0: standard deviation of the prior on mu
-        :param sigma_fixed: known standard deviation of the normal distribution
-        :return: the marginal (log)-likelihood of the data
-        """
+            for j in range(f_g.shape[1]):
+                f = f_g[:, j]
+                n = len(f) - 1
+                alpha_1 = alpha_0[i, j] + f.sum() - f
+                beta_1 = beta_0[i, j] + n
 
-        n = len(x)
-        x_bar = x.mean()
-        x_2_bar = (x ** 2).mean()
-
-        loga = -log(sigma_0) - 1 / 2 * log(2 * pi) + - n * (log(sigma_fixed) + 1 / 2 * log(2 * pi))
-        logb = (-mu_0 ** 2 / (2 * sigma_0 ** 2) - n * x_2_bar / (2 * sigma_fixed ** 2))
-        c = (sigma_fixed ** 2 + sigma_0 ** 2 * n) / (2 * sigma_0 ** 2 * sigma_fixed ** 2)
-        f = (mu_0 * sigma_fixed ** 2 + n * x_bar * sigma_0 ** 2) / (sigma_0 ** 2 * sigma_fixed ** 2)
-
-        return loga + logb + 1 / 2 * log(pi) - log(sqrt(c)) + (f ** 2 / (4 * c))
+                out[g, j] = nbinom.pmf(f, alpha_1, beta_1 / (1 + beta_1))
 
 
 def compute_component_likelihood(

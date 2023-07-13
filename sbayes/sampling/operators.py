@@ -526,9 +526,9 @@ class GibbsSampleSourcePoisson(GibbsSampleSource):
         # 1. compute pointwise likelihood for each component
         model: Model = self.model_by_chain[sample.chain]
         lh = Likelihood(data=model.data, shapes=model.shapes, prior=model.prior)
-        lh_per_component = lh.gaussian.pointwise_likelihood(model=model, sample=sample,
-                                                            cache=sample.cache.poisson.component_likelihoods,
-                                                            caching=True)
+        lh_per_component = lh.poisson.pointwise_likelihood(model=model, sample=sample,
+                                                           cache=sample.cache.poisson.component_likelihoods,
+                                                           caching=True)
 
         # 2. multiply by weights and normalize over components to get the source posterior
         weights = update_poisson_weights(sample)

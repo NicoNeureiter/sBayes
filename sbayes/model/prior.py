@@ -641,6 +641,7 @@ class PoissonConfoundingEffectsPrior(PoissonPrior, ABC):
                 for i_f in range(self.shapes.n_features_poisson):
                     self.alpha_0_array[i_g, i_f] = config_g.parameters['alpha_0']
                     self.beta_0_array[i_g, i_f] = config_g.parameters['beta_0']
+
             else:
                 raise ValueError(self.invalid_prior_message(group_prior_type))
 

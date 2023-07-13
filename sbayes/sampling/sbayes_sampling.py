@@ -349,7 +349,8 @@ class ClusterMCMC(MCMC):
             assert ~np.any(np.isnan(initial_weights[t])), initial_weights[t]
 
         self.generate_inital_source_with_gibbs(sample)
-
+        # todo: implement dummy pointwise likelihood for gaussian and logitnormal features
+        # and of course: fix recalculate_feature_counts
         recalculate_feature_counts(self.features, sample)
 
         sample.everything_changed()
@@ -414,6 +415,8 @@ class ClusterMCMC(MCMC):
                 sample_from_prior=False,
                 object_selector=ObjectSelector.ALL,
             )
+            source['poisson'] = full_source_operator.function(sample)[0].poisson.source.value
+            sample.poisson.source.set_value(source['poisson'])
 
         if sample.logitnormal is not None:
             source['logitnormal'][self.data.features.logitnormal.na_values] = 0
