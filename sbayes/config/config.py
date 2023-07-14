@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import os
 from pathlib import Path
 from enum import Enum
@@ -70,7 +68,7 @@ class BaseConfig(BaseModel):
         return cls.__attrdocs__.get(attr)
 
     @classmethod
-    def annotations(cls, key: str) -> str | None:
+    def annotations(cls, key: str) -> Union[str, None]:
         if key in cls.__annotations__:
             return cls.__annotations__[key]
         for base_cls in cls.__bases__:
