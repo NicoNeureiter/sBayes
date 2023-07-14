@@ -34,6 +34,8 @@ setup(
         "typing_extensions",
         "pycldf",
         "tables",
+        "ruamel.yaml",
+        "pydantic",
     ],
     entry_points={
         'console_scripts': [
