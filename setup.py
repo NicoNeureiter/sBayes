@@ -30,7 +30,6 @@ setup(
         "scipy",
         "Shapely",
         "seaborn",
-        "fastcluster",
         "typing_extensions",
         "pycldf",
         "tables",
@@ -39,8 +38,8 @@ setup(
     ],
     entry_points={
         'console_scripts': [
-            'sbayes = sbayes.cli:main',
-            'sbayesPlot = sbayes.plot:main'
+            'sbayes = sbayes.cli:cli',
+            'sbayesPlot = sbayes.plot:cli'
         ]
     }
 )

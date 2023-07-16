@@ -428,10 +428,29 @@ class Plot:
     def get_cluster_colors(n_clusters: int, custom_colors=None):
         cm = plt.get_cmap('gist_rainbow')
         if custom_colors is None:
-            return list(cm(np.linspace(0, 1, n_clusters, endpoint=False)))
+            # return list(cm(np.linspace(0, 1, n_clusters, endpoint=False)))
+            clrs = []
+            for i, x in enumerate(np.linspace(0, 1, n_clusters, endpoint=False)):
+                b = i % 2
+                h = x % 1
+                # s = 1.0
+                s = 0.6 + 0.35 * (1 - b)
+                v = 0.75 + 0.15 * (b)
+                clrs.append(
+                    colors.to_hex(colors.hsv_to_rgb((h, s, v)))
+                )
+
+            # for x in np.linspace(0, 2, n_clusters, endpoint=False):
+            #     h = x % 1
+            #     s = 0.6 + 0.4*(x<1)
+            #     v = 0.5 + 0.3*(x>=1)
+            #     clrs.append(
+            #         colors.to_hex(colors.hsv_to_rgb((h, s, v)))
+            #     )
+            return clrs
         else:
             provided = np.array([colors.to_rgba(c) for c in custom_colors])
-            additional = cm(np.linspace(0, 1, n_clusters - len(custom_colors), endpoint=False))
+            additional = Plot.get_cluster_colors(n_clusters - len(custom_colors))
             return list(np.concatenate((provided, additional), axis=0))
 
     def add_labels(self, cfg_content, locations_map_crs, cluster_labels, cluster_colors, extent, ax):
@@ -1422,6 +1441,7 @@ class Plot:
         # Combine all preferences into one dictionary of structure
         #   {component: {feature: state_probabilities}}
         # where `component` is a cluster or a confounder group.
+
         preferences = {**results.areal_effect}
         for conf_name, conf_effect in results.confounding_effects.items():
             for group, preference in conf_effect.items():
@@ -1906,9 +1926,8 @@ def plot_map(plot: Plot, results: Results, m: str):
         raise ValueError(f'Unknown map type: {map_type}  (in the config file "map" -> "content" -> "type")')
 
 
-if __name__ == '__main__':
+def cli():
     import argparse
-
     parser = argparse.ArgumentParser(description='Plot the results of a sBayes run.')
     parser.add_argument('config', type=Path, help='The JSON configuration file')
     parser.add_argument('type', nargs='?', type=str, help='The type of plot to generate')
@@ -1922,3 +1941,7 @@ if __name__ == '__main__':
         plot_types = [PlotType(args.type)]
 
     main(args.config, plot_types=plot_types, args=args)
+
+
+if __name__ == '__main__':
+    cli()
