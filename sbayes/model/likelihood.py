@@ -2,7 +2,6 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 
-from numpy.core._umath_tests import inner1d
 from sbayes.sampling.counts import recalculate_feature_counts
 from sbayes.util import dirichlet_categorical_logpdf
 
@@ -145,8 +144,6 @@ def compute_component_likelihood(
         p_g = probs[i, :, :]
         out[g, :] = np.einsum('ijk,jk->ij', f_g, p_g)
         assert np.allclose(out[g, :], np.sum(f_g * p_g[np.newaxis, ...], axis=-1))
-        assert np.allclose(out[g, :], inner1d(f_g, p_g[np.newaxis, ...]))
-
     return out
 
 
@@ -162,8 +159,8 @@ def compute_component_likelihood_exact(
         g = groups[i]
         f_g = features[g, :, :]
         p_g = probs[i]  # shape: (n_objects_in_g, n_features, n_states)
-        out[g, :] = inner1d(f_g, p_g)
-        assert np.allclose(out[g, :], np.einsum('ijk,ijk->ij', f_g, p_g))
+
+        out[g, :] = np.einsum('ijk,ijk->ij', f_g, p_g)
         assert np.allclose(out[g, :], np.sum(f_g * p_g[np.newaxis, ...], axis=-1))
     return out
 
