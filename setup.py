@@ -36,6 +36,7 @@ setup(
         "tables",
         "ruamel.yaml",
         "pydantic",
+        "unidecode",
     ],
     entry_points={
         'console_scripts': [
