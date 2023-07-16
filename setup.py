@@ -31,10 +31,10 @@ setup(
         "Shapely",
         "seaborn",
         "typing_extensions",
-        "pycldf",
         "tables",
         "ruamel.yaml",
         "pydantic",
+        "unidecode",
     ],
     entry_points={
         'console_scripts': [
