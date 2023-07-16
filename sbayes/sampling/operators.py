@@ -8,14 +8,13 @@ from typing import Sequence, Any
 
 import numpy as np
 from numpy.typing import NDArray
-from numpy.core.umath_tests import inner1d
 import scipy.stats as stats
 
 from sbayes.load_data import Features
 from sbayes.sampling.conditionals import likelihood_per_component, conditional_effect_mean
 from sbayes.sampling.counts import recalculate_feature_counts, update_feature_counts
 from sbayes.sampling.state import Sample
-from sbayes.util import dirichlet_logpdf, normalize, get_neighbours
+from sbayes.util import dirichlet_logpdf, normalize, get_neighbours, inner1d
 from sbayes.model import Model, Likelihood, normalize_weights, update_weights
 from sbayes.preprocessing import sample_categorical
 from sbayes.config.config import OperatorsConfig

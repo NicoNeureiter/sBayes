@@ -1371,6 +1371,10 @@ def get_along_axis(a: NDArray, index: int, axis: int):
     return a[tuple(I)]
 
 
+def inner1d(x, y):
+    return np.einsum("...i,...i", x, y)
+
+
 def pmf_categorical_with_replacement(idxs: list[int], p: NDArray[float]):
     prob = 0
     for idxs_perm in map(list, permutations(idxs)):
