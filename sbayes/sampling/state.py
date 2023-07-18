@@ -34,8 +34,6 @@ class Parameter(Generic[Value]):
         self._value = new_value
         self.version += 1
 
-class categorical:
-    weights: ArrayParameter | None
 
 class Weights:
 

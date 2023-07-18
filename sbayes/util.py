@@ -11,16 +11,17 @@ from itertools import combinations, permutations
 from typing import Sequence, Union, Iterator
 
 import numpy as np
+from numpy import log, sqrt, pi, exp
 from numpy.typing import NDArray
+
 from scipy.optimize import linear_sum_assignment
 import pandas as pd
 import scipy
 import scipy.spatial as spatial
-from scipy.special import betaln, expit, gammaln
+from scipy.special import betaln, expit, gammaln, loggamma
 import scipy.stats as stats
 from scipy.sparse import csr_matrix
 from unidecode import unidecode
-
 
 EPS = np.finfo(float).eps
 
@@ -1355,6 +1356,45 @@ def dirichlet_categorical_logpdf(
     const = gammaln(sum_a) - gammaln(n + sum_a)
     series = gammaln(counts + a) - gammaln(a)
     return const + series.sum(axis=-1)
+
+
+def gaussian_mu_marginalised_logpdf(x: NDArray, sigma_fixed: NDArray, mu_0: float, sigma_0: float) -> float | NDArray:
+    """
+    Computes the marginal likelihood for a Gaussian model with the mean (mu) marginalised out and standard deviation
+    (sigma) fixed where the prior on mu is a normal distribution with N(mu_0, sigma_0**2).
+    :param x: the data, measurements following a normal distribution
+    :param mu_0: mean of the prior on mu
+    :param sigma_0: standard deviation of the prior on mu
+    :param sigma_fixed: known standard deviation of the normal distribution
+    :return: the marginal (log)-likelihood of the data
+    """
+
+    n = len(x)
+    x_bar = x.mean()
+    x_2_bar = (x ** 2).mean()
+
+    loga = -log(sigma_0) - 1 / 2 * log(2 * pi) + - n * (log(sigma_fixed) + 1 / 2 * log(2 * pi))
+    logb = (-mu_0 ** 2 / (2 * sigma_0 ** 2) - n * x_2_bar / (2 * sigma_fixed ** 2))
+    c = (sigma_fixed ** 2 + sigma_0 ** 2 * n) / (2 * sigma_0 ** 2 * sigma_fixed ** 2)
+    f = (mu_0 * sigma_fixed ** 2 + n * x_bar * sigma_0 ** 2) / (sigma_0 ** 2 * sigma_fixed ** 2)
+
+    return loga + logb + 1 / 2 * log(pi) - log(sqrt(c)) + (f ** 2 / (4 * c))
+
+
+def lh_poisson_lambda_marginalised_logpdf(x: np.array, alpha_0: float, beta_0: float) -> float:
+    """
+    Computes the marginal (log)-likelihood for a Poisson model with the rate (lambda) marginalised out where the
+    prior on lambda follows a gamma distribution: gamma(alpha_0, beta_0).
+    :param x: the data, measurements following a Poisson distribution
+    :param alpha_0: shape of the gamma prior on lambda
+    :param beta_0: rate of the gamma prior on lambda
+    :return: the marginal (log)-likelihood of the data
+    """
+    n = len(x)
+    x_bar = x.mean()
+
+    return alpha_0 * log(beta_0) - loggamma(x + 1).sum() - loggamma(alpha_0) + \
+           loggamma(n * x_bar + alpha_0) - log(n + beta_0) * (n * x_bar + alpha_0)
 
 
 def get_along_axis(a: NDArray, index: int, axis: int):

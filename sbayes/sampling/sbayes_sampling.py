@@ -19,7 +19,8 @@ from sbayes.sampling.operators import (
     AlterClusterGibbsish,
     AlterClusterGibbsishWide,
     AlterCluster,
-    GibbsSampleSource, GibbsSampleSourceCategorical, GibbsSampleSourceGaussian, GibbsSampleSourcePoisson,
+    GibbsSampleSource,
+    GibbsSampleSourceCategorical, GibbsSampleSourceGaussian, GibbsSampleSourcePoisson, GibbsSampleSourceLogitNormal,
     ObjectSelector, ResampleSourceMode, ClusterJump, ClusterEffectProposals
 )
 from sbayes.util import get_neighbours, normalize
@@ -311,6 +312,7 @@ class ClusterMCMC(MCMC):
         Returns:
             Sample: The generated initial Sample
         """
+
         # Clusters
         initial_clusters = self.generate_initial_clusters()
 
@@ -349,11 +351,11 @@ class ClusterMCMC(MCMC):
             assert ~np.any(np.isnan(initial_weights[t])), initial_weights[t]
 
         self.generate_inital_source_with_gibbs(sample)
-        # todo: implement dummy pointwise likelihood for gaussian and logitnormal features
-        # and of course: fix recalculate_feature_counts
-        recalculate_feature_counts(self.features, sample)
+
+        # todo: implement pointwise likelihood for gaussian and logitnormal features
 
         sample.everything_changed()
+
         return sample
 
     class ClusterError(Exception):
@@ -382,7 +384,10 @@ class ClusterMCMC(MCMC):
             )
 
             source['categorical'] = full_source_operator.function(sample)[0].categorical.source.value
+
             sample.categorical.source.set_value(source['categorical'])
+
+            recalculate_feature_counts(self.features.categorical.values, sample)
 
         if sample.gaussian is not None:
 
@@ -399,8 +404,8 @@ class ClusterMCMC(MCMC):
                 object_selector=ObjectSelector.ALL,
             )
 
-            #source['gaussian'] = full_source_operator.function(sample)[0].gaussian.source.value
-            #sample.categorical.source.set_value(source['gaussian'])
+            source['gaussian'] = full_source_operator.function(sample)[0].gaussian.source.value
+            sample.gaussian.source.set_value(source['gaussian'])
 
         if sample.poisson is not None:
             source['poisson'][self.data.features.poisson.na_values] = 0
@@ -424,12 +429,14 @@ class ClusterMCMC(MCMC):
             w = update_logitnormal_weights(sample, caching=False)
             s = sample.logitnormal.source.value
             assert np.all(s <= (w > 0)), np.max(w)
-            # full_source_operator = GibbsSampleSourceLogitnormal(
-            #     weight=1,
-            #     model_by_chain=self.posterior_per_chain,
-            #     sample_from_prior=False,
-            #     object_selection=ObjectSelector.ALL
-            # )
+            full_source_operator = GibbsSampleSourceLogitNormal(
+                weight=1,
+                model_by_chain=self.posterior_per_chain,
+                sample_from_prior=False,
+                object_selection=ObjectSelector.ALL
+            )
+            source['logitnormal'] = full_source_operator.function(sample)[0].logitnormal.source.value
+            sample.logitnormal.source.set_value(source['logitnormal'])
         return source
 
     def get_operators(self, operators_config: OperatorsConfig) -> dict[str, Operator]:

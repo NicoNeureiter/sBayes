@@ -13,7 +13,8 @@ from numpy.typing import NDArray
 import scipy.stats as stats
 from scipy.sparse.csgraph import minimum_spanning_tree, csgraph_from_dense
 
-from sbayes.model.likelihood import update_categorical_weights, ModelShapes, normalize_weights
+from sbayes.model.likelihood import update_categorical_weights, update_gaussian_weights, update_poisson_weights,\
+    update_logitnormal_weights, ModelShapes, normalize_weights
 from sbayes.preprocessing import sample_categorical
 from sbayes.sampling.state import Sample, Clusters
 from sbayes.util import (compute_delaunay, n_smallest_distances, log_multinom,
@@ -21,7 +22,7 @@ from sbayes.util import (compute_delaunay, n_smallest_distances, log_multinom,
 from sbayes.config.config import PriorConfig, DirichletPriorConfig, PoissonPriorConfig, \
     GaussianMeanPriorConfig, GaussianVariancePriorConfig, GaussianPriorConfig, \
     GeoPriorConfig, ClusterSizePriorConfig, ClusterEffectPriorConfig, \
-    ConfoundingEffectsPriorConfig
+    ConfoundingEffectsPriorConfig, WeightsPriorConfig
 from sbayes.load_data import Data, ComputeNetwork, GroupName, ConfounderName, StateName, Features, \
     FeatureName, Confounder, CategoricalFeatures
 
@@ -50,7 +51,8 @@ class Prior:
                                   network=data.network)
 
         self.prior_weights = WeightsPrior(config=self.config.weights,
-                                          shapes=self.shapes)
+                                          shapes=self.shapes,
+                                          features=data.features)
 
         self.prior_cluster_effect = ClusterEffectPrior(config=self.config.cluster_effect,
                                                        shapes=self.shapes,
@@ -89,12 +91,21 @@ class Prior:
         # for k, v in self.prior_confounding_effects.items():
         #     log_prior += v(sample, caching=caching)
 
-        if self.sample_source:
-            assert sample.source is not None
-            log_prior += self.source_prior(sample, caching=caching)
-        else:
-            assert sample.source is None
-            pass
+        if sample.categorical is not None:
+            if self.sample_source:
+                assert sample.categorical.source is not None
+                log_prior += self.source_prior(sample, feature_type="categorical", caching=caching)
+            else:
+                assert sample.categorical.source is None
+                pass
+
+        if sample.gaussian is not None:
+            if self.sample_source:
+                assert sample.gaussian.source is not None
+                log_prior += self.source_prior(sample, feature_type="gaussian", caching=caching)
+            else:
+                assert sample.gaussian.source is None
+                pass
 
         return log_prior
 
@@ -307,7 +318,10 @@ class DirichletPrior:
         self.initial_counts = initial_counts
         self.feature_names = feature_names
         self.prior_type = None
-        self.concentration = None
+        self.categorical_concentration = None
+        self.gaussian_concentration = None
+        self.poisson_concentration = None
+        self.logitnormal_concentration = None
 
         self.parse_attributes()
 
@@ -912,32 +926,43 @@ class CategoricalClusterEffectPrior(DirichletPrior, ABC):
         return f'Prior on the cluster effect for categorical features: {self.prior_type.value}\n'
 
 
-class WeightsPrior(DirichletPrior):
+class WeightsPrior:
+    categorical: CategoricalWeightsPrior | None
+    gaussian: GaussianWeightsPrior | None
+    poisson: PoissonWeightsPrior | None
+    logitnormal: LogitNormalWeightsPrior | None
 
-    def get_symmetric_concentration(self, c: float) -> list[np.ndarray]:
-        return [np.full(self.shapes.n_components, c) for _ in range(self.shapes.n_features)]
+    def __init__(
+        self,
+        config: WeightsPriorConfig,
+        shapes: ModelShapes,
+        features: Features
+    ):
+        self.config = config
+        self.shapes = shapes
+        self.features = features
 
-    def get_oneovern_concentration(self) -> list[np.ndarray]:
-        return self.get_symmetric_concentration(1 / self.shapes.n_components)
+        if self.features.categorical is not None:
+            self.categorical = CategoricalWeightsPrior(config=self.config, shapes=self.shapes)
 
-    def parse_attributes(self):
-        self.prior_type = self.config.type
-        # Weights prior applies to all features, irrespective of their type
-        if self.prior_type is self.PriorType.UNIFORM:
-            self.concentration = list(np.full(
-                shape=(self.shapes.n_features, self.shapes.n_components),
-                fill_value=self.initial_counts
-            ))
-        elif self.prior_type is self.PriorType.JEFFREYS:
-            self.concentration = self.get_symmetric_concentration(0.5)
-        elif self.prior_type is self.PriorType.BBS:
-            self.concentration = self.get_oneovern_concentration()
-        elif self.prior_type is self.PriorType.SYMMETRIC_DIRICHLET:
-            self.concentration = self.get_symmetric_concentration(self.config.prior_concentration)
         else:
-            raise ValueError(self.invalid_prior_message(self.prior_type))
+            self.categorical = None
 
-        self.concentration_array = np.array(self.concentration)
+        if self.features.gaussian is not None:
+            self.gaussian = GaussianWeightsPrior(config=self.config, shapes=self.shapes)
+        else:
+            self.gaussian = None
+
+        if self.features.poisson is not None:
+            self.poisson = PoissonWeightsPrior(config=self.config, shapes=self.shapes)
+        else:
+            self.poisson = None
+
+        # Logit-normal features use the same config entries as Gaussian features
+        if self.features.logitnormal is not None:
+            self.logitnormal = LogitNormalWeightsPrior(config=self.config, shapes=self.shapes)
+        else:
+            self.logitnormal = None
 
     def __call__(self, sample: Sample, caching=True) -> float:
         """Compute the prior for weights (or load from cache).
@@ -947,42 +972,127 @@ class WeightsPrior(DirichletPrior):
             Logarithm of the prior probability density.
         """
         # TODO: reactivate caching once we implement more complex priors
-        parameter = sample.weights
         # cache = sample.cache.weights_prior
         # if not cache.is_outdated():
         #     return cache.value
-
+        #print(self.categorical.prior_type, "jj")
         log_p = 0.0
-        if self.prior_type is self.PriorType.UNIFORM:
-            pass
-        elif self.prior_type in [self.PriorType.DIRICHLET,
-                                 self.PriorType.JEFFREYS,
-                                 self.PriorType.BBS,
-                                 self.PriorType.SYMMETRIC_DIRICHLET]:
-            log_p = compute_group_effect_prior(
-                group_effect=parameter.value,
-                concentration=self.concentration,
-                applicable_states=np.ones_like(parameter.value, dtype=bool),
-            )
-        else:
-            raise ValueError(self.invalid_prior_message(self.prior_type))
+        #if self.prior_type is self.PriorType.UNIFORM:
+        #    pass
+        # todo: reactivate more complex priors again if necessary
+        # elif self.prior_type in [self.PriorType.DIRICHLET,
+        #                          self.PriorType.JEFFREYS,
+        #                          self.PriorType.BBS,
+        #                          self.PriorType.SYMMETRIC_DIRICHLET]:
+        #     log_p = compute_group_effect_prior(
+        #         group_effect=parameter.value,
+        #         concentration=self.concentration,
+        #         applicable_states=np.ones_like(parameter.value, dtype=bool),
+        #     )
+        #else:
+        #    raise ValueError(self.invalid_prior_message(self.prior_type))
 
         # cache.update_value(log_p)
         return log_p
 
-    def pointwise_prior(self, sample: Sample) -> NDArray[float]:
-        return compute_group_effect_prior_pointwise(
-            group_effect=sample.weights.value,
-            concentration=self.concentration,
-            applicable_states=np.ones_like(sample.weights.value, dtype=bool),
-        )
-
     def get_setup_message(self):
         """Compile a set-up message for logging."""
-        return f'Prior on weights: {self.prior_type.value}\n'
+        return f'Prior on weights: {self.config.type}\n'
 
-    def generate_sample(self) -> NDArray[float]:  # shape: (n_features, n_states)
-        return np.array([np.random.dirichlet(c) for c in self.concentration])
+    # def generate_sample(self) -> NDArray[float]:  # shape: (n_features, n_states)
+    #     return np.array([np.random.dirichlet(c) for c in self.concentration])
+
+
+class CategoricalWeightsPrior(DirichletPrior, ABC):
+
+    def parse_attributes(self):
+        self.prior_type = self.config.type
+
+        if self.prior_type is self.PriorType.UNIFORM:
+            self.concentration = list(np.full(
+                shape=(self.shapes.n_features_categorical, self.shapes.n_components),
+                fill_value=self.initial_counts
+            ))
+        else:
+            raise ValueError(self.invalid_prior_message(self.prior_type))
+
+        self.concentration_array = np.array(self.concentration)
+
+    def pointwise_prior(self, sample: Sample) -> NDArray[float]:
+
+        return (compute_group_effect_prior_pointwise(
+            group_effect=sample.categorical.weights.value,
+            concentration=self.concentration_array,
+            applicable_states=np.ones_like(sample.categorical.weights.value, dtype=bool)))
+
+
+class GaussianWeightsPrior(DirichletPrior, ABC):
+
+    def parse_attributes(self):
+        self.prior_type = self.config.type
+
+        if self.prior_type is self.PriorType.UNIFORM:
+            self.concentration = list(np.full(
+                shape=(self.shapes.n_features_gaussian, self.shapes.n_components),
+                fill_value=self.initial_counts
+            ))
+        else:
+            raise ValueError(self.invalid_prior_message(self.prior_type))
+
+        self.concentration_array = np.array(self.concentration)
+
+    def pointwise_prior(self, sample: Sample) -> NDArray[float]:
+
+        return (compute_group_effect_prior_pointwise(
+            group_effect=sample.gaussian.weights.value,
+            concentration=self.concentration_array,
+            applicable_states=np.ones_like(sample.gaussian.weights.value, dtype=bool)))
+
+
+class PoissonWeightsPrior(DirichletPrior, ABC):
+
+    def parse_attributes(self):
+        self.prior_type = self.config.type
+
+        if self.prior_type is self.PriorType.UNIFORM:
+            self.concentration = list(np.full(
+                shape=(self.shapes.n_features_poisson, self.shapes.n_components),
+                fill_value=self.initial_counts
+            ))
+        else:
+            raise ValueError(self.invalid_prior_message(self.prior_type))
+
+        self.concentration_array = np.array(self.concentration)
+
+    def pointwise_prior(self, sample: Sample) -> NDArray[float]:
+
+        return (compute_group_effect_prior_pointwise(
+            group_effect=sample.poisson.weights.value,
+            concentration=self.concentration_array,
+            applicable_states=np.ones_like(sample.poisson.weights.value, dtype=bool)))
+
+
+class LogitNormalWeightsPrior(DirichletPrior, ABC):
+
+    def parse_attributes(self):
+        self.prior_type = self.config.type
+
+        if self.prior_type is self.PriorType.UNIFORM:
+            self.concentration = list(np.full(
+                shape=(self.shapes.n_features_logitnormal, self.shapes.n_components),
+                fill_value=self.initial_counts
+            ))
+        else:
+            raise ValueError(self.invalid_prior_message(self.prior_type))
+
+        self.concentration_array = np.array(self.concentration)
+
+    def pointwise_prior(self, sample: Sample) -> NDArray[float]:
+
+        return (compute_group_effect_prior_pointwise(
+            group_effect=sample.logitnormal.weights.value,
+            concentration=self.concentration_array,
+            applicable_states=np.ones_like(sample.logitnormal.weights.value, dtype=bool)))
 
 
 class SourcePrior:
@@ -999,15 +1109,17 @@ class SourcePrior:
         self.valid_poisson = ~poisson_na
         self.valid_logitnormal = ~logitnormal_na
 
-    def __call__(self, sample: Sample, caching=True) -> float:
+    def __call__(self, sample: Sample, feature_type, caching=True) -> float:
         """Compute the prior for weights (or load from cache).
         Args:
             sample: Current MCMC sample.
+            feature_type: either categorical, gaussian, poisson, or logitnormal
         Returns:
             Logarithm of the prior probability density.
         """
 
-        cache = sample.cache.source_prior
+        cache = getattr(sample.cache, feature_type).source_prior
+
         if caching and not cache.is_outdated():
             return cache.value.sum()
 
@@ -1018,21 +1130,35 @@ class SourcePrior:
                 changed = cache.what_changed(input_key=["source"], caching=caching)
 
             if changed:
-                w = update_weights(sample)[changed]
-                s = sample.source.value[changed]
-                observation_weights = np.sum(w*s, axis=-1)
-                # todo: fix for categorical, gaussian, poisson, logitnormal features
-                source_prior[changed] = np.sum(np.log(observation_weights), axis=-1,
-                                               where=self.valid_observations[changed])
+                if feature_type == "categorical":
+                    w = update_categorical_weights(sample)[changed]
+                    s = sample.categorical.source.value[changed]
+
+                    observation_weights = np.sum(w * s, axis=-1)
+                    source_prior[changed] = np.sum(np.log(observation_weights), axis=-1,
+                                                   where=self.valid_categorical[changed])
+                if feature_type == "gaussian":
+                    w = update_gaussian_weights(sample)[changed]
+                    s = sample.gaussian.source.value[changed]
+                    observation_weights = np.sum(w * s, axis=-1)
+
+                    source_prior[changed] = np.sum(np.log(observation_weights)[self.valid_gaussian[changed]], axis=1)
+
+                if feature_type == "poisson":
+                    w = update_poisson_weights(sample)[changed]
+                    s = sample.poisson.source.value[changed]
+                    observation_weights = np.sum(w * s, axis=-1)
+
+                    source_prior[changed] = np.sum(np.log(observation_weights)[self.valid_poisson[changed]], axis=1)
+
+                if feature_type == "logitnormal":
+                    w = update_logitnormal_weights(sample)[changed]
+                    s = sample.logitnormal.source.value[changed]
+                    observation_weights = np.sum(w * s, axis=-1)
+
+                    source_prior[changed] = np.sum(np.log(observation_weights)[self.valid_logitnormal[changed]], axis=1)
 
         return cache.value.sum()
-
-    @staticmethod
-    def old_source_prior(sample: Sample) -> float:
-        weights = update_weights(sample)
-        is_source = np.where(sample.source.value.ravel())
-        observation_weights = weights.ravel()[is_source]
-        return np.log(observation_weights).sum()
 
     @staticmethod
     def generate_sample(
@@ -1435,7 +1561,7 @@ def compute_group_effect_prior(
 
 def compute_group_effect_prior_pointwise(
         group_effect: NDArray[float],  # shape: (n_features, n_states)
-        concentration: list[NDArray],  # shape: (n_applicable_states[f],) for f in features
+        concentration: NDArray[float],  # shape: (n_applicable_states[f],) for f in features
         applicable_states: list[NDArray],  # shape: (n_applicable_states[f],) for f in features
 ) -> NDArray[float]:
     """" This function evaluates the prior on probability vectors in a cluster or confounder group.
@@ -1446,6 +1572,7 @@ def compute_group_effect_prior_pointwise(
     Returns:
         The prior log-pdf of the confounding effect for each feature
     """
+
     n_features, n_states = group_effect.shape
 
     p = np.zeros(n_features)

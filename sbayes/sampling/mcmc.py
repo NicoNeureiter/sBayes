@@ -117,6 +117,7 @@ class MCMC(ABC):
         log_lh = self.posterior_per_chain[chain].likelihood(sample=sample, caching=True)
 
         if self.CHECK_CACHING and (sample.i_step < 1000) and (sample.i_step % 10 == 0):
+
             log_lh_stable = self.posterior_per_chain[chain].likelihood(sample=sample, caching=False)
             assert np.allclose(log_lh, log_lh_stable), f'{log_lh} != {log_lh_stable}'
             # assert log_lh == log_lh_stable, f'{log_lh} != {log_lh_stable}'
@@ -168,6 +169,7 @@ class MCMC(ABC):
         for c in self.chain_idx:
             if initial_sample is None:
                 init_sample_c = self.generate_initial_sample(c)
+
             else:
                 init_sample_c = deepcopy(initial_sample)
 
@@ -247,8 +249,9 @@ class MCMC(ABC):
         # Randomly choose one operator to propose a new sample
         step_weights = [w.weight for w in self.callable_operators.values()]
         possible_steps = list(self.callable_operators.keys())
+        print(possible_steps, "possible operators", step_weights)
         operator_name = _np.random.choice(possible_steps, 1, p=step_weights)[0]
-
+        operator_name = 'gibbsish_sample_cluster_geo'
         operator = self.callable_operators[operator_name]
         operator['name'] = operator_name
         return operator
@@ -267,6 +270,7 @@ class MCMC(ABC):
 
         step_time_start = _time.time()
 
+        print(operator, "operator")
         candidate, log_q, log_q_back = step_function(sample, c=c)
 
         # Compute the log-likelihood of the candidate

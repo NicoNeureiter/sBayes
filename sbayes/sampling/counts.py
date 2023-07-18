@@ -37,6 +37,7 @@ def recalculate_feature_counts(
     sample: Sample,
 ) -> dict[str, FeatureCounts]:
     """Update the likelihood values for each of the mixture components."""
+
     clusters = sample.clusters.value
     confounders = sample.confounders
     source = sample.categorical.source.value
