@@ -164,6 +164,7 @@ class MCMC(ABC):
         Returns:
             list: The generated samples
         """
+
         # Generate initial samples
         sample = []
         for c in self.chain_idx:
@@ -249,9 +250,7 @@ class MCMC(ABC):
         # Randomly choose one operator to propose a new sample
         step_weights = [w.weight for w in self.callable_operators.values()]
         possible_steps = list(self.callable_operators.keys())
-        print(possible_steps, "possible operators", step_weights)
         operator_name = _np.random.choice(possible_steps, 1, p=step_weights)[0]
-        operator_name = 'gibbsish_sample_cluster_geo'
         operator = self.callable_operators[operator_name]
         operator['name'] = operator_name
         return operator
@@ -270,7 +269,6 @@ class MCMC(ABC):
 
         step_time_start = _time.time()
 
-        print(operator, "operator")
         candidate, log_q, log_q_back = step_function(sample, c=c)
 
         # Compute the log-likelihood of the candidate

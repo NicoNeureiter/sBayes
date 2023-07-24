@@ -88,8 +88,15 @@ class ParametersCSVLogger(ResultsLogger):
         self.cluster_sum = np.zeros((self.model.shapes.n_clusters, self.model.shapes.n_objects), dtype=int)
 
     def write_header(self, sample: Sample):
-        feature_names = self.data.features.names
-        state_names = self.data.features.state_names
+
+        feature_types = ["categorical", "gaussian", "poisson", "logitnormal"]
+        feature_names = {}
+        for ft in feature_types:
+            if ft == "categorical":
+                feature_names[ft] = [k for k in self.data.features.categorical.names]
+                state_names = {k: v for k, v in self.data.features.categorical.names.items()}
+            else:
+                feature_names[ft] = getattr(self.data.features, ft).names.tolist()
 
         column_names = ["Sample", "posterior", "likelihood", "prior"]
 
@@ -105,37 +112,55 @@ class ParametersCSVLogger(ResultsLogger):
             column_names.append(f"size_a{i}")
 
         # weights
-        for i_f, f in enumerate(feature_names):
+        for ft in feature_types:
+            for i_f, f in enumerate(feature_names[ft]):
+                # Areal effect
+                column_names += [f"w_areal_{f}"]
+                # index of areal = 0
+                # todo: use source_index instead of remembering the order
+
+                # Confounding effects
+                for i_conf, conf in enumerate(self.data.confounders.values()):
+                    column_names += [f"w_{conf.name}_{f}"]
+                    # todo: use source_index instead of remembering the order
+                    # index of confounding effect starts with 1
+
             # Areal effect
-            column_names += [f"w_areal_{f}"]
-            # index of areal = 0
-            # todo: use source_index instead of remembering the order
+            for i_a in range(sample.n_clusters):
+                for i_f, f in enumerate(feature_names[ft]):
+                    if ft == "categorical":
+                        for i_s, s in enumerate(state_names[f]):
+                            column_names += [f"areal_a{i_a}_{f}_{s}"]
+                    elif ft == "gaussian":
+                        column_names += [f"areal_a{i_a}_{f}_mu"]
+                        column_names += [f"areal_a{i_a}_{f}_sigma"]
+                    elif ft == "poisson":
+                        column_names += [f"areal_a{i_a}_{f}_lambda"]
+                    elif ft == "logitnormal":
+                        column_names += [f"areal_a{i_a}_{f}_mu_logit"]
+                        column_names += [f"areal_a{i_a}_{f}_sigma_logit"]
 
             # Confounding effects
-            for i_conf, conf in enumerate(self.data.confounders.values()):
-                column_names += [f"w_{conf.name}_{f}"]
-                # todo: use source_index instead of remembering the order
-                # index of confounding effect starts with 1
+            for conf in self.data.confounders.values():
+                for i_g, g in enumerate(conf.group_names):
+                    for i_f, f in enumerate(feature_names[ft]):
+                        if ft == "categorical":
+                            for i_s, s in enumerate(state_names[f]):
+                                column_names += [f"{conf.name}_{g}_{f}_{s}"]
+                        elif ft == "gaussian":
+                            column_names += [f"{conf.name}_{g}_{f}_mu"]
+                            column_names += [f"{conf.name}_{g}_{f}_sigma"]
+                        elif ft == "poisson":
+                            column_names += [f"{conf.name}_{g}_{f}_lambda"]
+                        elif ft == "logitnormal":
+                            column_names += [f"{conf.name}_{g}_{f}_mu_logit"]
+                            column_names += [f"{conf.name}_{g}_{f}_sigma_logit"]
 
-        # Areal effect
-        for i_a in range(sample.n_clusters):
-            for i_f, f in enumerate(feature_names):
-                for i_s, s in enumerate(state_names[i_f]):
-                    column_names += [f"areal_a{i_a}_{f}_{s}"]
-
-        # Confounding effects
-        for conf in self.data.confounders.values():
-            for i_g, g in enumerate(conf.group_names):
-                for i_f, f in enumerate(feature_names):
-                    for i_s, s in enumerate(state_names[i_f]):
-                        column_names += [f"{conf.name}_{g}_{f}_{s}"]
-
-        # Contribution of each component to each feature (mean source assignment across objects)
-        if self.log_source:
-            for i_f, f in enumerate(feature_names):
-                for i_s, source in enumerate(sample.component_names):
-                    column_names += [f"source_{source}_{f}"]
-
+            # Contribution of each component to each feature (mean source assignment across objects)
+            if self.log_source:
+                for i_f, f in enumerate(feature_names[ft]):
+                    for i_s, source in enumerate(sample.component_names):
+                        column_names += [f"source_{source}_{f}"]
 
         # lh, prior, posteriors
         if self.log_contribution_per_cluster:
@@ -143,7 +168,8 @@ class ParametersCSVLogger(ResultsLogger):
                 column_names += [f"post_a{i}", f"lh_a{i}", f"prior_a{i}"]
 
         # Prior column
-        column_names += ["cluster_size_prior", "geo_prior", "source_prior", "weights_prior"]
+        # todo: do we have to change things for logging the source and weights prior?
+        # column_names += ["cluster_size_prior", "geo_prior", "source_prior", "weights_prior"]
 
         # Store the column names in an attribute (important to keep order consistent)
         self.column_names = column_names
@@ -157,23 +183,25 @@ class ParametersCSVLogger(ResultsLogger):
 
         clusters = sample.clusters.value
         # cluster_effect = sample.cluster_effect.value
-        cluster_effect = conditional_effect_sample(
-            features=features.values,
-            is_source_group=sample.clusters.value[..., np.newaxis] & sample.source.value[np.newaxis, ..., 0],
-            applicable_states=features.states,
-            prior_counts=self.model.prior.prior_cluster_effect.concentration_array,
-        )
 
-        if self.match_clusters:
-            # Compute the best matching permutation
-            permutation = get_best_permutation(sample.clusters.value, self.cluster_sum)
-
-            # Permute parameters
-            cluster_effect = cluster_effect[permutation, :, :]
-            clusters = clusters[permutation, :]
-
-            # Update cluster_sum for matching future samples
-            self.cluster_sum += clusters
+        # # todo: check what this does and activate again
+        # cluster_effect = conditional_effect_sample(
+        #     features=features.values,
+        #     is_source_group=sample.clusters.value[..., np.newaxis] & sample.source.value[np.newaxis, ..., 0],
+        #     applicable_states=features.states,
+        #     prior_counts=self.model.prior.prior_cluster_effect.concentration_array,
+        # )
+        #
+        # if self.match_clusters:
+        #     # Compute the best matching permutation
+        #     permutation = get_best_permutation(sample.clusters.value, self.cluster_sum)
+        #
+        #     # Permute parameters
+        #     cluster_effect = cluster_effect[permutation, :, :]
+        #     clusters = clusters[permutation, :]
+        #
+        #     # Update cluster_sum for matching future samples
+        #     self.cluster_sum += clusters
 
         row = {
             "Sample": sample.i_step,
@@ -187,55 +215,97 @@ class ParametersCSVLogger(ResultsLogger):
             col_name = f"size_a{i}"
             row[col_name] = np.count_nonzero(cluster)
 
-        # Weights
-        for i_f, f in enumerate(features.names):
+        feature_types = ["categorical", "gaussian", "poisson", "logitnormal"]
+        for ft in feature_types:
+            # Weights
+            for i_f, f in enumerate(features[ft].names):
 
-            # Areal effect weights
-            w_areal = f"w_areal_{f}"
-            # index of areal = 0
-            # todo: use source_index instead of remembering the order
-            row[w_areal] = sample.weights.value[i_f, 0]
-
-            # Confounding effects weights
-            for i_conf, conf in enumerate(self.data.confounders.values(), start=1):
-                w_conf = f"w_{conf.name}_{f}"
+                # Areal effect weights
+                w_areal = f"w_areal_{f}"
+                # index of areal = 0
                 # todo: use source_index instead of remembering the order
-                # index of confounding effect starts with 1
-                row[w_conf] = sample.weights.value[i_f, i_conf]
+                row[w_areal] = getattr(sample, ft).weights.value[i_f, 0]
 
-        # Areal effect
-        for i_a in range(sample.n_clusters):
-            for i_f, f in enumerate(features.names):
-                for i_s, s in enumerate(features.state_names[i_f]):
-                    col_name = f"areal_a{i_a}_{f}_{s}"
-                    row[col_name] = cluster_effect[i_a, i_f, i_s]
+                # Confounding effects weights
+                for i_conf, conf in enumerate(self.data.confounders.values(), start=1):
+                    w_conf = f"w_{conf.name}_{f}"
+                    # todo: use source_index instead of remembering the order
+                    # index of confounding effect starts with 1
+                    row[w_conf] = getattr(sample, ft).weights.value[i_f, i_conf]
 
-        # Confounding effects
-        for i_conf, conf in enumerate(self.data.confounders.values(), start=1):
+            # Areal effect
+            for i_a in range(sample.n_clusters):
+                for i_f, f in enumerate(features[ft].names):
+                    if ft == "categorical":
+                        for i_s, s in enumerate(features[ft].names[f]):
+                            col_name = f"areal_a{i_a}_{f}_{s}"
+                            # todo: activate again
+                            row[col_name] = 13 #cluster_effect[i_a, i_f, i_s]
+                    if ft == "gaussian":
+                        col_name = f"areal_a{i_a}_{f}_mu"
+                        row[col_name] = 13
 
-            if False:  # TODO Check whether conf is sampled, once that option is available
-                conf_effect = sample.confounding_effects[conf.name].value
-            else:
-                conf_effect = conditional_effect_sample(
-                    features=features.values,
-                    is_source_group=conf.group_assignment[..., np.newaxis] & sample.source.value[np.newaxis, ..., i_conf],
-                    applicable_states=features.states,
-                    prior_counts=self.model.prior.prior_confounding_effects[conf.name].concentration_array(sample),
-                )
+                        col_name = f"areal_a{i_a}_{f}_sigma"
+                        row[col_name] = 13
 
-            for i_g, g in enumerate(conf.group_names):
-                for i_f, f in enumerate(features.names):
-                    for i_s, s in enumerate(features.state_names[i_f]):
-                        col_name = f"{conf.name}_{g}_{f}_{s}"
-                        row[col_name] = conf_effect[i_g, i_f, i_s]
+                    if ft == "poisson":
+                        col_name = f"areal_a{i_a}_{f}_lambda"
+                        row[col_name] = 13
 
-        # Contribution of each component to each feature (mean source assignment across objects)
-        if self.log_source:
-            mean_source = np.mean(sample.source.value, axis=0)
-            for i_f, f in enumerate(features.names):
-                for i_s, source in enumerate(sample.component_names):
-                    col_name = f"source_{source}_{f}"
-                    row[col_name] = mean_source[i_f, i_s]
+                    if ft == "logitnormal":
+                        col_name = f"areal_a{i_a}_{f}_mu_logit"
+                        row[col_name] = 13
+
+                        col_name = f"areal_a{i_a}_{f}_sigma_logit"
+                        row[col_name] = 13
+
+            # Confounding effects
+            for i_conf, conf in enumerate(self.data.confounders.values(), start=1):
+
+                if False:  # TODO Check whether conf is sampled, once that option is available
+                    conf_effect = sample.confounding_effects[conf.name].value
+                # todo: activate again
+                # else:
+                #     conf_effect = conditional_effect_sample(
+                #         features=features.values,
+                #         is_source_group=conf.group_assignment[..., np.newaxis] & sample.source.value[np.newaxis, ..., i_conf],
+                #         applicable_states=features.states,
+                #         prior_counts=self.model.prior.prior_confounding_effects[conf.name].concentration_array(sample),
+                #     )
+
+                for i_g, g in enumerate(conf.group_names):
+                    for i_f, f in enumerate(features[ft].names):
+                        if ft == "categorical":
+                            for i_s, s in enumerate(features[ft].names[f]):
+                                col_name = f"{conf.name}_{g}_{f}_{s}"
+                                # todo: activate again
+                                row[col_name] = 13 #conf_effect[i_g, i_f, i_s]
+
+                        if ft == "gaussian":
+                            col_name = f"{conf.name}_{g}_{f}_mu"
+                            row[col_name] = 13
+
+                            col_name = f"{conf.name}_{g}_{f}_sigma"
+                            row[col_name] = 13
+
+                        if ft == "poisson":
+                            col_name = f"{conf.name}_{g}_{f}_lambda"
+                            row[col_name] = 13
+
+                        if ft == "logitnormal":
+                            col_name = f"{conf.name}_{g}_{f}_mu_logit"
+                            row[col_name] = 13
+
+                            col_name = f"{conf.name}_{g}_{f}_sigma_logit"
+                            row[col_name] = 13
+
+            # Contribution of each component to each feature (mean source assignment across objects)
+            if self.log_source:
+                mean_source = np.mean(getattr(sample, ft).source.value, axis=0)
+                for i_f, f in enumerate(features[ft].names):
+                    for i_s, source in enumerate(sample.component_names):
+                        col_name = f"source_{source}_{f}"
+                        row[col_name] = mean_source[i_f, i_s]
 
         # lh, prior, posteriors
         if self.log_contribution_per_cluster:
@@ -254,8 +324,9 @@ class ParametersCSVLogger(ResultsLogger):
 
         row["cluster_size_prior"] = sample.cache.cluster_size_prior.value
         row["geo_prior"] = sample.cache.geo_prior.value.sum()
-        row["source_prior"] = sample.cache.source_prior.value.sum()
-        row["weights_prior"] = sample.cache.weights_prior.value
+        # todo: log source and weights prior
+        # row["source_prior"] = sample.cache.source_prior.value.sum()
+        # row["weights_prior"] = sample.cache.weights_prior.value
 
         row_str = "\t".join([self.float_format % row[k] for k in self.column_names])
         self.file.write(row_str + "\n")
@@ -336,12 +407,15 @@ class LikelihoodLogger(ResultsLogger):
                 filters=tables.Filters(
                     complevel=9, complib="blosc:zlib", bitshuffle=True, fletcher32=True
                 ),
-                shape=(0, sample.n_objects * sample.n_features),
+                # activate for all features
+                shape=(0, sample.n_objects * sample.categorical.n_features),
             )
 
     def _write_sample(self, sample: Sample):
-        lh_per_comp = likelihood_per_component(model=self.model, sample=sample)
-        weights = update_weights(sample)
+        # todo: generalise for all features and activate
+        lh_per_comp = 13
+        # lh_per_comp = likelihood_per_component(model=self.model, sample=sample)
+        weights = update_categorical_weights(sample)
         lh = np.sum(weights * lh_per_comp, axis=2).ravel()
         self.logged_likelihood_array.append(lh[None, ...])
 

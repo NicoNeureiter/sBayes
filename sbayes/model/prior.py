@@ -25,6 +25,7 @@ from sbayes.config.config import PriorConfig, DirichletPriorConfig, PoissonPrior
     ConfoundingEffectsPriorConfig, WeightsPriorConfig
 from sbayes.load_data import Data, ComputeNetwork, GroupName, ConfounderName, StateName, Features, \
     FeatureName, Confounder, CategoricalFeatures
+import sbayes.model
 
 
 class Prior:
@@ -1130,33 +1131,12 @@ class SourcePrior:
                 changed = cache.what_changed(input_key=["source"], caching=caching)
 
             if changed:
-                if feature_type == "categorical":
-                    w = update_categorical_weights(sample)[changed]
-                    s = sample.categorical.source.value[changed]
-
-                    observation_weights = np.sum(w * s, axis=-1)
-                    source_prior[changed] = np.sum(np.log(observation_weights), axis=-1,
-                                                   where=self.valid_categorical[changed])
-                if feature_type == "gaussian":
-                    w = update_gaussian_weights(sample)[changed]
-                    s = sample.gaussian.source.value[changed]
-                    observation_weights = np.sum(w * s, axis=-1)
-
-                    source_prior[changed] = np.sum(np.log(observation_weights)[self.valid_gaussian[changed]], axis=1)
-
-                if feature_type == "poisson":
-                    w = update_poisson_weights(sample)[changed]
-                    s = sample.poisson.source.value[changed]
-                    observation_weights = np.sum(w * s, axis=-1)
-
-                    source_prior[changed] = np.sum(np.log(observation_weights)[self.valid_poisson[changed]], axis=1)
-
-                if feature_type == "logitnormal":
-                    w = update_logitnormal_weights(sample)[changed]
-                    s = sample.logitnormal.source.value[changed]
-                    observation_weights = np.sum(w * s, axis=-1)
-
-                    source_prior[changed] = np.sum(np.log(observation_weights)[self.valid_logitnormal[changed]], axis=1)
+                update_weights = getattr(sbayes.model, "update_" + feature_type + "_weights")
+                valid = getattr(self, "valid_" + feature_type)
+                w = update_weights(sample)[changed]
+                s = getattr(sample, feature_type).source.value[changed]
+                observation_weights = np.sum(w * s, axis=-1)
+                source_prior[changed] = np.sum(np.log(observation_weights)[valid[changed]], axis=-1)
 
         return cache.value.sum()
 

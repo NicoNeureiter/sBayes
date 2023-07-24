@@ -10,8 +10,9 @@ import numpy as np
 from numpy.typing import NDArray
 from numpy.core.umath_tests import inner1d
 import scipy.stats as stats
+from scipy.stats import nbinom
 
-from sbayes.load_data import Features
+from sbayes.load_data import Features, CategoricalFeatures, GaussianFeatures, PoissonFeatures, LogitNormalFeatures
 from sbayes.sampling.conditionals import conditional_effect_mean
 from sbayes.sampling.counts import recalculate_feature_counts, update_feature_counts
 from sbayes.sampling.state import Sample
@@ -168,6 +169,7 @@ class DirichletOperator(Operator, ABC):
         return w_new, log_q, log_q_back
 
 
+# todo: is this class still relevant?
 class AlterWeights(DirichletOperator):
 
     STEP_PRECISION = 15
@@ -226,6 +228,7 @@ class GibbsSampleSource(Operator):
         self,
         weight: float,
         model_by_chain: list[Model],
+        feature_type: str = "",
         as_gibbs: bool = True,
         sample_from_prior: bool = False,
         object_selector: ObjectSelector = ObjectSelector.GROUPS,
@@ -239,10 +242,74 @@ class GibbsSampleSource(Operator):
         self.object_selector = object_selector
         self.min_size = 10
         self.max_size = max_size
+
         # self.max_size = min(max_size, self.model_by_chain[0].shapes.n_sites)
         #
         # if self.model_by_chain[0].shapes.n_sites <= self.min_size:
         #     self.object_selector = ObjectSelector.ALL
+
+    def _propose(
+            self,
+            sample: Sample,
+            object_subset: slice | list[int] | NDArray[bool] = slice(None),
+            **kwargs,
+    ) -> tuple[Sample, float, float]:
+        """Resample the observations to mixture components (their source).
+
+        Args:
+            sample: The current sample with clusters and parameters
+            object_subset: A subset of sites to be updated
+
+        Returns:
+            The modified sample and forward and backward transition log-probabilities
+        """
+
+        feature_types = ["categorical", "gaussian", "poisson", "logitnormal"]
+        log_q = log_q_back = 0
+        sample_new = sample.copy()
+
+        for ft in feature_types:
+            features = getattr(self.model_by_chain[sample.chain].data.features, ft).values
+            na_features = getattr(self.model_by_chain[sample.chain].data.features, ft).na_values
+
+            assert np.all(getattr(sample, ft).source.value[na_features] == 0)
+
+            object_subset = self.select_object_subset(sample)
+
+            if self.sample_from_prior:
+                update_weights = getattr(sbayes.model, "update_" + ft + "_weights")
+                p = update_weights(sample)[object_subset]
+            else:
+                p = self.calculate_source_posterior(sample=sample, feature_type=ft, object_subset=object_subset)
+
+            # Sample the new source assignments
+            x = sample_categorical(p=p, binary_encoding=True)
+            x[na_features[object_subset]] = False
+
+            # with sample_new.source.edit() as source:
+            #     source[object_subset] = sample_categorical(p=p, binary_encoding=True)
+            #     source[na_features] = 0
+            if ft == "categorical":
+                update_feature_counts(sample, sample_new, features, object_subset)
+
+                if DEBUG:
+                    verify_counts(sample_new, features)
+
+            # Transition probability forward:
+            log_q += np.log(p[getattr(sample_new, ft).source.value[object_subset]]).sum()
+
+            assert np.all(getattr(sample_new, ft).source.value[na_features] == 0)
+            assert np.all(getattr(sample_new, ft).source.value[~na_features].sum(axis=-1) == 1)
+
+            # Transition probability backward:
+            if self.sample_from_prior:
+                p_back = p
+            else:
+                p_back = self.calculate_source_posterior(sample=sample_new, feature_type=ft, object_subset=object_subset)
+
+            log_q_back += np.log(p_back[getattr(sample, ft).source.value[object_subset]]).sum()
+
+        return sample_new, log_q, log_q_back
 
     def get_parameters(self) -> dict[str, Any]:
         return {
@@ -289,332 +356,44 @@ class GibbsSampleSource(Operator):
             # r = RNG.random(sample.n_objects)
             # object_subset = r < max(50 / sample.n_objects, np.min(r))
             # object_subset = r < max(0.3, np.min(r))
+
+            # todo: max size is hardcoded when initialising the GibbsSampleSourceClass, which throws
+            #  an error if the data has fewer objects. Make it depend on the data.
+
             object_subset = self.random_subset(n=sample.n_objects, k=self.max_size)
         else:
             raise ValueError(f"ObjectSelector '{self.object_selector}' not yet implemented.")
 
         return object_subset
 
-    def _propose(self, sample: Sample, object_subset: slice | list[int] | NDArray[bool] = slice(None), **kwargs,) -> \
-            tuple[Sample, float, float]:
-        raise NotImplementedError
+    def calculate_source_posterior(
+            self, sample: Sample, feature_type: str, object_subset: NDArray[bool] | list[int] | slice = slice(None),
+    ) -> NDArray[float]:  # shape: (n_objects_in_subset, n_features, n_components)
+
+        """Compute the posterior support for source assignments of every object and feature."""
+
+        # 1. compute pointwise likelihood for each component
+        model: Model = self.model_by_chain[sample.chain]
+        lh = Likelihood(data=model.data, shapes=model.shapes, prior=model.prior)
+
+        lh_per_component = getattr(lh, feature_type).pointwise_likelihood(
+            model=model, sample=sample,
+            cache=getattr(sample.cache, feature_type).component_likelihoods, caching=True)
+
+        # 2. multiply by weights and normalize over components to get the source posterior
+        update_weights = getattr(sbayes.model, "update_" + feature_type + "_weights")
+        weights = update_weights(sample)
+
+        # 3. The posterior of the source for each observation is likelihood times prior
+        # (normalized to sum up to one across source components):
+        return normalize(
+            lh_per_component[object_subset] * weights[object_subset], axis=-1
+        )
 
     def get_step_size(self, sample_old: Sample, sample_new: Sample) -> float:
         return np.count_nonzero(sample_old.categorical.source.value ^ sample_new.categorical.source.value)
 
     STEP_SIZE_UNIT: str = "observations reassigned"
-
-
-class GibbsSampleSourceCategorical(GibbsSampleSource):
-    """Gibbs operator for sampling the source for categorical features."""
-    def _propose(
-            self,
-            sample: Sample,
-            object_subset: slice | list[int] | NDArray[bool] = slice(None),
-            **kwargs,
-    ) -> tuple[Sample, float, float]:
-        """Resample the observations to mixture components (their source).
-
-        Args:
-            sample: The current sample with clusters and parameters
-            object_subset: A subset of sites to be updated
-
-        Returns:
-            The modified sample and forward and backward transition log-probabilities
-        """
-        features = self.model_by_chain[sample.chain].data.features.categorical.values
-        na_features = self.model_by_chain[sample.chain].data.features.categorical.na_values
-        sample_new = sample.copy()
-
-        assert np.all(sample.categorical.source.value[na_features] == 0)
-
-        object_subset = self.select_object_subset(sample)
-
-        if self.sample_from_prior:
-            p = update_categorical_weights(sample)[object_subset]
-        else:
-            p = self.calculate_source_posterior(sample, object_subset)
-
-        # Sample the new source assignments
-        x = sample_categorical(p=p, binary_encoding=True)
-        x[na_features[object_subset]] = False
-        sample_new.categorical.source.set_groups(object_subset, x)
-        # with sample_new.source.edit() as source:
-        #     source[object_subset] = sample_categorical(p=p, binary_encoding=True)
-        #     source[na_features] = 0
-
-        update_feature_counts(sample, sample_new, features, object_subset)
-
-        if DEBUG:
-            verify_counts(sample_new, features)
-
-        # Transition probability forward:
-        log_q = np.log(p[sample_new.categorical.source.value[object_subset]]).sum()
-
-        assert np.all(sample_new.categorical.source.value[na_features] == 0)
-        assert np.all(sample_new.categorical.source.value[~na_features].sum(axis=-1) == 1)
-
-        # Transition probability backward:
-        if self.sample_from_prior:
-            p_back = p
-        else:
-            p_back = self.calculate_source_posterior(sample_new, object_subset)
-
-        log_q_back = np.log(p_back[sample.categorical.source.value[object_subset]]).sum()
-
-        return sample_new, log_q, log_q_back
-
-    def calculate_source_posterior(
-        self, sample: Sample, object_subset: NDArray[bool] | list[int] | slice = slice(None)
-    ) -> NDArray[float]:  # shape: (n_objects_in_subset, n_features, n_components)
-
-        """Compute the posterior support for source assignments of every object and feature."""
-
-        # 1. compute pointwise likelihood for each component
-        model: Model = self.model_by_chain[sample.chain]
-        lh = Likelihood(data=model.data, shapes=model.shapes, prior=model.prior)
-        lh_per_component = lh.categorical.pointwise_likelihood(model=model, sample=sample,
-                                                               cache=sample.cache.categorical.component_likelihoods,
-                                                               caching=False)
-
-        # 2. multiply by weights and normalize over components to get the source posterior
-        weights = update_categorical_weights(sample)
-
-        # 3. The posterior of the source for each observation is likelihood times prior
-        # (normalized to sum up to one across source components):
-        return normalize(
-            lh_per_component[object_subset] * weights[object_subset], axis=-1
-        )
-
-
-class GibbsSampleSourceGaussian(GibbsSampleSource):
-    """Gibbs operator for sampling the source for gaussian features."""
-    def _propose(
-            self,
-            sample: Sample,
-            object_subset: slice | list[int] | NDArray[bool] = slice(None),
-            **kwargs,
-    ) -> tuple[Sample, float, float]:
-        """Resample the observations to mixture components (their source).
-
-        Args:
-            sample: The current sample with clusters and parameters
-            object_subset: A subset of sites to be updated
-
-        Returns:
-            The modified sample and forward and backward transition log-probabilities
-        """
-        na_features = self.model_by_chain[sample.chain].data.features.gaussian.na_values
-        sample_new = sample.copy()
-
-        assert np.all(sample.gaussian.source.value[na_features] == 0)
-
-        object_subset = self.select_object_subset(sample)
-
-        if self.sample_from_prior:
-            p = update_gaussian_weights(sample)[object_subset]
-        else:
-            p = self.calculate_source_posterior(sample, object_subset)
-
-        # Sample the new source assignments
-        x = sample_categorical(p=p, binary_encoding=True)
-        x[na_features[object_subset]] = False
-        sample_new.gaussian.source.set_groups(object_subset, x)
-        # with sample_new.source.edit() as source:
-        #     source[object_subset] = sample_categorical(p=p, binary_encoding=True)
-        #     source[na_features] = 0
-
-        # Transition probability forward:
-        log_q = np.log(p[sample_new.gaussian.source.value[object_subset]]).sum()
-
-        assert np.all(sample_new.gaussian.source.value[na_features] == 0)
-        assert np.all(sample_new.gaussian.source.value[~na_features].sum(axis=-1) == 1)
-
-        # Transition probability backward:
-        if self.sample_from_prior:
-            p_back = p
-        else:
-            p_back = self.calculate_source_posterior(sample_new, object_subset)
-
-        log_q_back = np.log(p_back[sample.gaussian.source.value[object_subset]]).sum()
-
-        return sample_new, log_q, log_q_back
-
-    def calculate_source_posterior(
-        self, sample: Sample, object_subset: NDArray[bool] | list[int] | slice = slice(None)
-    ) -> NDArray[float]:  # shape: (n_objects_in_subset, n_features, n_components)
-
-        """Compute the posterior support for source assignments of every object and feature."""
-
-        # 1. compute pointwise likelihood for each component
-        model: Model = self.model_by_chain[sample.chain]
-        lh = Likelihood(data=model.data, shapes=model.shapes, prior=model.prior)
-        lh_per_component = lh.gaussian.pointwise_likelihood(model=model, sample=sample,
-                                                            cache=sample.cache.gaussian.component_likelihoods,
-                                                            caching=False)
-
-        # 2. multiply by weights and normalize over components to get the source posterior
-        weights = update_gaussian_weights(sample)
-
-        # 3. The posterior of the source for each observation is likelihood times prior
-        # (normalized to sum up to one across source components):
-        return normalize(
-            lh_per_component[object_subset] * weights[object_subset], axis=-1
-        )
-
-
-class GibbsSampleSourcePoisson(GibbsSampleSource):
-    """Gibbs operator for sampling the source for gaussian features."""
-
-    def _propose(
-            self,
-            sample: Sample,
-            object_subset: slice | list[int] | NDArray[bool] = slice(None),
-            **kwargs,
-    ) -> tuple[Sample, float, float]:
-        """Resample the observations to mixture components (their source).
-
-        Args:
-            sample: The current sample with clusters and parameters
-            object_subset: A subset of sites to be updated
-
-        Returns:
-            The modified sample and forward and backward transition log-probabilities
-        """
-
-        na_features = self.model_by_chain[sample.chain].data.features.poisson.na_values
-        sample_new = sample.copy()
-
-        assert np.all(sample.poisson.source.value[na_features] == 0)
-
-        object_subset = self.select_object_subset(sample)
-
-        if self.sample_from_prior:
-            p = update_poisson_weights(sample)[object_subset]
-        else:
-            p = self.calculate_source_posterior(sample, object_subset)
-
-        # Sample the new source assignments
-        x = sample_categorical(p=p, binary_encoding=True)
-        x[na_features[object_subset]] = False
-        sample_new.poisson.source.set_groups(object_subset, x)
-        # with sample_new.source.edit() as source:
-        #     source[object_subset] = sample_categorical(p=p, binary_encoding=True)
-        #     source[na_features] = 0
-
-        # Transition probability forward:
-        log_q = np.log(p[sample_new.poisson.source.value[object_subset]]).sum()
-
-        assert np.all(sample_new.poisson.source.value[na_features] == 0)
-        assert np.all(sample_new.poisson.source.value[~na_features].sum(axis=-1) == 1)
-
-        # Transition probability backward:
-        if self.sample_from_prior:
-            p_back = p
-        else:
-            p_back = self.calculate_source_posterior(sample_new, object_subset)
-
-        log_q_back = np.log(p_back[sample.poisson.source.value[object_subset]]).sum()
-
-        return sample_new, log_q, log_q_back
-
-    def calculate_source_posterior(
-        self, sample: Sample, object_subset: NDArray[bool] | list[int] | slice = slice(None)
-    ) -> NDArray[float]:  # shape: (n_objects_in_subset, n_features, n_components)
-
-        """Compute the posterior support for source assignments of every object and feature."""
-
-        # 1. compute pointwise likelihood for each component
-        model: Model = self.model_by_chain[sample.chain]
-        lh = Likelihood(data=model.data, shapes=model.shapes, prior=model.prior)
-        lh_per_component = lh.poisson.pointwise_likelihood(model=model, sample=sample,
-                                                           cache=sample.cache.poisson.component_likelihoods,
-                                                           caching=False)
-
-        # 2. multiply by weights and normalize over components to get the source posterior
-        weights = update_poisson_weights(sample)
-
-        # 3. The posterior of the source for each observation is likelihood times prior
-        # (normalized to sum up to one across source components):
-        return normalize(
-            lh_per_component[object_subset] * weights[object_subset], axis=-1
-        )
-
-
-class GibbsSampleSourceLogitNormal(GibbsSampleSource):
-    """Gibbs operator for sampling the source for gaussian features."""
-    def _propose(
-            self,
-            sample: Sample,
-            object_subset: slice | list[int] | NDArray[bool] = slice(None),
-            **kwargs,
-    ) -> tuple[Sample, float, float]:
-        """Resample the observations to mixture components (their source).
-
-        Args:
-            sample: The current sample with clusters and parameters
-            object_subset: A subset of sites to be updated
-
-        Returns:
-            The modified sample and forward and backward transition log-probabilities
-        """
-        na_features = self.model_by_chain[sample.chain].data.features.logitnormal.na_values
-        sample_new = sample.copy()
-
-        assert np.all(sample.logitnormal.source.value[na_features] == 0)
-
-        object_subset = self.select_object_subset(sample)
-
-        if self.sample_from_prior:
-            p = update_logitnormal_weights(sample)[object_subset]
-        else:
-            p = self.calculate_source_posterior(sample, object_subset)
-
-        # Sample the new source assignments
-        x = sample_categorical(p=p, binary_encoding=True)
-        x[na_features[object_subset]] = False
-        sample_new.logitnormal.source.set_groups(object_subset, x)
-        # with sample_new.source.edit() as source:
-        #     source[object_subset] = sample_categorical(p=p, binary_encoding=True)
-        #     source[na_features] = 0
-
-        # Transition probability forward:
-        log_q = np.log(p[sample_new.logitnormal.source.value[object_subset]]).sum()
-
-        assert np.all(sample_new.logitnormal.source.value[na_features] == 0)
-        assert np.all(sample_new.logitnormal.source.value[~na_features].sum(axis=-1) == 1)
-
-        # Transition probability backward:
-        if self.sample_from_prior:
-            p_back = p
-        else:
-            p_back = self.calculate_source_posterior(sample_new, object_subset)
-
-        log_q_back = np.log(p_back[sample.logitnormal.source.value[object_subset]]).sum()
-
-        return sample_new, log_q, log_q_back
-
-    def calculate_source_posterior(
-        self, sample: Sample, object_subset: NDArray[bool] | list[int] | slice = slice(None)
-    ) -> NDArray[float]:  # shape: (n_objects_in_subset, n_features, n_components)
-
-        """Compute the posterior support for source assignments of every object and feature."""
-
-        # 1. compute pointwise likelihood for each component
-        model: Model = self.model_by_chain[sample.chain]
-        lh = Likelihood(data=model.data, shapes=model.shapes, prior=model.prior)
-        lh_per_component = lh.logitnormal.pointwise_likelihood(model=model, sample=sample,
-                                                               cache=sample.cache.logitnormal.component_likelihoods,
-                                                               caching=False)
-
-        # 2. multiply by weights and normalize over components to get the source posterior
-        weights = update_logitnormal_weights(sample)
-
-        # 3. The posterior of the source for each observation is likelihood times prior
-        # (normalized to sum up to one across source components):
-        return normalize(
-            lh_per_component[object_subset] * weights[object_subset], axis=-1
-        )
 
 
 class GibbsSampleWeights(Operator):
@@ -635,6 +414,7 @@ class GibbsSampleWeights(Operator):
     def _propose(self, sample: Sample, **kwargs) -> tuple[Sample, float, float]:
 
         # The likelihood object contains relevant information on the areal and the confounding effect
+
         model = self.model_by_chain[sample.chain]
         feature_types = ["categorical", "gaussian", "poisson", "logitnormal"]
 
@@ -789,49 +569,53 @@ class ClusterOperator(Operator):
         sample_new: Sample,
         i_cluster: int,
         object_subset: list[int] | NDArray[int],
+        feature_type: str
     ) -> tuple[Sample, float, float]:
-        n_features = sample_old.n_features
-        features = self.model_by_chain[sample_old.chain].data.features.values
-        na_features = self.model_by_chain[sample_old.chain].data.features.na_values
+
+        n_features = getattr(sample_old, feature_type).n_features
+
+        features = getattr(self.model_by_chain[sample_old.chain].data.features, feature_type).values
+        na_features = getattr(self.model_by_chain[sample_old.chain].data.features, feature_type).na_values
 
         if self.resample_source_mode == ResampleSourceMode.GIBBS:
             sample_new, log_q, log_q_back = self.gibbs_sample_source(
-                sample_new, sample_old, i_cluster, object_subset=object_subset
+                sample_new, sample_old, i_cluster, object_subset=object_subset,
+                feature_type=feature_type
             )
 
         elif self.resample_source_mode == ResampleSourceMode.PRIOR:
+            update_weights = getattr(sbayes.model, "update_" + feature_type + "weights")
             p = update_weights(sample_new)[object_subset]
             p_back = update_weights(sample_old)[object_subset]
-            with sample_new.source.edit() as source:
+            with getattr(sample_new, feature_type).source.edit() as source:
                 source[object_subset, :, :] = sample_categorical(p, binary_encoding=True)
                 source[na_features] = 0
 
                 log_q = np.log(p[source[object_subset]]).sum()
 
-
-            log_q_back = np.log(p_back[sample_old.source.value[object_subset]]).sum()
+            log_q_back = np.log(p_back[getattr(sample_old, feature_type).source.value[object_subset]]).sum()
 
             update_feature_counts(sample_old, sample_new, features, object_subset)
             if DEBUG:
                 verify_counts(sample_new, features)
 
         elif self.resample_source_mode == ResampleSourceMode.UNIFORM:
-            has_components_new = sample_new.cache.has_components.value
+            has_components_new = getattr(sample_new.cache, feature_type).has_components.value
             p = normalize(
                 np.tile(has_components_new[object_subset, None, :], (1, n_features, 1))
             )
-            with sample_new.source.edit() as source:
+            with sample_new.categorical.source.edit() as source:
                 source[object_subset, :, :] = sample_categorical(
                     p, binary_encoding=True
                 )
                 source[na_features] = 0
                 log_q = np.log(p[source[object_subset]]).sum()
 
-            has_components_old = sample_old.cache.has_components.value
+            has_components_old = getattr(sample_old.cache, feature_type).has_components.value
             p_back = normalize(
                 np.tile(has_components_old[object_subset, None, :], (1, n_features, 1))
             )
-            log_q_back = np.log(p_back[sample_old.source.value[object_subset]]).sum()
+            log_q_back = np.log(p_back[getattr(sample_old, feature_type).source.value[object_subset]]).sum()
 
             update_feature_counts(sample_old, sample_new, features, object_subset)
             if DEBUG:
@@ -846,18 +630,25 @@ class ClusterOperator(Operator):
         sample_new: Sample,
         sample_old: Sample,
         i_cluster: int,
-        object_subset: slice | list[int] | NDArray[int] = slice(None),
+        feature_type: str,
+        object_subset: slice | list[int] | NDArray[int] = slice(None)
     ) -> tuple[Sample, float, float]:
+
         """Resample the observations to mixture components (their source)."""
         model = self.model_by_chain[sample_old.chain]
-        features = model.data.features.values
-        na_features = model.data.features.na_values
+        features = getattr(model.data.features, feature_type).values
+        na_features = getattr(model.data.features, feature_type).na_values
 
         # Make sure object_subset is a boolean index array
         object_subset = np.isin(np.arange(sample_new.n_objects), object_subset)
+
+        # todo: activate for other feature types (gaussian, poisson, logitnormal)
         lh_per_component = component_likelihood_given_unchanged(
-            model, sample_new, object_subset, i_cluster=i_cluster
+            model, sample_new, object_subset, i_cluster=i_cluster,
+            feature_type=feature_type
         )
+
+        update_weights = getattr(sbayes.model, "update_" + feature_type + "_weights")
 
         if self.sample_from_prior:
             p = update_weights(sample_new)[object_subset]
@@ -867,16 +658,17 @@ class ClusterOperator(Operator):
             # p = self.calculate_source_posterior(sample_new, object_subset)
 
         # Sample the new source assignments
-        with sample_new.source.edit() as source:
+        with getattr(sample_new, feature_type).source.edit() as source:
             source[object_subset] = sample_categorical(p=p, binary_encoding=True)
             source[na_features] = 0
 
-        update_feature_counts(sample_old, sample_new, features, object_subset)
-        if DEBUG:
-            verify_counts(sample_new, features)
+        if feature_type == "categorical":
+            update_feature_counts(sample_old, sample_new, features, object_subset)
+            if DEBUG:
+                verify_counts(sample_new, features)
 
         # Transition probability forward:
-        source_new = sample_new.source.value[object_subset]
+        source_new = getattr(sample_new, feature_type).source.value[object_subset]
         log_q = np.log(p[source_new]).sum()
 
         # Transition probability backward:
@@ -887,7 +679,7 @@ class ClusterOperator(Operator):
             p_back = normalize(w * lh_per_component, axis=-1)
             # p_back = self.calculate_source_posterior(sample_old, object_subset)
 
-        source_old = sample_old.source.value[object_subset]
+        source_old = getattr(sample_old, feature_type).source.value[object_subset]
         log_q_back = np.log(p_back[source_old]).sum()
 
         return sample_new, log_q, log_q_back
@@ -1012,48 +804,57 @@ def component_likelihood_given_unchanged(
     sample: Sample,
     object_subset: NDArray[bool],
     i_cluster: int,
+    feature_type: str
+
 ) -> NDArray[float]:  # shape: (n_objects, n_feature, n_components)
-    features = model.data.features
+
+    features = getattr(model.data.features, feature_type)
     confounders = model.data.confounders
     cluster = sample.clusters.value[i_cluster]
-    source = sample.source.value
+    source = getattr(sample, feature_type).source.value
     subset_size = np.count_nonzero(object_subset)
 
-    likelihoods = np.zeros((subset_size, sample.n_features, sample.n_components))
-    likelihoods[..., 0] = cluster_likelihood_given_unchanged(cluster, features, object_subset, source)
+    likelihoods = np.zeros((subset_size, getattr(sample, feature_type).n_features, sample.n_components))
 
-    for i_conf, conf in enumerate(confounders, start=1):
-        groups = confounders[conf].group_assignment
+    # todo: cluster likelihood given unchanged for poisson, gaussian and logitnormal
+    if feature_type == "categorical":
+        likelihoods[..., 0] = cluster_likelihood_categorical_given_unchanged(cluster, features, object_subset, source)
 
-        features_conf = features.values * sample.source.value[:, :, i_conf, None]
-        changeable_counts = np.array([
-            np.sum(features_conf[g & object_subset], axis=0)
-            for g in groups
-        ])
-        unchangeable_feature_counts = sample.feature_counts[conf].value - changeable_counts
-        prior_counts = model.prior.prior_confounding_effects[conf].concentration_array(sample)
-        conf_effect = normalize(unchangeable_feature_counts + prior_counts, axis=-1)
+        for i_conf, conf in enumerate(confounders, start=1):
+            groups = confounders[conf].group_assignment
 
-        # Calculate the likelihood of each observation in each group that is represented in object_subset
-        subset_groups = groups[:, object_subset]
-        group_in_subset = np.any(subset_groups, axis=1)
-        features_subset = features.values[object_subset]
-        for g, p_g in zip(subset_groups[group_in_subset], conf_effect[group_in_subset]):
-            f_g = features_subset[g, :, :]
-            likelihoods[g, :, i_conf] = np.einsum('ijk,jk->ij', f_g, p_g)
+            features_conf = features.values * getattr(sample, feature_type).source.value[:, :, i_conf, None]
+            changeable_counts = np.array([
+                np.sum(features_conf[g & object_subset], axis=0)
+                for g in groups
+            ])
 
-    # Fix likelihood of NA features to 1
-    likelihoods[features.na_values[object_subset]] = 1.
+            unchangeable_feature_counts = getattr(sample, feature_type).feature_counts[conf].value - changeable_counts
+            prior_counts = getattr(model.prior.prior_confounding_effects[conf], feature_type).concentration_array(sample)
+            conf_effect = normalize(unchangeable_feature_counts + prior_counts, axis=-1)
 
+            # Calculate the likelihood of each observation in each group that is represented in object_subset
+            subset_groups = groups[:, object_subset]
+            group_in_subset = np.any(subset_groups, axis=1)
+            features_subset = features.values[object_subset]
+            for g, p_g in zip(subset_groups[group_in_subset], conf_effect[group_in_subset]):
+                f_g = features_subset[g, :, :]
+                likelihoods[g, :, i_conf] = np.einsum('ijk,jk->ij', f_g, p_g)
+
+        # Fix likelihood of NA features to 1
+        likelihoods[features.na_values[object_subset]] = 1.
+    else:
+        likelihoods[:, :] = 1/likelihoods.shape[2]
     return likelihoods
 
 
-def cluster_likelihood_given_unchanged(
+def cluster_likelihood_categorical_given_unchanged(
     cluster: NDArray[bool],  # (n_objects,)
-    features: Features,
+    features: CategoricalFeatures,
     object_subset: NDArray[bool],  # (n_objects,)
     source: NDArray[bool],  # (n_objects, n_features, n_components)
 ) -> NDArray[float]:  # (n_objects, n_features)
+
     cluster_features = features.values * source[:, :, 0, None]
     feature_counts_c = np.sum(cluster_features[cluster & ~object_subset], axis=0)
     p = normalize(features.states + feature_counts_c, axis=-1)  # TODO: use prior counts, rather than 1+
@@ -1077,6 +878,7 @@ class AlterClusterGibbsish(ClusterOperator):
     def _propose(self, sample: Sample, **kwargs) -> tuple[Sample, float, float]:
         log_q = 0.
         log_q_back = 0.
+
         for i in range(self.n_changes):
             if random.random() < self.p_grow:
                 sample_new, log_q_i, log_q_back_i = self.grow_cluster(sample)
@@ -1093,8 +895,8 @@ class AlterClusterGibbsish(ClusterOperator):
                 log_q_back += log_q_back_i
 
         if DEBUG:
-            verify_counts(sample, self.model_by_chain[sample.chain].data.features.values)
-            verify_counts(sample_new, self.model_by_chain[sample.chain].data.features.values)
+            verify_counts(sample, self.model_by_chain[sample.chain].data.features.categorical.values)
+            verify_counts(sample_new, self.model_by_chain[sample.chain].data.features.categorical.values)
 
         return sample_new, log_q, log_q_back
 
@@ -1102,43 +904,145 @@ class AlterClusterGibbsish(ClusterOperator):
         self,
         sample: Sample,
         i_cluster: int,
-        available: NDArray[bool],
+        candidates: NDArray[bool]
     ) -> NDArray[float]:  # shape: (n_available, )
         model = self.model_by_chain[sample.chain]
 
+        cluster_posterior = np.zeros(sample.n_objects)
+        cluster_posterior[candidates] = 1.
+
         if self.sample_from_prior:
-            n_available = np.count_nonzero(available)
-            return 0.5*np.ones(n_available)
+            n_available = np.count_nonzero(candidates)
+            return cluster_posterior[0.5*np.ones(n_available)]
 
-        p = conditional_effect_mean(
-            prior_counts=model.prior.prior_cluster_effect.concentration_array,
-            feature_counts=sample.feature_counts['clusters'].value[[i_cluster]]
-        )
-        cluster_lh_z = inner1d(self.features[available], p)
-        all_lh = deepcopy(likelihood_per_component(model, sample, caching=True)[available, :])
-        all_lh[..., 0] = cluster_lh_z
+        # todo: complete xxx.pointwise_likelihood for gaussian and logitnormal features
+        # todo: changed available to candidates. Ask Nico for implications
 
-        weights_z01 = self.compute_feature_weights_with_and_without(sample, available)
-        feature_lh_z01 = inner1d(all_lh[np.newaxis, ...], weights_z01)
-        marginal_lh_z01 = np.prod(feature_lh_z01, axis=-1)
-        cluster_posterior = marginal_lh_z01[1] / (marginal_lh_z01[0] + marginal_lh_z01[1])
+        lh = Likelihood(data=model.data, shapes=model.shapes, prior=model.prior)
+        feature_types = ["categorical", "gaussian", "poisson", "logitnormal"]
+
+        for ft in feature_types:
+            if getattr(sample, ft) is not None:
+
+                pointwise_conditional_cluster_lh = getattr(self, "pointwise_conditional_cluster_lh_" + ft)
+
+                cluster_lh_z = pointwise_conditional_cluster_lh(sample=sample, model=model,
+                                                                i_cluster=i_cluster, available=candidates)
+
+                all_lh = deepcopy(getattr(lh, ft).pointwise_likelihood(
+                    model=model, sample=sample,
+                    cache=getattr(sample.cache, ft).component_likelihoods,
+                    caching=True)[candidates, :])
+                all_lh[..., 0] = cluster_lh_z
+
+                weights_z01 = self.compute_feature_weights_with_and_without(sample, candidates, feature_type=ft)
+                feature_lh_z01 = inner1d(all_lh[np.newaxis, ...], weights_z01)
+                marginal_lh_z01 = np.prod(feature_lh_z01, axis=-1)
+
+                cluster_posterior[candidates] *= marginal_lh_z01[1] / (marginal_lh_z01[0] + marginal_lh_z01[1])
 
         if self.consider_geo_prior:
-            cluster_posterior *= np.exp(model.prior.geo_prior.get_costs_per_object(sample, i_cluster)[available])
+            cluster_posterior *= np.exp(model.prior.geo_prior.get_costs_per_object(sample, i_cluster)[candidates])
 
         return cluster_posterior
+
+    def pointwise_conditional_cluster_lh_categorical(
+        self,
+        sample: Sample,
+        model: Model,
+        i_cluster: int,
+        available: NDArray[bool]
+    ) -> NDArray[float]:
+
+        p = conditional_effect_mean(
+            prior_counts=model.prior.prior_cluster_effect.categorical.concentration_array,
+            feature_counts=sample.categorical.feature_counts['clusters'].value[[i_cluster]]
+        )
+
+        return inner1d(self.features.categorical.values[available], p)
+
+    def pointwise_conditional_cluster_lh_gaussian(
+        self,
+        sample: Sample,
+        model: Model,
+        i_cluster: int,
+        available: NDArray[bool]
+    ) -> NDArray[float]:
+
+        mu_0 = model.prior.prior_cluster_effect.gaussian.mean.mu_0_array
+        sigma_0 = model.prior.prior_cluster_effect.gaussian.mean.sigma_0_array
+
+        features_candidates = self.features.gaussian.values[available]
+        features_cluster = self.features.gaussian.values[sample.clusters.value[i_cluster]]
+        condition_lh = np.zeros(features_candidates.shape)
+
+        # todo: implement likelihood
+        for j in range(features_cluster.shape[1]):
+            f_c = features_cluster[:, j]
+            condition_lh[:, j] = np.repeat(0.5, len(features_candidates[:, j]))
+
+        return condition_lh
+
+    def pointwise_conditional_cluster_lh_poisson(
+        self,
+        sample: Sample,
+        model: Model,
+        i_cluster: int,
+        available: NDArray[bool]
+    ) -> NDArray[float]:
+
+        alpha_0 = model.prior.prior_cluster_effect.poisson.alpha_0_array
+        beta_0 = model.prior.prior_cluster_effect.poisson.beta_0_array
+
+        features_candidates = self.features.poisson.values[available]
+        features_cluster = self.features.poisson.values[sample.clusters.value[i_cluster]]
+        condition_lh = np.zeros(features_candidates.shape)
+
+        for j in range(features_cluster.shape[1]):
+            f_c = features_cluster[:, j]
+            n = len(f_c)
+            alpha_1 = alpha_0[j] + f_c.sum()
+            beta_1 = beta_0[j] + n
+            condition_lh[:, j] = nbinom.pmf(features_candidates[:, j], alpha_1, beta_1 / (1 + beta_1))
+
+        return condition_lh
+
+    def pointwise_conditional_cluster_lh_logitnormal(
+        self,
+        sample: Sample,
+        model: Model,
+        i_cluster: int,
+        available: NDArray[bool]
+    ) -> NDArray[float]:
+
+        mu_0 = model.prior.prior_cluster_effect.logitnormal.mean.mu_0_array
+        sigma_0 = model.prior.prior_cluster_effect.logitnormal.mean.sigma_0_array
+
+        features_candidates = self.features.logitnormal.values[available]
+        features_cluster = self.features.logitnormal.values[sample.clusters.value[i_cluster]]
+        condition_lh = np.zeros(features_candidates.shape)
+
+        # todo: implement likelihood
+        for j in range(features_cluster.shape[1]):
+            f_c = features_cluster[:, j]
+            condition_lh[:, j] = np.repeat(0.5, len(features_candidates[:, j]))
+
+        return condition_lh
 
     @staticmethod
     def compute_feature_weights_with_and_without(
         sample: Sample,
         available: NDArray[bool],   # shape: (n_objects, )
+        feature_type: str
     ) -> NDArray[float]:            # shape: (2, n_objects, n_features, n_components)
+
+        update_weights = getattr(sbayes.model, "update_" + feature_type + "_weights")
         weights_current = update_weights(sample, caching=True)[available]
         # weights = normalize_weights(sample.weights.value, has_components)
 
-        has_components = deepcopy(sample.cache.has_components.value[available, :])
+        has_components = deepcopy(getattr(sample.cache, feature_type).has_components.value[available, :])
         has_components[:, 0] = ~has_components[:, 0]
-        weights_flipped = normalize_weights(sample.weights.value, has_components)
+        weights_flipped = normalize_weights(getattr(sample, feature_type).weights.value, has_components)
 
         weights_z01 = np.empty((2, *weights_current.shape))
         weights_z01[1] = np.where(has_components[:, np.newaxis, [0]], weights_flipped, weights_current)
@@ -1157,6 +1061,7 @@ class AlterClusterGibbsish(ClusterOperator):
     def grow_cluster(self, sample: Sample) -> tuple[Sample, float, float]:
         # Choose a cluster
         i_cluster = RNG.choice(range(sample.n_clusters))
+
         cluster = sample.clusters.value[i_cluster, :]
 
         # Load and precompute useful variables
@@ -1164,7 +1069,7 @@ class AlterClusterGibbsish(ClusterOperator):
         available = self.available(sample, i_cluster)
         candidates = self.grow_candidates(sample)
 
-        # If all the space is take we can't grow
+        # If all the space is taken we can't grow
         if not np.any(candidates):
             return sample, self.Q_REJECT, self.Q_BACK_REJECT
 
@@ -1176,11 +1081,10 @@ class AlterClusterGibbsish(ClusterOperator):
         sample_new = sample.copy()
 
         # Assign probabilities for each unoccupied object
-        cluster_posterior = np.zeros(sample.n_objects)
-        cluster_posterior[available] = self.compute_cluster_posterior(
-            sample, i_cluster, available
-        )
-        p_add = normalize(cluster_posterior * candidates)
+        # todo: change for gaussian, poisson and logitnormal features
+
+        cluster_posterior = self.compute_cluster_posterior(sample, i_cluster, candidates)
+        p_add = normalize(cluster_posterior)
 
         # # Draw new object according to posterior
         # object_new = RNG.choice(sample.n_objects, p=p_add, replace=False)
@@ -1198,21 +1102,28 @@ class AlterClusterGibbsish(ClusterOperator):
         for obj in new_objects:
             sample_new.clusters.add_object(i_cluster, obj)
 
-        if self.resample_source and sample.source is not None:
-            sample_new, log_q_s, log_q_back_s = self.propose_new_sources(
-                sample_old=sample,
-                sample_new=sample_new,
-                i_cluster=i_cluster,
-                object_subset=new_objects,
-            )
-        else:
-            log_q_s = log_q_back_s = 0
+        log_q_s = log_q_back_s = 0
+        feature_types = ["categorical", "gaussian", "poisson", "logitnormal"]
+        for ft in feature_types:
+            if self.resample_source and getattr(sample, ft) is not None:
+                if getattr(sample, ft).source is not None:
+                    sample_new, log_q_s_ft, log_q_back_s_ft = self.propose_new_sources(
+                        sample_old=sample,
+                        sample_new=sample_new,
+                        i_cluster=i_cluster,
+                        object_subset=new_objects,
+                        feature_type=ft
+                    )
+                    log_q_s += log_q_s_ft
+                    log_q_back_s += log_q_back_s_ft
 
         # The removal probability of an inverse step
-        cluster_posterior_back = np.zeros(sample_new.n_objects)
-        cluster_posterior_back[available] = self.compute_cluster_posterior(sample_new, i_cluster, available)
+
         shrink_candidates = self.shrink_candidates(sample_new, i_cluster)
-        p_remove = normalize((1 - cluster_posterior_back) * shrink_candidates)
+
+        cluster_posterior_back = self.compute_cluster_posterior(sample_new, i_cluster, shrink_candidates)
+
+        p_remove = normalize(1 - cluster_posterior_back)
 
         log_q = np.log(p_add[new_objects]).sum() + log_q_s
         log_q_back = np.log(p_remove[new_objects]).sum() + log_q_back_s
@@ -1240,7 +1151,7 @@ class AlterClusterGibbsish(ClusterOperator):
         # Assign probabilities for each unoccupied object
         cluster_posterior = np.zeros(sample.n_objects)
         cluster_posterior[available] = self.compute_cluster_posterior(
-            sample, i_cluster, available
+            sample, i_cluster, available,
         )
 
         x = (1 - cluster_posterior) * candidates
@@ -1257,15 +1168,20 @@ class AlterClusterGibbsish(ClusterOperator):
         for obj in removed_objects:
             sample_new.clusters.remove_object(i_cluster, obj)
 
-        if self.resample_source and sample.source is not None:
-            sample_new, log_q_s, log_q_back_s = self.propose_new_sources(
-                sample_old=sample,
-                sample_new=sample_new,
-                i_cluster=i_cluster,
-                object_subset=removed_objects,
-            )
-        else:
-            log_q_s = log_q_back_s = 0
+        log_q_s = log_q_back_s = 0
+
+        if self.resample_source and sample.categorical is not None:
+            if sample.categorical.source is not None:
+
+                sample_new, log_q_s_categorical, log_q_back_s_categorical = self.propose_new_sources(
+                    sample_old=sample,
+                    sample_new=sample_new,
+                    i_cluster=i_cluster,
+                    object_subset=removed_objects,
+                    feature_type="categorical"
+                )
+                log_q_s += log_q_s_categorical
+                log_q_back_s += log_q_back_s_categorical
 
         # The add probability of an inverse step
         cluster_posterior_back = np.zeros(sample_new.n_objects)
@@ -1286,6 +1202,7 @@ class AlterClusterGibbsish(ClusterOperator):
         return params
 
 
+# todo: check where needed and update
 class ClusterEffectProposals:
 
     @staticmethod
@@ -1295,6 +1212,7 @@ class ClusterEffectProposals:
             prior_counts=model.prior.categorical.prior_cluster_effect.concentration_array,
             feature_counts=sample.categorical.feature_counts['clusters'].value[[i_cluster]]
         )
+
 
     @staticmethod
     def residual(model: Model, sample: Sample, i_cluster: int) -> NDArray[float]:
@@ -1415,16 +1333,31 @@ class AlterClusterGibbsishWide(AlterClusterGibbsish):
             n_available = np.count_nonzero(available)
             return 0.5*np.ones(n_available)
 
-        p = self.cluster_effect_proposal(model, sample, i_cluster)
+        cluster_posterior = np.zeros(sample.n_objects)
+        cluster_posterior[available] = 1.
 
-        cluster_lh_z = inner1d(self.features[available], p)
-        all_lh = deepcopy(likelihood_per_component(model, sample, caching=True)[available, :])
-        all_lh[..., 0] = cluster_lh_z
+        lh = Likelihood(data=model.data, shapes=model.shapes, prior=model.prior)
+        feature_types = ["categorical", "gaussian", "poisson", "logitnormal"]
+        for ft in feature_types:
+            # todo: check if the cache is right
+            if getattr(sample, ft) is not None:
 
-        weights_z01 = self.compute_feature_weights_with_and_without(sample, available)
-        feature_lh_z01 = inner1d(all_lh[np.newaxis, ...], weights_z01)
-        marginal_lh_z01 = np.prod(feature_lh_z01, axis=-1)
-        cluster_posterior = marginal_lh_z01[1] / (marginal_lh_z01[0] + marginal_lh_z01[1])
+                # todo: Nico, can you check if this is the right conditional function? It seems to evaluate all available
+                # todo: objects, including the ones already in the cluster, to the features in the cluster
+                pointwise_conditional_cluster_lh = getattr(self, "pointwise_conditional_cluster_lh_" + ft)
+                cluster_lh_z = pointwise_conditional_cluster_lh(sample=sample, model=model,
+                                                                i_cluster=i_cluster, available=available)
+
+                all_lh = deepcopy(getattr(lh, ft).pointwise_likelihood(
+                    model=model, sample=sample,
+                    cache=getattr(sample.cache, ft).component_likelihoods,
+                    caching=True)[available, :])
+
+                all_lh[..., 0] = cluster_lh_z
+                weights_z01 = self.compute_feature_weights_with_and_without(sample, available, feature_type=ft)
+                feature_lh_z01 = inner1d(all_lh[np.newaxis, ...], weights_z01)
+                marginal_lh_z01 = np.prod(feature_lh_z01, axis=-1)
+                cluster_posterior *= marginal_lh_z01[1] / (marginal_lh_z01[0] + marginal_lh_z01[1])
 
         if self.consider_geo_prior:
             cluster_posterior *= np.exp(model.prior.geo_prior.get_costs_per_object(sample, i_cluster)[available])
@@ -1437,6 +1370,7 @@ class AlterClusterGibbsishWide(AlterClusterGibbsish):
         cluster_old = sample.clusters.value[i_cluster]
         available = self.available(sample, i_cluster)
         n_available = np.count_nonzero(available)
+
         model = self.model_by_chain[sample.chain]
 
         p = self.get_cluster_membership_proposal(sample, i_cluster, available)
@@ -1455,12 +1389,21 @@ class AlterClusterGibbsishWide(AlterClusterGibbsish):
         with sample_new.clusters.edit_cluster(i_cluster) as c:
             c[available] = cluster_new
 
-        # Resample the source assignment for the changed objects
+        log_q_s = log_q_back_s = 0
+        feature_types = ["categorical", "gaussian", "poisson", "logitnormal"]
         changed, = np.where(cluster_old != sample_new.clusters.value[i_cluster])
-        sample_new, log_q_s, log_q_back_s = self.propose_new_sources(
-            sample_old=sample, sample_new=sample_new,
-            i_cluster=i_cluster, object_subset=changed,
-        )
+
+        for ft in feature_types:
+            if getattr(sample, ft) is not None:
+                sample_new, log_q_s_ft, log_q_back_s_ft = self.propose_new_sources(
+                    sample_old=sample,
+                    sample_new=sample_new,
+                    i_cluster=i_cluster,
+                    object_subset=changed,
+                    feature_type=ft
+                )
+                log_q_s += log_q_s_ft
+                log_q_back_s += log_q_back_s_ft
 
         p_back = self.get_cluster_membership_proposal(sample_new, i_cluster, available)
         q_back_per_site = p_back * cluster_old[available] + (1 - p_back) * (1 - cluster_old[available])
@@ -1629,6 +1572,7 @@ class AlterCluster(ClusterOperator):
         return sample_new, log_q, log_q_back
 
 
+# todo: update for continuous sBayes
 class ClusterJump(ClusterOperator):
 
     def __init__(

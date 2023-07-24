@@ -1373,6 +1373,9 @@ def gaussian_mu_marginalised_logpdf(x: NDArray, sigma_fixed: NDArray, mu_0: floa
     x_bar = x.mean()
     x_2_bar = (x ** 2).mean()
 
+    if sigma_fixed == 0.0:
+        sigma_fixed = EPS
+
     loga = -log(sigma_0) - 1 / 2 * log(2 * pi) + - n * (log(sigma_fixed) + 1 / 2 * log(2 * pi))
     logb = (-mu_0 ** 2 / (2 * sigma_0 ** 2) - n * x_2_bar / (2 * sigma_fixed ** 2))
     c = (sigma_fixed ** 2 + sigma_0 ** 2 * n) / (2 * sigma_0 ** 2 * sigma_fixed ** 2)

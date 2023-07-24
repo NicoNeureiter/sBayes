@@ -76,6 +76,7 @@ Ratio of confounding_effects steps (changing probabilities in confounders): {op_
             initial_sample = self.last_sample(results)
 
         else:
+            # todo: change initial size back
             warmup = ClusterMCMC(
                 data=self.data,
                 model=self.model,
@@ -83,7 +84,7 @@ Ratio of confounding_effects steps (changing probabilities in confounders): {op_
                 n_chains=mcmc_config.warmup.warmup_chains,
                 operators=mcmc_config.operators,
                 p_grow_connected=mcmc_config.grow_to_adjacent,
-                initial_size=mcmc_config.init_objects_per_cluster,
+                initial_size=3, #mcmc_config.init_objects_per_cluster,
                 sample_from_prior=mcmc_config.sample_from_prior,
                 logger=self.logger,
             )
@@ -102,7 +103,9 @@ Ratio of confounding_effects steps (changing probabilities in confounders): {op_
             sample_from_prior=mcmc_config.sample_from_prior,
             logger=self.logger,
         )
-
+        # todo: this is new, since chain is used later to identify samples.
+        #  ask Nico if not setting this to 0 could lead to troubles
+        initial_sample.chain = 0
         self.sampler.generate_samples(mcmc_config.steps, mcmc_config.samples,
                                       initial_sample=initial_sample)
 

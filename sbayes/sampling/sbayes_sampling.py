@@ -20,11 +20,11 @@ from sbayes.sampling.operators import (
     AlterClusterGibbsishWide,
     AlterCluster,
     GibbsSampleSource,
-    GibbsSampleSourceCategorical, GibbsSampleSourceGaussian, GibbsSampleSourcePoisson, GibbsSampleSourceLogitNormal,
     ObjectSelector, ResampleSourceMode, ClusterJump, ClusterEffectProposals
 )
 from sbayes.util import get_neighbours, normalize
 from sbayes.config.config import OperatorsConfig
+import sbayes.model
 
 
 class ClusterMCMC(MCMC):
@@ -352,8 +352,6 @@ class ClusterMCMC(MCMC):
 
         self.generate_inital_source_with_gibbs(sample)
 
-        # todo: implement pointwise likelihood for gaussian and logitnormal features
-
         sample.everything_changed()
 
         return sample
@@ -367,76 +365,39 @@ class ClusterMCMC(MCMC):
         sample.everything_changed()
         source = sample_source_from_prior(sample)
 
-        if sample.categorical is not None:
-            source['categorical'][self.data.features.categorical.na_values] = 0
-            sample.categorical.source.set_value(source['categorical'])
-            # Recalculate the counts for categorical features
-            recalculate_feature_counts(self.features.categorical.values, sample)
-            w = update_categorical_weights(sample, caching=False)
-            s = sample.categorical.source.value
-            assert np.all(s <= (w > 0)), np.max(w)
+        feature_types = ["categorical", "gaussian", "poisson", "logitnormal"]
 
-            full_source_operator = GibbsSampleSourceCategorical(
-                weight=1,
-                model_by_chain=self.posterior_per_chain,
-                sample_from_prior=False,
-                object_selector=ObjectSelector.ALL,
-            )
+        full_source_operator = GibbsSampleSource(
+            weight=1,
+            model_by_chain=self.posterior_per_chain,
+            sample_from_prior=False,
+            object_selector=ObjectSelector.ALL
+        )
 
-            source['categorical'] = full_source_operator.function(sample)[0].categorical.source.value
+        for ft in feature_types:
+            if getattr(sample, ft) is not None:
+                source[ft][getattr(self.data.features, ft).na_values] = 0
+                getattr(sample, ft).source.set_value(source[ft])
 
-            sample.categorical.source.set_value(source['categorical'])
+                if ft == "categorical":
+                    # Recalculate the counts for categorical features
+                    recalculate_feature_counts(self.features.categorical.values, sample)
 
-            recalculate_feature_counts(self.features.categorical.values, sample)
+                update_weights = getattr(sbayes.model, "update_" + ft + "_weights")
+                w = update_weights(sample, caching=False)
+                s = getattr(sample, ft).source.value
+                assert np.all(s <= (w > 0)), np.max(w)
 
-        if sample.gaussian is not None:
+        # Propose a new sample
+        new_sample = full_source_operator.function(sample)[0]
 
-            source['gaussian'][self.data.features.gaussian.na_values] = 0
-            sample.gaussian.source.set_value(source['gaussian'])
-            w = update_gaussian_weights(sample, caching=False)
-            s = sample.gaussian.source.value
-            assert np.all(s <= (w > 0)), np.max(w)
+        for ft in feature_types:
+            if getattr(sample, ft) is not None:
+                source[ft] = getattr(new_sample, ft).source.value
+                getattr(sample, ft).source.set_value(source[ft])
+                if ft == "categorical":
+                    recalculate_feature_counts(self.features.categorical.values, sample)
 
-            full_source_operator = GibbsSampleSourceGaussian(
-                weight=1,
-                model_by_chain=self.posterior_per_chain,
-                sample_from_prior=False,
-                object_selector=ObjectSelector.ALL,
-            )
-
-            source['gaussian'] = full_source_operator.function(sample)[0].gaussian.source.value
-            sample.gaussian.source.set_value(source['gaussian'])
-
-        if sample.poisson is not None:
-            source['poisson'][self.data.features.poisson.na_values] = 0
-            sample.poisson.source.set_value(source['poisson'])
-            w = update_poisson_weights(sample, caching=False)
-            s = sample.poisson.source.value
-            assert np.all(s <= (w > 0)), np.max(w)
-
-            full_source_operator = GibbsSampleSourcePoisson(
-                weight=1,
-                model_by_chain=self.posterior_per_chain,
-                sample_from_prior=False,
-                object_selector=ObjectSelector.ALL,
-            )
-            source['poisson'] = full_source_operator.function(sample)[0].poisson.source.value
-            sample.poisson.source.set_value(source['poisson'])
-
-        if sample.logitnormal is not None:
-            source['logitnormal'][self.data.features.logitnormal.na_values] = 0
-            sample.logitnormal.source.set_value(source['logitnormal'])
-            w = update_logitnormal_weights(sample, caching=False)
-            s = sample.logitnormal.source.value
-            assert np.all(s <= (w > 0)), np.max(w)
-            full_source_operator = GibbsSampleSourceLogitNormal(
-                weight=1,
-                model_by_chain=self.posterior_per_chain,
-                sample_from_prior=False,
-                object_selection=ObjectSelector.ALL
-            )
-            source['logitnormal'] = full_source_operator.function(sample)[0].logitnormal.source.value
-            sample.logitnormal.source.set_value(source['logitnormal'])
         return source
 
     def get_operators(self, operators_config: OperatorsConfig) -> dict[str, Operator]:
@@ -533,7 +494,7 @@ class ClusterMCMC(MCMC):
                 model_by_chain=self.posterior_per_chain,
                 sample_from_prior=self.sample_from_prior,
                 object_selector=ObjectSelector.RANDOM_SUBSET,
-                max_size=40,
+                max_size=4,
             ),
             'gibbs_sample_sources_groups': GibbsSampleSource(
                 weight=0.5*operators_config.source,
