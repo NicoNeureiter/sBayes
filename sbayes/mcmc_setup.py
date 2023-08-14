@@ -103,9 +103,6 @@ Ratio of confounding_effects steps (changing probabilities in confounders): {op_
             sample_from_prior=mcmc_config.sample_from_prior,
             logger=self.logger,
         )
-        # todo: this is new, since chain is used later to identify samples.
-        #  ask Nico if not setting this to 0 could lead to troubles
-        initial_sample.chain = 0
         self.sampler.generate_samples(mcmc_config.steps, mcmc_config.samples,
                                       initial_sample=initial_sample)
 

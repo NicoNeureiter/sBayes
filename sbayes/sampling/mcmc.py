@@ -174,6 +174,7 @@ class MCMC(ABC):
             else:
                 init_sample_c = deepcopy(initial_sample)
 
+            init_sample_c.chain = c
             sample.append(init_sample_c)
 
             # Compute the (log)-likelihood and the prior for each sample
