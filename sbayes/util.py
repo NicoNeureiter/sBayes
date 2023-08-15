@@ -1382,6 +1382,12 @@ def pmf_categorical_with_replacement(idxs: list[int], p: NDArray[float]):
     return prob
 
 
+def trunc_exp_rv(low, high, scale, size):
+    rnd_cdf = np.random.uniform(stats.expon.cdf(x=low, scale=scale),
+                                stats.expon.cdf(x=high, scale=scale),
+                                size=size)
+    return stats.expon.ppf(q=rnd_cdf, scale=scale)
+
 
 if __name__ == "__main__":
     import doctest
