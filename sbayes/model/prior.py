@@ -173,7 +173,7 @@ class DirichletPrior:
         config: DirichletPriorConfig | dict[GroupName, DirichletPriorConfig],
         shapes: ModelShapes,
         feature_names: OrderedDict[FeatureName, list[StateName]],
-        initial_counts=1.
+        initial_counts=1.0,
     ):
         self.config = config
         self.shapes = shapes
@@ -320,7 +320,7 @@ class ConfoundingEffectsPrior(DirichletPrior):
 
             # Add 10% uniform distribution to avoid overly pointy
             uniform = normalize(self.shapes.states_per_feature, axis=-1)
-            mean = 0.9 * mean + 0.1 * uniform
+            mean = 0.8 * mean + 0.2 * uniform
 
             # # Clip precision at the actual universal posterior counts
             # precision = np.minimum(self.precision, univ_counts.sum(axis=-1, keepdims=True))
