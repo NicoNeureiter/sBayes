@@ -12,8 +12,10 @@ from sbayes.load_data import Data
 from sbayes.model import Model, update_weights
 from sbayes.sampling.conditionals import sample_source_from_prior
 from sbayes.sampling.counts import recalculate_feature_counts
-from sbayes.sampling.operators import ObjectSelector, GibbsSampleSource, AlterClusterGibbsish, AlterClusterGibbsishWide
-from sbayes.sampling.state import Sample
+from sbayes.sampling.loggers import ClustersLogger
+from sbayes.sampling.operators import ObjectSelector, GibbsSampleSource, AlterClusterGibbsish, AlterClusterGibbsishWide, \
+    ClusterEffectProposals
+from sbayes.sampling.state import Sample, Clusters
 from sbayes.util import get_neighbours, normalize, format_cluster_columns, trunc_exp_rv
 
 EPS = 1E-10
@@ -30,6 +32,11 @@ RNG.shuffle(initial_sizes)
 
 class ClusterError(Exception):
     pass
+
+
+class DummySample(Sample):
+    def __init__(self, clusters):
+        self._clusters = Clusters(clusters)
 
 
 class SbayesInitializer:
@@ -77,17 +84,22 @@ class SbayesInitializer:
         else:
             self.logger = logger
 
+        self.init_cluster_logger: ClustersLogger = None
+
     def get_groups_per_confounder(self):
         n_groups = dict()
         for k, v in self.confounders.items():
             n_groups[k] = v.n_groups
         return n_groups
 
-    def generate_clusters_em(
-        self,
-        c: int = 0,
-        n_steps: int = 100,
-    ):
+    def sample_n_objects_in_all_clusters(self, mid, lower_bound, upper_bound):
+        """Draw the total number of objects in all clusters from a truncated normal distribution."""
+        scale = max(20, mid - lower_bound)
+        a = (lower_bound - mid) / scale
+        b = (upper_bound - mid) / scale
+        return int(truncnorm(a, b, loc=mid, scale=scale).rvs())
+
+    def generate_clusters_em(self, n_steps: int = 60):
         """EM-style inference of a continuous approximation of the sBayes model.
         We estimate distributions for each cluster/confounder group and a flat continuous
         assignment of each object to clusters and confounder groups.
@@ -98,17 +110,11 @@ class SbayesInitializer:
         n_clusters = self.model.n_clusters
 
         # Decide how many objects to assign to clusters in total
-        lo = n_clusters * self.model.min_size
-        up = min(n_objects, n_clusters * self.model.max_size)
-        mid = n_clusters * self.initial_size
-        scale = max(20, mid - lo)
-        a = (lo - mid) / scale
-        b = (up - mid) / scale
-        # total_size = int(trunc_exp_rv(lo, up, scale=100, size=1))
-        # print(lo, mid, up)
-        # print(a, mid, b)
-        total_size = int(truncnorm(a, b, loc=mid, scale=scale).rvs())
-        # print(total_size)
+        total_size = self.sample_n_objects_in_all_clusters(
+            mid=n_clusters * self.initial_size,
+            lower_bound=n_clusters * self.model.min_size,
+            upper_bound=min(n_objects, n_clusters * self.model.max_size),
+        )
 
         groups = [f"a{c}" for c in range(n_clusters)]
         for conf_name, conf in self.data.confounders.items():
@@ -124,21 +130,14 @@ class SbayesInitializer:
 
         prior_counts = 0.5 * self.data.features.states
 
-        p = np.empty((n_groups, n_features, n_states))
         z = normalize(np.random.random((n_groups, n_objects)) * groups_available, axis=0)
 
         distances = self.data.geo_cost_matrix
-        # delauny = self.data.network.adj_mat.toarray().astype(bool)
-        # mean_neigh_dist = np.mean(distances, where=delauny)
 
-        clusters_versions = []
         _features = np.copy(features)
         _features[~valid_observations, :] = 1
-        # print()
 
         for i_step in range(n_steps):
-            t0 = time.perf_counter()
-
             state_counts = np.einsum("ij,jkl->ikl", z, features, optimize='optimal')
             # shape: (n_groups, n_features, n_states)
 
@@ -157,7 +156,6 @@ class SbayesInitializer:
 
             z_peaky = softmax(n_objects * z, axis=1)
             avg_dist_to_cluster = z_peaky.dot(distances)
-            # geo_likelihoods = np.exp(-avg_dist_to_cluster / mean_neigh_dist / 5)
             geo_likelihoods = np.exp(-avg_dist_to_cluster / self.model.prior.geo_prior.scale / 2)
             geo_likelihoods[n_clusters:] = np.mean(geo_likelihoods[:n_clusters])
 
@@ -165,18 +163,12 @@ class SbayesInitializer:
             lh = (geo_likelihoods * group_likelihoods ** (1/temperature))
             z = normalize(lh * groups_available, axis=0)
 
-            clusters = self.discretize_fuzzy_cluster_2(z, total_size=total_size)
-            clusters_versions.append(clusters)
+            if (self.init_cluster_logger is not None) and (i_step % 5 == 0):
+                clusters = self.discretize_fuzzy_cluster_2(z, total_size=total_size)
+                self.init_cluster_logger.write_sample(sample=DummySample(clusters))
 
-            # print(i_step, "%.3f" % (time.perf_counter() - t0))
-
-        # with open(f"./cluster_initialization_steps_{c}.txt", "w") as logfile:
-        #     logfile.writelines(
-        #         format_cluster_columns(c) + "\n"
-        #         for c in clusters_versions
-        #     )
-
-        return clusters_versions[-1]
+        clusters = self.discretize_fuzzy_cluster_2(z, total_size=total_size)
+        return clusters
 
     def discretize_fuzzy_cluster(self, z):
         # z represents a probabilistic assignment to clusters and confounder groups
@@ -184,16 +176,6 @@ class SbayesInitializer:
         fuzzy_clusters = np.copy(z[:self.model.n_clusters + 1])
         fuzzy_clusters[-1] = 0.9 * np.sum(fuzzy_clusters[:-1], axis=0)
 
-        # Ideas for turning the soft into a hard-assignment:
-        #   [v1] Threshold at 0.5
-        #   [v2] Highest soft-assignment wins
-        #        (`1 - sum(fuzzy_clusters)` counts as the soft assignment to no cluster)
-        #   [v3] Varying threshold dependent on the chain ID or initialization attempt ID
-        #        (to get a diversity of starting locations)
-        #   [v4] Varying scale factor for the "no cluster" assignment, followed by
-        #        selecting the highest soft assignment value.
-
-        # [v2]
         # Select the highest fuzzy value
         best = np.argmax(fuzzy_clusters, axis=0)
         clusters = np.eye(self.model.n_clusters+1, dtype=bool)[best].T
@@ -217,7 +199,6 @@ class SbayesInitializer:
             fuzzy_clusters[:, best_ids] = 0
             fuzzy_clusters[i_c, best_ids] = 1
 
-
         best = np.argmax(fuzzy_clusters, axis=0)
         best_value = np.max(fuzzy_clusters, axis=0)
 
@@ -227,23 +208,30 @@ class SbayesInitializer:
 
         # Kick out the "no cluster" assignments
         clusters = clusters[:-1]
-
         return clusters
 
-    def generate_sample(self, c: int = 0) -> Sample:
+    def generate_sample(self, c: int = 0, log_initialization: bool = False) -> Sample:
         """Generate initial Sample object (clusters, weights, cluster_effect, confounding_effects)
         Kwargs:
             c: index of the MCMC chain
         Returns:
             The generated initial Sample
         """
+
         best_sample = None
         best_lh = -np.inf
         assert self.initialization_attempts > 0
         for i_attempt in range(self.initialization_attempts):
+
+            if log_initialization:
+                self.init_cluster_logger = ClustersLogger(
+                    f"./cluster_initialization_steps_{c}_{i_attempt}.txt",
+                    self.data, self.model, resume=False
+                )
+
             sample = self.generate_sample_attempt(c, i_attempt)
             # lh = self.model.likelihood(sample, caching=False)
-            lh = self.model(sample)
+            lh = self.model(sample, caching=False)
             if lh > best_lh:
                 best_sample = sample
                 best_lh = lh
@@ -253,7 +241,7 @@ class SbayesInitializer:
     def generate_sample_attempt(self, c: int = 0, i_attempt: int = 0) -> Sample:
         # Clusters
         # initial_clusters = self.generate_initial_clusters(c)
-        initial_clusters = self.generate_clusters_em(c=i_attempt)
+        initial_clusters = self.generate_clusters_em()
 
         # Weights
         initial_weights = self.generate_initial_weights()
@@ -306,6 +294,7 @@ class SbayesInitializer:
             model_by_chain=defaultdict(lambda: self.model),
             features=self.data.features.values,
             resample_source=True,
+            consider_geo_prior=True,
         )
         source = full_source_operator.function(sample)[0].source.value
         sample.source.set_value(source)
@@ -315,13 +304,34 @@ class SbayesInitializer:
         #     for i_c in range(self.n_clusters):
         #         sample = self.grow(sample, cluster_operator, i_c)
 
-        source = full_source_operator.function(sample)[0].source.value
-        sample.source.set_value(source)
-        recalculate_feature_counts(self.features, sample)
-
         if self.initial_cluster_steps:
+            # Apply cluster operator to each cluster
             for i_c in range(self.n_clusters):
-                sample = cluster_operator._propose(sample, i_cluster=i_c)[0]
+                sample = cluster_operator._propose(sample, i_cluster=i_c, ml=True)[0]
+
+            if self.init_cluster_logger is not None:
+                self.init_cluster_logger.write_sample(sample)
+
+            # Estimate weights by counting source observations in each feature
+            s = sample.source.value
+            S = sample.cache.has_components.value
+            s_ratio = np.sum(s, axis=0) / np.sum(S, axis=0, keepdims=True)
+            sample.weights.set_value(
+                normalize(2 + s_ratio, axis=-1)
+            )
+
+            # Propose a new source array
+            source = full_source_operator.function(sample)[0].source.value
+            sample.source.set_value(source)
+            recalculate_feature_counts(self.features, sample)
+
+            # Apply cluster operator to each cluster again
+            # cluster_operator.cluster_effect_proposal = ClusterEffectProposals.residual_counts  # TODO remove?
+            for i_c in range(self.n_clusters):
+                sample = cluster_operator._propose(sample, i_cluster=i_c, ml=True)[0]
+
+            if self.init_cluster_logger is not None:
+                self.init_cluster_logger.write_sample(sample)
 
         sample.everything_changed()
         return sample
@@ -336,32 +346,9 @@ class SbayesInitializer:
         # Give up and raise exception after 20 attempts
         raise ClusterError
 
-    # def cluster_score(self, cluster: NDArray[bool]) -> float:
-    #     x = self.data.features.values[cluster]
-    #     k = 0.1 + x.sum(axis=0)
-    #     n = x.shape[0]
-    #     p = (k / n).clip(EPS, 1 - EPS)
-    #     ll = k * np.log(p) + (n - k) * np.log(1 - p)
-    #     return ll.sum()
-
     def generate_initial_clusters(self, c : int = 0):
         return self.initialize_clusters()
         # return self.grow_random_clusters()
-        # return self.generate_kmeans_clusters()
-
-    # def generate_kmeans_clusters(self):
-    #     features = self.data.features.values
-    #     n_objects, n_features, n_states = features.shape
-    #
-    #     k = self.n_clusters
-    #     kmeans = KMeans(n_clusters=k)
-    #     kmeans.fit(
-    #         features.reshape(n_objects, n_features*n_states)
-    #     )
-    #     centroids = kmeans.cluster_centers_
-    #     p = centroids.reshape((k, n_features, n_states))
-    #
-    #     print(p)
 
     def initialize_clusters(self) -> NDArray[bool]:
         """Grow clusters in parallel, each starting from a random point, and

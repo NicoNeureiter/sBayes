@@ -9,6 +9,7 @@ from typing import Sequence, Any
 import numpy as np
 from numpy.typing import NDArray
 import scipy.stats as stats
+from scipy.special import softmax
 
 from sbayes.load_data import Features
 from sbayes.sampling.conditionals import likelihood_per_component, conditional_effect_mean
@@ -1132,12 +1133,13 @@ class AlterClusterGibbsishWide(AlterClusterGibbsish):
     ):
         super().__init__(*args, **kwargs)
         self.w_stay = w_stay
-        self.eps = 0.0001
+        self.eps = 0.000001
         self.cluster_effect_proposal = cluster_effect_proposal
 
-    def get_cluster_membership_proposal(self, sample, i_cluster, available):
+    def compute_cluster_probs(self, sample, i_cluster, available):
         cluster = sample.clusters.value[i_cluster]
-        p = self.compute_cluster_probs(sample, i_cluster, available)
+        p = self.compute_raw_cluster_probs(sample, i_cluster, available)
+        p = normalize(p)
 
         # For more local steps: proposal is a mixture of posterior and current cluster
         p = (1 - self.w_stay) * normalize(p + self.eps) + self.w_stay * normalize(cluster[available])
@@ -1155,17 +1157,18 @@ class AlterClusterGibbsishWide(AlterClusterGibbsish):
 
         return p
 
-    def compute_cluster_probs(
+    def compute_raw_cluster_probs(
         self,
         sample: Sample,
         i_cluster: int,
         available: NDArray[bool],
     ) -> NDArray[float]:  # shape: (n_available, )
+        """Compute the probability of each """
         model = self.model_by_chain[sample.chain]
+        n_available = np.count_nonzero(available)
 
         if self.sample_from_prior:
-            n_available = np.count_nonzero(available)
-            return 0.5*np.ones(n_available)
+            return 0.5 * np.ones(n_available)
 
         p = self.cluster_effect_proposal(model, sample, i_cluster)
 
@@ -1178,12 +1181,20 @@ class AlterClusterGibbsishWide(AlterClusterGibbsish):
         marginal_lh_z01 = np.prod(feature_lh_z01, axis=-1)
         cluster_posterior = marginal_lh_z01[1] / (marginal_lh_z01[0] + marginal_lh_z01[1])
 
+        # if self.consider_geo_prior:
+        #     cluster_posterior *= np.exp(model.prior.geo_prior.get_costs_per_object(sample, i_cluster)[available])
+
         if self.consider_geo_prior:
-            cluster_posterior *= np.exp(model.prior.geo_prior.get_costs_per_object(sample, i_cluster)[available])
+            distances = model.data.geo_cost_matrix[available][:, available]
+            z = normalize(cluster_posterior)
+            z_peaky = softmax(n_available * z)
+            avg_dist_to_cluster = z_peaky.dot(distances)
+            geo_likelihoods = np.exp(-avg_dist_to_cluster / model.prior.geo_prior.scale / 2)
+            cluster_posterior = normalize(geo_likelihoods * z)
 
         return cluster_posterior
 
-    def _propose(self, sample: Sample, i_cluster=None, **kwargs) -> tuple[Sample, float, float]:
+    def _propose(self, sample: Sample, i_cluster=None, ml=False, **kwargs) -> tuple[Sample, float, float]:
         sample_new = sample.copy()
         if i_cluster is None:
             i_cluster = RNG.choice(range(sample.n_clusters))
@@ -1192,9 +1203,14 @@ class AlterClusterGibbsishWide(AlterClusterGibbsish):
         n_available = np.count_nonzero(available)
         model = self.model_by_chain[sample.chain]
 
-        p = self.get_cluster_membership_proposal(sample, i_cluster, available)
+        p = self.compute_cluster_probs(sample, i_cluster, available)
 
-        cluster_new = (RNG.random(n_available) < p)
+        if ml:
+            threshold = np.sort(p)[-np.count_nonzero(cluster_old)]
+            cluster_new = p > threshold
+        else:
+            cluster_new = (RNG.random(n_available) < p)
+
         if not (model.min_size <= np.count_nonzero(cluster_new) <= model.max_size):
             # Reject if proposal goes out of cluster size bounds
             return sample, self.Q_REJECT, self.Q_BACK_REJECT
@@ -1215,7 +1231,7 @@ class AlterClusterGibbsishWide(AlterClusterGibbsish):
             i_cluster=i_cluster, object_subset=changed,
         )
 
-        p_back = self.get_cluster_membership_proposal(sample_new, i_cluster, available)
+        p_back = self.compute_cluster_probs(sample_new, i_cluster, available)
         q_back_per_site = p_back * cluster_old[available] + (1 - p_back) * (1 - cluster_old[available])
         log_q_back = np.log(q_back_per_site).sum()
 
@@ -1233,6 +1249,102 @@ class AlterClusterGibbsishWide(AlterClusterGibbsish):
         params["w_stay"] = self.w_stay
         params["cluster_effect_proposal"] = self.cluster_effect_proposal.__name__
         return params
+
+
+class AlterClusterEM(AlterClusterGibbsishWide):
+
+    def compute_cluster_probs(self, sample, i_cluster, available, n_steps=10):
+        model = self.model_by_chain[sample.chain]
+        cluster = sample.clusters.value[i_cluster]
+
+        features = model.data.features.values
+        valid_observations = ~model.data.features.na_values
+        n_objects, n_features, n_states = features.shape
+        n_clusters = model.n_clusters
+
+        if self.sample_from_prior:
+            n_available = np.count_nonzero(available)
+            return 0.5 * np.ones(n_available)
+
+        p_clust = self.cluster_effect_proposal(model, sample, i_cluster)
+
+
+        groups = [f"a{c}" for c in range(n_clusters)]
+        for conf_name, conf in model.data.confounders.items():
+            groups += [f"{conf_name}_{grp_name}" for grp_name in conf.group_names]
+        n_groups = len(groups)
+
+        groups_available = np.zeros((n_groups, n_objects), dtype=bool)
+        groups_available[:n_clusters, :] = True
+        i = n_clusters
+        for conf_name, conf in model.data.confounders.items():
+            groups_available[i:i+conf.n_groups, :] = conf.group_assignment
+            i += conf.n_groups
+
+        prior_counts = 0.5 * model.data.features.states
+
+        z = np.ones((n_groups, n_objects)) * groups_available
+        z[:n_clusters, :] = sample.clusters.value.astype(float)
+        z[i_cluster, available] = 1.0
+        z = normalize(z, axis=0)
+        # z = np.mean(sample.source.value, axis=1)
+
+        distances = model.data.geo_cost_matrix
+
+        _features = np.copy(features)
+        _features[~valid_observations, :] = 1
+
+        for i_step in range(n_steps):
+            state_counts = np.einsum("ij,jkl->ikl", z, features, optimize='optimal')
+            # shape: (n_groups, n_features, n_states)
+
+            p = normalize(state_counts + prior_counts, axis=-1)
+            # shape: (n_groups, n_features, n_states)
+
+            if i_step == 0:
+                p[i_cluster] = p_clust
+
+            # How likely would each feature observation be if it was explained by each group
+            pointwise_likelihood_by_group = np.einsum("ikl,jkl->ijk", p, _features, optimize='optimal')
+            # shape: (n_groups, n_objects, n_features)
+
+            pointwise_likelihood_by_group[:, ~valid_observations] = 1
+            group_likelihoods = np.prod(pointwise_likelihood_by_group, axis=-1)
+            # shape: (n_groups, n_objects)
+
+            if self.consider_geo_prior:
+                z_peaky = softmax(n_objects * z, axis=1)
+                avg_dist_to_cluster = z_peaky.dot(distances)
+                geo_likelihoods = np.exp(-avg_dist_to_cluster / model.prior.geo_prior.scale / 2)
+                geo_likelihoods[n_clusters:] = np.mean(geo_likelihoods[:n_clusters])
+            else:
+                geo_likelihoods = 1
+
+            temperature = (n_steps / (1+i_step)) ** 2
+            lh = (geo_likelihoods * group_likelihoods ** (1/temperature))
+            z_unnoralized = lh * groups_available
+            z_unnoralized[i_cluster, ~available] = 0
+            z = normalize(z_unnoralized, axis=0)
+            # shape: (n_groups, n_objects)
+
+        # Normalize cluster probabilities across objects to ensure that adding eps has a predictable effect
+        z_cluster = normalize(z[i_cluster, available])
+
+        # For more local steps: proposal is a mixture of posterior and current cluster
+        z_cluster = (1 - self.w_stay) * normalize(z_cluster + self.eps) + self.w_stay * normalize(cluster[available])
+
+        # Expected size should be the same as current size
+        old_size = np.sum(cluster[available])
+        new_expected_size = np.sum(z)
+        for _ in range(10):
+            z_cluster = z_cluster * old_size / new_expected_size
+            z_cluster = z_cluster.clip(self.eps, 1-self.eps)
+
+            new_expected_size = np.sum(z_cluster)
+            if new_expected_size > 0.975 * old_size:
+                break
+
+        return z_cluster
 
 
 class AlterCluster(ClusterOperator):
