@@ -320,7 +320,7 @@ class ConfoundingEffectsPrior(DirichletPrior):
 
             # Add 10% uniform distribution to avoid overly pointy
             uniform = normalize(self.shapes.states_per_feature, axis=-1)
-            mean = 0.8 * mean + 0.2 * uniform
+            mean = 0.95 * mean + 0.05 * uniform
 
             # # Clip precision at the actual universal posterior counts
             # precision = np.minimum(self.precision, univ_counts.sum(axis=-1, keepdims=True))
