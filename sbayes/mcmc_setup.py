@@ -99,6 +99,7 @@ Ratio of confounding_effects steps (changing probabilities in confounders): {op_
                 warm_up_steps=mcmc_config.warmup.warmup_steps,
                 initializer=initializer,
             )
+            initial_sample.i_step = 0
 
         self.sampler = ClusterMCMC(
             data=self.data,
