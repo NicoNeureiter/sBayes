@@ -99,7 +99,7 @@ class SbayesInitializer:
         b = (upper_bound - mid) / scale
         return int(truncnorm(a, b, loc=mid, scale=scale).rvs())
 
-    def generate_clusters_em(self, n_steps: int = 60):
+    def generate_clusters_em(self, n_steps: int = 80):
         """EM-style inference of a continuous approximation of the sBayes model.
         We estimate distributions for each cluster/confounder group and a flat continuous
         assignment of each object to clusters and confounder groups.
@@ -160,7 +160,7 @@ class SbayesInitializer:
             geo_likelihoods[n_clusters:] = np.mean(geo_likelihoods[:n_clusters])
 
             temperature = (n_steps / (1+i_step)) ** 3
-            lh = (geo_likelihoods * group_likelihoods ** (1/temperature))
+            lh = geo_likelihoods * group_likelihoods ** (1/temperature)
             z = normalize(lh * groups_available, axis=0)
 
             if (self.init_cluster_logger is not None) and (i_step % 5 == 0):
@@ -307,7 +307,7 @@ class SbayesInitializer:
         if self.initial_cluster_steps:
             # Apply cluster operator to each cluster
             for i_c in range(self.n_clusters):
-                sample = cluster_operator._propose(sample, i_cluster=i_c, ml=True)[0]
+                sample = cluster_operator.ml_step(sample, i_cluster=i_c)
 
             if self.init_cluster_logger is not None:
                 self.init_cluster_logger.write_sample(sample)
@@ -328,7 +328,7 @@ class SbayesInitializer:
             # Apply cluster operator to each cluster again
             # cluster_operator.cluster_effect_proposal = ClusterEffectProposals.residual_counts  # TODO remove?
             for i_c in range(self.n_clusters):
-                sample = cluster_operator._propose(sample, i_cluster=i_c, ml=True)[0]
+                sample = cluster_operator.ml_step(sample, i_cluster=i_c)
 
             if self.init_cluster_logger is not None:
                 self.init_cluster_logger.write_sample(sample)

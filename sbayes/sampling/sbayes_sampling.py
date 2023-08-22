@@ -15,7 +15,7 @@ from sbayes.sampling.operators import (
     ObjectSelector,
     ResampleSourceMode,
     ClusterJump,
-    ClusterEffectProposals,
+    ClusterEffectProposals, AlterClusterEM,
 )
 
 
@@ -72,7 +72,7 @@ class ClusterMCMC(MCMC):
                 n_changes=1,
             ),
             'gibbsish_sample_cluster_geo': AlterClusterGibbsish(
-                weight=0.5 * operators_config.clusters,
+                weight=0.6 * operators_config.clusters,
                 adjacency_matrix=self.data.network.adj_mat,
                 model_by_chain=self.posterior_per_chain,
                 features=self.data.features.values,
@@ -83,7 +83,7 @@ class ClusterMCMC(MCMC):
                 consider_geo_prior=self.model.prior.geo_prior.prior_type == self.model.prior.geo_prior.prior_type.COST_BASED,
             ),
             'gibbsish_sample_cluster_2_geo': AlterClusterGibbsish(
-                weight=0.1 * operators_config.clusters,
+                weight=0.05 * operators_config.clusters,
                 adjacency_matrix=self.data.network.adj_mat,
                 model_by_chain=self.posterior_per_chain,
                 features=self.data.features.values,
@@ -93,8 +93,8 @@ class ClusterMCMC(MCMC):
                 consider_geo_prior=self.model.prior.geo_prior.prior_type == self.model.prior.geo_prior.prior_type.COST_BASED,
                 n_changes=2,
             ),
-            'gibbsish_sample_cluster_wide': AlterClusterGibbsishWide(
-                weight=0.15 * operators_config.clusters,
+            'gibbsish_sample_cluster_wide_geo': AlterClusterGibbsishWide(
+                weight=0.1 * operators_config.clusters,
                 adjacency_matrix=self.data.network.adj_mat,
                 model_by_chain=self.posterior_per_chain,
                 features=self.data.features.values,
@@ -115,6 +115,17 @@ class ClusterMCMC(MCMC):
                 w_stay=0.0,
                 cluster_effect_proposal=ClusterEffectProposals.residual_counts,
             ),
+            # 'gibbsish_sample_cluster_em': AlterClusterEM(
+            #     weight=0.05 * operators_config.clusters,
+            #     adjacency_matrix=self.data.network.adj_mat,
+            #     model_by_chain=self.posterior_per_chain,
+            #     features=self.data.features.values,
+            #     resample_source=self.model.sample_source,
+            #     resample_source_mode=ResampleSourceMode.GIBBS,
+            #     sample_from_prior=self.sample_from_prior,
+            #     w_stay=0.0,
+            #     cluster_effect_proposal=ClusterEffectProposals.residual_counts,
+            # ),
             # 'cluster_jump': ClusterJump(
             #     weight=0.1 * operators_config.clusters,
             #     model_by_chain=self.posterior_per_chain,

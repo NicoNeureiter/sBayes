@@ -821,19 +821,35 @@ class AlterClusterGibbsish(ClusterOperator):
         self.consider_geo_prior = consider_geo_prior
 
     def _propose(self, sample: Sample, **kwargs) -> tuple[Sample, float, float]:
+        model = self.model_by_chain[sample.chain]
+
         log_q = 0.
         log_q_back = 0.
+        all_direct_rejects = True
+
         for i in range(self.n_changes):
-            if random.random() < self.p_grow:
-                sample_new, log_q_i, log_q_back_i = self.grow_cluster(sample)
+            i_cluster = RNG.choice(range(sample.n_clusters))
+            size = sample.clusters.sizes[i_cluster]
+            if size == model.min_size:
+                grow = True
+                log_q_back -= np.log(2)
+            elif size == model.max_size:
+                grow = False
+                log_q_back -= np.log(2)
+            else:
+                grow = random.random() < self.p_grow
+
+            if grow:
+                sample_new, log_q_i, log_q_back_i = self.grow_cluster(sample, i_cluster=i_cluster)
                 log_q_i += np.log(self.p_grow)
                 log_q_back_i += np.log(1 - self.p_grow)
             else:
-                sample_new, log_q_i, log_q_back_i = self.shrink_cluster(sample)
+                sample_new, log_q_i, log_q_back_i = self.shrink_cluster(sample, i_cluster=i_cluster)
                 log_q_i += np.log(1 - self.p_grow)
                 log_q_back_i += np.log(self.p_grow)
 
             if log_q_back_i != self.Q_BACK_REJECT:
+                all_direct_rejects = False
                 sample = sample_new
                 log_q += log_q_i
                 log_q_back += log_q_back_i
@@ -842,7 +858,12 @@ class AlterClusterGibbsish(ClusterOperator):
             verify_counts(sample, self.features)
             verify_counts(sample_new, self.features)
 
-        return sample_new, log_q, log_q_back
+        if all_direct_rejects:
+            # This avoids logging empty steps as accepted (more interpretable operator
+            # stats and possibly caching advantages)
+            return sample, self.Q_REJECT, self.Q_BACK_REJECT
+        else:
+            return sample_new, log_q, log_q_back
 
     def compute_cluster_posterior(
         self,
@@ -972,9 +993,15 @@ class AlterClusterGibbsish(ClusterOperator):
 
         return sample_new, log_q, log_q_back
 
-    def shrink_cluster(self, sample: Sample) -> tuple[Sample, float, float]:
-        # Choose a cluster
-        i_cluster = RNG.choice(range(sample.n_clusters))
+    def shrink_cluster(
+        self,
+        sample: Sample,
+        i_cluster: int = None
+    ) -> tuple[Sample, float, float]:
+
+        if i_cluster is None:
+            # Choose a cluster
+            i_cluster = RNG.choice(range(sample.n_clusters))
 
         # Load and precompute useful variables
         model = self.model_by_chain[sample.chain]
@@ -1035,7 +1062,7 @@ class AlterClusterGibbsish(ClusterOperator):
         params = super().get_parameters()
         params["n_changes"] = self.n_changes
         if self.consider_geo_prior:
-            params["consider_geo_prior"] = True
+            params["consider_geo_prior"] = self.consider_geo_prior
         return params
 
 
@@ -1181,20 +1208,42 @@ class AlterClusterGibbsishWide(AlterClusterGibbsish):
         marginal_lh_z01 = np.prod(feature_lh_z01, axis=-1)
         cluster_posterior = marginal_lh_z01[1] / (marginal_lh_z01[0] + marginal_lh_z01[1])
 
-        # if self.consider_geo_prior:
-        #     cluster_posterior *= np.exp(model.prior.geo_prior.get_costs_per_object(sample, i_cluster)[available])
-
         if self.consider_geo_prior:
-            distances = model.data.geo_cost_matrix[available][:, available]
-            z = normalize(cluster_posterior)
-            z_peaky = softmax(n_available * z)
-            avg_dist_to_cluster = z_peaky.dot(distances)
-            geo_likelihoods = np.exp(-avg_dist_to_cluster / model.prior.geo_prior.scale / 2)
-            cluster_posterior = normalize(geo_likelihoods * z)
+            cluster_posterior *= np.exp(model.prior.geo_prior.get_costs_per_object(sample, i_cluster)[available])
 
         return cluster_posterior
 
-    def _propose(self, sample: Sample, i_cluster=None, ml=False, **kwargs) -> tuple[Sample, float, float]:
+    def ml_step(self, sample: Sample, i_cluster=None) -> Sample:
+        sample_new = sample.copy()
+        model = self.model_by_chain[sample.chain]
+        if i_cluster is None:
+            i_cluster = RNG.choice(range(sample.n_clusters))
+
+        available = self.available(sample, i_cluster)
+        cluster_old = sample.clusters.value[i_cluster]
+        p = self.compute_cluster_probs(sample, i_cluster, available)
+
+        size = np.count_nonzero(cluster_old)
+        size = np.clip(size, model.min_size, model.max_size)
+        threshold = np.sort(p)[-size]
+        cluster_new = p >= threshold
+
+        if not (model.min_size <= np.count_nonzero(cluster_new) <= model.max_size):
+            # Reject if proposal goes out of cluster size bounds
+            return sample
+
+        with sample_new.clusters.edit_cluster(i_cluster) as c:
+            c[available] = cluster_new
+
+        changed, = np.where(sample.clusters.value[i_cluster] != sample_new.clusters.value[i_cluster])
+        sample_new, _, _ = self.propose_new_sources(
+            sample_old=sample, sample_new=sample_new,
+            i_cluster=i_cluster, object_subset=changed,
+        )
+
+        return sample_new
+
+    def _propose(self, sample: Sample, i_cluster=None, **kwargs) -> tuple[Sample, float, float]:
         sample_new = sample.copy()
         if i_cluster is None:
             i_cluster = RNG.choice(range(sample.n_clusters))
@@ -1205,21 +1254,20 @@ class AlterClusterGibbsishWide(AlterClusterGibbsish):
 
         p = self.compute_cluster_probs(sample, i_cluster, available)
 
-        if ml:
-            threshold = np.sort(p)[-np.count_nonzero(cluster_old)]
-            cluster_new = p > threshold
-        else:
+        cluster_new = (RNG.random(n_available) < p)
+        while np.all(cluster_new == cluster_old[available]):
             cluster_new = (RNG.random(n_available) < p)
 
         if not (model.min_size <= np.count_nonzero(cluster_new) <= model.max_size):
             # Reject if proposal goes out of cluster size bounds
             return sample, self.Q_REJECT, self.Q_BACK_REJECT
 
-        if np.all(cluster_new == cluster_old[available]):
-            return sample, self.Q_REJECT, self.Q_BACK_REJECT
-
-        q_per_site = p * cluster_new + (1 - p) * (1 - cluster_new)
+        q_per_site = np.where(cluster_new, p, 1-p)
         log_q = np.log(q_per_site).sum()
+
+        # Adjust log_q to reflect the fact that we don't allow stand-stills in the operator
+        p_standstill = np.where(cluster_old[available], p, 1-p).prod()
+        log_q -= np.log(1 - p_standstill)
 
         with sample_new.clusters.edit_cluster(i_cluster) as c:
             c[available] = cluster_new
@@ -1232,8 +1280,12 @@ class AlterClusterGibbsishWide(AlterClusterGibbsish):
         )
 
         p_back = self.compute_cluster_probs(sample_new, i_cluster, available)
-        q_back_per_site = p_back * cluster_old[available] + (1 - p_back) * (1 - cluster_old[available])
+        q_back_per_site = np.where(cluster_old[available], p_back, 1 - p_back)
         log_q_back = np.log(q_back_per_site).sum()
+
+        # Adjust log_q_back to reflect the fact that we don't allow stand-stills in the operator
+        p_standstill_back = np.where(cluster_new, p_back, 1-p_back).prod()
+        log_q_back -= np.log(1 - p_standstill_back)
 
         assert np.all(p_back > 0)
         assert np.all(q_back_per_site > 0), q_back_per_site
