@@ -99,7 +99,7 @@ class SbayesInitializer:
         b = (upper_bound - mid) / scale
         return int(truncnorm(a, b, loc=mid, scale=scale).rvs())
 
-    def generate_clusters_em(self, n_steps: int = 80):
+    def generate_clusters_em(self, n_steps: int = 60):
         """EM-style inference of a continuous approximation of the sBayes model.
         We estimate distributions for each cluster/confounder group and a flat continuous
         assignment of each object to clusters and confounder groups.
@@ -230,8 +230,8 @@ class SbayesInitializer:
                 )
 
             sample = self.generate_sample_attempt(c, i_attempt)
-            # lh = self.model.likelihood(sample, caching=False)
-            lh = self.model(sample, caching=False)
+            lh = self.model.likelihood(sample, caching=False)
+            # lh = self.model(sample, caching=False)
             if lh > best_lh:
                 best_sample = sample
                 best_lh = lh

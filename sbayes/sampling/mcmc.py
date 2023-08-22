@@ -16,7 +16,7 @@ import numpy as np
 
 from sbayes.model import Model
 from sbayes.load_data import Data
-from sbayes.sampling.loggers import ResultsLogger, OperatorStatsLogger
+from sbayes.sampling.loggers import ResultsLogger, OperatorStatsLogger, ClustersLogger
 from sbayes.sampling.operators import Operator
 from sbayes.config.config import OperatorsConfig
 
@@ -146,6 +146,7 @@ class MCMC(ABC):
         n_steps: int,
         n_samples: int,
         initial_sample: Sample | None = None,
+        initializer_logger: ClustersLogger | None = None,
         initializer: Initializer | None = None,
         warm_up: bool = False,
         warm_up_steps: int | None = None
@@ -209,12 +210,20 @@ class MCMC(ABC):
             self.logger.info(f"Warm-up finished after {(_time.time() - self.t_start):.1f} seconds")
 
             # For the last sample find the best chain (highest posterior)
-            posterior_samples = [self._ll[c] + self._prior[c] for c in self.chain_idx]
-            best_chain = posterior_samples.index(max(posterior_samples))
+            # posterior_samples = [self._ll[c] + self._prior[c] for c in self.chain_idx]
+            # best_chain = posterior_samples.index(max(posterior_samples))
+            #
+            # self.logger.info(f"Starting state taken from warmup chain {best_chain} with "
+            #                  f"posterior density {posterior_samples[best_chain]} (posterior "
+            #                  f"densities of all chains: {posterior_samples}).")
 
-            self.logger.info(f"Starting state taken from warmup chain {best_chain} with "
-                             f"posterior density {posterior_samples[best_chain]} (posterior "
-                             f"densities of all chains: {posterior_samples}).")
+            best_chain = np.argmax(self._ll)
+            best_ll = self._ll[best_chain]
+
+            self.logger.info(
+                f"Starting state taken from warmup chain {best_chain} with log-likelihood"
+                f" {best_ll} (log-lokelihoods of all chains: {list(self._ll)})."
+            )
 
             # Return the best sample
             return sample[best_chain]
