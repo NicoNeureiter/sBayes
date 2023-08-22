@@ -176,25 +176,25 @@ class Clusters(GroupedParameters):
     edit_cluster = GroupedParameters.edit_group
 
     @property
-    def sizes(self):
+    def sizes(self) -> NDArray[int]:  # shape: (n_clusters,)
         return np.count_nonzero(self._value, axis=1)
 
     @property
-    def n_clusters(self):
+    def n_clusters(self) -> int:
         return self.shape[0]
 
     @property
-    def n_objects(self):
+    def n_objects(self) -> int:
         return self.shape[1]
 
-    def any_cluster(self):
+    def any_cluster(self) -> NDArray[bool]:
         return np.any(self._value, axis=0)
 
-    def add_object(self, i_cluster, i_object):
+    def add_object(self, i_cluster: int, i_object: int):
         with self.edit_cluster(i_cluster) as c:
             c[i_object] = True
 
-    def remove_object(self, i_cluster, i_object):
+    def remove_object(self, i_cluster: int, i_object: int):
         with self.edit_cluster(i_cluster) as c:
             c[i_object] = False
 
