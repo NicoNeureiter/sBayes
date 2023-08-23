@@ -102,6 +102,7 @@ Ratio of confounding_effects steps (changing probabilities in confounders): {op_
             p_grow_connected=mcmc_config.grow_to_adjacent,
             sample_from_prior=mcmc_config.sample_from_prior,
             logger=self.logger,
+            screen_log_interval=mcmc_config.screen_log_interval,
         )
         self.sampler.generate_samples(
             mcmc_config.steps, mcmc_config.samples,

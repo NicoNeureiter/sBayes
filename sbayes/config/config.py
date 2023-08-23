@@ -353,6 +353,9 @@ class MCMCConfig(BaseConfig):
     grow_to_adjacent: confloat(ge=0, le=1) = 0.8
     """The fraction of grow-steps that only propose adjacent languages as candidates to be added to an area."""
 
+    screen_log_interval: PositiveInt = 1000
+    """Frequency at which the step ID and log-likelihood are written to the screen logger (and log file)."""
+
     operators: OperatorsConfig = Field(default_factory=OperatorsConfig)
     warmup: WarmupConfig = Field(default_factory=WarmupConfig)
     initialization: InitializationConfig = Field(default_factory=InitializationConfig)

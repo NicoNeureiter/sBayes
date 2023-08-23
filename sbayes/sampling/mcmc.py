@@ -53,6 +53,7 @@ class MCMC(ABC):
             sample_from_prior: bool = False,
             show_screen_log: bool = False,
             logger: logging.Logger = None,
+            screen_log_interval: int = 1000,
             **kwargs
     ):
         # The model and data defining the posterior distribution
@@ -78,6 +79,7 @@ class MCMC(ABC):
         self._prior = _np.full(self.n_chains, -_np.inf)
 
         self.show_screen_log = show_screen_log
+        self.screen_log_interval = screen_log_interval
         self.t_start = None
 
         if logger is None:
@@ -198,11 +200,11 @@ class MCMC(ABC):
 
         # Function is called in warmup-mode
         if warm_up:
-            print("Tuning parameters in warm-up...")
+            self.logger.info("Tuning parameters in warm-up...")
             for i_warmup in range(warm_up_steps):
                 warmup_progress = (i_warmup / warm_up_steps) * 100
                 if warmup_progress % 10 == 0:
-                    print("warm-up", int(warmup_progress), "%")
+                    self.logger.info("warm-up", int(warmup_progress), "%")
                 for c in self.chain_idx:
                     sample[c] = self.step(sample[c], c)
                     sample[c].i_step = i_warmup
@@ -230,7 +232,7 @@ class MCMC(ABC):
 
         # Function is called to sample from posterior
         else:
-            print("Sampling from posterior...")
+            self.logger.info("Sampling from posterior...")
             steps_per_sample = int(_np.ceil(n_steps / n_samples))
 
             for i_step in range(sample[0].i_step, n_steps):
@@ -246,7 +248,7 @@ class MCMC(ABC):
                         logger.write_sample(sample[self.chain_idx[0]])
 
                 # Print work status and likelihood at fixed intervals
-                if (i_step+1) % 1000 == 0:
+                if (i_step+1) % self.screen_log_interval == 0:
                     self.print_screen_log(i_step+1, sample)
 
             # Close files of all sample_loggers
@@ -347,7 +349,7 @@ class MCMC(ABC):
         time_per_million = (_time.time() - self.t_start) / (i_step + 1) * 1000000
         time_str = f'{time_per_million:.0f} seconds / million steps'
 
-        print(i_step_str + likelihood_str + time_str)
+        self.logger.info(i_step_str + likelihood_str + time_str)
 
 
 
