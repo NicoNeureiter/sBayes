@@ -101,7 +101,7 @@ class ClusterMCMC(MCMC):
                 resample_source=self.model.sample_source,
                 resample_source_mode=ResampleSourceMode.GIBBS,
                 sample_from_prior=self.sample_from_prior,
-                w_stay=0.75,
+                w_stay=0.85,
                 consider_geo_prior=self.model.prior.geo_prior.prior_type == self.model.prior.geo_prior.prior_type.COST_BASED,
             ),
             'gibbsish_sample_cluster_wide_residual': AlterClusterGibbsishWide(
