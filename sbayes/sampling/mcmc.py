@@ -204,7 +204,7 @@ class MCMC(ABC):
             for i_warmup in range(warm_up_steps):
                 warmup_progress = (i_warmup / warm_up_steps) * 100
                 if warmup_progress % 10 == 0:
-                    self.logger.info("warm-up", int(warmup_progress), "%")
+                    self.logger.info(f"warm-up {int(warmup_progress)}%")
                 for c in self.chain_idx:
                     sample[c] = self.step(sample[c], c)
                     sample[c].i_step = i_warmup
