@@ -20,15 +20,8 @@ from sbayes.load_data import Data
 
 class MCMCSetup:
     def __init__(self, data: Data, experiment: Experiment):
-
-        # Retrieve the data
         self.data = data
-
-        # Retrieve the configurations
         self.config = experiment.config
-
-        # Paths
-        self.path_log = experiment.path_results / 'experiment.log'
         self.path_results = experiment.path_results
 
         # Create the model to sample from

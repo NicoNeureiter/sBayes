@@ -27,12 +27,14 @@ class Experiment:
         experiment_name: str | None = None,
         custom_settings: dict | None = None,
         log: bool = True,
+        i_run: int = 0,
     ):
+
         # Naming and shaming
         self.experiment_name = experiment_name or set_experiment_name()
 
-        # Initialize the logger
-        self.logger = self.init_logger()
+        # Remember the index of this experiment run
+        self.i_run = i_run
 
         # Load and parse the config file
         self.config = SBayesConfig.from_config_file(config_file, custom_settings)
@@ -42,6 +44,8 @@ class Experiment:
 
         # Print the initial log message
         if log:
+            # Initialize the logger
+            self.logger = self.init_logger()
             self.log_experiment()
 
         # Copy the config file to the results-directory
@@ -54,7 +58,6 @@ class Experiment:
         """Create subdirectory for this experiment, add it to the logger and the return path."""
         path_results = config.results.path / experiment_name
         os.makedirs(path_results, exist_ok=True)
-        self.add_logger_file(path_results)
         return path_results
 
     @staticmethod
@@ -66,12 +69,13 @@ class Experiment:
 
     def add_logger_file(self, path_results: Path):
         """Add a file handler to write logging information to a log-file"""
-        log_path = path_results / "experiment.log"
+        log_path = path_results / f"experiment_{self.config.model.clusters}_{self.i_run}.log"
         log_file_handler = logging.FileHandler(filename=log_path)
         self.logger.addHandler(log_file_handler)
 
     def log_experiment(self):
         """Start writing information on the experiment to the logger."""
+        self.add_logger_file(self.path_results)
         self.logger.info("Experiment: %s", self.experiment_name)
         self.logger.info("File location for results: %s", self.path_results)
         self.logger.info("Start time and date: %s", datetime.now().strftime("%H:%M:%S %d.%m.%Y"))

@@ -26,6 +26,7 @@ def run_experiment(
         experiment_name=experiment_name,
         custom_settings=custom_settings,
         log=True,
+        i_run=i_run,
     )
 
     # Experiment based on a specified (in config) data-set
