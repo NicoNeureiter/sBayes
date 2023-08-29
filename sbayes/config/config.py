@@ -140,7 +140,7 @@ class GeoPriorConfig(BaseConfig):
     """The graph along which the costs are aggregated. Per default, the cost of edges on 
     the minimum spanning tree are aggregated."""
 
-    @root_validator(skip_on_failure=True)
+    @root_validator(pre=True)
     def validate_parameters(cls, values):
         if (values.get("type") == "cost_based") and (values.get("rate") is None):
             raise ValidationError(
@@ -360,7 +360,7 @@ class MCMCConfig(BaseConfig):
     warmup: WarmupConfig = Field(default_factory=WarmupConfig)
     initialization: InitializationConfig = Field(default_factory=InitializationConfig)
 
-    @root_validator(skip_on_failure=True)
+    @root_validator(pre=True)
     def validate_sample_spacing(cls, values):
         # Tracer does not like unevenly spaced samples
         spacing = values['steps'] % values['samples']
