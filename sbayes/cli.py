@@ -4,8 +4,6 @@ from itertools import product
 
 import argparse
 from pathlib import Path
-import tkinter as tk
-from tkinter import filedialog
 
 from sbayes.experiment_setup import Experiment
 from sbayes.util import PathLike, update_recursive
@@ -131,6 +129,11 @@ def cli():
 
     # Ask for config file via files-dialog, if not provided as argument.
     if config is None:
+        # Only import tkinter if it is needed
+        import tkinter as tk
+        from tkinter import filedialog
+
+        # Open file dialog to select the config file
         tk.Tk().withdraw()
         config = filedialog.askopenfilename(
             title="Select a config file in JSON format.",
