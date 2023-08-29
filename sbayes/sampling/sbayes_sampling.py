@@ -94,14 +94,14 @@ class ClusterMCMC(MCMC):
                 n_changes=2,
             ),
             'gibbsish_sample_cluster_wide_geo': AlterClusterGibbsishWide(
-                weight=0.1 * operators_config.clusters,
+                weight=0.05 * operators_config.clusters,
                 adjacency_matrix=self.data.network.adj_mat,
                 model_by_chain=self.posterior_per_chain,
                 features=self.data.features.values,
                 resample_source=self.model.sample_source,
                 resample_source_mode=ResampleSourceMode.GIBBS,
                 sample_from_prior=self.sample_from_prior,
-                w_stay=0.85,
+                w_stay=0.95,
                 consider_geo_prior=self.model.prior.geo_prior.prior_type == self.model.prior.geo_prior.prior_type.COST_BASED,
             ),
             'gibbsish_sample_cluster_wide_residual': AlterClusterGibbsishWide(
@@ -134,7 +134,7 @@ class ClusterMCMC(MCMC):
             #     gibbsish=False
             # ),
             'cluster_jump_gibbsish': ClusterJump(
-                weight=0.2 * operators_config.clusters if self.model.n_clusters > 1 else 0.0,
+                weight=0.25 * operators_config.clusters if self.model.n_clusters > 1 else 0.0,
                 model_by_chain=self.posterior_per_chain,
                 resample_source=True,
                 sample_from_prior=self.sample_from_prior,
