@@ -141,7 +141,7 @@ class GeoPriorConfig(BaseConfig):
     the minimum spanning tree are aggregated."""
 
     @root_validator(pre=True)
-    def validate_parameters(cls, values):
+    def validate_geo_prior_parameters(cls, values):
         if (values.get("type") == "cost_based") and (values.get("rate") is None):
             raise ValidationError(
                 "Field `rate` is required for geo-prior of type `cost_based`."
