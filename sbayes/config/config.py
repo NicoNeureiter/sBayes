@@ -38,7 +38,7 @@ class RelativeFilePath(FilePath, RelativePath):
     @classmethod
     def __get_validators__(cls):
         yield cls.fix_path
-        yield from super(RelativeFilePath, cls).__get_validators__()
+        yield from FilePath.__get_validators__()
 
 
 class RelativeDirectoryPath(DirectoryPath, RelativePath):
@@ -47,7 +47,7 @@ class RelativeDirectoryPath(DirectoryPath, RelativePath):
     def __get_validators__(cls):
         yield cls.fix_path
         yield cls.initialize_directory
-        yield from super(RelativeDirectoryPath, cls).__get_validators__()
+        yield from DirectoryPath.__get_validators__()
 
     @staticmethod
     def initialize_directory(path: PathLike):
