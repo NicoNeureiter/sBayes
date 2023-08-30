@@ -132,7 +132,10 @@ class SbayesInitializer:
 
         z = normalize(np.random.random((n_groups, n_objects)) * groups_available, axis=0)
 
-        distances = self.data.geo_cost_matrix
+        # Decide whether to use geo-prior and, if yes, extract the cost_matrix
+        geo_prior = self.model.prior.geo_prior
+        consider_geo_prior = geo_prior.prior_type is geo_prior.PriorTypes.COST_BASED
+        geo_likelihoods = 1.
 
         _features = np.copy(features)
         _features[~valid_observations, :] = 1
@@ -154,10 +157,11 @@ class SbayesInitializer:
             group_likelihoods = np.prod(pointwise_likelihood_by_group, axis=-1)
             # shape: (n_groups, n_objects)
 
-            z_peaky = softmax(n_objects * z, axis=1)
-            avg_dist_to_cluster = z_peaky.dot(distances)
-            geo_likelihoods = np.exp(-avg_dist_to_cluster / self.model.prior.geo_prior.scale / 2)
-            geo_likelihoods[n_clusters:] = np.mean(geo_likelihoods[:n_clusters])
+            if consider_geo_prior:
+                z_peaky = softmax(n_objects * z, axis=1)
+                avg_dist_to_cluster = z_peaky.dot(geo_prior.cost_matrix)
+                geo_likelihoods = np.exp(-avg_dist_to_cluster / geo_prior.scale / 2)
+                geo_likelihoods[n_clusters:] = np.mean(geo_likelihoods[:n_clusters])
 
             temperature = (n_steps / (1+i_step)) ** 3
             lh = geo_likelihoods * group_likelihoods ** (1/temperature)
@@ -317,7 +321,7 @@ class SbayesInitializer:
             S = sample.cache.has_components.value
             s_ratio = np.sum(s, axis=0) / np.sum(S, axis=0, keepdims=True)
             sample.weights.set_value(
-                normalize(2 + s_ratio, axis=-1)
+                normalize(1 + s_ratio, axis=-1)
             )
 
             # Propose a new source array
