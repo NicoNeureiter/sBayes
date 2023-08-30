@@ -3,8 +3,7 @@ from pathlib import Path
 from enum import Enum
 import warnings
 import json
-import io
-from typing import Union, List, Dict, Optional, Any
+from typing import Union, List, Dict, Optional
 
 from pydantic.types import PathType
 from pydantic_core import core_schema, PydanticCustomError
@@ -18,22 +17,13 @@ try:
 except ImportError:
     import ruamel_yaml as yaml
 
-from pydantic import model_validator, BaseModel, Extra, Field
+from pydantic import model_validator, BaseModel, Field
 from pydantic import ValidationError
-from pydantic import FilePath, DirectoryPath
+from pydantic import DirectoryPath
 from pydantic import PositiveInt, PositiveFloat, NonNegativeFloat
 
 from sbayes.util import fix_relative_path, decompose_config_path, PathLike
 from sbayes.util import update_recursive
-
-
-# class RelativePath:
-#
-#     BASE_DIR: DirectoryPath = "."
-#
-#     @classmethod
-#     def fix_path(cls, value: PathLike) -> Path:
-#         return fix_relative_path(value, cls.BASE_DIR)
 
 
 class RelativePathType(PathType):
@@ -69,7 +59,7 @@ RelativeDirectoryPath = Annotated[Path, RelativePathType('dir')]
 """A relative path that must point to a directory."""
 
 
-class BaseConfig(BaseModel):
+class BaseConfig(BaseModel, extra='forbid'):
 
     """The base class for all config classes. This inherits from pydantic.BaseModel and
     configures settings that should be shared across all setting classes."""
@@ -92,14 +82,6 @@ class BaseConfig(BaseModel):
                     return s
         return None
 
-
-class Config:
-
-        extra = Extra.forbid
-        """Do not allow unexpected keys to be defined in a config-file."""
-
-        allow_mutation = True
-        """Make config objects immutable."""
 
 
 """ ===== PRIOR CONFIGS ===== """
@@ -479,165 +461,3 @@ class SBayesConfig(BaseConfig):
     def update(self, other: dict):
         new_dict = update_recursive(self.dict(), other)
         return type(self)(**new_dict)
-
-
-#
-
-# ...BLACK MAGIC STARTS HERE...
-
-# Automatically generating yaml files with comments from the config classes and attribute
-# docstrings requires some code introspection, which is a bit obscure and at this point
-# not well documented.
-
-#
-
-#
-
-
-def ruamel_yaml_dumps(thing):
-    y = yaml.YAML()
-    y.indent(mapping=4, sequence=4, offset=4)
-    out = io.StringIO()
-    y.dump(thing, stream=out)
-    out.seek(0)
-    return out.read()
-
-
-def generate_template():
-    import ast
-    import re
-
-    def is_config_class(obj: Any) -> bool:
-        """Check whether the given object is a subtype of BaseConfig"""
-        return isinstance(obj, type) and issubclass(obj, BaseConfig)
-
-    def could_be_a_docstring(node) -> bool:
-        """Check whether the AST node is a string constant, i.e. could be a doc-string."""
-        return isinstance(node, ast.Expr) and isinstance(node.value, ast.Constant)
-
-    def analyze_class_docstrings(modulefile: str) -> dict:
-        """Collect all doc-strings of attributes in each class in a nested dictionary
-        of the following structure:
-            {class_name: {attribute_name: doc_string}}.
-
-        Args:
-            modulefile: the name of the python module to be analysed
-
-        Returns:
-            The nested dictionary with attribute doc-strings
-
-        """
-        with open(modulefile) as fp:
-            root = ast.parse(fp.read())
-
-        alldocs = {}
-        for child in root.body:
-            if not isinstance(child, ast.ClassDef):
-                continue
-
-            alldocs[child.name] = docs = {}
-            last = None
-            for childchild in child.body:
-                if could_be_a_docstring(childchild):
-                    if last:  # Skip class doc string
-                        s = childchild.value.s
-                        # replace multiple spaces and linebreaks by single space.
-                        s = re.sub('\\s+', ' ', s)
-                        docs[last] = s
-                elif isinstance(childchild, ast.AnnAssign):
-                    last = childchild.target.id
-                else:
-                    last = None
-
-        return alldocs
-
-    for class_name, docs in analyze_class_docstrings(__file__).items():
-        cls: type = globals()[class_name]
-        cls.__attrdocs__ = docs
-
-    # all_docs = analyze_class_docstrings(__file__)
-    # for cls in filter(globals().values, is_config_class):
-    #     if issubclass(cls, DirichletPriorConfig):
-    #         all_docs[cls].set_defaults(all_docs[DirichletPriorConfig])
-    #
-    # def get_docstring(cls: type, attr: str):
-    #     if not issubclass(cls, BaseConfig):
-    #         return None
-    #     cls_docs = all_docs.get(cls.__name__, {})
-    #     attr_doc = cls_docs.get(attr)
-    #     return attr_doc
-
-    # schema = SBayesConfig.model_json_schema()
-    # print(schema)
-    # definitions = schema.pop('definitions')
-    # definitions['SBayesConfig'] = schema
-
-    def template_literal(field: Field, type_annotation: type):
-        # If there is a default, use it:
-        if field.default is not None:
-            if isinstance(field.default, Enum):
-                return field.default.value
-            else:
-                return field.default
-
-        if field.default_factory and field.default_factory() is not None:
-            factory = field.default_factory
-            if isinstance(factory, type):
-                if issubclass(factory, BaseConfig):
-                    # if the default factory is itself a Config, return the template
-                    return template(factory)
-                if issubclass(factory, list) or issubclass(factory, dict):
-                    return factory()
-            else:
-                return str(factory())
-            # return field.default_factory()
-
-        # Otherwise it may be optional or required:
-        if 'NoneType' in str(type_annotation):
-            assert not field.required
-            return '<OPTIONAL>'
-        else:
-            # assert field.required, field
-            return '<REQUIRED>'
-
-    def template(cfg: type(BaseConfig)) -> yaml.CommentedMap:
-        d = yaml.CommentedMap()
-        for key, field in cfg.__fields__.items():
-            if is_config_class(field.type_):
-                d[key] = template(field.type_)
-            else:
-                d[key] = template_literal(field, cfg.annotations(key))
-                docstring = cfg.get_attr_doc(key)
-                if docstring:
-                    d.yaml_add_eol_comment(key=key, comment=docstring, column=40)
-
-        if cfg.__doc__:
-            d.yaml_set_start_comment(cfg.__doc__)
-
-        return d
-
-    def get_indent(line: str) -> int:
-        return len(line) - len(str.lstrip(line))
-
-    d = template(SBayesConfig)
-    s = ruamel_yaml_dumps(d)
-    lines = []
-    for line in s.split('\n'):
-        if line.startswith('#'):
-            indent = ' ' * (4 + get_indent(lines[-1]))
-            line = indent + line
-        elif line.endswith(':'):
-            lines.append('')
-
-        lines.append(line)
-        # lines.append('')
-
-    yaml_str = '\n'.join(lines)
-    return yaml_str
-
-
-if __name__ == "__main__":
-    template_str = generate_template()
-    with open('config_template.yaml', 'w') as yaml_file:
-        yaml_file.write(template_str)
-
