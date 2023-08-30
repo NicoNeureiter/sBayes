@@ -248,7 +248,7 @@ class OperatorsTest(unittest.TestCase):
         experiment = Experiment(config_file=self.CONFIG_PATH, experiment_name=self.EXPERIMENT_NAME, log=True)
         data = Data.from_experiment(experiment)
         mcmc = MCMCSetup(data=data, experiment=experiment)
-        mcmc.sample()
+        mcmc.sample(resume=False)
 
         self.data = data
         self.results_path = experiment.path_results
