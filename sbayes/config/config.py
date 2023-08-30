@@ -145,10 +145,10 @@ class GeoPriorConfig(BaseConfig):
     probability_function: ProbabilityFunction = ProbabilityFunction.EXPONENTIAL
     """Monotonic function that defines how costs are mapped to prior probabilities."""
 
-    rate: Optional[PositiveFloat]
+    rate: Optional[PositiveFloat] = None
     """Rate at which the prior probability decreases for a cost_based geo-prior."""
 
-    inflection_point: Optional[float]
+    inflection_point: Optional[float] = None
     """The point where a sigmoid probability function reaches 0.5."""
 
     skeleton: Skeleton = Skeleton.MST
