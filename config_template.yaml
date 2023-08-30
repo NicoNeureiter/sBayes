@@ -55,6 +55,7 @@ mcmc:
     sample_from_prior: false            # If `true`, the MCMC ignores the data and samples parameters from the prior distribution.
     init_objects_per_cluster: 5         # The number of objects in the initial clusters at the start of an MCMC run.
     grow_to_adjacent: 0.8               # The fraction of grow-steps that only propose adjacent languages as candidates to be added to an area.
+    screen_log_interval: 1000           # Frequency at which the step ID and log-likelihood are written to the screen logger (and log file).
 
     operators:
         # The frequency of each MCMC operator. Will be normalized to 1.0 at runtime.
