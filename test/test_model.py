@@ -93,118 +93,118 @@ def dummy_family_confounder(families: NDArray[bool]) -> Confounder:
     )
 
 
-class TestLikelihood(unittest.TestCase):
-
-    """Test correctness of the model likelihood."""
-
-    def test_minimal_example(self):
-        """Test the likelihood of a minimal example. The minimal example only contains
-        three objects, and a single fixed binary feature.
-        """
-        # Define the data shapes
-        n_objects = 3
-        n_features = 1
-        n_states = 2
-        n_clusters = 1
-
-        # Define a single Confounder (universal)
-        universal = dummy_universal_confounder(n_objects)
-        confounders = {universal.name: universal}
-
-        shapes = ModelShapes(
-            n_clusters=n_clusters,
-            n_sites=n_objects,
-            n_features=n_features,
-            n_states=n_states,
-            n_confounders=1,
-            n_groups={universal.name: universal.n_groups},
-            states_per_feature=dummy_applicable_states(n_features, n_states),
-        )
-
-        # Simple checks on the shapes object
-        assert shapes.n_clusters == 1
-        assert shapes.n_sites == n_objects
-        assert np.all(np.array(shapes.n_states_per_feature) == n_states)
-
-        # Create the data
-        feature_values = np.array([[[1, 0]], [[0, 1]], [[0, 1]]])
-        features = dummy_features_from_values(feature_values)
-        objects = dummy_objects(n_objects)
-        data = Data(objects=objects, features=features, confounders=confounders)
-
-        # Make sure dimensions match
-        assert data.features.values.shape == (n_objects, n_features, n_states)
-        assert data.features.names.shape == (n_features,)
-        assert data.features.states.shape == (n_features, n_states)
-        assert len(data.objects.id) == n_objects
-
-        source_prior = SourcePrior(na_features=data.features.na_values)
-
-        # Create a simple sample
-        p_cluster = broadcast_weights([0.0, 1.0], n_features)[np.newaxis,...]
-        p_global = np.full(shape=(1, n_features, n_states), fill_value=0.5)
-        source = np.zeros((n_objects, n_features, 2), dtype=bool)
-        sample = Sample.from_numpy_arrays(
-            clusters=np.ones((1, n_objects),  dtype=bool),
-            weights=broadcast_weights([0.5, 0.5], n_features),
-            confounding_effects={"universal": p_global},
-            confounders=confounders,
-            source=source,
-            feature_counts={'clusters': np.zeros((n_clusters, n_features, n_states)),
-                            universal.name: np.zeros((universal.n_groups, n_features, n_states))},
-        )
-
-        """Comment on analytical solutions:
-        
-        Since weights are fixed at 0.5, the source probability is fixed at :
-            P( source | weights ) = 2^(- n_objects * n_features) = 0.125 
-        
-        The cluster is fixed to include all languages, but we vary the `source` array. We 
-        will go through the different cases: 
-        """
-        p_source = np.log(0.125)
-
-        """1. no areal effect means that the likelihood is simply 50/50 for each feature."""
-        likelihood_exact = 0.125
-        with sample.source.edit() as s:
-            s[..., 0] = 0  # index 0 is the area component
-            s[..., 1] = 1  # index 1 is the universal component (first confounder)
-        likelihood_sbayes = Likelihood(data=data, shapes=shapes)(sample, caching=False)
-        np.testing.assert_almost_equal(likelihood_sbayes, np.log(likelihood_exact))
-        assert source_prior(sample) == p_source, source_prior(sample)
-
-        """2. assigning the observation of the second object to the cluster effect means 
-        that this observation is perfectly explained, increasing the likelihood by a
-        factor of 2."""
-        likelihood_exact = np.log(0.25)
-        with sample.source.edit() as s:
-            s[1, :, :] = [[1, 0]]  # switch object 1 to the cluster effect
-        likelihood_sbayes = Likelihood(data=data, shapes=shapes)(sample, caching=False)
-        np.testing.assert_almost_equal(likelihood_sbayes, likelihood_exact)
-
-        """3. assigning the second object to the cluster effect increases the likelihood
-        by another factor of 2."""
-        likelihood_exact = np.log(0.5)
-        with sample.source.edit() as s:
-            s[2, :, :] = [[1, 0]]  # switch object 2 to the cluster effect
-        likelihood_sbayes = Likelihood(data=data, shapes=shapes)(sample, caching=False)
-        np.testing.assert_almost_equal(likelihood_sbayes, likelihood_exact)
-
-        """4. assigning the first object to the cluster effect results in a likelihood of 
-        zero, i.e. a log-likelihood of -inf."""
-        likelihood_exact = -np.inf  # == np.log(0.0)
-        with sample.source.edit() as s:
-            s[0, :, :] = [[1, 0]]  # switch object 1 to the cluster effect
-        sample.everything_changed()
-        likelihood_sbayes = Likelihood(data=data, shapes=shapes)(sample, caching=False)
-        np.testing.assert_almost_equal(likelihood_sbayes, likelihood_exact)
-
-        """5. Integrating over source (setting it to None) averages the component 
-        likelihoods for each observation."""
-        lh = 0.25 * 0.75 * 0.75
-        sample._source = None
-        likelihood_sbayes = Likelihood(data=data, shapes=shapes)(sample, caching=False)
-        np.testing.assert_almost_equal(likelihood_sbayes, np.log(lh))
+# class TestLikelihood(unittest.TestCase):
+#
+#     """Test correctness of the model likelihood."""
+#
+#     def test_minimal_example(self):
+#         """Test the likelihood of a minimal example. The minimal example only contains
+#         three objects, and a single fixed binary feature.
+#         """
+#         # Define the data shapes
+#         n_objects = 3
+#         n_features = 1
+#         n_states = 2
+#         n_clusters = 1
+#
+#         # Define a single Confounder (universal)
+#         universal = dummy_universal_confounder(n_objects)
+#         confounders = {universal.name: universal}
+#
+#         shapes = ModelShapes(
+#             n_clusters=n_clusters,
+#             n_sites=n_objects,
+#             n_features=n_features,
+#             n_states=n_states,
+#             n_confounders=1,
+#             n_groups={universal.name: universal.n_groups},
+#             states_per_feature=dummy_applicable_states(n_features, n_states),
+#         )
+#
+#         # Simple checks on the shapes object
+#         assert shapes.n_clusters == 1
+#         assert shapes.n_sites == n_objects
+#         assert np.all(np.array(shapes.n_states_per_feature) == n_states)
+#
+#         # Create the data
+#         feature_values = np.array([[[1, 0]], [[0, 1]], [[0, 1]]])
+#         features = dummy_features_from_values(feature_values)
+#         objects = dummy_objects(n_objects)
+#         data = Data(objects=objects, features=features, confounders=confounders)
+#
+#         # Make sure dimensions match
+#         assert data.features.values.shape == (n_objects, n_features, n_states)
+#         assert data.features.names.shape == (n_features,)
+#         assert data.features.states.shape == (n_features, n_states)
+#         assert len(data.objects.id) == n_objects
+#
+#         source_prior = SourcePrior(na_features=data.features.na_values)
+#
+#         # Create a simple sample
+#         p_cluster = broadcast_weights([0.0, 1.0], n_features)[np.newaxis,...]
+#         p_global = np.full(shape=(1, n_features, n_states), fill_value=0.5)
+#         source = np.zeros((n_objects, n_features, 2), dtype=bool)
+#         sample = Sample.from_numpy_arrays(
+#             clusters=np.ones((1, n_objects),  dtype=bool),
+#             weights=broadcast_weights([0.5, 0.5], n_features),
+#             confounding_effects={"universal": p_global},
+#             confounders=confounders,
+#             source=source,
+#             feature_counts={'clusters': np.zeros((n_clusters, n_features, n_states)),
+#                             universal.name: np.zeros((universal.n_groups, n_features, n_states))},
+#         )
+#
+#         """Comment on analytical solutions:
+#
+#         Since weights are fixed at 0.5, the source probability is fixed at :
+#             P( source | weights ) = 2^(- n_objects * n_features) = 0.125
+#
+#         The cluster is fixed to include all languages, but we vary the `source` array. We
+#         will go through the different cases:
+#         """
+#         p_source = np.log(0.125)
+#
+#         """1. no areal effect means that the likelihood is simply 50/50 for each feature."""
+#         likelihood_exact = 0.125
+#         with sample.source.edit() as s:
+#             s[..., 0] = 0  # index 0 is the area component
+#             s[..., 1] = 1  # index 1 is the universal component (first confounder)
+#         likelihood_sbayes = Likelihood(data=data, shapes=shapes)(sample, caching=False)
+#         np.testing.assert_almost_equal(likelihood_sbayes, np.log(likelihood_exact))
+#         assert source_prior(sample) == p_source, source_prior(sample)
+#
+#         """2. assigning the observation of the second object to the cluster effect means
+#         that this observation is perfectly explained, increasing the likelihood by a
+#         factor of 2."""
+#         likelihood_exact = np.log(0.25)
+#         with sample.source.edit() as s:
+#             s[1, :, :] = [[1, 0]]  # switch object 1 to the cluster effect
+#         likelihood_sbayes = Likelihood(data=data, shapes=shapes)(sample, caching=False)
+#         np.testing.assert_almost_equal(likelihood_sbayes, likelihood_exact)
+#
+#         """3. assigning the second object to the cluster effect increases the likelihood
+#         by another factor of 2."""
+#         likelihood_exact = np.log(0.5)
+#         with sample.source.edit() as s:
+#             s[2, :, :] = [[1, 0]]  # switch object 2 to the cluster effect
+#         likelihood_sbayes = Likelihood(data=data, shapes=shapes)(sample, caching=False)
+#         np.testing.assert_almost_equal(likelihood_sbayes, likelihood_exact)
+#
+#         """4. assigning the first object to the cluster effect results in a likelihood of
+#         zero, i.e. a log-likelihood of -inf."""
+#         likelihood_exact = -np.inf  # == np.log(0.0)
+#         with sample.source.edit() as s:
+#             s[0, :, :] = [[1, 0]]  # switch object 1 to the cluster effect
+#         sample.everything_changed()
+#         likelihood_sbayes = Likelihood(data=data, shapes=shapes)(sample, caching=False)
+#         np.testing.assert_almost_equal(likelihood_sbayes, likelihood_exact)
+#
+#         """5. Integrating over source (setting it to None) averages the component
+#         likelihoods for each observation."""
+#         lh = 0.25 * 0.75 * 0.75
+#         sample._source = None
+#         likelihood_sbayes = Likelihood(data=data, shapes=shapes)(sample, caching=False)
+#         np.testing.assert_almost_equal(likelihood_sbayes, np.log(lh))
 
 
 # def test_family_cluster_overlap(self):

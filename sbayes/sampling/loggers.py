@@ -57,8 +57,9 @@ class ResultsLogger(ABC):
         # ´buffering=1´ activates line-buffering, i.e. flushing to file after each line
 
     def close(self):
-        self.file.close()
-        self.file = None
+        if self.file:
+            self.file.close()
+            self.file = None
 
 
 class ParametersCSVLogger(ResultsLogger):

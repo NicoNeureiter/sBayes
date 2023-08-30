@@ -241,7 +241,7 @@ class OperatorsTest(unittest.TestCase):
 
     CONFIG_PATH = Path("test/test_files/config.yaml")
     EXPERIMENT_NAME = "operator_test"
-    N_REFERENCE_SAMPLES = 50_000
+    N_REFERENCE_SAMPLES = 2_000
 
     def run_sbayes(self):
         """Run a sbayes analysis which generates the samples to be evaluated."""

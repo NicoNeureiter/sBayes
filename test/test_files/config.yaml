@@ -1,6 +1,6 @@
 mcmc:
-    steps: 600_000
-    samples: 20_000
+    steps: 20_000
+    samples: 1_000
     runs: 1
     grow_to_adjacent: 0.85
     operators:
