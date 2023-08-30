@@ -6,25 +6,37 @@ import json
 import io
 from typing import Union, List, Dict, Optional, Any
 
+from pydantic.types import PathType
+from pydantic_core import core_schema, PydanticCustomError
+
 try:
-    from typing import Literal
+    from typing import Annotated, Literal
 except ImportError:
-    from typing_extensions import Literal
+    from typing_extensions import Annotated, Literal
 try:
     import ruamel.yaml as yaml
 except ImportError:
     import ruamel_yaml as yaml
 
-from pydantic import BaseModel, Extra, Field
-from pydantic import root_validator, ValidationError
+from pydantic import model_validator, BaseModel, Extra, Field
+from pydantic import ValidationError
 from pydantic import FilePath, DirectoryPath
-from pydantic import PositiveInt, PositiveFloat, confloat, NonNegativeFloat
+from pydantic import PositiveInt, PositiveFloat, NonNegativeFloat
 
 from sbayes.util import fix_relative_path, decompose_config_path, PathLike
 from sbayes.util import update_recursive
 
 
-class RelativePath:
+# class RelativePath:
+#
+#     BASE_DIR: DirectoryPath = "."
+#
+#     @classmethod
+#     def fix_path(cls, value: PathLike) -> Path:
+#         return fix_relative_path(value, cls.BASE_DIR)
+
+
+class RelativePathType(PathType):
 
     BASE_DIR: DirectoryPath = "."
 
@@ -32,27 +44,29 @@ class RelativePath:
     def fix_path(cls, value: PathLike) -> Path:
         return fix_relative_path(value, cls.BASE_DIR)
 
-
-class RelativeFilePath(FilePath, RelativePath):
-
-    @classmethod
-    def __get_validators__(cls):
-        yield cls.fix_path
-        yield from FilePath.__get_validators__()
-
-
-class RelativeDirectoryPath(DirectoryPath, RelativePath):
-
-    @classmethod
-    def __get_validators__(cls):
-        yield cls.fix_path
-        yield cls.initialize_directory
-        yield from DirectoryPath.__get_validators__()
+    @staticmethod
+    def validate_file(path: Path, _: core_schema.ValidationInfo) -> Path:
+        path = RelativePathType.fix_path(path)
+        if path.is_file():
+            return path
+        else:
+            raise PydanticCustomError('path_not_file', 'Path does not point to a file')
 
     @staticmethod
-    def initialize_directory(path: PathLike):
+    def validate_directory(path: Path, _: core_schema.ValidationInfo) -> Path:
+        path = RelativePathType.fix_path(path)
         os.makedirs(path, exist_ok=True)
-        return path
+        if path.is_dir():
+            return path
+        else:
+            raise PydanticCustomError('path_not_directory', 'Path does not point to a directory')
+
+
+RelativeFilePath = Annotated[Path, RelativePathType('file')]
+"""A relative path that must point to a file."""
+
+RelativeDirectoryPath = Annotated[Path, RelativePathType('dir')]
+"""A relative path that must point to a directory."""
 
 
 class BaseConfig(BaseModel):
@@ -121,6 +135,7 @@ class GeoPriorConfig(BaseConfig):
     """Type of prior distribution (`uniform`, `cost_based` or `gaussian`)."""
 
     costs: Union[RelativeFilePath, Literal["from_data"]] = "from_data"
+    # costs: FilePath = "from_data"
     """Source of the geographic costs used for cost_based geo-prior. Either `from_data`
     (derive geodesic distances from locations) or path to a CSV file."""
 
@@ -140,7 +155,8 @@ class GeoPriorConfig(BaseConfig):
     """The graph along which the costs are aggregated. Per default, the cost of edges on 
     the minimum spanning tree are aggregated."""
 
-    @root_validator(pre=True)
+    @model_validator(mode="before")
+    @classmethod
     def validate_geo_prior_parameters(cls, values):
         if (values.get("type") == "cost_based") and (values.get("rate") is None):
             raise ValidationError(
@@ -192,7 +208,8 @@ class DirichletPriorConfig(BaseConfig):
     prior_concentration: Optional[float] = None
     """If another confounder is used as mean, we need to manually define the concentration of the Dirichlet prior."""
 
-    @root_validator(pre=True)
+    @model_validator(mode="before")
+    @classmethod
     def warn_when_using_default_type(cls, values):
         if "type" not in values:
             warnings.warn(
@@ -200,7 +217,8 @@ class DirichletPriorConfig(BaseConfig):
             )
         return values
 
-    @root_validator(pre=True)
+    @model_validator(mode="before")
+    @classmethod
     def validate_dirichlet_parameters(cls, values):
         prior_type = values.get("type")
 
@@ -280,7 +298,8 @@ class ModelConfig(BaseConfig):
     prior: PriorConfig
     """The config section defining the priors of the model"""
 
-    @root_validator(pre=True)
+    @model_validator(mode="before")
+    @classmethod
     def validate_confounder_priors(cls, values):
         """Ensure that priors are defined for each confounder."""
         for conf in values['confounders']:
@@ -350,7 +369,7 @@ class MCMCConfig(BaseConfig):
     init_objects_per_cluster: PositiveInt = 5
     """The number of objects in the initial clusters at the start of an MCMC run."""
 
-    grow_to_adjacent: confloat(ge=0, le=1) = 0.8
+    grow_to_adjacent: Annotated[float, Field(ge=0, le=1)] = 0.8
     """The fraction of grow-steps that only propose adjacent languages as candidates to be added to an area."""
 
     screen_log_interval: PositiveInt = 1000
@@ -360,7 +379,8 @@ class MCMCConfig(BaseConfig):
     warmup: WarmupConfig = Field(default_factory=WarmupConfig)
     initialization: InitializationConfig = Field(default_factory=InitializationConfig)
 
-    @root_validator(pre=True)
+    @model_validator(mode="before")
+    @classmethod
     def validate_sample_spacing(cls, values):
         # Tracer does not like unevenly spaced samples
         spacing = values['steps'] % values['samples']
@@ -388,7 +408,7 @@ class ResultsConfig(BaseConfig):
     """Information on where and how results are written."""
 
     path: RelativeDirectoryPath = Field(
-        default_factory=lambda: RelativeDirectoryPath.fix_path("./results")
+        default_factory=lambda: RelativePathType.fix_path("./results")
     )
     """Path to the results directory."""
 
@@ -422,7 +442,8 @@ class SBayesConfig(BaseConfig):
     mcmc: MCMCConfig
     results: ResultsConfig = Field(default_factory=ResultsConfig)
 
-    @root_validator(pre=True)
+    @model_validator(mode="before")
+    @classmethod
     def validate_operators(cls, values):
         # Do not use source operators if sampling from source is disabled
         if not values['model']['sample_source']:
@@ -437,7 +458,7 @@ class SBayesConfig(BaseConfig):
 
         # Prepare RelativePath class to allow paths relative to the config file location
         base_directory, config_file = decompose_config_path(path)
-        RelativePath.BASE_DIR = base_directory
+        RelativePathType.BASE_DIR = base_directory
 
         # Load a config dictionary from the json file
         with open(path, "r") as f:
@@ -546,9 +567,10 @@ def generate_template():
     #     attr_doc = cls_docs.get(attr)
     #     return attr_doc
 
-    schema = SBayesConfig.schema()
-    definitions = schema.pop('definitions')
-    definitions['SBayesConfig'] = schema
+    # schema = SBayesConfig.model_json_schema()
+    # print(schema)
+    # definitions = schema.pop('definitions')
+    # definitions['SBayesConfig'] = schema
 
     def template_literal(field: Field, type_annotation: type):
         # If there is a default, use it:

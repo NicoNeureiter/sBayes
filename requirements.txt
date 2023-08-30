@@ -12,6 +12,6 @@ setuptools
 cartopy
 typing_extensions
 tables
-pydantic==1.10.2
+pydantic>=2
 ruamel.yaml
 unidecode
