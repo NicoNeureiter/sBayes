@@ -351,4 +351,4 @@ class MCMC(ABC):
 
     def print_memory_usage(self):
         process = psutil.Process()
-        self.logger.info(f"Memory usage: {(process.memory_info().rss/1E9):.3f}GB")
+        self.logger.info(f"Memory usage: {(process.memory_info().rss/1E9):.3f} GB")
