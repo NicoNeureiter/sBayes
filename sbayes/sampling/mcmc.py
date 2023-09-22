@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 from __future__ import annotations
+import os
+import psutil
 import logging
 import math
 from abc import ABC, abstractmethod
@@ -92,6 +94,8 @@ class MCMC(ABC):
             if isinstance(logger, OperatorStatsLogger):
                 logger.operators = list(self.callable_operators.values())
 
+        self.i_step_start = 0
+
     def prior(self, sample, chain):
         """Compute the (log) prior of a sample.
         Args:
@@ -151,7 +155,8 @@ class MCMC(ABC):
         initializer_logger: ClustersLogger | None = None,
         initializer: Initializer | None = None,
         warm_up: bool = False,
-        warm_up_steps: int | None = None
+        warm_up_steps: int | None = None,
+        log_memory_usage: bool = True,
     ) -> Sample:
         """Run the MCMC sampling procedure with Metropolis Hastings rejection step and options for multiple chains. \
         Samples are returned, statistics saved in self.statistics.
@@ -162,6 +167,7 @@ class MCMC(ABC):
             initializer: Initializer object for creating initial_sample (required if initial_sample is not provided)
             warm_up: Warm-up run or real sampling?
             warm_up_steps: Number of warm-up steps
+            log_memory_usage: print memory usage in the logger?
         Returns:
             list: The generated samples
         """
@@ -185,16 +191,8 @@ class MCMC(ABC):
             self._ll[c] = self.likelihood(init_sample_c, c)
             self._prior[c] = self.prior(init_sample_c, c)
 
-        # # Probability of operators is different if there are zero clusters
-        # if self.n_clusters == 0:
-        #
-        #     operator_names = [f.__name__ for f in self.fn_operators]
-        #     cluster_op = [operator_names.index('alter_cluster_effect'), operator_names.index('shrink_cluster'),
-        #                   operator_names.index('grow_cluster'), operator_names.index('swap_cluster')]
-        #
-        #     for op in cluster_op:
-        #         self.p_operators[op] = 0.
-        #     self.p_operators = [p / sum(self.p_operators) for p in self.p_operators]
+            if log_memory_usage:
+                self.print_memory_usage()
 
         self.t_start = _time.time()
 
@@ -205,19 +203,15 @@ class MCMC(ABC):
                 warmup_progress = (i_warmup / warm_up_steps) * 100
                 if warmup_progress % 10 == 0:
                     self.logger.info(f"warm-up {int(warmup_progress)}%")
+
+                    if log_memory_usage:
+                        self.print_memory_usage()
+
                 for c in self.chain_idx:
                     sample[c] = self.step(sample[c], c)
                     sample[c].i_step = i_warmup
 
             self.logger.info(f"Warm-up finished after {(_time.time() - self.t_start):.1f} seconds")
-
-            # For the last sample find the best chain (highest posterior)
-            # posterior_samples = [self._ll[c] + self._prior[c] for c in self.chain_idx]
-            # best_chain = posterior_samples.index(max(posterior_samples))
-            #
-            # self.logger.info(f"Starting state taken from warmup chain {best_chain} with "
-            #                  f"posterior density {posterior_samples[best_chain]} (posterior "
-            #                  f"densities of all chains: {posterior_samples}).")
 
             best_chain = np.argmax(self._ll)
             best_ll = self._ll[best_chain]
@@ -234,8 +228,8 @@ class MCMC(ABC):
         else:
             self.logger.info("Sampling from posterior...")
             steps_per_sample = int(_np.ceil(n_steps / n_samples))
-
-            for i_step in range(sample[0].i_step, n_steps):
+            self.i_step_start = sample[0].i_step
+            for i_step in range(self.i_step_start, n_steps):
                 # Generate samples for each chain
                 for c in self.chain_idx:
                     sample[c] = self.step(sample[c], c)
@@ -249,7 +243,11 @@ class MCMC(ABC):
 
                 # Print work status and likelihood at fixed intervals
                 if (i_step+1) % self.screen_log_interval == 0:
-                    self.print_screen_log(i_step+1, sample)
+                    self.print_screen_log(i_step + 1, sample)
+
+                # Print memory usage
+                if log_memory_usage and (i_step+1) % 10_000 == 0:  # TODO make settable in config file
+                    self.print_memory_usage()
 
             # Close files of all sample_loggers
             for logger in self.sample_loggers:
@@ -346,14 +344,11 @@ class MCMC(ABC):
         likelihood = self.likelihood(sample[self.chain_idx[0]], self.chain_idx[0])
         likelihood_str = f'log-likelihood:  {likelihood:<19.2f}'
 
-        time_per_million = (_time.time() - self.t_start) / (i_step + 1) * 1000000
+        time_per_million = (_time.time() - self.t_start) / (i_step + 1 - self.i_step_start) * 1000000
         time_str = f'{time_per_million:.0f} seconds / million steps'
 
         self.logger.info(i_step_str + likelihood_str + time_str)
 
-
-
-
-
-
-
+    def print_memory_usage(self):
+        process = psutil.Process()
+        self.logger.info(f"Memory usage: {(process.memory_info().rss/1E9):.3f}GB")
