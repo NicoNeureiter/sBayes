@@ -50,6 +50,8 @@ class ClusterMCMC(MCMC):
         Returns:
             Dictionary mapping operator names to operator objects
         """
+        geo_prior = self.model.prior.geo_prior
+        consider_geo_prior = (geo_prior.prior_type == geo_prior.prior_type.COST_BASED)
 
         operators = {
             # 'sample_cluster': AlterCluster(
@@ -62,7 +64,7 @@ class ClusterMCMC(MCMC):
             #     sample_from_prior=self.sample_from_prior,
             # ),
             'gibbsish_sample_cluster': AlterClusterGibbsish(
-                weight=0.03 * operators_config.clusters,
+                weight=0.05 * operators_config.clusters,
                 adjacency_matrix=self.data.network.adj_mat,
                 model_by_chain=self.posterior_per_chain,
                 features=self.data.features.values,
@@ -72,7 +74,7 @@ class ClusterMCMC(MCMC):
                 n_changes=1,
             ),
             'gibbsish_sample_cluster_geo': AlterClusterGibbsish(
-                weight=0.6 * operators_config.clusters,
+                weight=0.55 * operators_config.clusters,
                 adjacency_matrix=self.data.network.adj_mat,
                 model_by_chain=self.posterior_per_chain,
                 features=self.data.features.values,
@@ -80,32 +82,33 @@ class ClusterMCMC(MCMC):
                 resample_source_mode=ResampleSourceMode.GIBBS,
                 sample_from_prior=self.sample_from_prior,
                 n_changes=1,
-                consider_geo_prior=self.model.prior.geo_prior.prior_type == self.model.prior.geo_prior.prior_type.COST_BASED,
+                consider_geo_prior=consider_geo_prior,
             ),
-            'gibbsish_sample_cluster_2_geo': AlterClusterGibbsish(
-                weight=0.05 * operators_config.clusters,
-                adjacency_matrix=self.data.network.adj_mat,
-                model_by_chain=self.posterior_per_chain,
-                features=self.data.features.values,
-                resample_source=self.model.sample_source,
-                resample_source_mode=ResampleSourceMode.GIBBS,
-                sample_from_prior=self.sample_from_prior,
-                consider_geo_prior=self.model.prior.geo_prior.prior_type == self.model.prior.geo_prior.prior_type.COST_BASED,
-                n_changes=2,
-            ),
+            # 'gibbsish_sample_cluster_2_geo': AlterClusterGibbsish(
+            #     weight=0.05 * operators_config.clusters,
+            #     adjacency_matrix=self.data.network.adj_mat,
+            #     model_by_chain=self.posterior_per_chain,
+            #     features=self.data.features.values,
+            #     resample_source=self.model.sample_source,
+            #     resample_source_mode=ResampleSourceMode.GIBBS,
+            #     sample_from_prior=self.sample_from_prior,
+            #     consider_geo_prior=consider_geo_prior,
+            #     n_changes=2,
+            # ),
             'gibbsish_sample_cluster_wide_geo': AlterClusterGibbsishWide(
-                weight=0.05 * operators_config.clusters,
+                weight=0.1 * operators_config.clusters,
                 adjacency_matrix=self.data.network.adj_mat,
                 model_by_chain=self.posterior_per_chain,
                 features=self.data.features.values,
                 resample_source=self.model.sample_source,
                 resample_source_mode=ResampleSourceMode.GIBBS,
                 sample_from_prior=self.sample_from_prior,
-                w_stay=0.5,
-                consider_geo_prior=self.model.prior.geo_prior.prior_type == self.model.prior.geo_prior.prior_type.COST_BASED,
+                w_stay=0.15,
+                consider_geo_prior=consider_geo_prior,
+                eps=0.01 / self.model.shapes.n_sites,
             ),
             'gibbsish_sample_cluster_wide_residual': AlterClusterGibbsishWide(
-                weight=0.02 * operators_config.clusters,
+                weight=0.05 * operators_config.clusters,
                 adjacency_matrix=self.data.network.adj_mat,
                 model_by_chain=self.posterior_per_chain,
                 features=self.data.features.values,
@@ -114,6 +117,8 @@ class ClusterMCMC(MCMC):
                 sample_from_prior=self.sample_from_prior,
                 w_stay=0.0,
                 cluster_effect_proposal=ClusterEffectProposals.residual_counts,
+                consider_geo_prior=consider_geo_prior,
+                eps=0.01 / self.model.shapes.n_sites,
             ),
             # 'gibbsish_sample_cluster_em': AlterClusterEM(
             #     weight=0.05 * operators_config.clusters,
@@ -146,13 +151,14 @@ class ClusterMCMC(MCMC):
                 model_by_chain=self.posterior_per_chain,
                 sample_from_prior=self.sample_from_prior,
                 object_selector=ObjectSelector.RANDOM_SUBSET,
-                max_size=40,
+                max_size=25,
             ),
             'gibbs_sample_sources_groups': GibbsSampleSource(
                 weight=0.5*operators_config.source,
                 model_by_chain=self.posterior_per_chain,
                 sample_from_prior=self.sample_from_prior,
                 object_selector=ObjectSelector.GROUPS,
+                max_size=30,
             ),
 
             'gibbs_sample_weights': GibbsSampleWeights(
