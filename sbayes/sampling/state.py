@@ -9,6 +9,7 @@ from numpy.typing import NDArray
 import numpy as np
 
 from sbayes.load_data import Confounder, Features
+from sbayes.model.model_shapes import ModelShapes
 from sbayes.util import get_along_axis
 
 S = TypeVar('S')
@@ -237,7 +238,8 @@ class CacheNode(Generic[Value]):
 
     def what_changed(self, input_key: str | list[str], caching=True) -> list[int]:
         if isinstance(input_key, list):
-            return list(set.union(*(set(self.what_changed(k, caching=caching)) for k in input_key)))
+            changes_by_input = (set(self.what_changed(k, caching=caching)) for k in input_key)
+            return list(set.union(*changes_by_input))
 
         inpt = self.inputs[input_key]
         if isinstance(inpt, GroupedParameters):
@@ -383,8 +385,8 @@ class ModelCache:
     source_prior: CacheNode[NDArray[float]]
     geo_prior: CacheNode[NDArray[float]]
     cluster_size_prior: CacheNode[float]
-    cluster_effect_prior: CacheNode[float]
-    confounding_effects_prior: dict[str, CacheNode[float]]
+    # cluster_effect_prior: CacheNode[float]
+    # confounding_effects_prior: dict[str, CacheNode[float]]
     weights_prior: CacheNode[float]
 
     has_components: CacheNode[bool]
@@ -403,11 +405,11 @@ class ModelCache:
         )
         self.geo_prior = CacheNode(value=np.zeros(sample.n_clusters))
         self.cluster_size_prior = CacheNode(value=0.0)
-        self.cluster_effect_prior = CacheNode(value=0.0)
-        self.confounding_effects_prior = {
-            conf: CacheNode(value=np.ones(sample.n_groups(conf)))
-            for conf in sample.confounders
-        }
+        # self.cluster_effect_prior = CacheNode(value=0.0)
+        # self.confounding_effects_prior = {
+        #     conf: CacheNode(value=np.ones(sample.n_groups(conf)))
+        #     for conf in sample.confounders
+        # }
         self.weights_prior = CacheNode(value=0.0)
         self.has_components = HasComponents(sample.clusters, sample.confounders)
 
@@ -418,11 +420,13 @@ class ModelCache:
         self.geo_prior.add_input('clusters', sample.clusters)
         self.weights_normalized.add_input('has_components', self.has_components)
 
-        # self.group_likelihoods['cluster'].add_input('cluster_effect', sample.cluster_effect)
-        # self.component_likelihoods.add_input('cluster_effect', sample.cluster_effect)
-        for conf, effect in sample.confounding_effects.items():
-            self.group_likelihoods[conf].add_input(f'c_{conf}', effect)
-            self.component_likelihoods.add_input(f'c_{conf}', effect)
+        # # self.group_likelihoods['cluster'].add_input('cluster_effect', sample.cluster_effect)
+        # # self.component_likelihoods.add_input('cluster_effect', sample.cluster_effect)
+        # for conf, effect in sample.confounding_effects.items():
+        #     self.group_likelihoods[conf].add_input(f'c_{conf}', effect)
+        #     self.component_likelihoods.add_input(f'c_{conf}', effect)
+        #     if sample.confounders[conf].has_universal_prior:
+        #         self.group_likelihoods[conf].add_input(f'c_universal', sample.confounding_effects['universal'])
 
         self.weights_prior.add_input('weights', sample.weights)
         self.weights_normalized.add_input('weights', sample.weights)
@@ -439,6 +443,9 @@ class ModelCache:
             self.component_likelihoods.add_input(f'{comp}_counts', counts)
             # self.likelihood.add_input(f'counts_{comp}', self.group_likelihoods[comp])
 
+            if comp != 'clusters' and sample.confounders[comp].has_universal_prior:
+                self.group_likelihoods[comp].add_input(f'universal_counts', sample.feature_counts['universal'])
+
     @property
     def cluster_likelihoods(self) -> NDArray[float]:
         return self.component_likelihoods.value[0]
@@ -453,11 +460,11 @@ class ModelCache:
         self.geo_prior.clear()
         self.source_prior.clear()
         self.cluster_size_prior.clear()
-        self.cluster_effect_prior.clear()
+        # self.cluster_effect_prior.clear()
         self.weights_prior.clear()
         self.has_components.clear()
-        for conf_eff in self.confounding_effects_prior.values():
-            conf_eff.clear()
+        # for conf_eff in self.confounding_effects_prior.values():
+        #     conf_eff.clear()
         for group_lh in self.group_likelihoods.values():
             group_lh.clear()
 
@@ -468,11 +475,11 @@ class ModelCache:
         new_cache.geo_prior.assign_from(self.geo_prior)
         new_cache.source_prior.assign_from(self.source_prior)
         new_cache.cluster_size_prior.assign_from(self.cluster_size_prior)
-        new_cache.cluster_effect_prior.assign_from(self.cluster_effect_prior)
+        # new_cache.cluster_effect_prior.assign_from(self.cluster_effect_prior)
         new_cache.weights_prior.assign_from(self.weights_prior)
         new_cache.has_components.assign_from(self.has_components)
-        for conf, conf_eff_prior in new_cache.confounding_effects_prior.items():
-            conf_eff_prior.assign_from(self.confounding_effects_prior[conf])
+        # for conf, conf_eff_prior in new_cache.confounding_effects_prior.items():
+        #     conf_eff_prior.assign_from(self.confounding_effects_prior[conf])
         for comp, group_lh in new_cache.group_likelihoods.items():
             group_lh.assign_from(self.group_likelihoods[comp])
 
@@ -488,22 +495,22 @@ class Sample:
         self,
         clusters: Clusters,                                 # shape: (n_clusters, n_objects)
         weights: ArrayParameter[float],                     # shape: (n_features, n_components)
-        confounding_effects: dict[str, GroupedParameters],  # shape per conf:  (n_groups, n_features, n_states)
         confounders: dict[str, Confounder],
         source: GroupedParameters[bool],                       # shape: (n_objects, n_features, n_components)
         feature_counts: dict[str, FeatureCounts],           # shape per conf: (n_groups, n_features)
+        model_shapes: ModelShapes,
         chain: int = 0,
         _other_cache: ModelCache = None,
         _i_step: int = 0
     ):
         self._clusters = clusters
         self._weights = weights
-        self._confounding_effects = confounding_effects
         self._source = source
         self._feature_counts = feature_counts
         self.chain = chain
         self.confounders = confounders
         self.i_step = _i_step
+        self.model_shapes = model_shapes
 
         # Assign or initialize a ModelCache object
         if _other_cache is None:
@@ -526,20 +533,20 @@ class Sample:
         cls: Type[S],
         clusters: NDArray[bool],
         weights: NDArray[float],
-        confounding_effects: dict[str, NDArray[float]],
         confounders: dict[str, Confounder],
         source: NDArray[bool],
         feature_counts: dict[str, NDArray[int]],
+        model_shapes: ModelShapes,
         chain: int = 0,
     ) -> S:
         return cls(
             clusters=Clusters(clusters),
             weights=ArrayParameter(weights),
-            confounding_effects={k: GroupedParameters(v) for k, v in confounding_effects.items()},
             confounders=confounders,
             source=GroupedParameters(source, group_dim=0),
             feature_counts={k: FeatureCounts(v) for k, v in feature_counts.items()},
             chain=chain,
+            model_shapes=model_shapes,
         )
 
     def copy(self: S) -> S:
@@ -548,18 +555,17 @@ class Sample:
             #
             # clusters=deepcopy(self._clusters),
             # weights=deepcopy(self.weights),
-            # confounding_effects=deepcopy(self.confounding_effects),
             # source=deepcopy(self.source),
             #
             clusters=self._clusters.copy(),
             weights=self.weights.copy(),
-            confounding_effects={k: v.copy() for k, v in self.confounding_effects.items()},
             source=self.source.copy(),
             feature_counts={k: v.copy() for k, v in self.feature_counts.items()},
             #
             confounders=self.confounders,
             _other_cache=self.cache,
             _i_step=self.i_step,
+            model_shapes=self.model_shapes,
         )
 
     def everything_changed(self):
@@ -574,10 +580,6 @@ class Sample:
     @property
     def weights(self) -> ArrayParameter:
         return self._weights
-
-    @property
-    def confounding_effects(self) -> dict[str, GroupedParameters]:
-        return self._confounding_effects
 
     @property
     def source(self) -> GroupedParameters[bool]:  # shape: (n_objects, n_features, n_components)
@@ -607,7 +609,7 @@ class Sample:
 
     @property
     def n_states(self) -> int:
-        return next(iter(self._confounding_effects.values())).shape[2]
+        return self.model_shapes.n_states
 
     @property
     def component_names(self) -> list[str]:
@@ -617,7 +619,7 @@ class Sample:
         if conf == 'clusters':
             return self.n_clusters
         else:
-            return self._confounding_effects[conf].shape[0]
+            return self.model_shapes.n_groups[conf]
 
     def groups_and_clusters(self) -> dict[str, NDArray[bool]]:  # shape: (n_groups,) for each component
         # Confounder groups are constant, so only need to collect them once

@@ -250,11 +250,6 @@ class SbayesInitializer:
         # Weights
         initial_weights = self.generate_initial_weights()
 
-        # Confounding effects
-        initial_confounding_effects = dict()
-        for conf_name in self.confounders:
-            initial_confounding_effects[conf_name] = self.generate_initial_confounding_effect(conf_name)
-
         if self.model.sample_source:
             initial_source = np.empty((self.n_objects, self.n_features, self.n_sources), dtype=bool)
         else:
@@ -263,13 +258,13 @@ class SbayesInitializer:
         sample = Sample.from_numpy_arrays(
             clusters=initial_clusters,
             weights=initial_weights,
-            confounding_effects=initial_confounding_effects,
             confounders=self.data.confounders,
             source=initial_source,
             feature_counts={'clusters': np.zeros((self.n_clusters, self.n_features, self.n_states)),
                             **{conf: np.zeros((n_groups, self.n_features, self.n_states))
                                for conf, n_groups in self.n_groups.items()}},
             chain=c,
+            model_shapes=self.model.shapes,
         )
 
         assert ~np.any(np.isnan(initial_weights)), initial_weights

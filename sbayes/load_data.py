@@ -141,6 +141,7 @@ class Confounder:
     name: str
     group_assignment: NDArray[bool]         # shape: (n_groups, n_objects)
     group_names: NDArray[GroupName]         # shape: (n_groups,)
+    has_universal_prior: bool = False
 
     def __getitem__(self, key) -> str | NDArray:
         if key == "names":

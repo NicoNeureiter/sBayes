@@ -142,16 +142,19 @@ Ratio of confounding_effects steps (changing probabilities in confounders): {op_
         shapes = self.model.shapes
         clusters = results.clusters[:, -1, :]
         weights = np.array([results.weights[f][-1] for f in self.data.features.names])
-        conf_effects = {}
-        for conf, conf_eff in results.confounding_effects.items():
-            conf_effects[conf] = np.zeros((shapes.n_groups[conf],
-                                           shapes.n_features,
-                                           shapes.n_states))
 
-            for g in self.model.confounders[conf].group_names:
-                for i_f, f in enumerate(self.data.features.names):
-                    n_states_f = shapes.n_states_per_feature[i_f]
-                    conf_effects[conf][:, i_f, :n_states_f] = conf_eff[g][f][-1]
+        # Confounding effects are not used in `Sample` anymore.
+        # TODO: Maybe use them to get a better initial state for `source`
+        # conf_effects = {}
+        # for conf, conf_eff in results.confounding_effects.items():
+        #     conf_effects[conf] = np.zeros((shapes.n_groups[conf],
+        #                                    shapes.n_features,
+        #                                    shapes.n_states))
+        #
+        #     for g in self.model.confounders[conf].group_names:
+        #         for i_f, f in enumerate(self.data.features.names):
+        #             n_states_f = shapes.n_states_per_feature[i_f]
+        #             conf_effects[conf][:, i_f, :n_states_f] = conf_eff[g][f][-1]
 
         dummy_source = np.empty((shapes.n_sites,
                                  shapes.n_features,
@@ -171,10 +174,10 @@ Ratio of confounding_effects steps (changing probabilities in confounders): {op_
         sample = Sample.from_numpy_arrays(
             clusters=clusters,
             weights=weights,
-            confounding_effects=conf_effects,
             confounders=self.data.confounders,
             source=dummy_source,
             feature_counts=dummy_feature_counts,
+            model_shapes=self.model.shapes,
         )
         sample.i_step = results.sample_id[-1] + 1
 

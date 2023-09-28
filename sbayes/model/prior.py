@@ -51,15 +51,18 @@ class Prior:
                                                        shapes=self.shapes,
                                                        feature_names=data.features.feature_and_state_names)
         self.prior_confounding_effects = {}
-        for k, v in self.config.confounding_effects.items():
-            self.prior_confounding_effects[k] = ConfoundingEffectsPrior(
-                config=v,
+        for conf_name, conf_prior_config in self.config.confounding_effects.items():
+            conf = data.confounders[conf_name]
+            self.prior_confounding_effects[conf_name] = ConfoundingEffectsPrior(
+                config=conf_prior_config,
                 shapes=self.shapes,
-                conf=k,
+                conf=conf_name,
                 feature_names=data.features.feature_and_state_names,
-                group_names=data.confounders[k].group_names,
+                group_names=conf.group_names,
                 conf_effect_priors = self.prior_confounding_effects,
             )
+            if self.prior_confounding_effects[conf_name].any_dynamic_priors:
+                conf.has_universal_prior = True
 
         self.source_prior = SourcePrior(na_features=self.data.features.na_values)
 
@@ -131,10 +134,10 @@ class Prior:
         return Sample.from_numpy_arrays(
             clusters=clusters,
             weights=weights,
-            confounding_effects={conf: np.empty(n_groups) for conf, n_groups in self.shapes.n_groups.items()},
             confounders=confounders,
             feature_counts={'clusters': feature_counts_cluster, **feature_counts_by_confounder},
-            source=source
+            source=source,
+            model_shapes=self.shapes
         )
 
     def generate_samples(self, n_samples: int) -> list[Sample]:
@@ -314,11 +317,12 @@ class ConfoundingEffectsPrior(DirichletPrior):
         if self.any_dynamic_priors:
             universal_prior_counts = self.conf_effect_priors['universal'].concentration_array(sample)[0]
             universal_feature_counts = sample.feature_counts['universal'].value[0]
+
             univ_counts = universal_prior_counts + universal_feature_counts
             mean = normalize(univ_counts, axis=-1)
             # shape: (n_features, n_states)
 
-            # Add 10% uniform distribution to avoid overly pointy
+            # Add 5% uniform distribution to avoid overly pointy
             uniform = normalize(self.shapes.states_per_feature, axis=-1)
             mean = 0.95 * mean + 0.05 * uniform
 
@@ -340,37 +344,37 @@ class ConfoundingEffectsPrior(DirichletPrior):
 
         return self._concentration_array
 
-    def __call__(self, sample: Sample, caching=True) -> float:
-        """"Calculate the log PDF of the confounding effects prior.
-
-        Args:
-            sample: Current MCMC sample.
-
-        Returns:
-            Logarithm of the prior probability density.
-        """
-
-        parameter = sample.confounding_effects[self.conf]
-        cache = sample.cache.confounding_effects_prior[self.conf]
-        if caching and not cache.is_outdated():
-            return cache.value.sum()
-
-        group_names = sample.confounders[self.conf].group_names
-        with cache.edit() as cached_priors:
-            for i_group in cache.what_changed(f'c_{self.conf}', caching=caching):
-                group = group_names[i_group]
-
-                if self.config[group].type is self.PriorType.UNIFORM:
-                    cached_priors[i_group] = 0.0
-                    continue
-
-                cached_priors[i_group] = compute_group_effect_prior(
-                    group_effect=parameter.value[i_group],
-                    concentration=self.concentration[group],
-                    applicable_states=self.shapes.states_per_feature,
-                )
-
-        return cache.value.sum()
+    # def __call__(self, sample: Sample, caching=True) -> float:
+    #     """"Calculate the log PDF of the confounding effects prior.
+    #
+    #     Args:
+    #         sample: Current MCMC sample.
+    #
+    #     Returns:
+    #         Logarithm of the prior probability density.
+    #     """
+    #
+    #     parameter = sample.confounding_effects[self.conf]
+    #     cache = sample.cache.confounding_effects_prior[self.conf]
+    #     if caching and not cache.is_outdated():
+    #         return cache.value.sum()
+    #
+    #     group_names = sample.confounders[self.conf].group_names
+    #     with cache.edit() as cached_priors:
+    #         for i_group in cache.what_changed(f'c_{self.conf}', caching=caching):
+    #             group = group_names[i_group]
+    #
+    #             if self.config[group].type is self.PriorType.UNIFORM:
+    #                 cached_priors[i_group] = 0.0
+    #                 continue
+    #
+    #             cached_priors[i_group] = compute_group_effect_prior(
+    #                 group_effect=parameter.value[i_group],
+    #                 concentration=self.concentration[group],
+    #                 applicable_states=self.shapes.states_per_feature,
+    #             )
+    #
+    #     return cache.value.sum()
 
     def generate_sample(self) -> dict[GroupName, NDArray[float]]:  # shape: (n_samples, n_features, n_states)
         group_effects = {}
@@ -407,6 +411,8 @@ class ClusterEffectPrior(DirichletPrior):
             self.concentration = self.get_symmetric_concentration(0.5)
         elif self.prior_type is self.PriorType.BBS:
             self.concentration = self.get_oneovern_concentration()
+        elif self.prior_type is self.PriorType.SYMMETRIC_DIRICHLET:
+            self.concentration = self.get_symmetric_concentration(self.config.prior_concentration)
         else:
             raise ValueError(self.invalid_prior_message(self.prior_type))
 
@@ -414,33 +420,33 @@ class ClusterEffectPrior(DirichletPrior):
         for i_f, conc_f in enumerate(self.concentration):
             self.concentration_array[i_f, :len(conc_f)] = conc_f
 
-    def __call__(self, sample: Sample, caching=True) -> float:
-        """Compute the prior for the areal effect (or load from cache).
-        Args:
-            sample: Current MCMC sample.
-        Returns:
-            Logarithm of the prior probability density.
-        """
-        parameter = sample.cluster_effect
-        cache = sample.cache.cluster_effect_prior
-        if not cache.is_outdated():
-            # return np.sum(cache.value)
-            return cache.value
-
-        log_p = 0.0
-        if self.prior_type is self.PriorType.UNIFORM:
-            pass
-        else:
-            for i_cluster in range(sample.n_clusters):
-                log_p += compute_group_effect_prior(
-                    group_effect=parameter.value[i_cluster],
-                    concentration=self.concentration,
-                    applicable_states=self.shapes.states_per_feature,
-                )
-
-        cache.update_value(log_p)
-        # return np.sum(cache.value)
-        return log_p
+    # def __call__(self, sample: Sample, caching=True) -> float:
+    #     """Compute the prior for the areal effect (or load from cache).
+    #     Args:
+    #         sample: Current MCMC sample.
+    #     Returns:
+    #         Logarithm of the prior probability density.
+    #     """
+    #     parameter = sample.cluster_effect
+    #     cache = sample.cache.cluster_effect_prior
+    #     if not cache.is_outdated():
+    #         # return np.sum(cache.value)
+    #         return cache.value
+    #
+    #     log_p = 0.0
+    #     if self.prior_type is self.PriorType.UNIFORM:
+    #         pass
+    #     else:
+    #         for i_cluster in range(sample.n_clusters):
+    #             log_p += compute_group_effect_prior(
+    #                 group_effect=parameter.value[i_cluster],
+    #                 concentration=self.concentration,
+    #                 applicable_states=self.shapes.states_per_feature,
+    #             )
+    #
+    #     cache.update_value(log_p)
+    #     # return np.sum(cache.value)
+    #     return log_p
 
     def get_setup_message(self):
         """Compile a set-up message for logging."""

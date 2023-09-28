@@ -112,10 +112,15 @@ class Likelihood(object):
 
         cache = sample.cache.group_likelihoods[conf]
         feature_counts = sample.feature_counts[conf].value
+        conf_prior = self.prior.prior_confounding_effects[conf]
 
         with cache.edit() as lh:
-            prior_concentration = self.prior.prior_confounding_effects[conf].concentration_array(sample)
-            for i_g in cache.what_changed('counts', caching=caching):
+            prior_concentration = conf_prior.concentration_array(sample)
+
+            hyperprior_has_changed = conf_prior.any_dynamic_priors and cache.ahead_of('universal_counts')
+            changed_groups = cache.what_changed('counts', caching=caching and not hyperprior_has_changed)
+
+            for i_g in changed_groups:
                 lh[i_g] = dirichlet_categorical_logpdf(
                     counts=feature_counts[i_g],
                     a=prior_concentration[i_g],
