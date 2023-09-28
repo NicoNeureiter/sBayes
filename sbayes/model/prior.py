@@ -12,7 +12,8 @@ from numpy.typing import NDArray
 import scipy.stats as stats
 from scipy.sparse.csgraph import minimum_spanning_tree, csgraph_from_dense
 
-from sbayes.model.likelihood import update_weights, ModelShapes, normalize_weights
+from sbayes.model.model_shapes import ModelShapes
+from sbayes.model.likelihood import update_weights, normalize_weights
 from sbayes.preprocessing import sample_categorical
 from sbayes.sampling.state import Sample, Clusters
 from sbayes.util import (compute_delaunay, n_smallest_distances, log_multinom,

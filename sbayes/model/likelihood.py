@@ -15,18 +15,7 @@ from numpy.typing import NDArray
 
 from sbayes.sampling.state import Sample
 from sbayes.load_data import Data
-
-
-class ModelShapes(Protocol):
-    n_clusters: int
-    n_sites: int
-    n_features: int
-    n_states: int
-    states_per_feature: NDArray[bool]
-    n_states_per_feature: list[int]
-    n_confounders: int
-    n_components: int
-    n_groups: dict[str, int]
+from sbayes.model.model_shapes import ModelShapes
 
 
 class Likelihood(object):
