@@ -351,7 +351,7 @@ class OperatorStatsLogger(ResultsLogger):
      on each MCMC operator. The file is updated at each logged sample."""
 
     COLUMNS: dict[str, int] = {
-        "OPERATOR": 30,
+        "OPERATOR": 27,
         "ACCEPTS": 8,
         "REJECTS": 8,
         "TOTAL": 8,
@@ -393,13 +393,11 @@ class OperatorStatsLogger(ResultsLogger):
         total_str = str(operator.total).ljust(cls.COLUMNS["TOTAL"])
         acc_rate_str = f"{operator.acceptance_rate:.2%}".ljust(cls.COLUMNS["ACCEPT-RATE"])
         step_time_str = f"{1000 * np.mean(operator.step_times):.2f} ms".ljust(cls.COLUMNS["STEP-TIME"])
-        if operator.step_sizes:
-            step_size_str = f"{np.mean(operator.step_sizes):.2f}".ljust(cls.COLUMNS["STEP-SIZE"])
-        else:
-            step_size_str = "-"
+        step_size_str_raw = f"{np.mean(operator.step_sizes):.2f}" if operator.step_sizes else "-"
+        step_size_str = step_size_str_raw.ljust(cls.COLUMNS["STEP-SIZE"])
         paramters_str = operator.get_parameters_string().ljust(cls.COLUMNS["PARAMETERS"])
 
-        return '\t'.join([name_str, acc_str, rej_str, total_str, acc_rate_str, step_time_str, step_size_str, paramters_str])
+        return ' '.join([name_str, acc_str, rej_str, total_str, acc_rate_str, step_time_str, step_size_str, paramters_str])
 
     def write_header(self, sample: Sample):
         pass
