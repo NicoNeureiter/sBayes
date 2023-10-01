@@ -361,6 +361,18 @@ class MCMCConfig(BaseConfig):
     warmup: WarmupConfig = Field(default_factory=WarmupConfig)
     initialization: InitializationConfig = Field(default_factory=InitializationConfig)
 
+    use_mc3: bool = False
+    """Whether or not to use Metropolis-coupled Markov chain monte carlo sampling (MC3)."""
+
+    mc3_chains: int = 4
+    """Number of chains for MC3."""
+
+    mc3_swap_interval: int = 1000
+    """Number of MCMC steps between each MC3 chain swap attempt."""
+
+    mc3_temperature_diff: float = 0.05
+    """Difference between temperatures of MC3 chains."""
+
     @model_validator(mode="before")
     @classmethod
     def validate_sample_spacing(cls, values):

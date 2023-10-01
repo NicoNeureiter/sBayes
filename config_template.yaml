@@ -74,6 +74,10 @@ mcmc:
         # Configuration for the initialization of the MCMC / each warm-up chain.
         attempts: 10                    # Number of initial samples for each warm-up chain. Only the one with highest posterior will be used.
         initial_cluster_steps: true     # Whether to apply an initial cluster operator to each cluster before selecting the best sample.
+    use_mc3: false                      # Whether or not to use Metropolis-coupled Markov chain monte carlo sampling (MC3).
+    mc3_chains: 4                       # Number of chains for MC3.
+    mc3_swap_interval: 1000             # Number of MCMC steps between each MC3 chain swap attempt.
+    mc3_temperature_diff: 0.05          # Difference between temperatures of MC3 chains.
 
 results:
     # Information on where and how results are written.
