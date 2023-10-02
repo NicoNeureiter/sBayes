@@ -290,7 +290,7 @@ Ratio of confounding_effects steps (changing probabilities in confounders): {op_
         self.swap_attempts += 1
 
         accept_str = 'ACCEPT' if accept else 'REJECT'
-        self.logger(f"swap chains {(swap_from, swap_to)}?   " +
+        self.logger.info(f"swap chains {(swap_from, swap_to)}?   " +
                     f"{accept_str}  (p_accept={np.exp(mh_ratio):.2f})    " +
                     f"accept-rate={self.swap_accepts/self.swap_attempts}")
         self.print_screen_log(samples[0].i_step, self.model.likelihood(samples[0]))
