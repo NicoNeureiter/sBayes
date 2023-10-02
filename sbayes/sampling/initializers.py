@@ -240,6 +240,7 @@ class SbayesInitializer:
                 best_sample = sample
                 best_lh = lh
 
+        best_sample.i_step = 0
         return best_sample
 
     def generate_sample_attempt(self, c: int = 0, i_attempt: int = 0) -> Sample:
@@ -283,14 +284,14 @@ class SbayesInitializer:
 
         full_source_operator = GibbsSampleSource(
             weight=1,
-            model_by_chain=defaultdict(lambda: self.model),
+            model=self.model,
             sample_from_prior=False,
             object_selector=ObjectSelector.ALL,
         )
         cluster_operator = AlterClusterGibbsishWide(
             weight=0,
             adjacency_matrix=self.data.network.adj_mat,
-            model_by_chain=defaultdict(lambda: self.model),
+            model=self.model,
             features=self.data.features.values,
             resample_source=True,
             consider_geo_prior=True,

@@ -1,11 +1,9 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 from __future__ import annotations
-import os
 import psutil
 import logging
 import math
-from abc import ABC, abstractmethod
 import random as _random
 import time as _time
 from typing import Protocol
@@ -19,7 +17,7 @@ import numpy as np
 from sbayes.model import Model
 from sbayes.load_data import Data
 from sbayes.sampling.loggers import ResultsLogger, OperatorStatsLogger, ClustersLogger
-from sbayes.sampling.operators import Operator
+from sbayes.sampling.operators import Operator, get_operator_schedule
 from sbayes.config.config import OperatorsConfig
 
 from sbayes.sampling.state import Sample
@@ -31,7 +29,7 @@ class Initializer(Protocol):
         ...
 
 
-class MCMC(ABC):
+class MCMC:
 
     """Base-class for MCMC samplers for generative model. Instantiable sub-classes have to implement
     some methods, like propose_step() and likelihood().
@@ -49,9 +47,6 @@ class MCMC(ABC):
             operators: OperatorsConfig,
             sample_loggers: typ.List[ResultsLogger],
             n_chains: int = 1,
-            mc3: bool = False,
-            swap_period: int = None,
-            chain_swaps: int = None,
             sample_from_prior: bool = False,
             show_screen_log: bool = False,
             logger: logging.Logger = None,
@@ -137,7 +132,6 @@ class MCMC(ABC):
         sample.last_lh = log_lh
         return log_lh
 
-    @abstractmethod
     def get_operators(self, operators: OperatorsConfig) -> dict[str, Operator]:
         """Get relevant operators and weights for proposing MCMC update steps
 
@@ -146,6 +140,12 @@ class MCMC(ABC):
         Returns:
             The operator objects with a proposal function and weights
         """
+        return get_operator_schedule(
+            operators_config=operators,
+            model=self.model,
+            data=self.data,
+            sample_from_prior=self.sample_from_prior
+        )
 
     def generate_samples(
         self,
@@ -262,9 +262,7 @@ class MCMC(ABC):
         step_weights = [w.weight for w in self.callable_operators.values()]
         possible_steps = list(self.callable_operators.keys())
         operator_name = _np.random.choice(possible_steps, 1, p=step_weights)[0]
-
         operator = self.callable_operators[operator_name]
-        operator['name'] = operator_name
         return operator
 
     def step(self, sample, c):
@@ -276,12 +274,11 @@ class MCMC(ABC):
             c(int): the current chain
         Returns:
             Sample: A Sample object consisting of clusters, weights and source array"""
-        operator = self.choose_operator()
-        step_function = operator['function']
-
         step_time_start = _time.time()
 
-        candidate, log_q, log_q_back = step_function(sample, c=c)
+        # Chose and apply an MCMC operator
+        operator = self.choose_operator()
+        candidate, log_q, log_q_back = operator.function(sample, c=c)
 
         # Compute the log-likelihood of the candidate
         ll_candidate = self.likelihood(candidate, c)

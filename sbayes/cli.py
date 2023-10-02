@@ -29,11 +29,16 @@ def run_experiment(
 
     # Experiment based on a specified (in config) data-set
     data = Data.from_experiment(experiment)
+    data.logger = None
 
     # Set up and run MCMC
     mcmc = MCMCSetup(data=data, experiment=experiment)
     mcmc.log_setup()
-    mcmc.sample(run=i_run, resume=resume)
+
+    if experiment.config.mcmc.use_mc3:
+        mcmc.sample_mc3(run=i_run, resume=resume)
+    else:
+        mcmc.sample(run=i_run, resume=resume)
 
 
 def runner(args):

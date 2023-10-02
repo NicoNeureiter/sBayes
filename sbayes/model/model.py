@@ -48,7 +48,7 @@ class Model:
     def __call__(self, sample, caching=True):
         """Evaluate the (non-normalized) posterior probability of the given sample."""
         log_likelihood = self.likelihood(sample, caching=caching)
-        log_prior = self.prior(sample)
+        log_prior = self.prior(sample, caching=caching)
         return log_likelihood + log_prior
 
     def __copy__(self):

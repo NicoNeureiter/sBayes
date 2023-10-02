@@ -1,9 +1,8 @@
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
 from pathlib import Path
-from typing import TextIO, Optional, Callable
+from typing import TextIO, Optional
 from abc import ABC, abstractmethod
 
 import numpy as np
@@ -11,8 +10,7 @@ import numpy.typing as npt
 import tables
 
 from sbayes.load_data import Data
-from sbayes.sampling.conditionals import conditional_effect_sample, likelihood_per_component, \
-    likelihood_per_component_exact
+from sbayes.sampling.conditionals import conditional_effect_sample, likelihood_per_component_exact
 from sbayes.sampling.operators import Operator
 from sbayes.util import format_cluster_columns, get_best_permutation
 from sbayes.model import Model
