@@ -710,16 +710,22 @@ class GeoPrior(object):
             scale: float,
             inflection_point: Optional[float] = None
     ) -> Callable[[float], float]:
-
         if prob_function_type is GeoPriorConfig.ProbabilityFunction.EXPONENTIAL:
-            return lambda x: -x / scale
-            # == log(e**(-x/scale))
+            def exp_prob(x):
+                return -x / scale  # == log(e**(-x/scale))
+
+            return exp_prob
 
         elif prob_function_type is GeoPriorConfig.ProbabilityFunction.SIGMOID:
             assert inflection_point is not None
             x0 = inflection_point
-            return lambda x: log_expit(-(x - x0) / scale) - log_expit(x0 / scale)
-            # The last term `- log_expit(x0/scale)` scales the sigmoid to be 1 at distance 0
+
+            def sigmoid_prob(x):
+                return log_expit(-(x - x0) / scale) - log_expit(x0 / scale)
+                # The last term `- log_expit(x0/scale)` scales the sigmoid to be 1 at distance 0
+
+            return sigmoid_prob
+
 
         else:
             raise ValueError(f'Unknown probability_function `{prob_function_type}`')
