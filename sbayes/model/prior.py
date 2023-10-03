@@ -679,6 +679,7 @@ class GeoPrior(object):
         self.aggregation_policy = None
         self.probability_function = None
         self.scale = None
+        self.inflection_point = None
         self.cached = None
         self.aggregation = None
         self.linkage = None
@@ -698,37 +699,22 @@ class GeoPrior(object):
             self.aggregation_policy = config.aggregation
             self.aggregator = self.AGGREGATORS[self.aggregation_policy]
 
-            self.probability_function = self.parse_prob_function(
-                prob_function_type=config.probability_function,
-                scale=self.scale,
-                inflection_point=config.inflection_point
-            )
+            self.probability_function = config.probability_function
+            self.inflection_point = config.inflection_point
 
-    @staticmethod
-    def parse_prob_function(
-            prob_function_type: str,
-            scale: float,
-            inflection_point: Optional[float] = None
-    ) -> Callable[[float], float]:
-        if prob_function_type is GeoPriorConfig.ProbabilityFunction.EXPONENTIAL:
-            def exp_prob(x):
-                return -x / scale  # == log(e**(-x/scale))
+    def get_probability_function(self) -> Callable[[float], float]:
+        if self.probability_function is GeoPriorConfig.ProbabilityFunction.EXPONENTIAL:
+            return lambda x: -x / self.scale  # == log(e**(-x/scale))
 
-            return exp_prob
-
-        elif prob_function_type is GeoPriorConfig.ProbabilityFunction.SIGMOID:
-            assert inflection_point is not None
-            x0 = inflection_point
-
-            def sigmoid_prob(x):
-                return log_expit(-(x - x0) / scale) - log_expit(x0 / scale)
-                # The last term `- log_expit(x0/scale)` scales the sigmoid to be 1 at distance 0
-
-            return sigmoid_prob
-
+        elif self.probability_function is GeoPriorConfig.ProbabilityFunction.SIGMOID:
+            assert self.inflection_point is not None
+            x0 = self.inflection_point
+            s = self.scale
+            return lambda x: log_expit(-(x - x0) / s) - log_expit(x0 / s)
+            # The last term `- log_expit(x0/s)` scales the sigmoid to be 1 at distance 0
 
         else:
-            raise ValueError(f'Unknown probability_function `{prob_function_type}`')
+            raise ValueError(f'Unknown probability_function `{self.probability_function}`')
 
     def __call__(self, sample: Sample, caching=True) -> float:
         """Compute the geo-prior of the current cluster (or load from cache).
@@ -744,6 +730,8 @@ class GeoPrior(object):
         if caching and not cache.is_outdated():
             return cache.value.sum()
 
+        prob_func = self.get_probability_function()
+
         with cache.edit() as geo_priors:
             for i_c in cache.what_changed("clusters", caching=caching):
                 c = sample.clusters.value[i_c]
@@ -753,9 +741,9 @@ class GeoPrior(object):
                 if self.prior_type is self.PriorTypes.COST_BASED:
                     distances = compute_mst_distances(cost_mat_c)
                     agg_distance = self.aggregator(distances)
-                    geo_priors[i_c] = self.probability_function(agg_distance)
+                    geo_priors[i_c] = prob_func(agg_distance)
                 elif self.prior_type is self.PriorTypes.DIAMETER_BASED:
-                    geo_priors[i_c] = self.probability_function(cost_mat_c.max())
+                    geo_priors[i_c] = prob_func(cost_mat_c.max())
                 elif self.prior_type is self.PriorTypes.SIMULATED:
                     cost_mat_c = cost_mat_c * 0.020838 / self.mean_edge_length
                     distances = compute_mst_distances(cost_mat_c)
@@ -793,7 +781,8 @@ class GeoPrior(object):
         else:
             raise ValueError(f"Aggregation strategy {self.aggregation_policy} not fully implemented yet.")
 
-        return self.probability_function(aggr_cost_after) - self.probability_function(aggr_cost_before)
+        prob_func = self.get_probability_function()
+        return prob_func(aggr_cost_after) - prob_func(aggr_cost_before)
 
     def invalid_prior_message(self, s):
         valid_types = ','.join(self.PriorTypes)
