@@ -9,6 +9,8 @@ from pathlib import Path
 from math import sqrt, floor, ceil
 from itertools import combinations, permutations
 from typing import Sequence, Union, Iterator
+from unidecode import unidecode
+from math import lgamma
 
 import numpy as np
 from numpy.typing import NDArray
@@ -16,13 +18,21 @@ from scipy.optimize import linear_sum_assignment
 import pandas as pd
 import scipy
 import scipy.spatial as spatial
-from scipy.special import betaln, expit, gammaln
+from scipy.special import betaln, expit
 import scipy.stats as stats
 from scipy.sparse import csr_matrix
-from unidecode import unidecode
-
+from numba import jit, njit, float32, float64, int64, boolean, vectorize
 
 EPS = np.finfo(float).eps
+
+
+@vectorize([float32(float32), float64(float64)])
+def gammaln(x):
+    """INSTEAD OF: from scipy.special import gammaln
+    numba.njit cannot handle the scipy.special function gammaln. Instead, we create a
+    vectorized version of math.lgamma (slightly slower, but still more efficient than not
+    using njit):"""
+    return lgamma(x)
 
 
 FAST_DIRICHLET = True
@@ -1335,6 +1345,7 @@ def dirichlet_multinomial_logpdf(
     return const + series.sum(axis=-1)
 
 
+@njit(fastmath=True)  # (float64(int64[:], float64[:]))
 def dirichlet_categorical_logpdf(
     counts: NDArray[int],   # shape: (n_features, n_states)
     a: NDArray[float],      # shape: (n_features, n_states)
