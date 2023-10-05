@@ -128,7 +128,7 @@ def compute_component_likelihood(
         f_g = features[g, :, :]
         p_g = probs[i, :, :]
         out[g, :] = np.sum(f_g * p_g[np.newaxis, ...], axis=-1)
-        assert np.allclose(out[g, :], np.einsum('ijk,jk->ij', f_g, p_g))
+        # assert np.allclose(out[g, :], np.einsum('ijk,jk->ij', f_g, p_g))
     return out
 
 

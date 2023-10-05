@@ -544,7 +544,7 @@ class SourcePrior:
 
         with cache.edit() as source_prior:
             if cache.ahead_of("weights"):
-                changed = list(range(sample.n_objects))
+                changed = np.arange(sample.n_objects)
             else:
                 changed = cache.what_changed(input_key=["source"], caching=caching)
 
