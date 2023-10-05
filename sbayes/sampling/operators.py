@@ -7,6 +7,7 @@ from enum import Enum
 from typing import Sequence, Any
 
 import numpy as np
+from numba import jit, njit
 from numpy.typing import NDArray
 import scipy.stats as stats
 from scipy.special import softmax
@@ -591,7 +592,7 @@ class GibbsSampleWeights(Operator):
         # Fix weights for all but two random components
         i1, i2 = random.sample(range(sample.n_components), 2)
 
-        # Select counts of the relevant languages
+        # Select counts of the relevant objects
         has_both = np.logical_and(has_components[:, i1], has_components[:, i2])
         counts = (
             np.sum(source[has_both, :, :], axis=0)           # likelihood counts
@@ -791,110 +792,6 @@ class ClusterOperator(Operator):
 
         return sample_new, log_q, log_q_back
 
-    # def gibbs_sample_source_shrink(
-    #     self,
-    #     sample_new: Sample,
-    #     sample_old: Sample,
-    #     object_subset: slice | list[int] | NDArray[int] = slice(None),
-    # ) -> tuple[Sample, float, float]:
-    #     """Resample the observations to mixture components (their source)."""
-    #     features = self.model.data.features.values
-    #     na_features = self.model.data.features.na_values
-    #
-    #     if self.sample_from_prior:
-    #         p = update_weights(sample_new)[object_subset]
-    #     else:
-    #         p = self.calculate_source_posterior(sample_new, object_subset)
-    #
-    #     # Sample the new source assignments
-    #     with sample_new.source.edit() as source:
-    #         was_cluster = source[object_subset, :, 0]
-    #
-    #         # Resample cluster observations
-    #         new_source = sample_categorical(p=p[was_cluster], binary_encoding=True)
-    #
-    #         for i, was_cluster_i, new_source_i in zip(object_subset, was_cluster, new_source):
-    #             source[i, was_cluster_i] = new_source_i
-    #         # source[object_subset, ...][was_cluster, ...] = new_source
-    #
-    #         source[na_features] = 0
-    #
-    #     update_feature_counts(sample_old, sample_new, features, object_subset)
-    #     if DEBUG:
-    #         verify_counts(sample_new, features)
-    #
-    #     # Transition probability forward:
-    #     new_source = sample_new.source.value[object_subset]
-    #     # log_q = np.log(p[new_source]).sum()
-    #     log_q = np.log(p[was_cluster][new_source[was_cluster]]).sum()
-    #
-    #     # Transition probability backward:
-    #     if self.sample_from_prior:
-    #         p_back = update_weights(sample_old)[object_subset]
-    #     else:
-    #         p_back = self.calculate_source_posterior(sample_old, object_subset,
-    #                                                  feature_counts=sample_new.feature_counts)
-    #
-    #     log_q_back = float(
-    #         np.log(p_back[was_cluster, 0]).sum() +
-    #         np.log(1 - p_back[~was_cluster, 0]).sum()
-    #     )
-    #
-    #     return sample_new, log_q, log_q_back
-    #
-    # def gibbs_sample_source_grow(
-    #     self,
-    #     sample_new: Sample,
-    #     sample_old: Sample,
-    #     object_subset: slice | list[int] | NDArray[int] = slice(None),
-    # ) -> tuple[Sample, float, float]:
-    #     """Resample the observations to mixture components (their source)."""
-    #     features = self.model.data.features.values
-    #     na_features = self.model.data.features.na_values
-    #
-    #     w = update_weights(sample_old)[object_subset]
-    #     s = sample_old.source.value[object_subset]
-    #     assert np.all(s <= (w > 0)), np.max(w)
-    #
-    #     if self.sample_from_prior:
-    #         p = update_weights(sample_new)[object_subset]
-    #     else:
-    #         p = self.calculate_source_posterior(sample_new, object_subset)
-    #
-    #     # Sample the new source assignments
-    #     with sample_new.source.edit() as source:
-    #         # Which non-cluster observations should become cluster source:
-    #         p_cluster = p[..., 0]       # shape: (n_obj, n_feat)
-    #         to_cluster = np.random.random(p_cluster.shape) < p_cluster
-    #         for i, to_cluster_i in zip(object_subset, to_cluster):
-    #             source[i, to_cluster_i, 0] = True
-    #             source[i, to_cluster_i, 1:] = False
-    #
-    #         source[na_features] = 0
-    #
-    #     update_feature_counts(sample_old, sample_new, features, object_subset)
-    #     if DEBUG:
-    #         verify_counts(sample_new, features)
-    #
-    #     # Transition probability forward:
-    #     # log_q = np.log(p[sample_new.source.value[object_subset]]).sum()
-    #     log_q = float(
-    #         np.log(p_cluster[to_cluster]).sum() +
-    #         np.log(1 - p_cluster[~to_cluster]).sum()
-    #     )
-    #
-    #     # Transition probability backward:
-    #     if self.sample_from_prior:
-    #         p_back = update_weights(sample_old)[object_subset]
-    #     else:
-    #         p_back = self.calculate_source_posterior(sample_old, object_subset,
-    #                                                  feature_counts=sample_new.feature_counts)
-    #
-    #     old_source = sample_old.source.value[object_subset, ...]
-    #     log_q_back = np.log(p_back[to_cluster][old_source[to_cluster]]).sum()
-    #
-    #     return sample_new, log_q, log_q_back
-
     def get_step_size(self, sample_old: Sample, sample_new: Sample) -> float:
         return np.count_nonzero(sample_old.clusters.value ^ sample_new.clusters.value)
 
@@ -933,6 +830,14 @@ def component_likelihood_given_unchanged(
         prior_counts = model.prior.prior_confounding_effects[conf].concentration_array(sample)
         conf_effect = normalize(unchangeable_feature_counts + prior_counts, axis=-1)
 
+        # group_likelihood_given_unchanged(
+        #     features=features.values,
+        #     probs=conf_effect,
+        #     object_subset=object_subset,
+        #     groups=groups,
+        #     out=likelihoods[:, :, i_conf],
+        # )
+
         # Calculate the likelihood of each observation in each group that is represented in object_subset
         subset_groups = groups[:, object_subset]
         group_in_subset = np.any(subset_groups, axis=1)
@@ -945,6 +850,25 @@ def component_likelihood_given_unchanged(
     likelihoods[features.na_values[object_subset]] = 1.
 
     return likelihoods
+
+# @njit(fastmath=True)
+# def group_likelihood_given_unchanged(
+#     features: NDArray[bool],
+#     probs: NDArray,
+#     object_subset: NDArray[bool],
+#     groups: NDArray[bool],
+#     out: NDArray[float],
+# ):
+#     # Calculate the likelihood of each observation in each group that is represented in object_subset
+#     subset_groups = groups[:, object_subset]
+#     group_in_subset = (np.sum(subset_groups, axis=1) > 0)
+#     features_subset = features[object_subset]
+#     for i in range(len(group_in_subset)):
+#         g = subset_groups[i]
+#         p_g = probs[i]
+#         f_g = features_subset[g, :, :]
+#         out[g, :] = np.sum(f_g * p_g[np.newaxis, ...], axis=-1)
+#         # assert np.allclose(out[g, :], np.einsum('ijk,jk->ij', f_g, p_g))
 
 
 def cluster_likelihood_given_unchanged(
@@ -1290,14 +1214,20 @@ class ClusterEffectProposals:
 
     @staticmethod
     def expected_confounder_features(model: Model, sample: Sample) -> NDArray[float]:
+        """Compute the expected value for each feature according to the mixture of confounders."""
         expected_features = np.zeros((sample.n_objects, sample.n_features, sample.n_states))
         weights = update_weights(sample, caching=False)
         confounders = model.data.confounders
-        for i_comp, (name_conf, conf) in enumerate(confounders.items(), start=1):
-            prior_counts = model.prior.prior_confounding_effects[name_conf].concentration_array(sample)
 
+        # Iterate over mixture components
+        for i_comp, (name_conf, conf) in enumerate(confounders.items(), start=1):
+            # The expected confounding effect is given by the prior counts and feature
+            # counts normalized to 1 over the different states.
+            prior_counts = model.prior.prior_confounding_effects[name_conf].concentration_array(sample)
             feature_counts = sample.feature_counts[name_conf].value
             p_conf = normalize(feature_counts + prior_counts, axis=-1)  # (n_features, n_states)
+
+            # The weighted sum of the confounding effects defines the expected features
             for i_g, g in enumerate(conf.group_assignment):
                 expected_features[g] += weights[g, :, [i_comp], None] * p_conf[np.newaxis, i_g, ...]
 
@@ -1344,9 +1274,16 @@ class AlterClusterGibbsishWide(AlterClusterGibbsish):
         self,
         sample: Sample,
         i_cluster: int,
-        available: NDArray[bool],
-    ) -> NDArray[float]:  # shape: (n_available, )
-        """Compute the probability of each """
+        available: NDArray[bool],   # Shape: (n_objects,)
+    ) -> NDArray[float]:            # shape: (n_available,)
+        """Compute the proposal probability of each objects to be in cluster `i_cluster`
+        (conditioned on other parameters in `sample`).
+
+        Args:
+            sample: The current MCMC Samples to be modified in this operator.
+            i_cluster: The ID of the cluster to be changed in this operator.
+            available: Boolean array indicating which objects can be added/removed.
+        """
         model = self.model
         n_available = np.count_nonzero(available)
 
@@ -1368,8 +1305,6 @@ class AlterClusterGibbsishWide(AlterClusterGibbsish):
             if self.cluster_effect_proposal is ClusterEffectProposals.residual_counts:
                 distances = model.data.geo_cost_matrix[available][:, available]
                 z = normalize(cluster_posterior)
-                # z_peaky = softmax(n_available * z)
-                # avg_dist_to_cluster = z_peaky.dot(distances)
                 avg_dist_to_cluster = z.dot(distances)
                 geo_likelihoods = np.exp(-avg_dist_to_cluster / model.prior.geo_prior.scale / 2 / self.temperature)
                 cluster_posterior = normalize(geo_likelihoods * z)
