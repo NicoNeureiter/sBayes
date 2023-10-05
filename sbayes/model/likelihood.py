@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from sbayes.sampling.counts import recalculate_feature_counts
 from sbayes.util import dirichlet_categorical_logpdf
+from numba import njit
 
 try:
     from typing import Protocol
@@ -77,24 +78,6 @@ class Likelihood(object):
 
         return cache.value.sum()
 
-    # def generate_data(self, sample: Sample) -> NDArray[bool]:
-    #     data = np.zeros((sample.n_objects, sample.n_features, sample.n_states))
-    #
-    #     effects = self.generate_effects()
-    #     data_by_confounder = {}
-    #     for i_obj in range(sample.n_objects):
-    #         for i_feat in range(sample.n_features):
-    #             ...
-    #
-    # def generate_effects(self) -> NDArray[bool]:
-    #     # Generate cluster effect
-    #     cluster_effect = self.prior.prior_cluster_effect.generate
-    #
-    #     # Generate confounding effects
-    #     conf_effects = [
-    #
-    #     ]
-
     def compute_lh_confounder(self, sample: Sample, conf: str, caching=True) -> float:
         """Compute the log-likelihood of the observations that are assigned to confounder
         `conf` in the current sample."""
@@ -118,36 +101,44 @@ class Likelihood(object):
         return cache.value.sum()
 
 
+@njit
 def compute_component_likelihood(
     features: NDArray[bool],    # shape: (n_objects, n_features, n_states)
     probs: NDArray[float],      # shape: (n_groups, n_features, n_states)
     groups: NDArray[bool],      # shape: (n_groups, n_objects)
-    changed_groups: set[int],
+    changed_groups: NDArray[int],
     out: NDArray[float]         # shape: (n_objects, n_features)
 ) -> NDArray[float]:            # shape: (n_objects, n_features)
+    """Compute the likelihood of each observation in `features` according to one mixture
+    components.
+    Args:
+        features: The feature observations in the dataset.
+        probs: The probabilities defining the categorical distribution of the mixture component.
+        groups: Boolean array assigning each object to a group in the mixture components.
+        changed_groups: Array of indices indicating which groups need to be recalculated.
+        out: The output array where the result will be stored.
+    """
+    # Assign likelihood 0 to objects that are in no group
+    no_group = (groups.sum(axis=0) == 0)
+    out[no_group, :] = 0.
 
-    # [NN] Idea: If the majority of groups is outdated, a full update (w/o caching) may be faster
-    # [NN] ...does not seem like it -> deactivate for now.
-    # if len(changed_groups) > 0.8 * groups.shape[0]:
-    #     return np.einsum('ijk,hjk,hi->ij', features, probs, groups, optimize=True)
-
-    out[~groups.any(axis=0), :] = 0.
+    # Recalculate the likelihood of groups that changed since last updating the cache
     for i in changed_groups:
         g = groups[i]
         f_g = features[g, :, :]
         p_g = probs[i, :, :]
-        out[g, :] = np.einsum('ijk,jk->ij', f_g, p_g)
-        assert np.allclose(out[g, :], np.sum(f_g * p_g[np.newaxis, ...], axis=-1))
+        out[g, :] = np.sum(f_g * p_g[np.newaxis, ...], axis=-1)
+        assert np.allclose(out[g, :], np.einsum('ijk,jk->ij', f_g, p_g))
     return out
 
 
 def compute_component_likelihood_exact(
-    features: NDArray[bool],    # shape: (n_objects, n_features, n_states)
-    probs: list[NDArray[float]],      # shape: (n_objects_in_g, n_features, n_states) for each group
-    groups: NDArray[bool],      # shape: (n_groups, n_objects)
-    changed_groups: set[int],
-    out: NDArray[float]         # shape: (n_objects, n_features)
-) -> NDArray[float]:            # shape: (n_objects, n_features)
+    features: NDArray[bool],        # shape: (n_objects, n_features, n_states)
+    probs: list[NDArray[float]],    # shape: (n_objects_in_g, n_features, n_states) for each group
+    groups: NDArray[bool],          # shape: (n_groups, n_objects)
+    changed_groups: NDArray[int],
+    out: NDArray[float]             # shape: (n_objects, n_features)
+) -> NDArray[float]:                # shape: (n_objects, n_features)
     out[~groups.any(axis=0), :] = 0.
     for i in changed_groups:
         g = groups[i]
@@ -159,7 +150,7 @@ def compute_component_likelihood_exact(
     return out
 
 
-def update_weights(sample: Sample, caching=True) -> NDArray[float]:
+def update_weights(sample: Sample, caching: bool = True) -> NDArray[float]:
     """Compute the normalized weights of each component at each site.
     Args:
         sample: the current MCMC sample.

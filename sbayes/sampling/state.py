@@ -8,9 +8,10 @@ from typing import Optional, Generic, TypeVar, Type, Iterator
 from numpy.typing import NDArray
 import numpy as np
 
-from sbayes.load_data import Confounder, Features
+from sbayes.load_data import Confounder
 from sbayes.model.model_shapes import ModelShapes
 from sbayes.util import get_along_axis
+
 
 S = TypeVar('S')
 Value = TypeVar('Value', NDArray, float)
@@ -236,19 +237,21 @@ class CacheNode(Generic[Value]):
         i = self.input_idx[input_key]
         return self.cached_version[i] != self.inputs[input_key].version
 
-    def what_changed(self, input_key: str | list[str], caching=True) -> list[int]:
+    def what_changed(self, input_key: str | list[str], caching=True) -> NDArray[int]:
         if isinstance(input_key, list):
-            changes_by_input = (set(self.what_changed(k, caching=caching)) for k in input_key)
-            return list(set.union(*changes_by_input))
+            changes_by_input = [self.what_changed(k, caching=caching) for k in input_key]
+            return np.unique(np.concatenate(changes_by_input))
+            # changes_by_input = (set(self.what_changed(k, caching=caching)) for k in input_key)
+            # return List(set.union(*changes_by_input))
 
         inpt = self.inputs[input_key]
         if isinstance(inpt, GroupedParameters):
             if caching:
-                return list(np.flatnonzero(
+                return np.flatnonzero(
                     self.cached_group_versions[input_key] != inpt.group_versions
-                ))
+                )
             else:
-                return list(range(inpt.n_groups))
+                return np.arange(inpt.n_groups)
         else:
             raise ValueError('Can only track what changed for GroupedParameters')
 

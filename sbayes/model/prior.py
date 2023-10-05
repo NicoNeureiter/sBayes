@@ -528,31 +528,27 @@ class WeightsPrior(DirichletPrior):
 
 class SourcePrior:
 
-    def __init__(
-        self,
-        na_features: NDArray[bool]
-    ):
+    def __init__(self, na_features: NDArray[bool]):
         self.valid_observations = ~na_features
 
     def __call__(self, sample: Sample, caching=True) -> float:
-        """Compute the prior for weights (or load from cache).
+        """Compute (or load from cache) the prior for the source array, given the weights.
         Args:
             sample: Current MCMC sample.
         Returns:
             Logarithm of the prior probability density.
         """
-
         cache = sample.cache.source_prior
         if caching and not cache.is_outdated():
             return cache.value.sum()
 
         with cache.edit() as source_prior:
-            if cache.ahead_of("clusters") or cache.ahead_of("weights"):
+            if cache.ahead_of("weights"):
                 changed = list(range(sample.n_objects))
             else:
                 changed = cache.what_changed(input_key=["source"], caching=caching)
 
-            if changed:
+            if len(changed) > 0:
                 w = update_weights(sample)[changed]
                 s = sample.source.value[changed]
                 observation_weights = np.sum(w*s, axis=-1)
