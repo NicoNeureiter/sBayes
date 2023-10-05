@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from numpy._typing import NDArray
 
 
-@dataclass(frozen=True)
+@dataclass
 class ModelShapes:
     n_clusters: int
     n_sites: int
@@ -14,10 +14,13 @@ class ModelShapes:
     states_per_feature: NDArray[bool]
     n_confounders: int
     n_groups: dict[str, int]
+    _n_states_per_feature: list[int] = None
 
     @property
     def n_states_per_feature(self):
-        return [sum(applicable) for applicable in self.states_per_feature]
+        if self._n_states_per_feature is None:
+            self._n_states_per_feature = [sum(applicable) for applicable in self.states_per_feature]
+        return self._n_states_per_feature
 
     @property
     def n_components(self):
