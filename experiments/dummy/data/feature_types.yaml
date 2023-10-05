@@ -1,0 +1,36 @@
+F1:
+  type: categorical
+  states:
+    - NO
+    - YES
+F2:
+  type: gaussian
+  states:
+    min: 0.43
+    max: 88.0
+F3:
+  type: categorical
+  states:
+    - '0'
+    - '1'
+F4:
+  type: logit-normal
+  states:
+    min: 0.1
+    max: 0.7
+F5:
+  type: poisson
+  states:
+    min: 2
+    max: 32
+F6:
+  type: categorical
+  states:
+    - blue
+    - green
+
+F7:
+  type: poisson
+  states:
+    min: 3
+    max: 6
