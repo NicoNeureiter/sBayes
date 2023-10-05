@@ -1332,20 +1332,14 @@ def dirichlet_multinomial_logpdf(
     >>> dirichlet_multinomial_logpdf(counts=np.array([2, 1, 0, 0]), a=np.array([1., 1., 0., 0.]))
     -1.386294361303224
     """
-    # Only apply to
-    # valid = a > 0
-    # counts = counts[valid]
-    # a = a[valid]
-    a = a + 1e-12      # TODO Find a better way to fix 0s in a (and still use broadcasting)
-
     n = counts.sum(axis=-1)
     sum_a = a.sum(axis=-1)
     const = (gammaln(n + 1) + gammaln(sum_a)) - gammaln(n + sum_a)
-    series = gammaln(counts + a) - (gammaln(counts + 1) + gammaln(a))
+    series = np.where(a > 0, gammaln(counts + a) - (gammaln(counts + 1) + gammaln(a)), 0.)
     return const + series.sum(axis=-1)
 
 
-@njit(fastmath=True)  # (float64(int64[:], float64[:]))
+@jit(nopython=True, fastmath=True, nogil=True)
 def dirichlet_categorical_logpdf(
     counts: NDArray[int],   # shape: (n_features, n_states)
     a: NDArray[float],      # shape: (n_features, n_states)
@@ -1362,12 +1356,10 @@ def dirichlet_categorical_logpdf(
     >>> dirichlet_multinomial_logpdf(counts=np.array([2, 1, 0, 0]), a=np.array([1., 1., 0., 0.]))
     -1.386294361303224
     """
-    a = a + 1e-12  # TODO Find a better way to fix 0s in a (and still use broadcasting)
-
     n = counts.sum(axis=-1)
     sum_a = a.sum(axis=-1)
     const = gammaln(sum_a) - gammaln(n + sum_a)
-    series = gammaln(counts + a) - gammaln(a)
+    series = np.where(a > 0, gammaln(counts + a) - gammaln(a), 0.)
     return const + series.sum(axis=-1)
 
 
