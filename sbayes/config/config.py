@@ -373,6 +373,13 @@ class MCMCConfig(BaseConfig):
     mc3_temperature_diff: float = 0.05
     """Difference between temperatures of MC3 chains."""
 
+    mc3_swap_attempts: int = 2
+    """Number of chain pairs which are proposed to be swapped after each interval."""
+
+    mc3_only_heat_likelihood: bool = False
+    """Difference between temperatures of MC3 chains."""
+
+
     @model_validator(mode="before")
     @classmethod
     def validate_sample_spacing(cls, values):

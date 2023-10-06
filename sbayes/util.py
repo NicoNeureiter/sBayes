@@ -24,6 +24,7 @@ from scipy.sparse import csr_matrix
 from numba import jit, njit, float32, float64, int64, boolean, vectorize
 
 EPS = np.finfo(float).eps
+RNG = np.random.default_rng()
 
 
 @vectorize([float32(float32), float64(float64)])

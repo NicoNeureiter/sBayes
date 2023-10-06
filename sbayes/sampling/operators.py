@@ -7,7 +7,6 @@ from enum import Enum
 from typing import Sequence, Any
 
 import numpy as np
-from numba import jit, njit
 from numpy.typing import NDArray
 import scipy.stats as stats
 from scipy.special import softmax
@@ -16,17 +15,13 @@ from sbayes.load_data import Features, Data
 from sbayes.sampling.conditionals import likelihood_per_component, conditional_effect_mean
 from sbayes.sampling.counts import recalculate_feature_counts, update_feature_counts
 from sbayes.sampling.state import Sample
-from sbayes.util import dirichlet_logpdf, normalize, get_neighbours, inner1d
+from sbayes.util import dirichlet_logpdf, normalize, get_neighbours, inner1d, RNG
 from sbayes.model import Model, Likelihood, normalize_weights, update_weights
 from sbayes.preprocessing import sample_categorical
 from sbayes.config.config import OperatorsConfig
 
 
 DEBUG = 0
-RNG = np.random.default_rng()
-
-
-
 
 
 def get_operator_schedule(
@@ -1148,14 +1143,14 @@ class AlterClusterGibbsish(ClusterOperator):
 class ClusterEffectProposals:
 
     @staticmethod
-    def gibbs(model: Model, sample: Sample, i_cluster: int) -> NDArray[float]:
+    def gibbs(model: Model, sample: Sample, i_cluster: int, temperature: float = 1.0) -> NDArray[float]:
         return conditional_effect_mean(
             prior_counts=model.prior.prior_cluster_effect.concentration_array,
             feature_counts=sample.feature_counts['clusters'].value[[i_cluster]]
         )
 
     @staticmethod
-    def residual(model: Model, sample: Sample, i_cluster: int) -> NDArray[float]:
+    def residual(model: Model, sample: Sample, i_cluster: int, temperature: float = 1.0) -> NDArray[float]:
         features = model.data.features.values
         free_objects = ~sample.clusters.any_cluster()
 
@@ -1167,19 +1162,19 @@ class ClusterEffectProposals:
         return normalize(feature_counts + prior_counts, axis=-1)
 
     @staticmethod
-    def residual4(model: Model, sample: Sample, i_cluster: int) -> NDArray[float]:
+    def residual4(model: Model, sample: Sample, i_cluster: int, temperature: float = 1.0) -> NDArray[float]:
         features = model.data.features.values
         free_objects = ~sample.clusters.any_cluster()
 
         # Create counts in free objects
         prior_counts = model.prior.prior_cluster_effect.concentration_array
-        exp_counts_conf = ClusterEffectProposals.expected_confounder_features(model, sample)
+        exp_counts_conf = ClusterEffectProposals.expected_confounder_features(model, sample, temperature=temperature)
         residual_features = features[free_objects] - exp_counts_conf[free_objects]
         residual_counts = residual_features.clip(0).sum(axis=0)
 
         # Create counts in free objects
         prior_counts = model.prior.prior_cluster_effect.concentration_array
-        exp_counts_conf = ClusterEffectProposals.expected_confounder_features(model, sample)
+        exp_counts_conf = ClusterEffectProposals.expected_confounder_features(model, sample, temperature=temperature)
         residual_features = features[free_objects] - exp_counts_conf[free_objects]
         residual_counts = residual_features.clip(0).sum(axis=0)
 
@@ -1187,7 +1182,7 @@ class ClusterEffectProposals:
         return normalize(residual_counts + prior_counts, axis=-1)
 
     @staticmethod
-    def residual_counts(model: Model, sample: Sample, i_cluster: int) -> NDArray[float]:
+    def residual_counts(model: Model, sample: Sample, i_cluster: int, temperature:float = 1.0) -> NDArray[float]:
         features = model.data.features.values
 
         cluster = sample.clusters.value[i_cluster]
@@ -1197,8 +1192,8 @@ class ClusterEffectProposals:
 
         # Create counts in free objects
         prior_counts = model.prior.prior_cluster_effect.concentration_array
-        exp_counts_conf = ClusterEffectProposals.expected_confounder_features(model, sample)
-        residual_features = np.clip(features[free_objects] - exp_counts_conf[free_objects], 0, None)
+        exp_features_conf = ClusterEffectProposals.expected_confounder_features(model, sample, temperature=temperature)
+        residual_features = np.clip(features[free_objects] - exp_features_conf[free_objects], 0, None)
         residual_counts = np.sum(residual_features, axis=0)
 
         # The expected effect is given by the normalized posterior counts
@@ -1213,7 +1208,7 @@ class ClusterEffectProposals:
         return normalize(residual_counts + prior_counts, axis=-1)
 
     @staticmethod
-    def expected_confounder_features(model: Model, sample: Sample) -> NDArray[float]:
+    def expected_confounder_features(model: Model, sample: Sample, temperature: float) -> NDArray[float]:
         """Compute the expected value for each feature according to the mixture of confounders."""
         expected_features = np.zeros((sample.n_objects, sample.n_features, sample.n_states))
         weights = update_weights(sample, caching=False)
@@ -1224,7 +1219,7 @@ class ClusterEffectProposals:
             # The expected confounding effect is given by the prior counts and feature
             # counts normalized to 1 over the different states.
             prior_counts = model.prior.prior_confounding_effects[name_conf].concentration_array(sample)
-            feature_counts = sample.feature_counts[name_conf].value
+            feature_counts = sample.feature_counts[name_conf].value / temperature
             p_conf = normalize(feature_counts + prior_counts, axis=-1)  # (n_features, n_states)
 
             # The weighted sum of the confounding effects defines the expected features
@@ -1290,7 +1285,7 @@ class AlterClusterGibbsishWide(AlterClusterGibbsish):
         if self.sample_from_prior:
             return 0.5 * np.ones(n_available)
 
-        p = self.cluster_effect_proposal(model, sample, i_cluster)
+        p = self.cluster_effect_proposal(model, sample, i_cluster, temperature=self.temperature)
 
         cluster_lh_z = inner1d(self.features[available], p) ** (1 / self.temperature)
         all_lh = deepcopy(likelihood_per_component(model, sample, caching=True)[available, :])
@@ -1424,7 +1419,7 @@ class AlterClusterEM(AlterClusterGibbsishWide):
             n_available = np.count_nonzero(available)
             return 0.5 * np.ones(n_available)
 
-        p_clust = self.cluster_effect_proposal(model, sample, i_cluster)
+        p_clust = self.cluster_effect_proposal(model, sample, i_cluster, temperature=self.temperature)
 
 
         groups = [f"a{c}" for c in range(n_clusters)]
@@ -1671,13 +1666,13 @@ class ClusterJump(ClusterOperator):
 
         p_clust_source = conditional_effect_mean(
             prior_counts=model.prior.prior_cluster_effect.concentration_array,
-            feature_counts=sample.feature_counts['clusters'].value[[i_source_cluster]]
+            feature_counts=sample.feature_counts['clusters'].value[[i_source_cluster]] / self.temperature
         )
         p_clust_target = conditional_effect_mean(
             prior_counts=model.prior.prior_cluster_effect.concentration_array,
-            feature_counts=sample.feature_counts['clusters'].value[[i_target_cluster]]
+            feature_counts=sample.feature_counts['clusters'].value[[i_target_cluster]] / self.temperature
         )
-        p_conf = ClusterEffectProposals.expected_confounder_features(model, sample)[source_cluster]
+        p_conf = ClusterEffectProposals.expected_confounder_features(model, sample, temperature=self.temperature)[source_cluster]
 
         p_total_source = p_conf + w_clust[..., np.newaxis] * p_clust_source
         p_total_target = p_conf + w_clust[..., np.newaxis] * p_clust_target
@@ -1825,7 +1820,7 @@ class ClusterJump2(ClusterOperator):
             prior_counts=model.prior.prior_cluster_effect.concentration_array,
             feature_counts=sample.feature_counts['clusters'].value[[i_target_cluster]]
         )
-        p_conf = ClusterEffectProposals.expected_confounder_features(model, sample)[source_cluster]
+        p_conf = ClusterEffectProposals.expected_confounder_features(model, sample, temperature=self.temperature)[source_cluster]
 
         p_total_source = p_conf + w_clust[..., np.newaxis] * p_clust_source
         p_total_target = p_conf + w_clust[..., np.newaxis] * p_clust_target

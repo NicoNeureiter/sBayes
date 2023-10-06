@@ -1,9 +1,6 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 from __future__ import annotations
-import os
-from multiprocessing import Process
-from multiprocessing.connection import Connection
 
 import psutil
 import logging
@@ -291,58 +288,3 @@ class MCMCChain:
         self._prior = prior
 
 
-class MCMCChainProcess(Process):
-
-    TERMINATE = 'terminate'
-
-    def __init__(self, conn: Connection, subchain_length: int, logging_interval: int):
-        super().__init__()
-        self.conn = conn
-        self.subchain_length = subchain_length
-        self.logging_interval = logging_interval
-
-        # Will be initialized for each process in MCMCChainProcess.initialize
-        self.mcmc_chain = None
-
-    def run(self):
-        while True:
-            # Get method name and args from the parent process
-            method_name, *args = self.conn.recv()
-
-            if method_name == self.TERMINATE:
-                self.shut_down()
-                break
-
-            # Get the method from the current object and call it
-            method = getattr(self, method_name)
-            result, send_back = method(*args)
-
-            # Send the result back to the parent process
-            if send_back:
-                self.conn.send(result)
-
-    def initialize(
-        self,
-        mcmc_args: dict,
-        sample_loggers: list[ResultsLogger],
-        temperature: float
-    ) -> (None, bool):
-        """Initialize the MCMC chain in this process"""
-        print(f"Initializing MCMCChain in worker process {os.getpid()}")
-        self.mcmc_chain = MCMCChain(
-            **mcmc_args,
-            sample_loggers=sample_loggers,
-            temperature=temperature,
-        )
-        return None, False  # Nothing to send back
-
-    def run_chain(self, sample: Sample) -> (Sample, bool):
-        sample = self.mcmc_chain.run(
-            initial_sample=sample,
-            n_steps=self.subchain_length,
-            logging_interval=self.logging_interval,
-        )
-        return sample, True
-
-    def shut_down(self):
-        self.mcmc_chain.close_loggers()

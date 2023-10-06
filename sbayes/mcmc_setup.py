@@ -4,6 +4,7 @@
 """ Setup of the MCMC process """
 from __future__ import annotations
 import math
+import os
 import random
 import time
 from multiprocessing import Process, Pipe
@@ -11,18 +12,20 @@ from multiprocessing.connection import Connection
 
 import numpy as np
 
+from sbayes.config.config import MCMCConfig
 from sbayes.results import Results
 from sbayes.sampling.conditionals import impute_source
 from sbayes.sampling.counts import recalculate_feature_counts
 from sbayes.sampling.initializers import SbayesInitializer
 from sbayes.sampling.mcmc import MCMC
-from sbayes.sampling.mcmc_chain import MCMCChainProcess
+from sbayes.sampling.mcmc_chain import MCMCChain
 from sbayes.sampling.state import Sample
 from sbayes.model import Model
 from sbayes.sampling.loggers import ResultsLogger, ParametersCSVLogger, ClustersLogger, LikelihoodLogger, \
     OperatorStatsLogger
 from sbayes.experiment_setup import Experiment
 from sbayes.load_data import Data
+from sbayes.util import RNG
 
 
 class MCMCSetup:
@@ -203,38 +206,32 @@ Ratio of confounding_effects steps (changing probabilities in confounders): {op_
         logging_interval = int(np.ceil(mcmc_config.steps / mcmc_config.samples))
         n_swaps = int(mcmc_config.steps / mcmc_config.mc3_swap_interval)
 
-        initializer = SbayesInitializer(
-            model=self.model,
-            data=self.data,
-            initial_size=mcmc_config.init_objects_per_cluster,
-            attempts=mcmc_config.initialization.attempts,
-            initial_cluster_steps=mcmc_config.initialization.initial_cluster_steps,
-        )
-        samples = [initializer.generate_sample(c) for c in range(n_chains)]
-
-        mcmc_chain_args = dict(
-            model=self.model,
-            data=self.data,
-            operators=mcmc_config.operators,
-            sample_from_prior=mcmc_config.sample_from_prior,
-            screen_log_interval=mcmc_config.screen_log_interval,
-        )
         temperatures = [1 + (c * mcmc_config.mc3_temperature_diff) for c in range(n_chains)]
         loggers = [self.get_sample_loggers(run, resume, chain=c) for c in range(n_chains)]
 
-        connections: list[Connection] = []
         processes: list[MCMCChainProcess] = []
+        connections: list[Connection] = []
+        samples: list[Sample] = []
         for c in range(n_chains):
             parent_conn, child_conn = Pipe()
             proc = MCMCChainProcess(
                 conn=child_conn,
                 subchain_length=mcmc_config.mc3_swap_interval,
-                logging_interval=logging_interval
+                logging_interval=logging_interval,
+                i_chain=c,
             )
             proc.start()
-            parent_conn.send(('initialize', mcmc_chain_args, loggers[c], temperatures[c]))
+            parent_conn.send(('initialize_chain', mcmc_config, self.model, self.data, loggers[c], temperatures[c]))
             processes.append(proc)
             connections.append(parent_conn)
+
+        for c in range(n_chains):
+            sample = connections[c].recv()
+            samples.append(sample)
+
+        assert len(processes) == n_chains
+        assert len(connections) == n_chains
+        assert len(samples) == n_chains
 
         # Remember starting time for runtime estimates
         self.swap_attempts = 0
@@ -253,7 +250,7 @@ Ratio of confounding_effects steps (changing probabilities in confounders): {op_
                 samples[c] = connections[c].recv()
 
             # Swap the chains of the current samples
-            self.swap_chains(samples, temperatures)
+            self.swap_chains(samples, temperatures, attempts=mcmc_config.mc3_swap_attempts)
 
         self.logger.info(f"MCMC run finished after {(time.time() - self.t_start):.1f} seconds")
 
@@ -262,38 +259,40 @@ Ratio of confounding_effects steps (changing probabilities in confounders): {op_
         for proc in processes:
             proc.join()
 
-    def swap_chains(self, samples: list[Sample], temperatures: list[float]):
+    def swap_chains(self, samples: list[Sample], temperatures: list[float], attempts: int):
         """Chose random chains and try to swap with first chain"""
         n_chains = len(samples)
 
-        swap_from = np.random.randint(n_chains - 1)
-        swap_to = swap_from + 1
+        for swap_from in RNG.choice(n_chains - 1, size=attempts, replace=False):
+            swap_to = swap_from + 1
 
-        # Compute posterior ratio for both chains
-        posterior_from = self.model(samples[swap_from])
-        pow_from = 1 / temperatures[swap_from]
+            # Compute posterior ratio for both chains
+            posterior_from = self.model(samples[swap_from])
+            pow_from = 1 / temperatures[swap_from]
 
-        posterior_to = self.model(samples[swap_to])
-        pow_to = 1 / temperatures[swap_to]
+            posterior_to = self.model(samples[swap_to])
+            pow_to = 1 / temperatures[swap_to]
 
-        mh_ratio = (posterior_from - posterior_to) * (pow_to - pow_from)
-        # Equivalent to:
-        #   joint_posterior_noswap = posterior_from * temp_from + posterior_to * temp_to
-        #   joint_posterior_swap = posterior_from * temp_to + posterior_to * temp_from
-        #   mh_ratio2 = joint_posterior_swap - joint_posterior_noswap
+            mh_ratio = (posterior_from - posterior_to) * (pow_to - pow_from)
+            # Equivalent to:
+            #   joint_posterior_noswap = posterior_from * temp_from + posterior_to * temp_to
+            #   joint_posterior_swap = posterior_from * temp_to + posterior_to * temp_from
+            #   mh_ratio2 = joint_posterior_swap - joint_posterior_noswap
 
-        accept = math.log(random.random()) < mh_ratio
-        # Swap chains according to MH-ratio and update
-        if accept:
-            samples[swap_from], samples[swap_to] = samples[swap_to], samples[swap_from]
-            self.swap_accepts += 1
-        self.swap_attempts += 1
+            accept = math.log(random.random()) < mh_ratio
+            # Swap chains according to MH-ratio and update
+            if accept:
+                samples[swap_from], samples[swap_to] = samples[swap_to], samples[swap_from]
+                self.swap_accepts += 1
+            self.swap_attempts += 1
 
-        accept_str = 'ACCEPT' if accept else 'REJECT'
-        self.logger.info(f"swap chains {(swap_from, swap_to)}?   " +
-                    f"{accept_str}  (p_accept={np.exp(mh_ratio):.2f})    " +
-                    f"accept-rate={self.swap_accepts/self.swap_attempts}")
-        self.print_screen_log(samples[0].i_step, self.model.likelihood(samples[0]))
+            accept_str = 'ACCEPT' if accept else 'REJECT'
+            self.logger.info(
+                f"swap chains {(swap_from, swap_to)}?   " +
+                f"{accept_str}  (p_accept={np.exp(mh_ratio):.2f})    " +
+                f"accept-rate={self.swap_accepts/self.swap_attempts}"
+            )
+            self.print_screen_log(samples[0].i_step, self.model.likelihood(samples[0]))
 
     def print_screen_log(self, i_step: int, likelihood: float):
         i_step_str = f"{i_step:<12}"
@@ -301,3 +300,82 @@ Ratio of confounding_effects steps (changing probabilities in confounders): {op_
         time_per_million = (time.time() - self.t_start) / (i_step + 1) * 1000000
         time_str = f'{time_per_million:.0f} seconds / million steps'
         self.logger.info(i_step_str + likelihood_str + time_str)
+
+
+class MCMCChainProcess(Process):
+
+    TERMINATE = 'terminate'
+
+    def __init__(
+        self, conn: Connection,
+        subchain_length: int,
+        logging_interval: int,
+        i_chain: int
+    ):
+        super().__init__()
+        self.conn = conn
+        self.subchain_length = subchain_length
+        self.logging_interval = logging_interval
+        self.i_chain = i_chain
+
+        # Will be initialized for each process in MCMCChainProcess.initialize
+        self.mcmc_chain = None
+
+    def run(self):
+        while True:
+            # Get method name and args from the parent process
+            method_name, *args = self.conn.recv()
+
+            if method_name == self.TERMINATE:
+                self.shut_down()
+                break
+
+            # Get the method from the current object and call it
+            method = getattr(self, method_name)
+            result, send_back = method(*args)
+
+            # Send the result back to the parent process
+            if send_back:
+                self.conn.send(result)
+
+    def initialize_chain(
+        self,
+        mcmc_config: MCMCConfig,
+        model: Model,
+        data: Data,
+        sample_loggers: list[ResultsLogger],
+        temperature: float
+    ) -> (None, bool):
+        """Initialize the MCMC chain in this process"""
+        print(f"Initializing MCMCChain {self.i_chain} in worker process {os.getpid()}")
+        initializer = SbayesInitializer(
+            model=model,
+            data=data,
+            initial_size=mcmc_config.init_objects_per_cluster,
+            attempts=mcmc_config.initialization.attempts,
+            initial_cluster_steps=mcmc_config.initialization.initial_cluster_steps,
+        )
+        sample = initializer.generate_sample()
+
+        self.mcmc_chain = MCMCChain(
+            model=model,
+            data=data,
+            operators=mcmc_config.operators,
+            sample_from_prior=mcmc_config.sample_from_prior,
+            screen_log_interval=mcmc_config.screen_log_interval,
+            sample_loggers=sample_loggers,
+            temperature=temperature,
+        )
+
+        return sample, True
+
+    def run_chain(self, sample: Sample) -> (Sample, bool):
+        sample = self.mcmc_chain.run(
+            initial_sample=sample,
+            n_steps=self.subchain_length,
+            logging_interval=self.logging_interval,
+        )
+        return sample, True
+
+    def shut_down(self):
+        self.mcmc_chain.close_loggers()

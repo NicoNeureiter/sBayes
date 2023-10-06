@@ -143,20 +143,19 @@ def compute_component_likelihood_exact(
     for i in changed_groups:
         g = groups[i]
         f_g = features[g, :, :]
-        p_g = probs[i]  # shape: (n_objects_in_g, n_features, n_states)
-
+        p_g = probs[i]              # shape: (n_features, n_states)
         out[g, :] = np.einsum('ijk,ijk->ij', f_g, p_g)
         assert np.allclose(out[g, :], np.sum(f_g * p_g[np.newaxis, ...], axis=-1))
     return out
 
 
 def update_weights(sample: Sample, caching: bool = True) -> NDArray[float]:
-    """Compute the normalized weights of each component at each site.
+    """Compute the normalized mixture weights of each component at each object.
     Args:
         sample: the current MCMC sample.
         caching: ignore cache if set to false.
     Returns:
-        np.array: normalized weights of each component at each site.
+        np.array: normalized weights of each component at each object.
             shape: (n_objects, n_features, 1 + n_confounders)
     """
     cache = sample.cache.weights_normalized
