@@ -78,6 +78,7 @@ mcmc:
     mc3_chains: 4                       # Number of chains for MC3.
     mc3_swap_interval: 1000             # Number of MCMC steps between each MC3 chain swap attempt.
     mc3_temperature_diff: 0.05          # Difference between temperatures of MC3 chains.
+    mc3_swap_attempts: 2                # Number of chain pairs which are proposed to be swapped after each interval.
 
 results:
     # Information on where and how results are written.

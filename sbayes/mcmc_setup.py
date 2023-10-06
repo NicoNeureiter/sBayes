@@ -292,7 +292,8 @@ Ratio of confounding_effects steps (changing probabilities in confounders): {op_
                 f"{accept_str}  (p_accept={np.exp(mh_ratio):.2f})    " +
                 f"accept-rate={self.swap_accepts/self.swap_attempts}"
             )
-            self.print_screen_log(samples[0].i_step, self.model.likelihood(samples[0]))
+
+        self.print_screen_log(samples[0].i_step, self.model.likelihood(samples[0]))
 
     def print_screen_log(self, i_step: int, likelihood: float):
         i_step_str = f"{i_step:<12}"

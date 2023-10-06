@@ -83,7 +83,6 @@ class BaseConfig(BaseModel, extra='forbid'):
         return None
 
 
-
 """ ===== PRIOR CONFIGS ===== """
 
 
@@ -269,8 +268,6 @@ class ModelConfig(BaseConfig):
     clusters: Union[int, List[int]] = 1
     """The number of clusters to be inferred."""
 
-    # confounders: OrderedDictType[str, List[str]] = Field(default_factory=OrderedDict)
-    # """Dictionary with confounders as keys and lists of corresponding groups as values."""
     confounders: List[str] = Field(default_factory=list)
     """The list of confounder names."""
 
@@ -364,30 +361,37 @@ class MCMCConfig(BaseConfig):
     use_mc3: bool = False
     """Whether or not to use Metropolis-coupled Markov chain monte carlo sampling (MC3)."""
 
-    mc3_chains: int = 4
+    mc3_chains: PositiveInt = 4
     """Number of chains for MC3."""
 
-    mc3_swap_interval: int = 1000
+    mc3_swap_interval: PositiveInt = 1000
     """Number of MCMC steps between each MC3 chain swap attempt."""
 
-    mc3_temperature_diff: float = 0.05
+    mc3_temperature_diff: PositiveFloat = 0.05
     """Difference between temperatures of MC3 chains."""
 
-    mc3_swap_attempts: int = 2
+    mc3_swap_attempts: PositiveInt = 2
     """Number of chain pairs which are proposed to be swapped after each interval."""
 
-    mc3_only_heat_likelihood: bool = False
-    """Difference between temperatures of MC3 chains."""
+    # mc3_only_heat_likelihood: bool = False
+    # """If `True`, only likelihood is affected by the MC3 temperature, i.e. all chains use the same prior."""
 
-
-    @model_validator(mode="before")
-    @classmethod
-    def validate_sample_spacing(cls, values):
+    @model_validator(mode="after")
+    def validate_sample_spacing(self):
         # Tracer does not like unevenly spaced samples
-        spacing = values['steps'] % values['samples']
+        spacing = self.steps % self.samples
         if spacing != 0.:
             raise ValueError("Inconsistent spacing between samples. Set ´steps´ to be a multiple of ´samples´.")
-        return values
+
+        # Since we only swap neighbouring chains and attempting to swap the same pair of
+        # chains twice is pointless, the number of swap attempts has to be less than the
+        # number of chains.
+        if self.mc3_swap_attempts > self.mc3_chains - 1:
+            self.mc3_swap_attempts = self.mc3_chains - 1
+            warnings.warn(f"The number of swap attempts needs to be less than the number "
+                          f"of chains. Adjusted swap attempts to {self.mc3_chains - 1}.")
+
+        return self
 
 
 class DataConfig(BaseConfig):

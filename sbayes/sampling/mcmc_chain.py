@@ -35,7 +35,7 @@ class MCMCChain:
         sample_loggers: typ.List[ResultsLogger],
         sample_from_prior: bool = False,
         show_screen_log: bool = False,
-        # logger: logging.Logger = None,
+        logger: logging.Logger = None,
         screen_log_interval: int = 1000,
         temperature: float = 1.0,
     ):
@@ -61,12 +61,7 @@ class MCMCChain:
         self.screen_log_interval = screen_log_interval
         self.t_start = None
 
-        # if logger is None:
-        #     import logging
-        #     self.logger = logging.getLogger()
-        # else:
-        #     self.logger = logger
-
+        self.screen_logger = logger
         for logger in self.sample_loggers:
             if isinstance(logger, OperatorStatsLogger):
                 logger.operators = list(self.callable_operators.values())
@@ -256,6 +251,9 @@ class MCMCChain:
         return mh_ratio
 
     def print_screen_log(self, i_step, sample):
+        if self.screen_logger is None:
+            return
+
         i_step_str = f"{i_step:<12}"
 
         likelihood = self.likelihood(sample)
@@ -264,13 +262,12 @@ class MCMCChain:
         time_per_million = (_time.time() - self.t_start) / (i_step + 1 - self.i_step_start) * 1000000
         time_str = f'{time_per_million:.0f} seconds / million steps'
 
-        # self.logger.info(i_step_str + likelihood_str + time_str)
-        # logging.info(i_step_str + likelihood_str + time_str)
+        self.screen_logger.info(i_step_str + likelihood_str + time_str)
 
     def print_memory_usage(self):
         process = psutil.Process()
-        # self.logger.info(f"Memory usage: {(process.memory_info().rss/1E9):.3f} GB")
-        logging.info(f"Memory usage: {(process.memory_info().rss/1E9):.3f} GB")
+        # self.screen_logger.info(f"Memory usage: {(process.memory_info().rss/1E9):.3f} GB")
+        logging.info(f"Memory usage (proc {process.pid}): {(process.memory_info().rss/1E9):.3f} GB")
 
     def get_temperature(self):
         return self.temperature
