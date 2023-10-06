@@ -447,13 +447,12 @@ class SBayesConfig(BaseConfig):
     mcmc: MCMCConfig
     results: ResultsConfig = Field(default_factory=ResultsConfig)
 
-    @model_validator(mode="before")
-    @classmethod
-    def validate_operators(cls, values):
+    @model_validator(mode="after")
+    def validate_operators(self):
         # Do not use source operators if sampling from source is disabled
-        if not values['model']['sample_source']:
-            values['mcmc']['operators']['source'] = 0.0
-        return values
+        if not self.model.sample_source:
+            self.mcmc.operators.source = 0.0
+        return self
 
     @classmethod
     def from_config_file(
