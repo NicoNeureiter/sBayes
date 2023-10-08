@@ -1,0 +1,99 @@
+
+data:
+    # Information on the data for an sBayes analysis.
+    features: <REQUIRED>                # Path to the CSV file with features used for the analysis.
+    feature_types: <REQUIRED>           # Path to the YAML file defining the type of each feature including applicable states.
+    projection: epsg:4326               # String identifier of the projection in which locations are given.
+
+model:
+    # Configuration of the sBayes model.
+    clusters: 1                         # The number of clusters to be inferred.
+    confounders: []                     # The list of confounder names.
+    sample_source: true                 # Sample the source component for each observation (implicitly activates Gibbs sampling).
+
+    prior:
+        # Configuration of all priors of a sBayes model.
+        confounding_effects: <REQUIRED> # The priors for the confounding_effects in each group of each confounder.
+
+        cluster_effect:
+            # Configuration of the prior on the parameters of the cluster-effect.
+
+            categorical:
+                # Configuration of the prior on the cluster-effect for categorical features.
+                type: uniform           # Type of prior distribution (`uniform` or `dirichlet`).
+                file: <REQUIRED>        # Path to the parameters of the Dirichlet distribution.
+                parameters: <REQUIRED>  # Parameters of the Dirichlet distribution.
+                prior_confounder: <REQUIRED> # A string indicating which confounder should be used as the mean of the prior.
+                prior_concentration: <REQUIRED> # If another confounder is used as mean, we need to manually define the concentration of the Dirichlet prior.
+
+            gaussian:
+                # Configuration of the prior on the cluster-effect of continuous features.
+
+                mean:
+                    # Configuration of the prior on the mean of a normal distribution
+                    type: improper_uniform
+                    file: <REQUIRED>
+                    parameters: <REQUIRED>
+
+                variance:
+                    # Configuration of the prior on the variance of a normal distribution
+                    type: jeffreys
+                    file: <REQUIRED>
+                    parameters: <REQUIRED>
+
+            poisson:
+                # Configuration of the prior on the cluster-effect of count features.
+                type: jeffreys          # Type of prior distribution (`jeffreys` or `gamma`).
+                file: <REQUIRED>        # Path to the parameters of the Gamma distribution.
+                parameters: <REQUIRED>  # Parameters of the Gamma distribution.
+
+        geo:
+            # Configuration of the geo-prior.
+            type: uniform               # Type of prior distribution (`uniform`, `cost_based` or `gaussian`).
+            costs: from_data            # Source of the geographic costs used for cost_based geo-prior. Either `from_data` (derive geodesic distances from locations) or path to a CSV file.
+            aggregation: mean           # Policy defining how costs of single edges are aggregated (`mean`, `sum` or `max`).
+            probability_function: exponential # Monotonic function that defines how costs are mapped to prior probabilities.
+            rate: <REQUIRED>            # Rate at which the prior probability decreases for a cost_based geo-prior.
+            inflection_point: <REQUIRED> # The point where a sigmoid probability function reaches 0.5.
+            skeleton: mst               # The graph along which the costs are aggregated. Per default, the cost of edges on the minimum spanning tree are aggregated.
+
+        objects_per_cluster:
+            # Configuration of the area size prior.
+            type: <REQUIRED>            # Type of prior distribution (`uniform_area`, `uniform_size` or `quadratic`).
+            min: 2                      # Minimum cluster size.
+            max: 10000                  # Maximum cluster size.
+
+        weights:
+            # Configuration of the prion on the weights of the mixture components.
+            type: uniform               # Type of prior distribution (`uniform` or `dirichlet`).
+            file: <REQUIRED>            # Path to the parameters of the Dirichlet distribution.
+            parameters: <REQUIRED>      # Parameters of the Dirichlet distribution.
+            prior_confounder: <REQUIRED> # A string indicating which confounder should be used as the mean of the prior.
+            prior_concentration: <REQUIRED> # If another confounder is used as mean, we need to manually define the concentration of the Dirichlet prior.
+
+mcmc:
+    # Configuration of MCMC parameters.
+    steps: 1000000                      # The total number of iterations in the MCMC chain.
+    samples: 1000                       # The number of samples to be generated (more samples implies lower sampling interval).
+    runs: 1                             # The number of times the sampling is repeated (with new output files for each run).
+    sample_from_prior: false            # If `true`, the MCMC ignores the data and samples parameters from the prior distribution.
+    init_objects_per_cluster: 5         # The number of objects in the initial clusters at the start of an MCMC run.
+    grow_to_adjacent: 0.8               # The fraction of grow-steps that only propose adjacent languages as candidates to be added to an area.
+
+    operators:
+        # The frequency of each MCMC operator. Will be normalized to 1.0 at runtime.
+        clusters: 45.0                  # Frequency at which the assignment of objects to clusters is changed.
+        weights: 15.0                   # Frequency at which mixture weights are changed.
+        cluster_effect: 5.0             # Frequency at which cluster effect parameters are changed.
+        confounding_effects: 15.0       # Frequency at which confounding effects parameters are changed.
+        source: 10.0                    # Frequency at which the assignments of observations to mixture components are changed.
+
+    warmup:
+        # Configuration of the warm-up phase in the MCMC chain.
+        warmup_steps: 50000             # The number of steps performed in the warm-up phase.
+        warmup_chains: 10               # The number parallel chains used in the warm-up phase.
+
+results:
+    # Information on where and how results are written.
+    path: results                       # Path to the results directory.
+    log_file: true                      # Whether to write log-messages to a file.
