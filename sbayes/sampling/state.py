@@ -2,6 +2,7 @@ from __future__ import annotations
 from collections import OrderedDict
 from copy import copy, deepcopy
 from contextlib import contextmanager
+from enum import Enum
 from functools import lru_cache
 from typing import Optional, Generic, TypeVar, Type, Iterator
 
@@ -18,6 +19,16 @@ Value = TypeVar('Value', NDArray, float)
 DType = TypeVar('DType', bool, float, int)
 VersionType = TypeVar('VersionType', tuple, int)
 
+
+class FeatureType(str, Enum):
+    categorical = "categorical"
+    gaussian = "gaussian"
+    poisson = "poisson"
+    logitnormal = "logitnormal"
+
+    @classmethod
+    def values(cls) -> Iterator[str]:
+        return iter(cls)
 
 class Parameter(Generic[Value]):
 
@@ -38,7 +49,6 @@ class Parameter(Generic[Value]):
 
 
 class Weights:
-
     categorical: ArrayParameter | None
     gaussian: ArrayParameter | None
     poisson: ArrayParameter | None
@@ -362,6 +372,7 @@ class SufficientStatistics(GroupedParameters):
     def create_empty(cls, n_groups, n_features):
         return SufficientStatistics(np.empty((n_groups, n_features)))
 
+
 class FeatureCounts(SufficientStatistics):
     """GroupedParameters for the feature counts of each group (or cluster) in a mixture
     component. Value shape: (n_groups, n_features, n_states)"""
@@ -599,6 +610,27 @@ class LogitNormalCache(GenericTypeCache):
         return sample.logitnormal
 
 
+class Source:
+
+    def __init__(
+        self,
+        categorical: NDArray[bool] | None,
+        gaussian: NDArray[bool] | None,
+        poisson: NDArray[bool] | None,
+        logitnormal: NDArray[bool] | None,
+    ):
+        self.categorical = categorical
+        self.gaussian = gaussian
+        self.poisson = poisson
+        self.logitnormal = logitnormal
+
+    def __getitem__(self, key: str) -> NDArray[bool]:
+        if key in FeatureType.values():
+            return getattr(self, key)
+        else:
+            raise KeyError(f"Unknown feature type `{key}`.")
+
+
 class Sample:
 
     confounders: dict[str, Confounder]
@@ -656,7 +688,7 @@ class Sample:
         weights: dict[str, NDArray[float]],
         # confounding_effects: dict[str, dict[str, NDArray[float]]],
         confounders: dict[str, Confounder],
-        source: dict[str, NDArray[bool]],
+        source: Source,
         feature_counts: dict[str, NDArray[int]],
         model_shapes: ModelShapes,
         chain: int = 0

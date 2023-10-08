@@ -15,13 +15,13 @@ from scipy.stats import nbinom
 from sbayes.load_data import Features, CategoricalFeatures, GaussianFeatures, PoissonFeatures, LogitNormalFeatures
 from sbayes.sampling.conditionals import conditional_effect_mean
 from sbayes.sampling.counts import recalculate_feature_counts, update_feature_counts
-from sbayes.sampling.state import Sample
+from sbayes.sampling.state import Sample, FeatureType
 from sbayes.util import dirichlet_logpdf, normalize, get_neighbours
 from sbayes.model import Model, normalize_weights, update_categorical_weights, \
                                 update_gaussian_weights, update_poisson_weights, update_logitnormal_weights
 from sbayes.preprocessing import sample_categorical
 from sbayes.config.config import OperatorsConfig
-from sbayes.model.likelihood import Likelihood, FeatureType
+from sbayes.model.likelihood import Likelihood
 import sbayes.model
 
 

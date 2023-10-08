@@ -2,12 +2,16 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 
-from enum import Enum
-
+import numpy as np
+from numpy.typing import NDArray
 from numpy.core._umath_tests import inner1d
+from scipy.stats import nbinom
 
+from sbayes.model.model_shapes import ModelShapes
+from sbayes.sampling.state import Sample, ModelCache, GenericTypeCache, FeatureType
 from sbayes.sampling.counts import recalculate_feature_counts
-from sbayes.util import dirichlet_categorical_logpdf, timeit, normalize, \
+from sbayes.load_data import Data, Confounder, Features
+from sbayes.util import dirichlet_categorical_logpdf, normalize, \
     gaussian_mu_marginalised_logpdf, lh_poisson_lambda_marginalised_logpdf
 
 try:
@@ -15,13 +19,6 @@ try:
 except ImportError:
     from typing_extensions import Protocol
 
-import numpy as np
-from numpy.typing import NDArray
-
-from scipy.stats import nbinom
-from sbayes.sampling.state import Sample, GenericTypeSample, ModelCache, GenericTypeCache
-from sbayes.load_data import Data, Confounder, Features
-from sbayes.model.model_shapes import ModelShapes
 
 class Likelihood(object):
 
@@ -210,13 +207,6 @@ class LikelihoodGenericType(object):
 
     def na_values(self):
         pass
-
-
-class FeatureType(str, Enum):
-    categorical = "categorical"
-    gaussian = "gaussian"
-    poisson = "poisson"
-    logitnormal = "logitnormal"
 
 
 class LikelihoodCategorical(LikelihoodGenericType):

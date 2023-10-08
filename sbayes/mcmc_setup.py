@@ -9,7 +9,7 @@ from sbayes.results import Results
 from sbayes.sampling.conditionals import sample_source_from_prior, impute_source
 from sbayes.sampling.counts import recalculate_feature_counts
 from sbayes.sampling.sbayes_sampling import ClusterMCMC
-from sbayes.sampling.state import Sample
+from sbayes.sampling.state import Sample, Source
 from sbayes.model import Model
 from sbayes.sampling.loggers import ResultsLogger, ParametersCSVLogger, ClustersLogger, LikelihoodLogger, \
     OperatorStatsLogger
@@ -147,9 +147,12 @@ Ratio of confounding_effects steps (changing probabilities in confounders): {op_
                     n_states_f = shapes.n_states_per_feature[i_f]
                     conf_effects[conf][:, i_f, :n_states_f] = conf_eff[g][f][-1]
 
-        dummy_source = np.empty((shapes.n_objects,
-                                 shapes.n_features,
-                                 shapes.n_components), dtype=bool)
+        dummy_source = Source(
+            categorical=np.empty((shapes.n_objects, shapes.n_features_categorical, shapes.n_components), dtype=bool),
+            gaussian=np.empty((shapes.n_objects, shapes.n_features_gaussian, shapes.n_components), dtype=bool),
+            poisson=np.empty((shapes.n_objects, shapes.n_features_poisson, shapes.n_components), dtype=bool),
+            logitnormal=np.empty((shapes.n_objects, shapes.n_features_logitnormal, shapes.n_components), dtype=bool),
+        )
 
         dummy_feature_counts = {
             'clusters': np.zeros((shapes.n_clusters,
@@ -165,7 +168,7 @@ Ratio of confounding_effects steps (changing probabilities in confounders): {op_
         sample = Sample.from_numpy_arrays(
             clusters=clusters,
             weights=weights,
-            confounding_effects=conf_effects,
+            # confounding_effects=conf_effects,
             confounders=self.data.confounders,
             source=dummy_source,
             feature_counts=dummy_feature_counts,

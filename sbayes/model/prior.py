@@ -151,16 +151,16 @@ class Prior:
         has_components = compute_has_components(clusters, confounders)
         source = self.source_prior.generate_sample(weights, has_components)
 
-        feature_counts_cluster = np.zeros((self.shapes.n_clusters, self.shapes.n_features, self.shapes.n_states))
+        feature_counts_cluster = np.zeros((self.shapes.n_clusters, self.shapes.n_features, self.shapes.n_states_categorical))
         feature_counts_by_confounder = {}
         for conf, n_groups in self.shapes.n_groups.items():
-            feature_counts_by_confounder[conf] = np.zeros((n_groups, self.shapes.n_features, self.shapes.n_states))
+            feature_counts_by_confounder[conf] = np.zeros((n_groups, self.shapes.n_features, self.shapes.n_states_categorical))
 
         # Create a sample object from the generated numpy arrays
         return Sample.from_numpy_arrays(
             clusters=clusters,
             weights=weights,
-            confounding_effects={conf: np.empty(n_groups) for conf, n_groups in self.shapes.n_groups.items()},
+            # confounding_effects={conf: np.empty(n_groups) for conf, n_groups in self.shapes.n_groups.items()},
             confounders=confounders,
             feature_counts={'clusters': feature_counts_cluster, **feature_counts_by_confounder},
             source=source,

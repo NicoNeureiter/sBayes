@@ -11,7 +11,7 @@ from sbayes.model import update_categorical_weights, update_gaussian_weights, \
 from sbayes.sampling.conditionals import sample_source_from_prior
 from sbayes.sampling.counts import recalculate_feature_counts
 from sbayes.sampling.mcmc import MCMC
-from sbayes.sampling.state import Sample
+from sbayes.sampling.state import Sample, Source
 from sbayes.sampling.operators import (
     Operator,
     AlterWeights,
@@ -192,7 +192,7 @@ class ClusterMCMC(MCMC):
 
         return initial_weights
 
-    def generate_initial_source(self) -> dict[np.ndarray | None]:
+    def generate_initial_source(self) -> Source:
         """Generate initial source arrays
             Returns:
                 probabilities for states in each group of confounding effect [i]
@@ -227,7 +227,7 @@ class ClusterMCMC(MCMC):
         else:
             initial_source['logitnormal'] = None
 
-        return initial_source
+        return Source(**initial_source)
 
     def generate_initial_confounding_effect(self, conf: str) -> dict[str, np.ndarray | None]:
         """Generates initial state probabilities for each group in confounding effect conf
