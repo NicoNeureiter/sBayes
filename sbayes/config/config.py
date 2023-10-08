@@ -1,32 +1,32 @@
 import os
-from collections import OrderedDict
 from pathlib import Path
 from enum import Enum
 import warnings
 import json
 import io
 from typing import Union, List, Dict, Optional, Any
-from typing import OrderedDict as OrderedDictType
 
 try:
-    from typing import Literal
+    from typing import Annotated, Literal
 except ImportError:
-    from typing_extensions import Literal
+    from typing_extensions import Annotated, Literal
 try:
     import ruamel.yaml as yaml
 except ImportError:
     import ruamel_yaml as yaml
 
-from pydantic import BaseModel, Extra, Field
-from pydantic import root_validator, ValidationError
-from pydantic import FilePath, DirectoryPath
+from pydantic import BaseModel, Field, model_validator
+from pydantic import ValidationError
+from pydantic import DirectoryPath
 from pydantic import PositiveInt, PositiveFloat, confloat, NonNegativeFloat
+from pydantic.types import PathType
+from pydantic_core import core_schema, PydanticCustomError
 
 from sbayes.util import fix_relative_path, decompose_config_path, PathLike
 from sbayes.util import update_recursive
 
 
-class RelativePath:
+class RelativePathType(PathType):
 
     BASE_DIR: DirectoryPath = "."
 
@@ -34,30 +34,32 @@ class RelativePath:
     def fix_path(cls, value: PathLike) -> Path:
         return fix_relative_path(value, cls.BASE_DIR)
 
-
-class RelativeFilePath(FilePath, RelativePath):
-
-    @classmethod
-    def __get_validators__(cls):
-        yield cls.fix_path
-        yield from super(RelativeFilePath, cls).__get_validators__()
-
-
-class RelativeDirectoryPath(DirectoryPath, RelativePath):
-
-    @classmethod
-    def __get_validators__(cls):
-        yield cls.fix_path
-        yield cls.initialize_directory
-        yield from super(RelativeDirectoryPath, cls).__get_validators__()
+    @staticmethod
+    def validate_file(path: Path, _: core_schema.ValidationInfo) -> Path:
+        path = RelativePathType.fix_path(path)
+        if path.is_file():
+            return path
+        else:
+            raise PydanticCustomError('path_not_file', 'Path does not point to a file')
 
     @staticmethod
-    def initialize_directory(path: PathLike):
+    def validate_directory(path: Path, _: core_schema.ValidationInfo) -> Path:
+        path = RelativePathType.fix_path(path)
         os.makedirs(path, exist_ok=True)
-        return path
+        if path.is_dir():
+            return path
+        else:
+            raise PydanticCustomError('path_not_directory', 'Path does not point to a directory')
 
 
-class BaseConfig(BaseModel):
+RelativeFilePath = Annotated[Path, RelativePathType('file')]
+"""A relative path that must point to a file."""
+
+RelativeDirectoryPath = Annotated[Path, RelativePathType('dir')]
+"""A relative path that must point to a directory."""
+
+
+class BaseConfig(BaseModel, extra='forbid'):
 
     """The base class for all config classes. This inherits from pydantic.BaseModel and
     configures settings that should be shared across all setting classes."""
@@ -69,13 +71,16 @@ class BaseConfig(BaseModel):
     def get_attr_doc(cls, attr: str) -> str:
         return cls.__attrdocs__.get(attr)
 
-    class Config:
-
-        extra = Extra.forbid
-        """Do not allow unexpected keys to be defined in a config-file."""
-
-        allow_mutation = True
-        """Make config objects immutable."""
+    @classmethod
+    def annotations(cls, key: str) -> Union[str, None]:
+        if key in cls.__annotations__:
+            return cls.__annotations__[key]
+        for base_cls in cls.__bases__:
+            if issubclass(base_cls, BaseConfig):
+                s = base_cls.annotations(key)
+                if s is not None:
+                    return s
+        return None
 
 
 """ ===== PRIOR CONFIGS ===== """
@@ -120,17 +125,17 @@ class GeoPriorConfig(BaseConfig):
     probability_function: ProbabilityFunction = ProbabilityFunction.EXPONENTIAL
     """Monotonic function that defines how costs are mapped to prior probabilities."""
 
-    rate: Optional[PositiveFloat]
+    rate: Optional[PositiveFloat] = None
     """Rate at which the prior probability decreases for a cost_based geo-prior."""
 
-    inflection_point: Optional[float]
+    inflection_point: Optional[float] = None
     """The point where a sigmoid probability function reaches 0.5."""
 
     skeleton: Skeleton = Skeleton.MST
     """The graph along which the costs are aggregated. Per default, the cost of edges on 
     the minimum spanning tree are aggregated."""
 
-    @root_validator
+    @model_validator(mode="before")
     def validate_dirichlet_parameters(cls, values):
         if (values.get("type") == "cost_based") and (values.get("rate") is None):
             raise ValidationError(
@@ -173,7 +178,7 @@ class GaussianMeanPriorConfig(BaseConfig):
     parameters: Optional[dict] = None
     """Parameters of the Gaussian distribution."""
 
-    @root_validator(pre=True)
+    @model_validator(mode="before")
     def warn_when_using_default_type(cls, values):
         if "type" not in values:
             warnings.warn(
@@ -181,7 +186,7 @@ class GaussianMeanPriorConfig(BaseConfig):
             )
         return values
 
-    @root_validator(pre=True)
+    @model_validator(mode="before")
     def validate_gamma_parameters(cls, values):
         prior_type = values.get("type")
 
@@ -229,7 +234,7 @@ class GaussianVariancePriorConfig(BaseConfig):
     parameters: Optional[dict] = None
     """Parameters of the Gaussian distribution."""
 
-    @root_validator(pre=True)
+    @model_validator(mode="before")
     def warn_when_using_default_type(cls, values):
         if "type" not in values:
             warnings.warn(
@@ -237,7 +242,7 @@ class GaussianVariancePriorConfig(BaseConfig):
             )
         return values
 
-    @root_validator(pre=True)
+    @model_validator(mode="before")
     def validate_gamma_parameters(cls, values):
         prior_type = values.get("type")
 
@@ -292,7 +297,7 @@ class PoissonPriorConfig(BaseConfig):
     parameters: Optional[dict] = None
     """Parameters of the Gamma distribution."""
 
-    @root_validator(pre=True)
+    @model_validator(mode="before")
     def warn_when_using_default_type(cls, values):
         if "type" not in values:
             warnings.warn(
@@ -300,7 +305,7 @@ class PoissonPriorConfig(BaseConfig):
             )
         return values
 
-    @root_validator(pre=True)
+    @model_validator(mode="before")
     def validate_gamma_parameters(cls, values):
         prior_type = values.get("type")
 
@@ -357,7 +362,7 @@ class DirichletPriorConfig(BaseConfig):
     prior_concentration: Optional[float] = None
     """If another confounder is used as mean, we need to manually define the concentration of the Dirichlet prior."""
 
-    @root_validator(pre=True)
+    @model_validator(mode="before")
     def warn_when_using_default_type(cls, values):
         if "type" not in values:
             warnings.warn(
@@ -365,7 +370,7 @@ class DirichletPriorConfig(BaseConfig):
             )
         return values
 
-    @root_validator(pre=True)
+    @model_validator(mode="before")
     def validate_dirichlet_parameters(cls, values):
         prior_type = values.get("type")
 
@@ -475,7 +480,7 @@ class ModelConfig(BaseConfig):
     prior: PriorConfig
     """The config section defining the priors of the model"""
 
-    @root_validator(pre=True)
+    @model_validator(mode="before")
     def validate_confounder_priors(cls, values):
         """Ensure that priors are defined for each confounder."""
         for conf in values['confounders']:
@@ -540,7 +545,7 @@ class MCMCConfig(BaseConfig):
     operators: OperatorsConfig = Field(default_factory=OperatorsConfig)
     warmup: WarmupConfig = Field(default_factory=WarmupConfig)
 
-    @root_validator
+    @model_validator(mode="before")
     def validate_sample_spacing(cls, values):
         # Tracer does not like unevenly spaced samples
         spacing = values['steps'] % values['samples']
@@ -594,7 +599,7 @@ class SBayesConfig(BaseConfig):
     results: ResultsConfig = Field(default_factory=ResultsConfig)
     # settings_for_linguists: SettingsForLinguists = Field(default_factory=SettingsForLinguists)
 
-    @root_validator(pre=True)
+    @model_validator(mode="before")
     def validate_operators(cls, values):
         # Do not use source operators if sampling from source is disabled
         if not values['model']['sample_source']:
@@ -609,7 +614,7 @@ class SBayesConfig(BaseConfig):
 
         # Prepare RelativePath class to allow paths relative to the config file location
         base_directory, config_file = decompose_config_path(path)
-        RelativePath.BASE_DIR = base_directory
+        RelativePathType.BASE_DIR = base_directory
 
         # Load a config dictionary from the json / YAML file
         with open(path, "r") as f:
