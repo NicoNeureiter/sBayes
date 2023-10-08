@@ -1,42 +1,12 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 from __future__ import annotations
-from dataclasses import dataclass
 
-from numpy.typing import NDArray
-
+from sbayes.model.model_shapes import ModelShapes
 from sbayes.model.prior import Prior
 from sbayes.model.likelihood import Likelihood
 from sbayes.config.config import ModelConfig
 from sbayes.load_data import Data
-
-
-@dataclass(frozen=True)
-class ModelShapes:
-    n_groups: dict[str, int]
-    n_confounders: int
-    n_features: int
-    n_clusters: int
-    n_objects: int
-    n_features: int
-    n_features_categorical: int
-    n_states_categorical: int
-    states_per_feature: NDArray[bool]
-    n_features_gaussian: int
-    n_features_poisson: int
-    n_features_logitnormal: int
-
-    @property
-    def n_states_per_feature(self):
-        return [sum(applicable) for applicable in self.states_per_feature]
-
-    @property
-    def n_components(self):
-        return self.n_confounders + 1
-
-    def __getitem__(self, key):
-        """Getter for backwards compatibility with dict-notation."""
-        return getattr(self, key)
 
 
 class Model:
