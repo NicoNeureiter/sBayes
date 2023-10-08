@@ -9,6 +9,8 @@ from numpy.typing import NDArray
 import numpy as np
 
 from sbayes.load_data import Confounder, Features
+from sbayes.model import model_shapes
+from sbayes.model.model_shapes import ModelShapes
 from sbayes.util import get_along_axis
 
 S = TypeVar('S')
@@ -325,9 +327,9 @@ class CacheNode(Generic[Value]):
         self.cached_group_versions = {k: v for k, v in other.cached_group_versions.items()}
 
 
-class FeatureCounts(GroupedParameters):
-    """GroupedParameters for the feature counts of each group (or cluster) in a mixture
-    component. Value shape: (n_groups, n_features, n_states)"""
+class SufficientStatistics(GroupedParameters):
+    """Parameters that describe the observations assigned to a component sufficiently for
+    exact likelihood calculations."""
 
     @property
     def n_groups(self):
@@ -337,13 +339,43 @@ class FeatureCounts(GroupedParameters):
     def n_features(self):
         return self.value.shape[1]
 
+    def add_changes(self, old: NDArray, new: NDArray):  # old/new shapes: (n_groups, n_features, ...)
+        if self.shared:
+            self.resolve_sharing()
+        self.version += 1
+        changed_groups = np.any(new != old, axis=new.shape[1:])
+        self.group_versions[changed_groups] = self.version
+
+    def mark_changes(self, changed_groups: NDArray[bool]):  # shape: (n_groups, n_features)
+        if self.shared:
+            self.resolve_sharing()
+        self.version += 1
+        self.group_versions[changed_groups] = self.version
+
+    def make_dirty(self):
+        if self.shared:
+            self.resolve_sharing()
+        self.version += 1
+        self.group_versions[:] = self.version
+
+    @classmethod
+    def create_empty(cls, n_groups, n_features):
+        return SufficientStatistics(np.empty((n_groups, n_features)))
+
+class FeatureCounts(SufficientStatistics):
+    """GroupedParameters for the feature counts of each group (or cluster) in a mixture
+    component. Value shape: (n_groups, n_features, n_states)"""
+
     @property
     def n_states(self):
         return self.value.shape[2]
 
-    def add_changes(self, diff: NDArray[int]):  # diff shape: (n_groups, n_features, n_states)
+    # def add_changes(self, diff: NDArray[int]):  # diff shape: (n_groups, n_features, n_states)
+    def add_changes(self, old: NDArray, new: NDArray):  # old/new shape: (n_groups, n_features, n_states)
         if self.shared:
             self.resolve_sharing()
+
+        diff = new - old
 
         self._value.flags.writeable = True
         self._value += diff
@@ -385,23 +417,30 @@ class ModelCache:
     geo_prior: CacheNode[NDArray[float]]
     cluster_size_prior: CacheNode[float]
     categorical: CategoricalCache
-    gaussian: GenericTypeCache
-    poisson: GenericTypeCache
-    logitnormal: GenericTypeCache
+    gaussian: GaussianCache
+    poisson: PoissonCache
+    logitnormal: LogitNormalCache
 
     def __init__(self, sample: Sample, ):
         # self.likelihood = CacheNode(0.)
 
         self.geo_prior = CacheNode(value=np.zeros(sample.n_clusters))
         self.cluster_size_prior = CacheNode(value=0.0)
-        self.categorical = CategoricalCache(sample, 'categorical')
-        self.gaussian = GaussianCache(sample, 'gaussian')
-        self.poisson = PoissonCache(sample, 'poisson')
-        self.logitnormal = LogitNormalCache(sample, 'logitnormal')
+        self.categorical = CategoricalCache(sample)
+        self.gaussian = GaussianCache(sample)
+        self.poisson = PoissonCache(sample)
+        self.logitnormal = LogitNormalCache(sample)
 
         # Set up the dependencies in form of CacheNode inputs:
         self.cluster_size_prior.add_input('clusters', sample.clusters)
         self.geo_prior.add_input('clusters', sample.clusters)
+
+        self.feature_type_cache = {
+            "categorical": self.categorical,
+            "gaussian": self.gaussian,
+            "poisson": self.poisson,
+            "logitnormal": self.logitnormal,
+        }
 
     def clear(self):
         self.geo_prior.clear()
@@ -438,10 +477,10 @@ class GenericTypeCache:
 
     has_components: CacheNode[bool]
 
-    def __init__(self, sample: Sample, which: str):
+    def __init__(self, sample: Sample):
         # self.likelihood = CacheNode(0.)
 
-        self.sample_type = getattr(sample, which)
+        self.sample_type = self.get_typed_sample(sample)
 
         self.component_likelihoods = CacheNode(
             value=np.empty((sample.n_objects, self.sample_type.n_features, sample.n_components))
@@ -465,11 +504,11 @@ class GenericTypeCache:
         self.component_likelihoods.add_input('clusters', sample.clusters)
         self.weights_normalized.add_input('has_components', self.has_components)
 
-        # self.group_likelihoods['cluster'].add_input('cluster_effect', sample.cluster_effect)
-        # self.component_likelihoods.add_input('cluster_effect', sample.cluster_effect)
-        for conf, effect in self.sample_type.confounding_effects.items():
-            self.group_likelihoods[conf].add_input(f'c_{conf}', effect)
-            self.component_likelihoods.add_input(f'c_{conf}', effect)
+        # # self.group_likelihoods['cluster'].add_input('cluster_effect', sample.cluster_effect)
+        # # self.component_likelihoods.add_input('cluster_effect', sample.cluster_effect)
+        # for conf, effect in self.sample_type.confounding_effects.items():
+        #     self.group_likelihoods[conf].add_input(f'c_{conf}', effect)
+        #     self.component_likelihoods.add_input(f'c_{conf}', effect)
 
         self.weights_prior.add_input('weights', self.sample_type.weights)
         self.weights_normalized.add_input('weights', self.sample_type.weights)
@@ -481,6 +520,10 @@ class GenericTypeCache:
         self.source_prior.add_input('weights', self.sample_type.weights)
         self.component_likelihoods.add_input('source', self.sample_type.source)
 
+        for comp, counts in self.sample_type.sufficient_statistics.items():
+            self.group_likelihoods[comp].add_input('sufficient_stats', counts)
+            self.component_likelihoods.add_input(f'{comp}_sufficient_stats', counts)
+
     @property
     def cluster_likelihoods(self) -> NDArray[float]:
         return self.component_likelihoods.value[0]
@@ -488,6 +531,11 @@ class GenericTypeCache:
     @property
     def confounder_likelihoods(self) -> NDArray[float]:
         return self.component_likelihoods.value[1:]
+
+    @staticmethod
+    def get_typed_sample(sample: Sample):
+        """Return the data-type specific part of the sample object"""
+        raise NotImplementedError
 
     def clear(self):
         self.component_likelihoods.clear()
@@ -516,30 +564,39 @@ class GenericTypeCache:
 
 
 class CategoricalCache(GenericTypeCache):
-    def __init__(
-        self,
-        sample: Sample,
-        which: str
-    ):
-        super().__init__(sample, which)
-        sample_type = getattr(sample, which)
 
-        for comp, counts in sample_type.feature_counts.items():
-            self.group_likelihoods[comp].add_input('counts', counts)
-            self.component_likelihoods.add_input(f'{comp}_counts', counts)
-            # self.likelihood.add_input(f'counts_{comp}', self.group_likelihoods[comp])
+    def __init__(self, sample: Sample):
+        super().__init__(sample)
+        categorical_sample = self.get_typed_sample(sample)
+
+    @staticmethod
+    def get_typed_sample(sample: Sample):
+        """Return the data-type specific part of the sample object"""
+        return sample.categorical
 
 
 class GaussianCache(GenericTypeCache):
-    pass
+
+    @staticmethod
+    def get_typed_sample(sample: Sample):
+        """Return the data-type specific part of the sample object"""
+        return sample.gaussian
 
 
 class PoissonCache(GenericTypeCache):
-    pass
+
+    @staticmethod
+    def get_typed_sample(sample: Sample):
+        """Return the data-type specific part of the sample object"""
+        return sample.poisson
 
 
 class LogitNormalCache(GenericTypeCache):
-    pass
+
+    @staticmethod
+    def get_typed_sample(sample: Sample):
+        """Return the data-type specific part of the sample object"""
+        return sample.logitnormal
 
 
 class Sample:
@@ -554,6 +611,7 @@ class Sample:
         gaussian: GaussianSample,                           # The Gaussian parameters
         poisson: PoissonSample,                             # The Poisson parameters
         logitnormal: LogitNormalSample,                     # The logit-normal parameters
+        model_shapes: ModelShapes,
         chain: int = 0,
         _other_cache: ModelCache = None,
         _i_step: int = 0
@@ -562,6 +620,7 @@ class Sample:
         self.gaussian = gaussian
         self.poisson = poisson
         self.logitnormal = logitnormal
+        self.model_shapes = model_shapes
         self._clusters = clusters
         self.chain = chain
         self.confounders = confounders
@@ -583,47 +642,79 @@ class Sample:
         # Caching:
         self._groups_and_clusters = None
 
+        self.feature_type_samples = {
+            "categorical": self.categorical,
+            "gaussian": self.gaussian,
+            "poisson": self.poisson,
+            "logitnormal": self.logitnormal,
+        }
+
     @classmethod
     def from_numpy_arrays(
         cls: Type[S],
         clusters: NDArray[bool],
         weights: dict[str, NDArray[float]],
-        confounding_effects: dict[str, dict[str, NDArray[float]]],
+        # confounding_effects: dict[str, dict[str, NDArray[float]]],
         confounders: dict[str, Confounder],
         source: dict[str, NDArray[bool]],
         feature_counts: dict[str, NDArray[int]],
+        model_shapes: ModelShapes,
         chain: int = 0
     ) -> S:
+        n_clusters = len(clusters)
 
         sample_categorical = None
         if weights.get('categorical') is not None:
             sample_categorical = CategoricalSample(
                 weights=ArrayParameter(weights['categorical']),
-                confounding_effects={k: GroupedParameters(v['categorical']) for k, v in confounding_effects.items()},
+                # confounding_effects={k: GroupedParameters(v['categorical']) for k, v in confounding_effects.items()},
                 source=GroupedParameters(source['categorical']),
-                feature_counts={k: FeatureCounts(v) for k, v in feature_counts.items()}
+                sufficient_statistics={k: FeatureCounts(v) for k, v in feature_counts.items()},
+                model_shapes=model_shapes,
             )
+
         sample_gaussian = None
         if weights.get('gaussian') is not None:
+            n_features = source['gaussian'].shape[1]
+            suff_stats = {'clusters': SufficientStatistics.create_empty(n_clusters, n_features)}
+            for c, conf in confounders.items():
+                suff_stats[c] = SufficientStatistics.create_empty(conf.n_groups, n_features)
             sample_gaussian = GaussianSample(
                 weights=ArrayParameter(weights['gaussian']),
-                confounding_effects={k: GroupedParameters(v['gaussian']) for k, v in confounding_effects.items()},
-                source=GroupedParameters(source['gaussian'])
+                # confounding_effects={k: GroupedParameters(v['gaussian']) for k, v in confounding_effects.items()},
+                source=GroupedParameters(source['gaussian']),
+                sufficient_statistics=suff_stats,
+                model_shapes=model_shapes,
             )
+
         sample_poisson = None
         if weights.get('poisson') is not None:
+            n_features = source['poisson'].shape[1]
+            suff_stats = {'clusters': SufficientStatistics.create_empty(n_clusters, n_features)}
+            for c, conf in confounders.items():
+                suff_stats[c] = SufficientStatistics.create_empty(conf.n_groups, n_features)
             sample_poisson = PoissonSample(
                 weights=ArrayParameter(weights['poisson']),
-                confounding_effects={k: GroupedParameters(v['poisson']) for k, v in confounding_effects.items()},
-                source=GroupedParameters(source['poisson'])
+                # confounding_effects={k: GroupedParameters(v['poisson']) for k, v in confounding_effects.items()},
+                source=GroupedParameters(source['poisson']),
+                sufficient_statistics=suff_stats,
+                model_shapes=model_shapes,
             )
+
         sample_logitnormal = None
         if weights.get('logitnormal') is not None:
-            sample_logitnormal=LogitNormalSample(
+            n_features = source['logitnormal'].shape[1]
+            suff_stats = {'clusters': SufficientStatistics.create_empty(n_clusters, n_features)}
+            for c, conf in confounders.items():
+                suff_stats[c] = SufficientStatistics.create_empty(conf.n_groups, n_features)
+            sample_logitnormal = LogitNormalSample(
                 weights=ArrayParameter(weights['logitnormal']),
-                confounding_effects={k: GroupedParameters(v['logitnormal']) for k, v in confounding_effects.items()},
-                source=GroupedParameters(source['logitnormal'])
+                # confounding_effects={k: GroupedParameters(v['logitnormal']) for k, v in confounding_effects.items()},
+                source=GroupedParameters(source['logitnormal']),
+                sufficient_statistics=suff_stats,
+                model_shapes=model_shapes,
             )
+
         return cls(
             clusters=Clusters(clusters),
             categorical=sample_categorical,
@@ -631,7 +722,8 @@ class Sample:
             poisson=sample_poisson,
             logitnormal=sample_logitnormal,
             confounders=confounders,
-            chain=chain
+            chain=chain,
+            model_shapes=model_shapes,
         )
 
     def copy(self: S) -> S:
@@ -643,6 +735,7 @@ class Sample:
             poisson=self.poisson.copy(),
             logitnormal=self.logitnormal.copy(),
             confounders=self.confounders,
+            model_shapes=self.model_shapes,
             _other_cache=self.cache,
             _i_step=self.i_step
         )
@@ -695,18 +788,24 @@ class GenericTypeSample:
     def __init__(
         self,
         weights: ArrayParameter[float],                     # shape: (n_features, n_components)
-        confounding_effects: dict[str, GroupedParameters],  # shape per conf:  (n_groups, n_features, n_states)
+        # confounding_effects: dict[str, GroupedParameters],  # shape per conf:  (n_groups, n_features, n_states)
         source: GroupedParameters[bool],                    # shape: (n_objects, n_features, n_components)
+        sufficient_statistics: dict[str, SufficientStatistics],  # shape per conf: (n_groups, n_features)
+        model_shapes: ModelShapes,
     ):
         self._weights = weights
-        self._confounding_effects = confounding_effects
+        # self._confounding_effects = confounding_effects
         self._source = source
+        self._sufficient_statistics = sufficient_statistics
+        self.model_shapes = model_shapes
 
     def copy(self: S) -> S:
-        return GenericTypeSample(
+        return type(self)(
             weights=self.weights.copy(),
-            confounding_effects={k: v.copy() for k, v in self.confounding_effects.items()},
+            # confounding_effects={k: v.copy() for k, v in self.confounding_effects.items()},
             source=self.source.copy(),
+            sufficient_statistics={k: v.copy() for k, v in self.sufficient_statistics.items()},
+            model_shapes=self.model_shapes,
         )
 
     """properties to make parameters read-only"""
@@ -714,9 +813,9 @@ class GenericTypeSample:
     def weights(self) -> ArrayParameter:
         return self._weights
 
-    @property
-    def confounding_effects(self) -> dict[str, GroupedParameters]:
-        return self._confounding_effects
+    # @property
+    # def confounding_effects(self) -> dict[str, GroupedParameters]:
+    #     return self._confounding_effects
 
     @property
     def source(self) -> GroupedParameters[bool]:  # shape: (n_objects, n_features, n_components)
@@ -727,33 +826,34 @@ class GenericTypeSample:
     def n_features(self) -> int:
         return self._weights.shape[0]
 
+    @property
+    def sufficient_statistics(self) -> dict[str, SufficientStatistics]:
+        return self._sufficient_statistics
+
 
 class CategoricalSample(GenericTypeSample):
+
     def __init__(
         self,
         weights: ArrayParameter[float],                     # shape: (n_features, n_components)
-        confounding_effects: dict[str, GroupedParameters],  # shape per conf:  (n_groups, n_features, n_states)
+        # confounding_effects: dict[str, GroupedParameters],  # shape per conf:  (n_groups, n_features, n_states)
         source: GroupedParameters[bool],                    # shape: (n_objects, n_features, n_components)
-        feature_counts: dict[str, FeatureCounts],           # shape per conf: (n_groups, n_features)
+        sufficient_statistics: dict[str, FeatureCounts],           # shape per conf: (n_groups, n_features)
+        model_shapes: ModelShapes,
     ):
-        super().__init__(weights, confounding_effects, source)
-        self._feature_counts = feature_counts
+        super().__init__(weights, source, sufficient_statistics, model_shapes)
 
-    def copy(self: S) -> S:
-        return CategoricalSample(
-            weights=self.weights.copy(),
-            confounding_effects={k: v.copy() for k, v in self.confounding_effects.items()},
-            source=self.source.copy(),
-            feature_counts={k: v.copy() for k, v in self.feature_counts.items()}
-        )
-
-    @property
-    def feature_counts(self) -> dict[str, FeatureCounts]:
-        return self._feature_counts
+    # def copy(self: S) -> S:
+    #     return CategoricalSample(
+    #         weights=self.weights.copy(),
+    #         confounding_effects={k: v.copy() for k, v in self.confounding_effects.items()},
+    #         source=self.source.copy(),
+    #         sufficient_statistics={k: v.copy() for k, v in self.sufficient_statistics.items()},
+    #     )
 
     @property
     def n_states(self) -> int:
-        return next(iter(self._confounding_effects.values())).shape[2]
+        return next(iter(self.model_shapes.values())).shape[2]
 
 
 class GaussianSample(GenericTypeSample):

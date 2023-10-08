@@ -226,7 +226,7 @@ def impute_source(sample: Sample, model: Model):
     source = sample_source_from_prior(sample)
     source[na_features] = 0
     sample.source.set_value(source)
-    recalculate_feature_counts(model.data.features.values, sample)
+    recalculate_feature_counts(model.data.features.categorical.values, sample)
 
     # Next step: generate posterior sample of source
     lh_per_component = likelihood_per_component(model=model, sample=sample, caching=False)
@@ -238,5 +238,5 @@ def impute_source(sample: Sample, model: Model):
         source = sample_categorical(p=p, binary_encoding=True)
         source[na_features] = 0
 
-    recalculate_feature_counts(model.data.features.values, sample)
+    recalculate_feature_counts(model.data.features.categorical.values, sample)
 

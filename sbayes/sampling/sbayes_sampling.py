@@ -340,11 +340,12 @@ class ClusterMCMC(MCMC):
         sample = Sample.from_numpy_arrays(
             clusters=initial_clusters,
             weights=initial_weights,
-            confounding_effects=initial_confounding_effects,
+            # confounding_effects=initial_confounding_effects,
             confounders=self.data.confounders,
             source=initial_source,
             feature_counts=feature_counts,
-            chain=c
+            chain=c,
+            model_shapes=self.model.shapes,
         )
 
         for t in ['categorical', 'gaussian', 'poisson', 'logitnormal']:

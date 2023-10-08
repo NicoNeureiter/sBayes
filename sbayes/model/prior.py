@@ -163,7 +163,8 @@ class Prior:
             confounding_effects={conf: np.empty(n_groups) for conf, n_groups in self.shapes.n_groups.items()},
             confounders=confounders,
             feature_counts={'clusters': feature_counts_cluster, **feature_counts_by_confounder},
-            source=source
+            source=source,
+            model_shapes=self.shapes,
         )
 
     def generate_samples(self, n_samples: int) -> list[Sample]:
@@ -1184,7 +1185,7 @@ class ClusterSizePrior:
             # P(size)   =   uniform
             # P(zone | size)   =   1 / |{clusters of size k}|   =   1 / (n choose k)
             logp = -log_multinom(self.shapes.n_objects, sizes)
-            # logp = -log_binom(self.shapes.n_sites, sizes).sum()
+            # logp = -log_binom(self.shapes.n_objects, sizes).sum()
 
         elif self.prior_type is self.PriorType.QUADRATIC_SIZE:
             # Here we assume that only a quadratically growing subset of clusters is
@@ -1209,7 +1210,7 @@ class ClusterSizePrior:
 
     def generate_sample(self) -> NDArray[bool]:  # shape: (n_clusters, n_objects)
         n_clusters = self.shapes.n_clusters
-        n_objects = self.shapes.n_sites
+        n_objects = self.shapes.n_objects
         if self.prior_type is self.PriorType.UNIFORM_AREA:
             onehots = np.eye(n_clusters + 1, n_clusters, dtype=bool)
 

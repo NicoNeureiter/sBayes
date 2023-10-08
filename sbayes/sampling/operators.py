@@ -21,7 +21,7 @@ from sbayes.model import Model, normalize_weights, update_categorical_weights, \
                                 update_gaussian_weights, update_poisson_weights, update_logitnormal_weights
 from sbayes.preprocessing import sample_categorical
 from sbayes.config.config import OperatorsConfig
-from sbayes.model.likelihood import Likelihood
+from sbayes.model.likelihood import Likelihood, FeatureType
 import sbayes.model
 
 
@@ -241,12 +241,11 @@ class GibbsSampleSource(Operator):
         self.sample_from_prior = sample_from_prior
         self.object_selector = object_selector
         self.min_size = 10
-        self.max_size = max_size
+        self.max_size = min(max_size, self.model_by_chain[0].shapes.n_objects)
 
-        # self.max_size = min(max_size, self.model_by_chain[0].shapes.n_sites)
-        #
-        # if self.model_by_chain[0].shapes.n_sites <= self.min_size:
-        #     self.object_selector = ObjectSelector.ALL
+        # If the min_size includes all the sites we don't need to subsample at all
+        if self.model_by_chain[0].shapes.n_objects <= self.min_size:
+            self.object_selector = ObjectSelector.ALL
 
     def _propose(
             self,
@@ -376,9 +375,7 @@ class GibbsSampleSource(Operator):
         model: Model = self.model_by_chain[sample.chain]
         lh = Likelihood(data=model.data, shapes=model.shapes, prior=model.prior)
 
-        lh_per_component = getattr(lh, feature_type).pointwise_likelihood(
-            model=model, sample=sample,
-            cache=getattr(sample.cache, feature_type).component_likelihoods, caching=True)
+        lh_per_component = getattr(lh, feature_type).pointwise_likelihood(model=model, sample=sample)
 
         # 2. multiply by weights and normalize over components to get the source posterior
         update_weights = getattr(sbayes.model, "update_" + feature_type + "_weights")
@@ -805,7 +802,6 @@ def component_likelihood_given_unchanged(
     object_subset: NDArray[bool],
     i_cluster: int,
     feature_type: str
-
 ) -> NDArray[float]:  # shape: (n_objects, n_feature, n_components)
 
     features = getattr(model.data.features, feature_type)
@@ -829,7 +825,7 @@ def component_likelihood_given_unchanged(
                 for g in groups
             ])
 
-            unchangeable_feature_counts = getattr(sample, feature_type).feature_counts[conf].value - changeable_counts
+            unchangeable_feature_counts = getattr(sample, feature_type).sufficient_statistics[conf].value - changeable_counts
             prior_counts = getattr(model.prior.prior_confounding_effects[conf], feature_type).concentration_array(sample)
             conf_effect = normalize(unchangeable_feature_counts + prior_counts, axis=-1)
 
@@ -913,29 +909,28 @@ class AlterClusterGibbsish(ClusterOperator):
 
         if self.sample_from_prior:
             n_available = np.count_nonzero(candidates)
-            return cluster_posterior[0.5*np.ones(n_available)]
+            return 0.5 * np.ones(n_available)
 
-        # todo: complete xxx.pointwise_likelihood for gaussian and logitnormal features
-        # todo: changed available to candidates. Ask Nico for implications
+            # TODO: check with peter whether I didn't understand something here:
+            #  return cluster_posterior[0.5*np.ones(n_available)]
 
         lh = Likelihood(data=model.data, shapes=model.shapes, prior=model.prior)
-        feature_types = ["categorical", "gaussian", "poisson", "logitnormal"]
 
-        for ft in feature_types:
-            if getattr(sample, ft) is not None:
+        # for ft in feature_types:
+        for ft_likelihood in lh.feature_type_likelihoods:
+            if ft_likelihood.is_used(sample):
+                cluster_lh_z = ft_likelihood.pointwise_conditional_cluster_lh(
+                    sample=sample, i_cluster=i_cluster, available=candidates
+                )
 
-                pointwise_conditional_cluster_lh = getattr(self, "pointwise_conditional_cluster_lh_" + ft)
-
-                cluster_lh_z = pointwise_conditional_cluster_lh(sample=sample, model=model,
-                                                                i_cluster=i_cluster, available=candidates)
-
-                all_lh = deepcopy(getattr(lh, ft).pointwise_likelihood(
-                    model=model, sample=sample,
-                    cache=getattr(sample.cache, ft).component_likelihoods,
-                    caching=True)[candidates, :])
+                all_lh = deepcopy(
+                    ft_likelihood.pointwise_likelihood(model=model, sample=sample)[candidates, :]
+                )
                 all_lh[..., 0] = cluster_lh_z
 
-                weights_z01 = self.compute_feature_weights_with_and_without(sample, candidates, feature_type=ft)
+                weights_z01 = self.compute_feature_weights_with_and_without(
+                    sample, candidates, feature_type=ft_likelihood.feature_type
+                )
                 feature_lh_z01 = inner1d(all_lh[np.newaxis, ...], weights_z01)
                 marginal_lh_z01 = np.prod(feature_lh_z01, axis=-1)
 
@@ -946,103 +941,26 @@ class AlterClusterGibbsish(ClusterOperator):
 
         return cluster_posterior
 
-    def pointwise_conditional_cluster_lh_categorical(
-        self,
-        sample: Sample,
-        model: Model,
-        i_cluster: int,
-        available: NDArray[bool]
-    ) -> NDArray[float]:
-
-        p = conditional_effect_mean(
-            prior_counts=model.prior.prior_cluster_effect.categorical.concentration_array,
-            feature_counts=sample.categorical.feature_counts['clusters'].value[[i_cluster]]
-        )
-
-        return inner1d(self.features.categorical.values[available], p)
-
-    def pointwise_conditional_cluster_lh_gaussian(
-        self,
-        sample: Sample,
-        model: Model,
-        i_cluster: int,
-        available: NDArray[bool]
-    ) -> NDArray[float]:
-
-        mu_0 = model.prior.prior_cluster_effect.gaussian.mean.mu_0_array
-        sigma_0 = model.prior.prior_cluster_effect.gaussian.mean.sigma_0_array
-
-        features_candidates = self.features.gaussian.values[available]
-        features_cluster = self.features.gaussian.values[sample.clusters.value[i_cluster]]
-        condition_lh = np.zeros(features_candidates.shape)
-
-        # todo: implement likelihood
-        for j in range(features_cluster.shape[1]):
-            f_c = features_cluster[:, j]
-            condition_lh[:, j] = np.repeat(0.5, len(features_candidates[:, j]))
-
-        return condition_lh
-
-    def pointwise_conditional_cluster_lh_poisson(
-        self,
-        sample: Sample,
-        model: Model,
-        i_cluster: int,
-        available: NDArray[bool]
-    ) -> NDArray[float]:
-
-        alpha_0 = model.prior.prior_cluster_effect.poisson.alpha_0_array
-        beta_0 = model.prior.prior_cluster_effect.poisson.beta_0_array
-
-        features_candidates = self.features.poisson.values[available]
-        features_cluster = self.features.poisson.values[sample.clusters.value[i_cluster]]
-        condition_lh = np.zeros(features_candidates.shape)
-
-        for j in range(features_cluster.shape[1]):
-            f_c = features_cluster[:, j]
-            n = len(f_c)
-            alpha_1 = alpha_0[j] + f_c.sum()
-            beta_1 = beta_0[j] + n
-            condition_lh[:, j] = nbinom.pmf(features_candidates[:, j], alpha_1, beta_1 / (1 + beta_1))
-
-        return condition_lh
-
-    def pointwise_conditional_cluster_lh_logitnormal(
-        self,
-        sample: Sample,
-        model: Model,
-        i_cluster: int,
-        available: NDArray[bool]
-    ) -> NDArray[float]:
-
-        mu_0 = model.prior.prior_cluster_effect.logitnormal.mean.mu_0_array
-        sigma_0 = model.prior.prior_cluster_effect.logitnormal.mean.sigma_0_array
-
-        features_candidates = self.features.logitnormal.values[available]
-        features_cluster = self.features.logitnormal.values[sample.clusters.value[i_cluster]]
-        condition_lh = np.zeros(features_candidates.shape)
-
-        # todo: implement likelihood
-        for j in range(features_cluster.shape[1]):
-            f_c = features_cluster[:, j]
-            condition_lh[:, j] = np.repeat(0.5, len(features_candidates[:, j]))
-
-        return condition_lh
-
     @staticmethod
     def compute_feature_weights_with_and_without(
         sample: Sample,
         available: NDArray[bool],   # shape: (n_objects, )
-        feature_type: str
+        feature_type: FeatureType,
     ) -> NDArray[float]:            # shape: (2, n_objects, n_features, n_components)
+        update_weights_by_ft = {
+            FeatureType.categorical: update_categorical_weights,
+            FeatureType.gaussian: update_gaussian_weights,
+            FeatureType.poisson: update_poisson_weights,
+            FeatureType.logitnormal: update_logitnormal_weights,
+        }
 
-        update_weights = getattr(sbayes.model, "update_" + feature_type + "_weights")
+        update_weights = update_weights_by_ft[feature_type]
         weights_current = update_weights(sample, caching=True)[available]
         # weights = normalize_weights(sample.weights.value, has_components)
 
-        has_components = deepcopy(getattr(sample.cache, feature_type).has_components.value[available, :])
+        has_components = deepcopy(sample.cache.feature_type_cache[feature_type].has_components.value[available, :])
         has_components[:, 0] = ~has_components[:, 0]
-        weights_flipped = normalize_weights(getattr(sample, feature_type).weights.value, has_components)
+        weights_flipped = normalize_weights(sample.feature_type_samples[feature_type].weights.value, has_components)
 
         weights_z01 = np.empty((2, *weights_current.shape))
         weights_z01[1] = np.where(has_components[:, np.newaxis, [0]], weights_flipped, weights_current)
@@ -1210,43 +1128,9 @@ class ClusterEffectProposals:
         # todo: include gaussian, poisson and logitnormal features
         return conditional_effect_mean(
             prior_counts=model.prior.categorical.prior_cluster_effect.concentration_array,
-            feature_counts=sample.categorical.feature_counts['clusters'].value[[i_cluster]]
+            feature_counts=sample.categorical.sufficient_statistics['clusters'].value[[i_cluster]]
         )
 
-
-    @staticmethod
-    def residual(model: Model, sample: Sample, i_cluster: int) -> NDArray[float]:
-        features = model.data.features.values
-        free_objects = ~sample.clusters.any_cluster()
-
-        # Create counts in free objects
-        prior_counts = model.prior.prior_cluster_effect.concentration_array
-        feature_counts = features[free_objects].sum(axis=0)
-
-        # The expected effect is given by the normalized posterior counts
-        return normalize(feature_counts + prior_counts, axis=-1)
-
-    @staticmethod
-    def residual4(model: Model, sample: Sample, i_cluster: int) -> NDArray[float]:
-        features = model.data.features.values
-        free_objects = ~sample.clusters.any_cluster()
-
-        # Create counts in free objects
-        prior_counts = model.prior.prior_cluster_effect.concentration_array
-        exp_counts_conf = ClusterEffectProposals.expected_confounder_features(model, sample)
-        residual_features = features[free_objects] - exp_counts_conf[free_objects]
-        residual_counts = residual_features.clip(0).sum(axis=0)
-
-        # Create counts in free objects
-        prior_counts = model.prior.prior_cluster_effect.concentration_array
-        exp_counts_conf = ClusterEffectProposals.expected_confounder_features(model, sample)
-        residual_features = features[free_objects] - exp_counts_conf[free_objects]
-        residual_counts = residual_features.clip(0).sum(axis=0)
-
-        # The expected effect is given by the normalized posterior counts
-        return normalize(residual_counts + prior_counts, axis=-1)
-
-    @staticmethod
     def residual_counts(model: Model, sample: Sample, i_cluster: int) -> NDArray[float]:
         features = model.data.features.values
 
@@ -1280,7 +1164,7 @@ class ClusterEffectProposals:
         for i_comp, (name_conf, conf) in enumerate(confounders.items(), start=1):
             prior_counts = model.prior.prior_confounding_effects[name_conf].concentration_array(sample)
 
-            p_conf = normalize(conf.feature_counts + prior_counts, axis=-1)  # (n_features, n_states)
+            p_conf = normalize(conf.sufficient_statistics + prior_counts, axis=-1)  # (n_features, n_states)
             for i_g, g in enumerate(conf.group_assignment):
                 expected_features[g] += weights[g, :, [i_comp], None] * p_conf[np.newaxis, i_g, ...]
 
@@ -1337,26 +1221,23 @@ class AlterClusterGibbsishWide(AlterClusterGibbsish):
         cluster_posterior[available] = 1.
 
         lh = Likelihood(data=model.data, shapes=model.shapes, prior=model.prior)
-        feature_types = ["categorical", "gaussian", "poisson", "logitnormal"]
-        for ft in feature_types:
-            # todo: check if the cache is right
-            if getattr(sample, ft) is not None:
 
-                # todo: Nico, can you check if this is the right conditional function? It seems to evaluate all available
-                # todo: objects, including the ones already in the cluster, to the features in the cluster
-                pointwise_conditional_cluster_lh = getattr(self, "pointwise_conditional_cluster_lh_" + ft)
-                cluster_lh_z = pointwise_conditional_cluster_lh(sample=sample, model=model,
-                                                                i_cluster=i_cluster, available=available)
-
-                all_lh = deepcopy(getattr(lh, ft).pointwise_likelihood(
-                    model=model, sample=sample,
-                    cache=getattr(sample.cache, ft).component_likelihoods,
-                    caching=True)[available, :])
-
+        for ft_likelihood in lh.feature_type_likelihoods:
+            if ft_likelihood.is_used(sample):
+                cluster_lh_z = ft_likelihood.pointwise_conditional_cluster_lh(
+                    sample=sample, i_cluster=i_cluster, available=available
+                )
+                all_lh = deepcopy(
+                    ft_likelihood.pointwise_likelihood(model=model, sample=sample)[available, :]
+                )
                 all_lh[..., 0] = cluster_lh_z
-                weights_z01 = self.compute_feature_weights_with_and_without(sample, available, feature_type=ft)
+
+                weights_z01 = self.compute_feature_weights_with_and_without(
+                    sample, available, feature_type=ft_likelihood.feature_type
+                )
                 feature_lh_z01 = inner1d(all_lh[np.newaxis, ...], weights_z01)
                 marginal_lh_z01 = np.prod(feature_lh_z01, axis=-1)
+
                 cluster_posterior *= marginal_lh_z01[1] / (marginal_lh_z01[0] + marginal_lh_z01[1])
 
         if self.consider_geo_prior:
@@ -1751,7 +1632,7 @@ class OperatorSchedule:
 
 
 def verify_counts(sample, features: NDArray[bool]):
-    cached_counts = deepcopy(sample.categorical.feature_counts)
+    cached_counts = deepcopy(sample.categorical.sufficient_statistics)
     new_counts = recalculate_feature_counts(features, sample)
     assert set(cached_counts.keys()) == set(new_counts.keys())
     for k in cached_counts.keys():

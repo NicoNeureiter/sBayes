@@ -143,11 +143,11 @@ Ratio of confounding_effects steps (changing probabilities in confounders): {op_
                                            shapes.n_states))
 
             for g in self.model.confounders[conf].group_names:
-                for i_f, f in enumerate(self.data.features.names):
+                for i_f, f in enumerate(self.data.features.categorical.names):
                     n_states_f = shapes.n_states_per_feature[i_f]
                     conf_effects[conf][:, i_f, :n_states_f] = conf_eff[g][f][-1]
 
-        dummy_source = np.empty((shapes.n_sites,
+        dummy_source = np.empty((shapes.n_objects,
                                  shapes.n_features,
                                  shapes.n_components), dtype=bool)
 
@@ -169,11 +169,12 @@ Ratio of confounding_effects steps (changing probabilities in confounders): {op_
             confounders=self.data.confounders,
             source=dummy_source,
             feature_counts=dummy_feature_counts,
+            model_shapes=self.model.shapes,
         )
         sample.i_step = results.sample_id[-1]
 
         # Next iteration: sample source from prior (allows calculating feature counts)
         impute_source(sample, self.model)
-        recalculate_feature_counts(self.data.features.values, sample)
+        recalculate_feature_counts(self.data.features.categorical.values, sample)
 
         return sample

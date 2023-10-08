@@ -3,7 +3,7 @@ from __future__ import annotations
 import numpy as np
 from numpy.typing import NDArray
 
-from sbayes.sampling.state import Sample, FeatureCounts
+from sbayes.sampling.state import Sample, FeatureCounts, CategoricalSample, SufficientStatistics
 
 
 def compute_effect_counts(
@@ -33,24 +33,63 @@ def compute_effect_counts(
 
 
 def recalculate_feature_counts(
-    features: NDArray[bool],
+    categorical_features: NDArray[bool],
     sample: Sample,
-) -> dict[str, FeatureCounts]:
+) -> dict[str, SufficientStatistics]:
     """Update the likelihood values for each of the mixture components."""
 
     clusters = sample.clusters.value
     confounders = sample.confounders
     source = sample.categorical.source.value
 
-    new_cluster_counts = compute_effect_counts(features, clusters, source[..., 0])
-    sample.categorical.feature_counts['clusters'].set_value(new_cluster_counts)
+    new_cluster_counts = compute_effect_counts(categorical_features, clusters, source[..., 0])
+    sample.categorical.sufficient_statistics['clusters'].set_value(new_cluster_counts)
 
     for i, conf in enumerate(confounders.keys(), start=1):
         groups = confounders[conf].group_assignment
-        new_conf_counts = compute_effect_counts(features, groups, source[..., i])
-        sample.categorical.feature_counts[conf].set_value(new_conf_counts)
+        new_conf_counts = compute_effect_counts(categorical_features, groups, source[..., i])
+        sample.categorical.sufficient_statistics[conf].set_value(new_conf_counts)
 
-    return sample.categorical.feature_counts
+    # Mark all other sufficient statistics as outdated
+    for ft_sample in sample.feature_type_samples.values():
+        for conf_suff_stats in ft_sample.sufficient_statistics.values():
+            conf_suff_stats.make_dirty()
+
+    return sample.categorical.sufficient_statistics
+
+
+def update_sufficient_statistics(
+    sample_old: Sample,
+    sample_new: Sample,
+    features,
+    object_subset,
+):
+    confounders = sample_new.confounders
+    clusters_old = sample_old.clusters.value
+    clusters_new = sample_new.clusters.value
+    cluster_changes = np.any(clusters_old != clusters_new, axis=1)
+
+    update_feature_counts(sample_old, sample_new, features, object_subset)
+
+    for ft_sample_old, ft_sample_new in zip(sample_old.feature_type_samples, sample_new.feature_type_samples):
+        if isinstance(ft_sample_old, CategoricalSample):
+            continue  # Feature counts were already updated above
+        else:
+            source_old = ft_sample_old.source.value
+            source_new = ft_sample_new.source.value
+            source_changes: NDArray[bool] = (source_old != source_new)
+            # shape: (n_objects, n_features, n_components)
+
+            # Register changes in cluster effect observations
+            source_changes_by_cluster = np.dot(clusters_new, source_changes[..., 0])
+            cluster_changes = (cluster_changes[None, :] | source_changes_by_cluster)
+            ft_sample_new.sufficient_statistics['clusters'].mark_changes(cluster_changes)
+
+            # Register changes in confounding effect observations
+            for i_comp, (conf_name, conf) in enumerate(confounders.items(), start=1):
+                groups = conf.group_assignment
+                source_changes_per_group = np.dot(groups, source_changes[..., i_comp])
+                ft_sample_new.sufficient_statistics[conf_name].mark_changes(source_changes_per_group)
 
 
 def update_feature_counts(
@@ -58,8 +97,8 @@ def update_feature_counts(
     sample_new: Sample,
     features,
     object_subset,
-):
-    counts = sample_new.categorical.feature_counts
+) -> dict[str, FeatureCounts]:
+    counts = sample_new.categorical.sufficient_statistics
     confounders = sample_new.confounders
 
     # Update cluster counts:
@@ -75,7 +114,7 @@ def update_feature_counts(
         source_is_component=sample_new.categorical.source.value[..., 0],
         object_subset=object_subset
     )
-    counts['clusters'].add_changes(diff=new_cluster_counts - old_cluster_counts)
+    counts['clusters'].add_changes(old=old_cluster_counts, new=new_cluster_counts)
 
     for i, conf in enumerate(confounders.keys(), start=1):
         old_conf_counts = compute_effect_counts(
@@ -91,6 +130,6 @@ def update_feature_counts(
             object_subset=object_subset
         )
 
-        counts[conf].add_changes(diff=new_conf_counts - old_conf_counts)
+        counts[conf].add_changes(old=old_conf_counts, new=new_conf_counts)
 
     return counts

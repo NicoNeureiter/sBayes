@@ -2,6 +2,8 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 
+from enum import Enum
+
 from numpy.core._umath_tests import inner1d
 
 from sbayes.sampling.counts import recalculate_feature_counts
@@ -17,29 +19,9 @@ import numpy as np
 from numpy.typing import NDArray
 
 from scipy.stats import nbinom
-from sbayes.sampling.state import Sample, GenericTypeSample
+from sbayes.sampling.state import Sample, GenericTypeSample, ModelCache, GenericTypeCache
 from sbayes.load_data import Data, Confounder, Features
-
-
-class ModelShapes(Protocol):
-    def __init__(self):
-        self.n_features_poisson = None
-        self.n_features_categorical = None
-
-    n_clusters: int
-    n_sites: int
-    n_features: int
-    n_features_categorical: int
-    n_states_categorical: int
-    states_per_feature: NDArray[bool]
-    n_states_per_feature: list[int]
-    n_features_gaussian: int
-    n_features_logitnormal: int
-    n_features_poisson: int
-    n_confounders: int
-    n_components: int
-    n_groups: dict[str, int]
-
+from sbayes.model.model_shapes import ModelShapes
 
 class Likelihood(object):
 
@@ -65,6 +47,12 @@ class Likelihood(object):
                                          shapes=self.shapes, prior=self.prior)
         self.logitnormal = LikelihoodLogitNormal(features=self.features, confounders=self.confounders,
                                                  shapes=self.shapes, prior=self.prior)
+        self.feature_type_likelihoods = [
+            self.categorical,
+            self.gaussian,
+            self.poisson,
+            self.logitnormal
+        ]
 
     def __call__(self, sample: Sample, caching=True) -> float:
         """Compute the likelihood of all sites. The likelihood is defined as a mixture of areal and confounding effects.
@@ -78,30 +66,13 @@ class Likelihood(object):
 
         # Sum up log-likelihood of each mixture component and each type of feature
         if sample.categorical is not None:
-
-            log_lh += LikelihoodCategorical.compute_lh_clusters(self, sample=sample, caching=caching)
-
-            for i, conf in enumerate(self.confounders, start=1):
-                log_lh += LikelihoodCategorical.compute_lh_confounder(self, sample=sample, conf=conf, caching=caching)
-
+            log_lh += self.categorical(sample=sample, caching=caching)
         if sample.gaussian is not None:
-            log_lh += LikelihoodGaussian.compute_lh_clusters(self, sample=sample, caching=caching)
-
-            for i, conf in enumerate(self.confounders, start=1):
-                log_lh += LikelihoodGaussian.compute_lh_confounder(self, sample=sample, conf=conf, caching=caching)
-
+            log_lh += self.gaussian(sample=sample, caching=caching)
         if sample.poisson is not None:
-            log_lh += LikelihoodPoisson.compute_lh_clusters(self, sample=sample, caching=caching)
-
-            for i, conf in enumerate(self.confounders, start=1):
-                log_lh += LikelihoodPoisson.compute_lh_confounder(self, sample=sample, conf=conf, caching=caching)
-
+            log_lh += self.poisson(sample=sample, caching=caching)
         if sample.logitnormal is not None:
-            log_lh += LikelihoodLogitNormal.compute_lh_clusters(self, sample=sample, caching=caching)
-
-            for i, conf in enumerate(self.confounders, start=1):
-                log_lh += LikelihoodLogitNormal.compute_lh_confounder(self, sample=sample, conf=conf, caching=caching)
-
+            log_lh += self.logitnormal(sample=sample, caching=caching)
         return log_lh
 
 
@@ -126,6 +97,9 @@ class LikelihoodGenericType(object):
         self.prior = prior
         self.has_counts = has_counts
 
+    def is_used(self, sample: Sample):
+        raise NotImplementedError
+
     def __call__(self, sample: Sample, caching=True) -> float:
         """Compute the likelihood of all sites. The likelihood is defined as a mixture of areal and confounding effects.
             Args:
@@ -134,9 +108,8 @@ class LikelihoodGenericType(object):
                 The joint likelihood of the current sample
         """
 
-        if self.has_counts:
-            if not caching:
-                recalculate_feature_counts(self.features.categorical.values, sample)
+        if not caching:
+            recalculate_feature_counts(self.features.categorical.values, sample)
 
         # Sum up log-likelihood of each mixture component:
         log_lh = 0.0
@@ -157,33 +130,31 @@ class LikelihoodGenericType(object):
         `conf` in the current sample."""
         raise NotImplementedError
 
+    def get_ft_cache(self, cache: ModelCache) -> GenericTypeCache:
+        raise NotImplementedError
+
     def pointwise_likelihood(
         self,
         model,
         sample: Sample,
-        cache,
         caching=True
     ) -> NDArray[float]:  # shape: (n_objects, n_feature, n_components)
         """Update the likelihood values for each of the mixture components"""
         CHECK_CACHING = False
 
-        if caching and not cache.is_outdated():
+        lh_cache = self.get_ft_cache(sample.cache).component_likelihoods
+
+
+        if caching and not lh_cache.is_outdated():
             if CHECK_CACHING:
-                assert np.all(cache.value == self.pointwise_likelihood(model, sample, caching=False))
-            return cache.value
+                assert np.all(lh_cache.value == self.pointwise_likelihood(model, sample, caching=False))
+            return lh_cache.value
 
-        with cache.edit() as component_likelihood:
-
-            # only categorical features have cluster_counts
-            if self.has_counts:
-                changed_clusters = cache.what_changed(input_key=['clusters', 'clusters_counts'], caching=caching)
-
-            else:
-                changed_clusters = cache.what_changed(input_key=['clusters'], caching=caching)
-
+        with lh_cache.edit() as component_likelihood:
+            changed_clusters = lh_cache.what_changed(input_key=['clusters', 'clusters_sufficient_stats'],
+                                                     caching=caching)
             if len(changed_clusters) > 0:
                 # Update component likelihood for cluster effects:
-
                 self.compute_pointwise_cluster_likelihood(
                     sample=sample,
                     changed_clusters=changed_clusters,
@@ -192,15 +163,7 @@ class LikelihoodGenericType(object):
 
             # Update component likelihood for confounding effects:
             for i, conf in enumerate(self.confounders.values(), start=1):
-                # only categorical features have *_counts (maybe find more elegant solution)
-
-                if self.has_counts:
-                    changed_groups = cache.what_changed(input_key=[f'c_{conf.name}', f'{conf.name}_counts'],
-                                                        caching=caching)
-                else:
-                    changed_groups = cache.what_changed(input_key=[f'c_{conf.name}'],
-                                                        caching=caching)
-
+                changed_groups = lh_cache.what_changed(input_key=f'{conf.name}_sufficient_stats', caching=caching)
                 if len(changed_groups) == 0:
                     continue
 
@@ -214,11 +177,11 @@ class LikelihoodGenericType(object):
             component_likelihood[self.na_values()] = 1.
 
         if caching and CHECK_CACHING:
-            cached = np.copy(cache.value)
+            cached = np.copy(lh_cache.value)
             recomputed = self.pointwise_likelihood(model, sample, caching=False)
             assert np.allclose(cached, recomputed)
 
-        return cache.value
+        return lh_cache.value
 
     def compute_pointwise_cluster_likelihood(
         self,
@@ -237,37 +200,60 @@ class LikelihoodGenericType(object):
     ):
         raise NotImplementedError
 
+    def pointwise_conditional_cluster_lh(
+        self,
+        sample: Sample,
+        i_cluster: int,
+        available: NDArray[bool]
+    ) -> NDArray[float]:
+        raise NotImplementedError
+
     def na_values(self):
         pass
 
 
+class FeatureType(str, Enum):
+    categorical = "categorical"
+    gaussian = "gaussian"
+    poisson = "poisson"
+    logitnormal = "logitnormal"
+
+
 class LikelihoodCategorical(LikelihoodGenericType):
 
-    def compute_lh_clusters(self: Likelihood, sample: Sample, caching=True) -> float:
+    feature_type = FeatureType.categorical
+
+    def is_used(self, sample: Sample):
+        return sample.categorical is not None
+
+    def get_ft_cache(self, cache: ModelCache):
+        return cache.categorical
+
+    def compute_lh_clusters(self, sample: Sample, caching=True) -> float:
         """Compute the log-likelihood of the observations that are assigned to cluster
         effects in the current sample."""
 
         cache = sample.cache.categorical.group_likelihoods['clusters']
-        feature_counts = sample.categorical.feature_counts['clusters'].value
+        feature_counts = sample.categorical.sufficient_statistics['clusters'].value
 
         with cache.edit() as lh:
-            for i_cluster in cache.what_changed('counts', caching=caching):
+            for i_cluster in cache.what_changed('sufficient_stats', caching=caching):
                 lh[i_cluster] = dirichlet_categorical_logpdf(
                     counts=feature_counts[i_cluster],
                     a=self.prior.prior_cluster_effect.categorical.concentration_array,
                 ).sum()
         return cache.value.sum()
 
-    def compute_lh_confounder(self: Likelihood, sample: Sample, conf: str, caching=True) -> float:
+    def compute_lh_confounder(self, sample: Sample, conf: str, caching=True) -> float:
         """Compute the log-likelihood of the observations that are assigned to confounder
         `conf` in the current sample."""
 
         cache = sample.cache.categorical.group_likelihoods[conf]
-        feature_counts = sample.categorical.feature_counts[conf].value
+        feature_counts = sample.categorical.sufficient_statistics[conf].value
 
         with cache.edit() as lh:
             prior_concentration = self.prior.prior_confounding_effects[conf].categorical.concentration_array(sample)
-            for i_g in cache.what_changed('counts', caching=caching):
+            for i_g in cache.what_changed('sufficient_stats', caching=caching):
                 lh[i_g] = dirichlet_categorical_logpdf(
                     counts=feature_counts[i_g],
                     a=prior_concentration[i_g],
@@ -284,8 +270,8 @@ class LikelihoodCategorical(LikelihoodGenericType):
 
         # The expected cluster effect is given by the normalized posterior counts
         cluster_effect_counts = (  # feature counts + prior counts
-            sample.categorical.feature_counts['clusters'].value +
-            self.prior.prior_cluster_effect.categorical.concentration_array
+                sample.categorical.sufficient_statistics['clusters'].value +
+                self.prior.prior_cluster_effect.categorical.concentration_array
         )
 
         cluster_effect = normalize(cluster_effect_counts, axis=-1)
@@ -310,8 +296,8 @@ class LikelihoodCategorical(LikelihoodGenericType):
         prior = self.prior.prior_confounding_effects[confounder.name].categorical
 
         conf_effect_counts = (  # feature counts + prior counts
-            sample.categorical.feature_counts[confounder.name].value +
-            prior.concentration_array(sample)
+                sample.categorical.sufficient_statistics[confounder.name].value +
+                prior.concentration_array(sample)
         )
         conf_effect = normalize(conf_effect_counts, axis=-1)
 
@@ -323,58 +309,84 @@ class LikelihoodCategorical(LikelihoodGenericType):
             out=out,
         )
 
+    def pointwise_conditional_cluster_lh(
+        self,
+        sample: Sample,
+        i_cluster: int,
+        available: NDArray[bool]
+    ) -> NDArray[float]:
+        prior_counts = self.prior.prior_cluster_effect.categorical.concentration_array
+        feature_counts = sample.categorical.sufficient_statistics['clusters'].value[[i_cluster]]
+
+        p = normalize(prior_counts + feature_counts, axis=-1)
+        return inner1d(self.features.categorical.values[available], p)
+
     def na_values(self):
         return self.features.categorical.na_values
 
 
 class LikelihoodGaussian(LikelihoodGenericType):
 
-    def compute_lh_clusters(self:Likelihood, sample: Sample, caching=True) -> float:
+    feature_type = FeatureType.gaussian
+
+    def is_used(self, sample: Sample):
+        return sample.gaussian is not None
+
+    def get_ft_cache(self, cache: ModelCache):
+        return cache.gaussian
+
+    def compute_lh_clusters(self, sample: Sample, caching=True) -> float:
         """Compute the log-likelihood of the observations that are assigned to cluster
         effects in the current sample."""
 
         cache = sample.cache.gaussian.group_likelihoods['clusters']
 
         with cache.edit() as lh:
-
-            # todo: reactivate what_changed and caching
-            # for i_cluster in cache.what_changed('xxx', caching=caching):
-            for i_cluster in range(sample.n_clusters):
+            for i_cluster in cache.what_changed('sufficient_stats', caching=caching):
                 lh[i_cluster] = 0
+                cluster = sample.clusters.value[i_cluster]
+
                 # todo: Consider vectorization
                 for f in range(self.features.gaussian.n_features):
-                    x = self.features.gaussian.values[sample.clusters.value[i_cluster]][:, f]
+                    # TODO only use samples that have cluster as a source component
+                    x = self.features.gaussian.values[cluster][:, f]
                     mu_0 = self.prior.prior_cluster_effect.gaussian.mean.mu_0_array[f]
                     sigma_0 = self.prior.prior_cluster_effect.gaussian.mean.sigma_0_array[f]
                     # use the maximum likelihood value for sigma_fixed
                     sigma_fixed = np.nanstd(x)
-                    lh[i_cluster] += gaussian_mu_marginalised_logpdf(x=x, mu_0=mu_0, sigma_0=sigma_0,
-                                                                     sigma_fixed=sigma_fixed)
+                    lh[i_cluster] += gaussian_mu_marginalised_logpdf(
+                        x=x, mu_0=mu_0, sigma_0=sigma_0, sigma_fixed=sigma_fixed,
+                        in_component=sample.gaussian.source.value[cluster, f, 0],
+                    )
+
         return cache.value.sum()
 
-    def compute_lh_confounder(self: Likelihood, sample: Sample, conf: str, caching=True) -> float:
+    def compute_lh_confounder(self, sample: Sample, conf: str, caching=True) -> float:
         """Compute the log-likelihood of the observations that are assigned to confounder
         `conf` in the current sample."""
 
         cache = sample.cache.gaussian.group_likelihoods[conf]
+        i_component = sample.model_shapes.get_component_index(conf)
 
         with cache.edit() as lh:
-            # todo: reactivate what_changed and caching
-            # for i_g in cache.what_changed('groups', caching=caching):
-            for i_g in range(sample.confounders[conf].n_groups):
+            for i_g in cache.what_changed('sufficient_stats', caching=caching):
                 lh[i_g] = 0
+                group = sample.confounders[conf].group_assignment[i_g]
+
                 # todo: Consider vectorization
                 for f in range(self.features.gaussian.n_features):
-                    x = self.features.gaussian.values[sample.confounders[conf].group_assignment[i_g]][:, f]
+                    x = self.features.gaussian.values[group, f]
                     mu_0 = self.prior.prior_confounding_effects[conf].gaussian.mean.mu_0_array[i_g][f]
                     sigma_0 = self.prior.prior_confounding_effects[conf].gaussian.mean.sigma_0_array[i_g][f]
 
                     # use the maximum likelihood value for sigma_fixed
                     sigma_fixed = np.nanstd(x)
-                    lh[i_g] += gaussian_mu_marginalised_logpdf(x=x, mu_0=mu_0, sigma_0=sigma_0,
-                                                               sigma_fixed=sigma_fixed)
+                    lh[i_g] += gaussian_mu_marginalised_logpdf(
+                        x=x, mu_0=mu_0, sigma_0=sigma_0, sigma_fixed=sigma_fixed,
+                        in_component=sample.gaussian.source.value[group, f, i_component],
+                    )
 
-            return cache.value.sum()
+        return cache.value.sum()
 
     def compute_pointwise_cluster_likelihood(
         self,
@@ -426,10 +438,39 @@ class LikelihoodGaussian(LikelihoodGenericType):
                 # todo: implement likelihood
                 out[g, j] = np.repeat(0.5, len(f))
 
+    def pointwise_conditional_cluster_lh(
+        self,
+        sample: Sample,
+        i_cluster: int,
+        available: NDArray[bool]
+    ) -> NDArray[float]:
+
+        mu_0 = self.prior.prior_cluster_effect.gaussian.mean.mu_0_array
+        sigma_0 = self.prior.prior_cluster_effect.gaussian.mean.sigma_0_array
+
+        features_candidates = self.features.gaussian.values[available]
+        features_cluster = self.features.gaussian.values[sample.clusters.value[i_cluster]]
+        condition_lh = np.zeros(features_candidates.shape)
+
+        # todo: implement likelihood
+        for j in range(features_cluster.shape[1]):
+            f_c = features_cluster[:, j]
+            condition_lh[:, j] = np.repeat(0.5, len(features_candidates[:, j]))
+
+        return condition_lh
+
 
 class LikelihoodPoisson(LikelihoodGenericType):
 
-    def compute_lh_clusters(self: Likelihood, sample: Sample, caching=True) -> float:
+    feature_type = FeatureType.poisson
+
+    def is_used(self, sample: Sample):
+        return sample.poisson is not None
+
+    def get_ft_cache(self, cache: ModelCache):
+        return cache.poisson
+
+    def compute_lh_clusters(self, sample: Sample, caching=True) -> float:
         """Compute the log-likelihood of the observations that are assigned to cluster
         effects in the current sample."""
 
@@ -437,38 +478,47 @@ class LikelihoodPoisson(LikelihoodGenericType):
 
         with cache.edit() as lh:
 
-            # todo: reactivate what_changed and caching
-            # for i_cluster in cache.what_changed('xxx', caching=caching):
-            for i_cluster in range(sample.n_clusters):
+            for i_cluster in cache.what_changed('sufficient_stats', caching=caching):
                 lh[i_cluster] = 0
+                cluster = sample.clusters.value[i_cluster]
+
                 # todo: Consider vectorization
                 for f in range(self.features.poisson.n_features):
-                    x = self.features.poisson.values[sample.clusters.value[i_cluster]][:, f]
+                    # TODO only use samples that have cluster as a source component
+                    x = self.features.poisson.values[cluster, f]
                     alpha_0 = self.prior.prior_cluster_effect.poisson.alpha_0_array[f]
                     beta_0 = self.prior.prior_cluster_effect.poisson.beta_0_array[f]
-                    lh[i_cluster] += lh_poisson_lambda_marginalised_logpdf(x=x, alpha_0=alpha_0, beta_0=beta_0)
+                    lh[i_cluster] += lh_poisson_lambda_marginalised_logpdf(
+                        x=x, alpha_0=alpha_0, beta_0=beta_0,
+                        in_component=sample.poisson.source.value[cluster, f, 0],
+                    )
+
         return cache.value.sum()
 
-    def compute_lh_confounder(self: Likelihood, sample: Sample, conf: str, caching=True) -> float:
+    def compute_lh_confounder(self, sample: Sample, conf: str, caching=True) -> float:
         """Compute the log-likelihood of the observations that are assigned to confounder
         `conf` in the current sample."""
 
         cache = sample.cache.poisson.group_likelihoods[conf]
+        i_component = sample.model_shapes.get_component_index(conf)
 
         with cache.edit() as lh:
-            # todo: reactivate what_changed and caching
-            # for i_g in cache.what_changed('groups', caching=caching):
-            for i_g in range(sample.confounders[conf].n_groups):
+            for i_g in cache.what_changed('sufficient_stats', caching=caching):
                 lh[i_g] = 0
+                group = sample.confounders[conf].group_assignment[i_g]
+
                 # todo: Consider vectorization
                 for f in range(self.features.poisson.n_features):
-                    x = self.features.poisson.values[sample.confounders[conf].group_assignment[i_g]][:, f]
+                    x = self.features.poisson.values[group, f]
                     alpha_0 = self.prior.prior_confounding_effects[conf].poisson.alpha_0_array[i_g][f]
                     beta_0 = self.prior.prior_confounding_effects[conf].poisson.beta_0_array[i_g][f]
 
-                    lh[i_g] += lh_poisson_lambda_marginalised_logpdf(x=x, alpha_0=alpha_0, beta_0=beta_0)
+                    lh[i_g] += lh_poisson_lambda_marginalised_logpdf(
+                        x=x, alpha_0=alpha_0, beta_0=beta_0,
+                        in_component=sample.poisson.source.value[group, f, i_component],
+                    )
 
-            return cache.value.sum()
+        return cache.value.sum()
 
     def compute_pointwise_cluster_likelihood(
             self,
@@ -522,55 +572,91 @@ class LikelihoodPoisson(LikelihoodGenericType):
 
                 out[g, j] = nbinom.pmf(f, alpha_1, beta_1 / (1 + beta_1))
 
+    def pointwise_conditional_cluster_lh(
+        self,
+        sample: Sample,
+        i_cluster: int,
+        available: NDArray[bool]
+    ) -> NDArray[float]:
+        alpha_0 = self.prior.prior_cluster_effect.poisson.alpha_0_array
+        beta_0 = self.prior.prior_cluster_effect.poisson.beta_0_array
+
+        features_candidates = self.features.poisson.values[available]
+        features_cluster = self.features.poisson.values[sample.clusters.value[i_cluster]]
+        condition_lh = np.zeros(features_candidates.shape)
+
+        for j in range(features_cluster.shape[1]):
+            f_c = features_cluster[:, j]
+            n = len(f_c)
+            alpha_1 = alpha_0[j] + f_c.sum()
+            beta_1 = beta_0[j] + n
+            condition_lh[:, j] = nbinom.pmf(features_candidates[:, j], alpha_1, beta_1 / (1 + beta_1))
+
+        return condition_lh
+
 
 class LikelihoodLogitNormal(LikelihoodGenericType):
 
-    def compute_lh_clusters(self: Likelihood, sample: Sample, caching=True) -> float:
+    feature_type = FeatureType.logitnormal
+
+    def is_used(self, sample: Sample):
+        return sample.logitnormal is not None
+
+    def get_ft_cache(self, cache: ModelCache):
+        return cache.logitnormal
+
+    def compute_lh_clusters(self, sample: Sample, caching=True) -> float:
         """Compute the log-likelihood of the observations that are assigned to cluster
         effects in the current sample."""
 
         cache = sample.cache.logitnormal.group_likelihoods['clusters']
 
         with cache.edit() as lh:
-
-            # todo: reactivate what_changed and caching
-            # for i_cluster in cache.what_changed('xxx', caching=caching):
-            for i_cluster in range(sample.n_clusters):
+            for i_cluster in cache.what_changed('sufficient_stats', caching=caching):
                 lh[i_cluster] = 0
+                cluster = sample.clusters.value[i_cluster]
+
                 # todo: Consider vectorization
                 for f in range(self.features.logitnormal.n_features):
-                    x = self.features.logitnormal.values[sample.clusters.value[i_cluster]][:, f]
+                    # TODO only use samples that have cluster as a source component
+                    x = self.features.logitnormal.values[cluster, f]
                     mu_0 = self.prior.prior_cluster_effect.logitnormal.mean.mu_0_array[f]
                     sigma_0 = self.prior.prior_cluster_effect.logitnormal.mean.sigma_0_array[f]
                     # use the maximum likelihood value for sigma_fixed
                     sigma_fixed = np.nanstd(x)
-                    lh[i_cluster] += gaussian_mu_marginalised_logpdf(x=x, mu_0=mu_0, sigma_0=sigma_0,
-                                                                     sigma_fixed=sigma_fixed)
+                    lh[i_cluster] += gaussian_mu_marginalised_logpdf(
+                        x=x, mu_0=mu_0, sigma_0=sigma_0, sigma_fixed=sigma_fixed,
+                        in_component=sample.logitnormal.source.value[cluster, f, 0],
+                    )
+
         return cache.value.sum()
 
-    def compute_lh_confounder(self: Likelihood, sample: Sample, conf: str, caching=True) -> float:
+    def compute_lh_confounder(self, sample: Sample, conf: str, caching=True) -> float:
         """Compute the log-likelihood of the observations that are assigned to confounder
         `conf` in the current sample."""
 
         cache = sample.cache.logitnormal.group_likelihoods[conf]
+        i_component = sample.model_shapes.get_component_index(conf)
 
         with cache.edit() as lh:
-            # todo: reactivate what_changed and caching
-            # for i_g in cache.what_changed('groups', caching=caching):
-            for i_g in range(sample.confounders[conf].n_groups):
+            for i_g in cache.what_changed('sufficient_stats', caching=caching):
                 lh[i_g] = 0
+                group = sample.confounders[conf].group_assignment[i_g]
+
                 # todo: Consider vectorization
                 for f in range(self.features.logitnormal.n_features):
-                    x = self.features.logitnormal.values[sample.confounders[conf].group_assignment[i_g]][:, f]
+                    x = self.features.logitnormal.values[group, f]
                     mu_0 = self.prior.prior_confounding_effects[conf].logitnormal.mean.mu_0_array[i_g][f]
                     sigma_0 = self.prior.prior_confounding_effects[conf].logitnormal.mean.sigma_0_array[i_g][f]
 
                     # use the maximum likelihood value for sigma_fixed
                     sigma_fixed = np.nanstd(x)
-                    lh[i_g] += gaussian_mu_marginalised_logpdf(x=x, mu_0=mu_0, sigma_0=sigma_0,
-                                                               sigma_fixed=sigma_fixed)
+                    lh[i_g] += gaussian_mu_marginalised_logpdf(
+                        x=x, mu_0=mu_0, sigma_0=sigma_0, sigma_fixed=sigma_fixed,
+                        in_component=sample.logitnormal.source.value[group, f, i_component],
+                    )
 
-            return cache.value.sum()
+        return cache.value.sum()
 
     def compute_pointwise_cluster_likelihood(
         self,
@@ -622,6 +708,26 @@ class LikelihoodLogitNormal(LikelihoodGenericType):
                 # todo: implement likelihood
                 out[g, j] = np.repeat(0.5, len(f))
 
+    def pointwise_conditional_cluster_lh(
+        self,
+        sample: Sample,
+        i_cluster: int,
+        available: NDArray[bool]
+    ) -> NDArray[float]:
+
+        mu_0 = self.prior.prior_cluster_effect.logitnormal.mean.mu_0_array
+        sigma_0 = self.prior.prior_cluster_effect.logitnormal.mean.sigma_0_array
+
+        features_candidates = self.features.logitnormal.values[available]
+        features_cluster = self.features.logitnormal.values[sample.clusters.value[i_cluster]]
+        condition_lh = np.zeros(features_candidates.shape)
+
+        # todo: implement likelihood
+        for j in range(features_cluster.shape[1]):
+            f_c = features_cluster[:, j]
+            condition_lh[:, j] = np.repeat(0.5, len(features_candidates[:, j]))
+
+        return condition_lh
 
 def compute_component_likelihood(
     features: NDArray[bool],    # shape: (n_objects, n_features, n_states)

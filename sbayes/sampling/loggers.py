@@ -262,16 +262,13 @@ class ParametersCSVLogger(ResultsLogger):
             # Confounding effects
             for i_conf, conf in enumerate(self.data.confounders.values(), start=1):
 
-                if False:  # TODO Check whether conf is sampled, once that option is available
-                    conf_effect = sample.confounding_effects[conf.name].value
                 # todo: activate again
-                # else:
-                #     conf_effect = conditional_effect_sample(
-                #         features=features.values,
-                #         is_source_group=conf.group_assignment[..., np.newaxis] & sample.source.value[np.newaxis, ..., i_conf],
-                #         applicable_states=features.states,
-                #         prior_counts=self.model.prior.prior_confounding_effects[conf.name].concentration_array(sample),
-                #     )
+                # conf_effect = conditional_effect_sample(
+                #     features=features.values,
+                #     is_source_group=conf.group_assignment[..., np.newaxis] & sample.source.value[np.newaxis, ..., i_conf],
+                #     applicable_states=features.states,
+                #     prior_counts=self.model.prior.prior_confounding_effects[conf.name].concentration_array(sample),
+                # )
 
                 for i_g, g in enumerate(conf.group_names):
                     for i_f, f in enumerate(features[ft].names):
