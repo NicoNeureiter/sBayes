@@ -1358,20 +1358,33 @@ def dirichlet_categorical_logpdf(
     return const + series.sum(axis=-1)
 
 
-def gaussian_mu_marginalised_logpdf(x: NDArray, sigma_fixed: NDArray, mu_0: float, sigma_0: float) -> float | NDArray:
+def gaussian_mu_marginalised_logpdf(
+    x: NDArray[float],
+    sigma_fixed: NDArray,
+    mu_0: float,
+    sigma_0: float,
+    in_component: NDArray[bool],
+) -> float | NDArray:
     """
     Computes the marginal likelihood for a Gaussian model with the mean (mu) marginalised out and standard deviation
     (sigma) fixed where the prior on mu is a normal distribution with N(mu_0, sigma_0**2).
-    :param x: the data, measurements following a normal distribution
-    :param mu_0: mean of the prior on mu
-    :param sigma_0: standard deviation of the prior on mu
-    :param sigma_fixed: known standard deviation of the normal distribution
-    :return: the marginal (log)-likelihood of the data
+    Args:
+        x: the data, measurements following a normal distribution
+        mu_0: mean of the prior on mu
+        sigma_0: standard deviation of the prior on mu
+        sigma_fixed: known standard deviation of the normal distribution
+        in_component: Boolean array (same shape as x) showing which values in x are from
+            the current mixture component, i.e. are included in the likelihood
+    Return:
+        the marginal (log)-likelihood of the data
     """
+    # TODO test vectorization
+    n = np.count_nonzero(in_component, axis=0)
+    if n == 0:
+        return 0.
 
-    n = len(x)
-    x_bar = x.mean()
-    x_2_bar = (x ** 2).mean()
+    x_bar = np.mean(x, axis=0, where=in_component)
+    x_2_bar = np.mean(x ** 2, axis=0, where=in_component)
 
     if sigma_fixed == 0.0:
         sigma_fixed = EPS
@@ -1384,19 +1397,31 @@ def gaussian_mu_marginalised_logpdf(x: NDArray, sigma_fixed: NDArray, mu_0: floa
     return loga + logb + 1 / 2 * log(pi) - log(sqrt(c)) + (f ** 2 / (4 * c))
 
 
-def lh_poisson_lambda_marginalised_logpdf(x: np.array, alpha_0: float, beta_0: float) -> float:
+def lh_poisson_lambda_marginalised_logpdf(
+    x: np.array,
+    alpha_0: float,
+    beta_0: float,
+    in_component: NDArray[bool],
+) -> float:
     """
     Computes the marginal (log)-likelihood for a Poisson model with the rate (lambda) marginalised out where the
     prior on lambda follows a gamma distribution: gamma(alpha_0, beta_0).
-    :param x: the data, measurements following a Poisson distribution
-    :param alpha_0: shape of the gamma prior on lambda
-    :param beta_0: rate of the gamma prior on lambda
-    :return: the marginal (log)-likelihood of the data
+    Args:
+        x: the data, measurements following a Poisson distribution
+        alpha_0: shape of the gamma prior on lambda
+        beta_0: rate of the gamma prior on lambda
+        in_component: Boolean array (same shape as x) showing which values in x are from
+            the current mixture component, i.e. are included in the likelihood.
+    Return:
+        the marginal (log)-likelihood of the data
     """
-    n = len(x)
-    x_bar = x.mean()
+    n = np.count_nonzero(in_component)
+    if n == 0:
+        return 0.
 
-    return alpha_0 * log(beta_0) - loggamma(x + 1).sum() - loggamma(alpha_0) + \
+    x_bar = x.mean(where=in_component)
+
+    return alpha_0 * log(beta_0) - loggamma(x + 1).sum(where=in_component) - loggamma(alpha_0) + \
            loggamma(n * x_bar + alpha_0) - log(n + beta_0) * (n * x_bar + alpha_0)
 
 
