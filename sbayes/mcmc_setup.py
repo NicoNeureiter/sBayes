@@ -262,7 +262,7 @@ Ratio of confounding_effects steps (changing probabilities in confounders): {op_
 
             new_swap = self.last_swap_matrix_save < self.swap_attempts
             if mcmc_config.mc3.log_swap_matrix and new_swap:
-                self.swap_matrix_path = self.path_results / f"mc3_swaps_K{self.model.n_clusters}_{run}.npy"
+                self.swap_matrix_path = self.path_results / f"mc3_swaps_K{self.model.n_clusters}_{run}.txt"
                 np.savetxt(self.swap_matrix_path, self.swap_matrix, fmt="%i")
                 self.last_swap_matrix_save = self.swap_accepts
 
