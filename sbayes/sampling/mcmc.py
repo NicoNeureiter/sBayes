@@ -90,6 +90,7 @@ class MCMC:
                 logger.operators = list(self.callable_operators.values())
 
         self.i_step_start = 0
+        self.previous_operator = None
 
     def prior(self, sample, chain):
         """Compute the (log) prior of a sample.
@@ -304,12 +305,14 @@ class MCMC:
         step_time = _time.time() - step_time_start
 
         if accept:
-            operator.register_accept(step_time=step_time, sample_old=sample, sample_new=candidate)
+            operator.register_accept(step_time=step_time, sample_old=sample, sample_new=candidate, prev_operator=self.previous_operator)
             sample = candidate
             self._ll[c] = ll_candidate
             self._prior[c] = prior_candidate
         else:
-            operator.register_reject(step_time=step_time)
+            operator.register_reject(step_time=step_time, prev_operator=self.previous_operator)
+
+        self.previous_operator = operator
 
         return sample
 

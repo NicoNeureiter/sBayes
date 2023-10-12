@@ -38,11 +38,13 @@ class MCMCChain:
         logger: logging.Logger = None,
         screen_log_interval: int = 1000,
         temperature: float = 1.0,
+        prior_temperature: float = 1.0
     ):
         # The model and data defining the posterior distribution
         self.model = model
         self.data = data
         self.temperature = temperature
+        self.prior_temperature = prior_temperature
 
         # Sampling attributes
         self.sample_from_prior = sample_from_prior
@@ -67,6 +69,7 @@ class MCMCChain:
                 logger.operators = list(self.callable_operators.values())
 
         self.i_step_start = 0
+        self.previous_operator = None
 
     def prior(self, sample: Sample):
         """Compute the log-prior of a sample.
@@ -82,7 +85,7 @@ class MCMCChain:
             assert log_prior == log_prior_stable, f'{log_prior} != {log_prior_stable}'
 
         sample.last_prior = log_prior
-        return log_prior / self.temperature
+        return log_prior / self.prior_temperature
 
     def likelihood(self, sample: Sample):
         """Compute the (log) likelihood of the given sample.
@@ -118,6 +121,7 @@ class MCMCChain:
             model=self.model,
             data=self.data,
             temperature=self.temperature,
+            prior_temperature=self.prior_temperature,
             sample_from_prior=self.sample_from_prior
         )
 
@@ -219,17 +223,19 @@ class MCMCChain:
         step_time = _time.time() - step_time_start
 
         if accept:
-            operator.register_accept(step_time=step_time, sample_old=sample, sample_new=candidate)
+            operator.register_accept(step_time=step_time, sample_old=sample, sample_new=candidate, prev_operator=self.previous_operator)
             sample = candidate
             self._ll = ll_candidate
             self._prior = prior_candidate
         else:
-            operator.register_reject(step_time=step_time)
+            operator.register_reject(step_time=step_time, prev_operator=self.previous_operator)
+
+        self.previous_operator = operator
 
         return sample
 
     @staticmethod
-    def metropolis_hastings_ratio(ll_new, ll_prev, prior_new, prior_prev, log_q, log_q_back, temperature=1.):
+    def metropolis_hastings_ratio(ll_new, ll_prev, prior_new, prior_prev, log_q, log_q_back):
         """ Computes the metropolis-hastings ratio.
         Args:
             ll_new(float): the likelihood of the candidate
@@ -238,17 +244,12 @@ class MCMCChain:
             prior_prev(float): the prior of the current sample
             log_q (float): the transition probability
             log_q_back (float): the back-probability
-            temperature(float): the temperature of the MCMC
         Returns:
             (float): the metropolis-hastings ratio
         """
-        ll_ratio = ll_new - ll_prev
+        log_posterior_ratio = (ll_new + prior_new) - (ll_prev + prior_prev)
         log_q_ratio = log_q - log_q_back
-
-        prior_ratio = prior_new - prior_prev
-        mh_ratio = (ll_ratio * temperature) - log_q_ratio + prior_ratio
-
-        return mh_ratio
+        return log_posterior_ratio - log_q_ratio
 
     def print_screen_log(self, i_step, sample):
         if self.screen_logger is None:
@@ -268,20 +269,3 @@ class MCMCChain:
         process = psutil.Process()
         # self.screen_logger.info(f"Memory usage: {(process.memory_info().rss/1E9):.3f} GB")
         logging.info(f"Memory usage (proc {process.pid}): {(process.memory_info().rss/1E9):.3f} GB")
-
-    def get_temperature(self):
-        return self.temperature
-
-    def get_ll(self):
-        return self._ll
-
-    def set_ll(self, ll):
-        self._ll = ll
-
-    def get_prior(self):
-        return self._prior
-
-    def set_prior(self, prior):
-        self._prior = prior
-
-
