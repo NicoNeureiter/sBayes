@@ -1,7 +1,9 @@
+import sys
+import warnings
+import traceback
 import multiprocessing
 from copy import deepcopy
 from itertools import product
-
 import argparse
 from pathlib import Path
 
@@ -35,7 +37,7 @@ def run_experiment(
     mcmc = MCMCSetup(data=data, experiment=experiment)
     mcmc.log_setup()
 
-    if experiment.config.mcmc.use_mc3:
+    if experiment.config.mcmc.mc3.activate:
         mcmc.sample_mc3(run=i_run, resume=resume)
     else:
         mcmc.sample(run=i_run, resume=resume)
@@ -94,8 +96,20 @@ def main(
         pool.map(runner, run_configurations)
 
 
+def warn_with_traceback(message, category, filename, lineno, file=None, line=None):
+    log = file if hasattr(file, 'write') else sys.stderr
+    # traceback.print_stack(file=log)
+    warning_trace = traceback.format_stack()
+    warning_trace_str = "".join(["\n\t|" + l for l in "".join(warning_trace).split("\n")])
+    message = str(message) + warning_trace_str
+    log.write(warnings.formatwarning(message, category, filename, lineno, line))
+
+
 def cli():
     """Command line interface."""
+    if __debug__:
+        warnings.showwarning = warn_with_traceback
+
     parser = argparse.ArgumentParser(
         description="An MCMC algorithm to identify contact zones"
     )
