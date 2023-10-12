@@ -504,7 +504,7 @@ class Sample:
         model_shapes: ModelShapes,
         chain: int = 0,
         _other_cache: ModelCache = None,
-        _i_step: int = 0
+        _i_step: int = 0,
     ):
         self._clusters = clusters
         self._weights = weights

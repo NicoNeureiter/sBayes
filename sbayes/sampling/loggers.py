@@ -73,6 +73,7 @@ class ParametersCSVLogger(ResultsLogger):
         float_format: str = "%.8g",
         match_clusters: bool = True,
         log_source: bool = False,
+        log_sample_id: bool = True,
         **kwargs,
     ):
         super().__init__(*args, **kwargs)
@@ -80,6 +81,7 @@ class ParametersCSVLogger(ResultsLogger):
         self.log_contribution_per_cluster = log_contribution_per_cluster
         self.match_clusters = match_clusters
         self.log_source = log_source
+        self.log_sample_id = log_sample_id
 
         # For logging single cluster likelihood values we do not want to use the sampled
         # source arrays
@@ -145,6 +147,9 @@ class ParametersCSVLogger(ResultsLogger):
 
         # Prior column
         column_names += ["cluster_size_prior", "geo_prior", "source_prior", "weights_prior"]
+
+        if self.log_sample_id:
+            column_names += ["sample_id"]
 
         # Store the column names in an attribute (important to keep order consistent)
         self.column_names = column_names
@@ -254,6 +259,9 @@ class ParametersCSVLogger(ResultsLogger):
         row["source_prior"] = sample.cache.source_prior.value.sum()
         row["weights_prior"] = sample.cache.weights_prior.value
 
+        if self.log_sample_id:
+            row["sample_id"] = sample.chain
+
         row_str = "\t".join([self.float_format % row[k] for k in self.column_names])
         self.file.write(row_str + "\n")
 
@@ -354,8 +362,9 @@ class OperatorStatsLogger(ResultsLogger):
         "REJECTS": 8,
         "TOTAL": 8,
         "ACCEPT-RATE": 11,
-        "STEP-TIME": 11,
         "STEP-SIZE": 11,
+        "STEP-TIME": 11,
+        "NEXT STEP-TIME": 15,
         "PARAMETERS": 0,
     }
 
@@ -377,7 +386,7 @@ class OperatorStatsLogger(ResultsLogger):
     @classmethod
     def get_log_message_header(cls) -> str:
         headers = [column.ljust(width) for column, width in cls.COLUMNS.items()]
-        return '\t'.join(headers)
+        return ' '.join(headers)
 
     @classmethod
     def get_log_message_row(cls, operator: Operator) -> str:
@@ -390,12 +399,13 @@ class OperatorStatsLogger(ResultsLogger):
         rej_str = str(operator.rejects).ljust(cls.COLUMNS["REJECTS"])
         total_str = str(operator.total).ljust(cls.COLUMNS["TOTAL"])
         acc_rate_str = f"{operator.acceptance_rate:.2%}".ljust(cls.COLUMNS["ACCEPT-RATE"])
-        step_time_str = f"{1000 * np.mean(operator.step_times):.2f} ms".ljust(cls.COLUMNS["STEP-TIME"])
         step_size_str_raw = f"{np.mean(operator.step_sizes):.2f}" if operator.step_sizes else "-"
         step_size_str = step_size_str_raw.ljust(cls.COLUMNS["STEP-SIZE"])
+        step_time_str = f"{1000 * np.mean(operator.step_times):.2f} ms".ljust(cls.COLUMNS["STEP-TIME"])
+        next_step_time_str = f"{1000 * np.mean(operator.next_step_times):.2f} ms".ljust(cls.COLUMNS["NEXT STEP-TIME"])
         paramters_str = operator.get_parameters_string().ljust(cls.COLUMNS["PARAMETERS"])
 
-        return ' '.join([name_str, acc_str, rej_str, total_str, acc_rate_str, step_time_str, step_size_str, paramters_str])
+        return ' '.join([name_str, acc_str, rej_str, total_str, acc_rate_str, step_size_str, step_time_str, next_step_time_str, paramters_str])
 
     def write_header(self, sample: Sample):
         pass
