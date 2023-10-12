@@ -48,6 +48,7 @@ class SbayesInitializer:
         initial_size: int,
         attempts: int,
         initial_cluster_steps: bool,
+        n_em_steps: int = 50,
         logger: logging.Logger = None,
     ):
         self.model = model
@@ -55,6 +56,7 @@ class SbayesInitializer:
 
         self.initialization_attempts = attempts
         self.initial_cluster_steps = initial_cluster_steps
+        self.n_em_steps = n_em_steps
 
         # Data
         self.features = data.features.values
@@ -99,11 +101,12 @@ class SbayesInitializer:
         b = (upper_bound - mid) / scale
         return int(truncnorm(a, b, loc=mid, scale=scale).rvs())
 
-    def generate_clusters_em(self, n_steps: int = 60):
+    def generate_clusters_em(self):
         """EM-style inference of a continuous approximation of the sBayes model.
         We estimate distributions for each cluster/confounder group and a flat continuous
         assignment of each object to clusters and confounder groups.
         """
+        n_steps = self.n_em_steps
         features = self.data.features.values
         valid_observations = ~self.data.features.na_values
         n_objects, n_features, n_states = features.shape

@@ -390,7 +390,7 @@ class MCMCChainProcess(Process):
             initial_size=mcmc_config.init_objects_per_cluster,
             attempts=mcmc_config.initialization.attempts,
             initial_cluster_steps=mcmc_config.initialization.initial_cluster_steps,
-
+            n_em_steps=mcmc_config.initialization.em_steps,
         )
         sample = initializer.generate_sample(c=self.i_chain)
 

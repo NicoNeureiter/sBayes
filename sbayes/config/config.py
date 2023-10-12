@@ -327,6 +327,9 @@ class InitializationConfig(BaseConfig):
     initial_cluster_steps: bool = True
     """Whether to apply an initial cluster operator to each cluster before selecting the best sample."""
 
+    em_steps: PositiveInt = 50
+    """Number of steps in the expectation-maximization initializer."""
+
 
 class MC3Config(BaseConfig):
 

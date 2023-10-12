@@ -132,13 +132,6 @@ def get_operator_schedule(
         #     w_stay=0.0,
         #     cluster_effect_proposal=ClusterEffectProposals.residual_counts,
         # ),
-        # 'cluster_jump': ClusterJump(
-        #     weight=0.1 * operators_config.clusters,
-        #     model=model,
-        #     resample_source=True,
-        #     sample_from_prior=sample_from_prior,
-        #     gibbsish=False
-        # ),
         'cluster_jump_gibbsish': ClusterJump(
             weight=0.25 * operators_config.clusters if model.n_clusters > 1 else 0.0,
             model=model,
@@ -148,7 +141,6 @@ def get_operator_schedule(
             temperature=temperature,
             prior_temperature=prior_temperature,
         ),
-
         'gibbs_sample_sources': GibbsSampleSource(
             weight=0.4*operators_config.source,
             model=model,
@@ -167,7 +159,6 @@ def get_operator_schedule(
             temperature=temperature,
             prior_temperature=prior_temperature,
         ),
-
         'gibbs_sample_weights': GibbsSampleWeights(
             weight=operators_config.weights,
             model=model,
