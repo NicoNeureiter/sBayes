@@ -12,11 +12,12 @@ from numpy.core.umath_tests import inner1d
 import scipy.stats as stats
 from scipy.stats import nbinom
 
-from sbayes.load_data import Features, CategoricalFeatures, GaussianFeatures, PoissonFeatures, LogitNormalFeatures
+from sbayes.load_data import Features, CategoricalFeatures, GaussianFeatures, PoissonFeatures, LogitNormalFeatures, \
+    FeatureType
 from sbayes.sampling.conditionals import conditional_effect_mean
-from sbayes.sampling.counts import recalculate_feature_counts, update_feature_counts
-from sbayes.sampling.state import Sample, FeatureType
-from sbayes.util import dirichlet_logpdf, normalize, get_neighbours
+from sbayes.sampling.counts import recalculate_feature_counts, update_feature_counts, update_sufficient_statistics
+from sbayes.sampling.state import Sample
+from sbayes.util import dirichlet_logpdf, normalize, get_neighbours, RND_SEED
 from sbayes.model import Model, normalize_weights, update_categorical_weights, \
                                 update_gaussian_weights, update_poisson_weights, update_logitnormal_weights
 from sbayes.preprocessing import sample_categorical
@@ -25,8 +26,8 @@ from sbayes.model.likelihood import Likelihood
 import sbayes.model
 
 
-DEBUG = 0
-RNG = np.random.default_rng()
+DEBUG = 1
+RNG = np.random.default_rng(seed=RND_SEED)
 
 
 class Operator(ABC):
@@ -263,13 +264,12 @@ class GibbsSampleSource(Operator):
             The modified sample and forward and backward transition log-probabilities
         """
 
-        feature_types = ["categorical", "gaussian", "poisson", "logitnormal"]
         log_q = log_q_back = 0
         sample_new = sample.copy()
 
-        for ft in feature_types:
-            features = getattr(self.model_by_chain[sample.chain].data.features, ft).values
-            na_features = getattr(self.model_by_chain[sample.chain].data.features, ft).na_values
+        for ft in FeatureType.values():
+            features = self.model_by_chain[sample.chain].data.features.get_ft_features(ft).values
+            na_features = self.model_by_chain[sample.chain].data.features.get_ft_features(ft).na_values
 
             assert np.all(getattr(sample, ft).source.value[na_features] == 0)
 
@@ -288,11 +288,13 @@ class GibbsSampleSource(Operator):
             # with sample_new.source.edit() as source:
             #     source[object_subset] = sample_categorical(p=p, binary_encoding=True)
             #     source[na_features] = 0
-            if ft == "categorical":
+            if ft == FeatureType.categorical:
                 update_feature_counts(sample, sample_new, features, object_subset)
 
                 if DEBUG:
                     verify_counts(sample_new, features)
+            else:
+                update_sufficient_statistics(sample, sample_new, features, object_subset)
 
             # Transition probability forward:
             log_q += np.log(p[getattr(sample_new, ft).source.value[object_subset]]).sum()
@@ -352,13 +354,6 @@ class GibbsSampleSource(Operator):
 
         elif self.object_selector is ObjectSelector.RANDOM_SUBSET:
             # Choose a random subset for which the source is resampled
-            # r = RNG.random(sample.n_objects)
-            # object_subset = r < max(50 / sample.n_objects, np.min(r))
-            # object_subset = r < max(0.3, np.min(r))
-
-            # todo: max size is hardcoded when initialising the GibbsSampleSourceClass, which throws
-            #  an error if the data has fewer objects. Make it depend on the data.
-
             object_subset = self.random_subset(n=sample.n_objects, k=self.max_size)
         else:
             raise ValueError(f"ObjectSelector '{self.object_selector}' not yet implemented.")
@@ -566,13 +561,11 @@ class ClusterOperator(Operator):
         sample_new: Sample,
         i_cluster: int,
         object_subset: list[int] | NDArray[int],
-        feature_type: str
+        feature_type: FeatureType
     ) -> tuple[Sample, float, float]:
-
-        n_features = getattr(sample_old, feature_type).n_features
-
-        features = getattr(self.model_by_chain[sample_old.chain].data.features, feature_type).values
-        na_features = getattr(self.model_by_chain[sample_old.chain].data.features, feature_type).na_values
+        n_features = sample_old[feature_type].n_features
+        features = self.model_by_chain[sample_old.chain].data.features[feature_type].values
+        na_features = self.model_by_chain[sample_old.chain].data.features[feature_type].na_values
 
         if self.resample_source_mode == ResampleSourceMode.GIBBS:
             sample_new, log_q, log_q_back = self.gibbs_sample_source(
@@ -592,9 +585,12 @@ class ClusterOperator(Operator):
 
             log_q_back = np.log(p_back[getattr(sample_old, feature_type).source.value[object_subset]]).sum()
 
-            update_feature_counts(sample_old, sample_new, features, object_subset)
-            if DEBUG:
-                verify_counts(sample_new, features)
+            if feature_type == FeatureType.categorical:
+                update_feature_counts(sample_old, sample_new, features, object_subset)
+                if DEBUG:
+                    verify_counts(sample_new, features)
+            else:
+                update_sufficient_statistics(sample_old, sample_new, features, object_subset)
 
         elif self.resample_source_mode == ResampleSourceMode.UNIFORM:
             has_components_new = getattr(sample_new.cache, feature_type).has_components.value
@@ -614,9 +610,12 @@ class ClusterOperator(Operator):
             )
             log_q_back = np.log(p_back[getattr(sample_old, feature_type).source.value[object_subset]]).sum()
 
-            update_feature_counts(sample_old, sample_new, features, object_subset)
-            if DEBUG:
-                verify_counts(sample_new, features)
+            if feature_type == FeatureType.categorical:
+                update_feature_counts(sample_old, sample_new, features, object_subset)
+                if DEBUG:
+                    verify_counts(sample_new, features)
+            else:
+                update_sufficient_statistics(sample_old, sample_new, features, object_subset)
         else:
             raise ValueError(f"Invalid resample_source_mode `{self.resample_source_mode}` is not implemented.")
 
@@ -630,7 +629,6 @@ class ClusterOperator(Operator):
         feature_type: str,
         object_subset: slice | list[int] | NDArray[int] = slice(None)
     ) -> tuple[Sample, float, float]:
-
         """Resample the observations to mixture components (their source)."""
         model = self.model_by_chain[sample_old.chain]
         features = getattr(model.data.features, feature_type).values
@@ -659,10 +657,13 @@ class ClusterOperator(Operator):
             source[object_subset] = sample_categorical(p=p, binary_encoding=True)
             source[na_features] = 0
 
-        if feature_type == "categorical":
-            update_feature_counts(sample_old, sample_new, features, object_subset)
+        if feature_type == FeatureType.categorical:
+            update_feature_counts(sample_old, sample_new, features, slice(None))
             if DEBUG:
+                verify_counts(sample_old, features)
                 verify_counts(sample_new, features)
+        else:
+            update_sufficient_statistics(sample_old, sample_new, features, object_subset)
 
         # Transition probability forward:
         source_new = getattr(sample_new, feature_type).source.value[object_subset]
@@ -680,110 +681,6 @@ class ClusterOperator(Operator):
         log_q_back = np.log(p_back[source_old]).sum()
 
         return sample_new, log_q, log_q_back
-
-    # def gibbs_sample_source_shrink(
-    #     self,
-    #     sample_new: Sample,
-    #     sample_old: Sample,
-    #     object_subset: slice | list[int] | NDArray[int] = slice(None),
-    # ) -> tuple[Sample, float, float]:
-    #     """Resample the observations to mixture components (their source)."""
-    #     features = self.model_by_chain[sample_old.chain].data.features.values
-    #     na_features = self.model_by_chain[sample_old.chain].data.features.na_values
-    #
-    #     if self.sample_from_prior:
-    #         p = update_weights(sample_new)[object_subset]
-    #     else:
-    #         p = self.calculate_source_posterior(sample_new, object_subset)
-    #
-    #     # Sample the new source assignments
-    #     with sample_new.source.edit() as source:
-    #         was_cluster = source[object_subset, :, 0]
-    #
-    #         # Resample cluster observations
-    #         new_source = sample_categorical(p=p[was_cluster], binary_encoding=True)
-    #
-    #         for i, was_cluster_i, new_source_i in zip(object_subset, was_cluster, new_source):
-    #             source[i, was_cluster_i] = new_source_i
-    #         # source[object_subset, ...][was_cluster, ...] = new_source
-    #
-    #         source[na_features] = 0
-    #
-    #     update_feature_counts(sample_old, sample_new, features, object_subset)
-    #     if DEBUG:
-    #         verify_counts(sample_new, features)
-    #
-    #     # Transition probability forward:
-    #     new_source = sample_new.source.value[object_subset]
-    #     # log_q = np.log(p[new_source]).sum()
-    #     log_q = np.log(p[was_cluster][new_source[was_cluster]]).sum()
-    #
-    #     # Transition probability backward:
-    #     if self.sample_from_prior:
-    #         p_back = update_weights(sample_old)[object_subset]
-    #     else:
-    #         p_back = self.calculate_source_posterior(sample_old, object_subset,
-    #                                                  feature_counts=sample_new.feature_counts)
-    #
-    #     log_q_back = float(
-    #         np.log(p_back[was_cluster, 0]).sum() +
-    #         np.log(1 - p_back[~was_cluster, 0]).sum()
-    #     )
-    #
-    #     return sample_new, log_q, log_q_back
-    #
-    # def gibbs_sample_source_grow(
-    #     self,
-    #     sample_new: Sample,
-    #     sample_old: Sample,
-    #     object_subset: slice | list[int] | NDArray[int] = slice(None),
-    # ) -> tuple[Sample, float, float]:
-    #     """Resample the observations to mixture components (their source)."""
-    #     features = self.model_by_chain[sample_old.chain].data.features.values
-    #     na_features = self.model_by_chain[sample_old.chain].data.features.na_values
-    #
-    #     w = update_weights(sample_old)[object_subset]
-    #     s = sample_old.source.value[object_subset]
-    #     assert np.all(s <= (w > 0)), np.max(w)
-    #
-    #     if self.sample_from_prior:
-    #         p = update_weights(sample_new)[object_subset]
-    #     else:
-    #         p = self.calculate_source_posterior(sample_new, object_subset)
-    #
-    #     # Sample the new source assignments
-    #     with sample_new.source.edit() as source:
-    #         # Which non-cluster observations should become cluster source:
-    #         p_cluster = p[..., 0]       # shape: (n_obj, n_feat)
-    #         to_cluster = np.random.random(p_cluster.shape) < p_cluster
-    #         for i, to_cluster_i in zip(object_subset, to_cluster):
-    #             source[i, to_cluster_i, 0] = True
-    #             source[i, to_cluster_i, 1:] = False
-    #
-    #         source[na_features] = 0
-    #
-    #     update_feature_counts(sample_old, sample_new, features, object_subset)
-    #     if DEBUG:
-    #         verify_counts(sample_new, features)
-    #
-    #     # Transition probability forward:
-    #     # log_q = np.log(p[sample_new.source.value[object_subset]]).sum()
-    #     log_q = float(
-    #         np.log(p_cluster[to_cluster]).sum() +
-    #         np.log(1 - p_cluster[~to_cluster]).sum()
-    #     )
-    #
-    #     # Transition probability backward:
-    #     if self.sample_from_prior:
-    #         p_back = update_weights(sample_old)[object_subset]
-    #     else:
-    #         p_back = self.calculate_source_posterior(sample_old, object_subset,
-    #                                                  feature_counts=sample_new.feature_counts)
-    #
-    #     old_source = sample_old.source.value[object_subset, ...]
-    #     log_q_back = np.log(p_back[to_cluster][old_source[to_cluster]]).sum()
-    #
-    #     return sample_new, log_q, log_q_back
 
     def get_step_size(self, sample_old: Sample, sample_new: Sample) -> float:
         return np.count_nonzero(sample_old.clusters.value ^ sample_new.clusters.value)
@@ -841,6 +738,8 @@ def component_likelihood_given_unchanged(
         likelihoods[features.na_values[object_subset]] = 1.
     else:
         likelihoods[:, :] = 1/likelihoods.shape[2]
+
+    assert np.all(likelihoods >= 0)
     return likelihoods
 
 
@@ -876,6 +775,9 @@ class AlterClusterGibbsish(ClusterOperator):
         log_q_back = 0.
 
         for i in range(self.n_changes):
+            if DEBUG:
+                verify_counts(sample, self.model_by_chain[sample.chain].data.features.categorical.values)
+
             if random.random() < self.p_grow:
                 sample_new, log_q_i, log_q_back_i = self.grow_cluster(sample)
                 log_q_i += np.log(self.p_grow)
@@ -1021,10 +923,9 @@ class AlterClusterGibbsish(ClusterOperator):
             sample_new.clusters.add_object(i_cluster, obj)
 
         log_q_s = log_q_back_s = 0
-        feature_types = ["categorical", "gaussian", "poisson", "logitnormal"]
-        for ft in feature_types:
-            if self.resample_source and getattr(sample, ft) is not None:
-                if getattr(sample, ft).source is not None:
+        for ft in FeatureType.values():
+            if self.resample_source and sample.feature_type_samples[ft] is not None:
+                if sample[ft].source is not None:
                     sample_new, log_q_s_ft, log_q_back_s_ft = self.propose_new_sources(
                         sample_old=sample,
                         sample_new=sample_new,
@@ -1087,19 +988,18 @@ class AlterClusterGibbsish(ClusterOperator):
             sample_new.clusters.remove_object(i_cluster, obj)
 
         log_q_s = log_q_back_s = 0
-
-        if self.resample_source and sample.categorical is not None:
-            if sample.categorical.source is not None:
-
-                sample_new, log_q_s_categorical, log_q_back_s_categorical = self.propose_new_sources(
-                    sample_old=sample,
-                    sample_new=sample_new,
-                    i_cluster=i_cluster,
-                    object_subset=removed_objects,
-                    feature_type="categorical"
-                )
-                log_q_s += log_q_s_categorical
-                log_q_back_s += log_q_back_s_categorical
+        for ft in FeatureType.values():
+            if self.resample_source and sample.feature_type_samples[ft] is not None:
+                if sample[ft].source is not None:
+                    sample_new, log_q_s_categorical, log_q_back_s_categorical = self.propose_new_sources(
+                        sample_old=sample,
+                        sample_new=sample_new,
+                        i_cluster=i_cluster,
+                        object_subset=removed_objects,
+                        feature_type=ft,
+                    )
+                    log_q_s += log_q_s_categorical
+                    log_q_back_s += log_q_back_s_categorical
 
         # The add probability of an inverse step
         cluster_posterior_back = np.zeros(sample_new.n_objects)
@@ -1390,15 +1290,16 @@ class AlterCluster(ClusterOperator):
         log_q = np.log(q)
         log_q_back = np.log(q_back)
 
-        if self.resample_source and sample.source is not None:
-            sample_new, log_q_s, log_q_back_s = self.propose_new_sources(
-                sample_old=sample,
-                sample_new=sample_new,
-                i_cluster=i_cluster,
-                object_subset=[object_add],
-            )
-            log_q += log_q_s
-            log_q_back += log_q_back_s
+        for ft in FeatureType:
+            if self.resample_source and sample[ft].source is not None:
+                sample_new, log_q_s, log_q_back_s = self.propose_new_sources(
+                    sample_old=sample,
+                    sample_new=sample_new,
+                    i_cluster=i_cluster,
+                    object_subset=[object_add],
+                )
+                log_q += log_q_s
+                log_q_back += log_q_back_s
 
         return sample_new, log_q, log_q_back
 
@@ -1520,7 +1421,7 @@ class ClusterJump(ClusterOperator):
         sample_new.clusters.remove_object(i_source_cluster, jumping_object)
         sample_new.clusters.add_object(i_target_cluster, jumping_object)
 
-        if self.resample_source and sample.source is not None:
+        if self.resample_source:
             sample_new, log_q_s, log_q_back_s = self.gibbs_sample_source_jump(
                 sample_new=sample_new,
                 sample_old=sample,
@@ -1530,6 +1431,7 @@ class ClusterJump(ClusterOperator):
             )
         else:
             update_feature_counts(sample, sample_new, model.data.features.values, [jumping_object])
+            update_sufficient_statistics(sample, sample_new, model.data.features.values, [jumping_object])
             log_q_s = log_q_back_s = 0
 
         if self.gibbsish:
@@ -1577,6 +1479,7 @@ class ClusterJump(ClusterOperator):
             source[na_features] = 0
 
         update_feature_counts(sample_old, sample_new, features, object_subset)
+        update_sufficient_statistics(sample_old, sample_new, features, object_subset)
         if DEBUG:
             verify_counts(sample_new, features)
 
@@ -1632,10 +1535,15 @@ class OperatorSchedule:
 
 
 def verify_counts(sample, features: NDArray[bool]):
+    # Copy the cached counts (otherwise they would be updated in the next line)
     cached_counts = deepcopy(sample.categorical.sufficient_statistics)
+
+    # Recalculate the counts based on the features and current sample
     new_counts = recalculate_feature_counts(features, sample)
+
+    # Assert that all keys and values are the same
     assert set(cached_counts.keys()) == set(new_counts.keys())
     for k in cached_counts.keys():
-        assert np.allclose(cached_counts[k].value, new_counts[k].value), (f'counts not matching in ´{k}´.',
-            cached_counts[k].value.sum(axis=(1,2)), new_counts[k].value.sum(axis=(1,2))
-        )
+        assert np.allclose(cached_counts[k].value, new_counts[k].value), f'''Counts not matching in ´{k}´:
+    Cached counts: {cached_counts[k].value.sum(axis=(1,2))}
+    Recalculated counts: {new_counts[k].value.sum(axis=(1,2))}'''

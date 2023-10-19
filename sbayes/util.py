@@ -24,7 +24,7 @@ from scipy.sparse import csr_matrix
 from unidecode import unidecode
 
 EPS = np.finfo(float).eps
-
+RND_SEED = 123
 
 FAST_DIRICHLET = True
 dirichlet_logpdf = stats.dirichlet._logpdf if FAST_DIRICHLET else stats.dirichlet.logpdf
@@ -1359,12 +1359,12 @@ def dirichlet_categorical_logpdf(
 
 
 def gaussian_mu_marginalised_logpdf(
-    x: NDArray[float],
-    sigma_fixed: NDArray,
-    mu_0: float,
-    sigma_0: float,
-    in_component: NDArray[bool],
-) -> float | NDArray:
+    x: NDArray[float],              # (n_objects, n_features)
+    sigma_fixed: NDArray[float],    # (n_features,)
+    mu_0: NDArray[float],           # (n_features,)
+    sigma_0: NDArray[float],        # (n_features,)
+    in_component: NDArray[bool],    # (n_objects, n_features)
+) -> float | NDArray:               # (n_features,)
     """
     Computes the marginal likelihood for a Gaussian model with the mean (mu) marginalised out and standard deviation
     (sigma) fixed where the prior on mu is a normal distribution with N(mu_0, sigma_0**2).
@@ -1378,16 +1378,22 @@ def gaussian_mu_marginalised_logpdf(
     Return:
         the marginal (log)-likelihood of the data
     """
-    # TODO test vectorization
-    n = np.count_nonzero(in_component, axis=0)
-    if n == 0:
-        return 0.
+    sigma_fixed = np.maximum(sigma_fixed, EPS)
 
+    # Sufficient statistics
+    n = np.count_nonzero(in_component, axis=0)
     x_bar = np.mean(x, axis=0, where=in_component)
     x_2_bar = np.mean(x ** 2, axis=0, where=in_component)
 
-    if sigma_fixed == 0.0:
-        sigma_fixed = EPS
+    if isinstance(n, (int, float, np.int64, np.int32)):
+        if n == 0:
+            return 0.
+    else:
+        assert isinstance(n, np.ndarray), type(n)
+        if np.any(n == 0):
+            res = np.zeros_like(n)
+            res[n > 0] = gaussian_mu_marginalised_logpdf(x[n > 0], sigma_fixed, mu_0, sigma_0, in_component)
+            return res
 
     loga = -log(sigma_0) - 1 / 2 * log(2 * pi) + - n * (log(sigma_fixed) + 1 / 2 * log(2 * pi))
     logb = (-mu_0 ** 2 / (2 * sigma_0 ** 2) - n * x_2_bar / (2 * sigma_fixed ** 2))
@@ -1395,6 +1401,101 @@ def gaussian_mu_marginalised_logpdf(
     f = (mu_0 * sigma_fixed ** 2 + n * x_bar * sigma_0 ** 2) / (sigma_0 ** 2 * sigma_fixed ** 2)
 
     return loga + logb + 1 / 2 * log(pi) - log(sqrt(c)) + (f ** 2 / (4 * c))
+
+
+def gaussian_mu_posterior_logpdf(
+    x: NDArray[float],
+    mu: NDArray[float],
+    sigma: NDArray[float],
+    mu_0: float,
+    sigma_0: float,
+    in_component: NDArray[bool],
+) -> float | NDArray:
+    """
+    Computes the posterior probability for mean `mu`, given standard deviation `sigma`
+    and prior on mu is a normal distribution with N(mu_0, sigma_0**2).
+    Args:
+        x: the data, measurements following a normal distribution
+        mu_0: mean of the prior on mu
+        sigma_0: standard deviation of the prior on mu
+        sigma: standard deviation of the normal distribution
+        in_component: Boolean array (same shape as x) showing which values in x are from
+            the current mixture component, i.e. are included in the likelihood
+    Return:
+        the marginal (log)-likelihood of the data
+    """
+
+    # Sigma need to be positive (in practice, at least EPS)
+    sigma = np.maximum(sigma, EPS)
+
+    # Sufficient statistics
+    n = np.count_nonzero(in_component, axis=0)
+    sample_mean = np.mean(x, axis=0, where=in_component)
+
+    if isinstance(n, (int, float, np.int64, np.int32)):
+        if n == 0:
+            return 0.
+    else:
+        assert isinstance(n, np.ndarray), type(n)
+        if np.any(n == 0):
+            if np.all(n == 0):
+                return np.zeros_like(mu)
+            res = np.zeros_like(n)
+            res[n > 0] = gaussian_mu_marginalised_logpdf(x[..., n > 0], sigma, mu_0[n > 0], sigma_0[n > 0], in_component[..., n > 0])
+            return res
+
+    # Derive Posterior parameters
+    prec = 1 / sigma ** 2
+    prec_0 = 1 / sigma_0 ** 2
+    w_observations = (n * prec) / (n * prec + prec_0)
+    w_prior = 1 - w_observations
+    posterior_mean = w_observations * sample_mean + w_prior * mu_0
+    posterior_var = 1 / (n * prec + prec_0)
+
+    return stats.norm.logpdf(mu, loc=posterior_mean, scale=np.sqrt(posterior_var))
+
+
+def gaussian_posterior_predictive_logpdf(
+    x_new: NDArray[float],
+    x: NDArray[float],
+    sigma: NDArray[float],
+    mu_0: float,
+    sigma_0: float,
+    in_component: NDArray[bool],
+) -> float | NDArray:
+    """
+        P( x' | X, m, s, sigma ) = ∫ P( x' | µ, sigma ) P( µ | m, s, X, sigma ) dµ
+            = N( µ_posterior, var_posterior + sigma²)
+    """
+
+    # Sigma need to be positive (in practice, at least EPS)
+    sigma = np.maximum(sigma, EPS)
+
+    # Sufficient statistics
+    n = np.count_nonzero(in_component, axis=0)
+    sample_mean = np.mean(x, axis=0, where=in_component)
+
+    if isinstance(n, (int, float, np.int64, np.int32)):
+        if n == 0:
+            return 0.
+    else:
+        assert isinstance(n, np.ndarray), type(n)
+        if np.any(n == 0):
+            if np.all(n == 0):
+                return np.zeros_like(x_new)
+            res = np.zeros_like(n)
+            res[..., n > 0] = gaussian_posterior_predictive_logpdf(x_new[..., n > 0], x[..., n > 0], sigma, mu_0[n > 0], sigma_0[n > 0], in_component[:, n > 0])
+            return res
+
+    # Derive Posterior parameters
+    prec = 1 / sigma ** 2
+    prec_0 = 1 / sigma_0 ** 2
+    w_observations = (n * prec) / (n * prec + prec_0)
+    w_prior = 1 - w_observations
+    posterior_mean = w_observations * sample_mean + w_prior * mu_0
+    posterior_var = 1 / (n * prec + prec_0)
+
+    return stats.norm.logpdf(x=x_new, loc=posterior_mean, scale=np.sqrt(posterior_var + sigma**2))
 
 
 def lh_poisson_lambda_marginalised_logpdf(
@@ -1415,13 +1516,17 @@ def lh_poisson_lambda_marginalised_logpdf(
     Return:
         the marginal (log)-likelihood of the data
     """
+
+    # Sufficient statistics
     n = np.count_nonzero(in_component)
+    x_sum = x.sum(where=in_component)                            # TODO: Add axis for broadcasting
+    log_factorial_sum = loggamma(x + 1).sum(where=in_component)  # TODO: Add axis for broadcasting
+
     if n == 0:
         return 0.
 
-    x_bar = x.mean(where=in_component)
-
-    return alpha_0 * log(beta_0) - loggamma(x + 1).sum(where=in_component) - loggamma(alpha_0) + \
+    x_bar = x_sum / n
+    return alpha_0 * log(beta_0) - log_factorial_sum - loggamma(alpha_0) + \
            loggamma(n * x_bar + alpha_0) - log(n + beta_0) * (n * x_bar + alpha_0)
 
 
@@ -1443,113 +1548,6 @@ def pmf_categorical_with_replacement(idxs: list[int], p: NDArray[float]):
     return prob
 
 
-
 if __name__ == "__main__":
     import doctest
     doctest.testmod()
-
-    # @timeit('ms')
-    # def get_best_permutation_2(
-    #         areas: NDArray[bool],  # shape = (n_areas, n_sites)
-    #         prev_area_sum: NDArray[int],  # shape = (n_areas, n_sites)
-    # ) -> NDArray[int]:
-    #     """Return a permutation of areas that would align the areas in the new sample with previous ones."""
-    #     cluster_agreement_matrix = np.matmul(prev_area_sum, areas.T)
-    #     return linear_sum_assignment(cluster_agreement_matrix, maximize=True)[1]
-    #
-    #     # def clustering_agreement(p):
-    #     #     """In how many sites does permutation `p` previous samples?"""
-    #     #     return cluster_agreement_matrix[:, p].trace()
-    #     #
-    #     # all_permutations = get_permutations(areas.shape[0])
-    #     # return max(all_permutations, key=clustering_agreement)
-    #
-    # areas = np.array([
-    #     [0, 1, 1, 0, 0, 0],
-    #     [1, 1, 0, 0, 0, 0],
-    #     [0, 0, 0, 1, 0, 0],
-    #     [1, 0, 0, 1, 0, 0],
-    #     [1, 0, 1, 0, 0, 0],
-    #     [1, 0, 1, 0, 1, 1],
-    #     [1, 0, 0, 0, 1, 0],
-    #     [0, 0, 0, 0, 1, 1],
-    # ])
-    #
-    # prev_areas = np.array([
-    #     [0, 0, 0.5, 0.9, 0, 0],
-    #     [0.1, 0.6, 0.8, 0.2, 0, 0],
-    #     [0.9, 1, 0, 0.1, 0, 0],
-    #     [1, 0, 0, 1, 0, 0],
-    #     [1, 0, 1, 0, 0, 0],
-    #     [0, 0, 0, 0, .8, 1],
-    #     [1, 0, 1, 0, 1, 1],
-    #     [1, 0, 0, 0, 1, 0],
-    # ])
-    #
-    # best1 = get_best_permutation(areas, prev_areas)
-    # best2 = get_best_permutation_2(areas, prev_areas)
-    # print(best1, best2)
-    # assert best1 == best2
-
-
-    def sample_diri_mult_pdf(counts, a, S=10000):
-        n = np.sum(counts)
-        p = np.random.dirichlet(a, size=S)
-        # lh_per_observation_and_sample = (p @ t.T)
-        # lh_per_sample = lh_per_observation_and_sample.prod(axis=-1)
-        lh = stats.multinomial.pmf(x=counts, n=n, p=p)
-        return lh.mean()
-
-    def sample_diri_cat_pdf(t, a, S=10000):
-        print(S)
-        p = np.random.dirichlet(a, size=S)
-        lh_per_observation_and_sample = (p @ t.T)
-        lh_per_sample = lh_per_observation_and_sample.prod(axis=-1)
-        return lh_per_sample.mean()
-
-    a = np.array([0.3, 0.9, 1.5, 0.0])
-    t = np.array([
-        [1, 0, 0, 0],
-        [0, 1, 0, 0],
-        [0, 1, 0, 0],
-        [0, 0, 1, 0],
-        [0, 0, 1, 0],
-    ], dtype=bool)
-    k = t.sum(axis=0)
-    p = normalize(a)
-    counts = np.sum(t, axis=0)
-
-    # print(p[None, :][[0, 0, 0, 0, 0, 0]])
-
-    # s_values = np.array([2**(2*i) for i in range(2, 16)])
-    # s_values = np.arange(5_000, 1_000_000, 5_000)
-    s_values = np.arange(100, 2_000, 100)**2
-    pdf_sampled = [sample_diri_cat_pdf(t[:, :-1], a[:-1], S=S) for S in s_values]
-    print(pdf_sampled)
-
-    # pdf_exact = np.exp(dirichlet_categorical_logpdf(counts, a))
-    # pdf_exact = np.exp(dirichlet_multinomial_logpdf(counts, a))
-    pdf_exact = np.exp(dirichlet_categorical_logpdf(counts, a))
-    print(pdf_exact)
-    pdf_exact_2 = np.exp(dirichlet_categorical_logpdf(counts[:-1], a[:-1]))
-    print(pdf_exact_2)
-
-    import matplotlib.pyplot as plt
-    plt.scatter(s_values, pdf_sampled, s=10)
-    plt.axhline(pdf_exact, color='darkorange', zorder=2)
-    # plt.ylim(0.00286, 0.00289)
-    plt.show()
-    #
-    # exit()
-    # #################################################
-    #
-    # pdf_sampled = sample_diri_mult_pdf(k, a)
-    # print(pdf_sampled)
-    #
-    # pdf_exact = dirichlet_multinomial_logpdf(k, a)
-    # print(np.exp(pdf_exact))
-    #
-    # import tensorflow_probability as tfp
-    # print(
-    #     tfp.distributions.DirichletMultinomial(4, a).prob(k)
-    # )

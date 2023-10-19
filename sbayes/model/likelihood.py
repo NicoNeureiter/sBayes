@@ -8,11 +8,11 @@ from numpy.core._umath_tests import inner1d
 from scipy.stats import nbinom
 
 from sbayes.model.model_shapes import ModelShapes
-from sbayes.sampling.state import Sample, ModelCache, GenericTypeCache, FeatureType
+from sbayes.sampling.state import Sample, ModelCache, GenericTypeCache
 from sbayes.sampling.counts import recalculate_feature_counts
-from sbayes.load_data import Data, Confounder, Features
+from sbayes.load_data import Data, Confounder, Features, FeatureType
 from sbayes.util import dirichlet_categorical_logpdf, normalize, \
-    gaussian_mu_marginalised_logpdf, lh_poisson_lambda_marginalised_logpdf
+    gaussian_mu_marginalised_logpdf, lh_poisson_lambda_marginalised_logpdf, gaussian_posterior_predictive_logpdf
 
 try:
     from typing import Protocol
@@ -58,7 +58,6 @@ class Likelihood(object):
             Returns:
                 The joint likelihood of the current sample
         """
-
         log_lh = 0.0
 
         # Sum up log-likelihood of each mixture component and each type of feature
@@ -221,7 +220,14 @@ class LikelihoodCategorical(LikelihoodGenericType):
 
     def compute_lh_clusters(self, sample: Sample, caching=True) -> float:
         """Compute the log-likelihood of the observations that are assigned to cluster
-        effects in the current sample."""
+        effects in the current sample.
+        This implementation of the likelihood integrates out the cluster-preference, i.e.
+        probability vectors representing the distribution within clusters:
+        P( X | c ) = ∫ P( X | γ ) P( γ | c ) dγ
+        X... categorical observations assigned to this cluster
+        γ... Cluster preference (probability vectors)
+        c... prior concentration (parameter of a dirichlet-distribution)
+        """
 
         cache = sample.cache.categorical.group_likelihoods['clusters']
         feature_counts = sample.categorical.sufficient_statistics['clusters'].value
@@ -257,6 +263,15 @@ class LikelihoodCategorical(LikelihoodGenericType):
         changed_clusters: list[int],
         out: NDArray[float],
     ):
+        """Compute the likelihood distribution at each observation given all
+        observations in the data-set.
+
+        P( x' | X ) = ∫ P( x' | γ ) P( γ | X, c ) dγ
+        x'... the categorical observation for which the likelihood is evaluated
+        X...  the other categorical observations assigned to this cluster
+        γ...  Cluster preference (probability vectors)
+        c...  prior concentration (parameter of a dirichlet-distribution)
+        """
 
         # The expected cluster effect is given by the normalized posterior counts
         cluster_effect_counts = (  # feature counts + prior counts
@@ -307,7 +322,6 @@ class LikelihoodCategorical(LikelihoodGenericType):
     ) -> NDArray[float]:
         prior_counts = self.prior.prior_cluster_effect.categorical.concentration_array
         feature_counts = sample.categorical.sufficient_statistics['clusters'].value[[i_cluster]]
-
         p = normalize(prior_counts + feature_counts, axis=-1)
         return inner1d(self.features.categorical.values[available], p)
 
@@ -338,10 +352,10 @@ class LikelihoodGaussian(LikelihoodGenericType):
 
                 # todo: Consider vectorization
                 for f in range(self.features.gaussian.n_features):
-                    # TODO only use samples that have cluster as a source component
                     x = self.features.gaussian.values[cluster][:, f]
                     mu_0 = self.prior.prior_cluster_effect.gaussian.mean.mu_0_array[f]
                     sigma_0 = self.prior.prior_cluster_effect.gaussian.mean.sigma_0_array[f]
+
                     # use the maximum likelihood value for sigma_fixed
                     sigma_fixed = np.nanstd(x)
                     lh[i_cluster] += gaussian_mu_marginalised_logpdf(
@@ -355,25 +369,27 @@ class LikelihoodGaussian(LikelihoodGenericType):
         """Compute the log-likelihood of the observations that are assigned to confounder
         `conf` in the current sample."""
 
-        cache = sample.cache.gaussian.group_likelihoods[conf]
         i_component = sample.model_shapes.get_component_index(conf)
+        cache = sample.cache.gaussian.group_likelihoods[conf]
+        groups = sample.confounders[conf].group_assignment
+
+        mu_0 = self.prior.prior_confounding_effects[conf].gaussian.mean.mu_0_array
+        sigma_0 = self.prior.prior_confounding_effects[conf].gaussian.mean.sigma_0_array
 
         with cache.edit() as lh:
             for i_g in cache.what_changed('sufficient_stats', caching=caching):
                 lh[i_g] = 0
-                group = sample.confounders[conf].group_assignment[i_g]
+                g = groups[i_g]
 
                 # todo: Consider vectorization
-                for f in range(self.features.gaussian.n_features):
-                    x = self.features.gaussian.values[group, f]
-                    mu_0 = self.prior.prior_confounding_effects[conf].gaussian.mean.mu_0_array[i_g][f]
-                    sigma_0 = self.prior.prior_confounding_effects[conf].gaussian.mean.sigma_0_array[i_g][f]
+                for i_f in range(self.features.gaussian.n_features):
+                    x = self.features.gaussian.values[g, i_f]
 
                     # use the maximum likelihood value for sigma_fixed
                     sigma_fixed = np.nanstd(x)
                     lh[i_g] += gaussian_mu_marginalised_logpdf(
-                        x=x, mu_0=mu_0, sigma_0=sigma_0, sigma_fixed=sigma_fixed,
-                        in_component=sample.gaussian.source.value[group, f, i_component],
+                        x=x, mu_0=mu_0[i_g, i_f], sigma_0=sigma_0[i_g, i_f], sigma_fixed=sigma_fixed,
+                        in_component=sample.gaussian.source.value[g, i_f, i_component],
                     )
 
         return cache.value.sum()
@@ -394,23 +410,26 @@ class LikelihoodGaussian(LikelihoodGenericType):
 
         out[~groups.any(axis=0), :] = 0.
 
-        for i in changed_clusters:
-            g = groups[i]
-            f_g = features[g, :]
+        for i_g in changed_clusters:
+            g = groups[i_g]
 
-            for j in range(f_g.shape[1]):
-                f = f_g[:, j]
-                # todo: implement likelihood
-                out[g, j] = np.repeat(0.5, len(f))
+            for i_f in range(self.shapes.n_features_gaussian):
+                f = features[g, i_f]
+                sigma_fixed = np.nanstd(f)
+                out[g, i_f] = gaussian_posterior_predictive_logpdf(
+                    x_new=f, x=f, sigma=sigma_fixed, mu_0=mu_0[i_f], sigma_0=sigma_0[i_f],
+                    in_component=sample.gaussian.source.value[g, i_f, 0],
+                )
 
     def compute_pointwise_confounder_likelihood(
-            self,
-            confounder: Confounder,
-            sample: Sample,
-            changed_groups: list[int],
-            out: NDArray[float],
+        self,
+        confounder: Confounder,
+        sample: Sample,
+        changed_groups: list[int],
+        out: NDArray[float],
     ):
 
+        i_component = sample.model_shapes.get_component_index(confounder.name)
         mu_0 = self.prior.prior_confounding_effects[confounder.name].gaussian.mean.mu_0_array
         sigma_0 = self.prior.prior_confounding_effects[confounder.name].gaussian.mean.sigma_0_array
 
@@ -419,14 +438,25 @@ class LikelihoodGaussian(LikelihoodGenericType):
 
         out[~groups.any(axis=0), :] = 0.
 
-        for i in changed_groups:
-            g = groups[i]
-            f_g = features[g, :]
-
-            for j in range(f_g.shape[1]):
-                f = f_g[:, j]
-                # todo: implement likelihood
-                out[g, j] = np.repeat(0.5, len(f))
+        for i_g in changed_groups:
+            g = groups[i_g]
+            # for i_f in range(self.shapes.n_features_gaussian):
+            #     f = features[g, i_f]
+            #     sigma_fixed = np.nanstd(f)
+            #     out[g, i_f] = gaussian_posterior_predictive_logpdf(
+            #         x_new=f, x=f, sigma=sigma_fixed, mu_0=mu_0[0, i_f], sigma_0=sigma_0[0, i_f],
+            #         in_component=sample.gaussian.source.value[g, i_f, i_component],
+            #     )
+            y = gaussian_posterior_predictive_logpdf(
+                    x_new=features[g],
+                    x=features[g],
+                    sigma=np.nanstd(features[g], axis=0, keepdims=True),
+                    mu_0=mu_0[i_g, :, None],
+                    sigma_0=sigma_0[i_g, :, None],
+                    in_component=sample.gaussian.source.value[g, :, i_component],
+                )
+            # assert np.allclose(out[g, :], y), sample.gaussian.source.value[g, :, i_component]
+            out[g, :] = y
 
     def pointwise_conditional_cluster_lh(
         self,
@@ -438,15 +468,29 @@ class LikelihoodGaussian(LikelihoodGenericType):
         mu_0 = self.prior.prior_cluster_effect.gaussian.mean.mu_0_array
         sigma_0 = self.prior.prior_cluster_effect.gaussian.mean.sigma_0_array
 
+        cluster = sample.clusters.value[i_cluster]
         features_candidates = self.features.gaussian.values[available]
-        features_cluster = self.features.gaussian.values[sample.clusters.value[i_cluster]]
-        condition_lh = np.zeros(features_candidates.shape)
+        features_cluster = self.features.gaussian.values[cluster]
+        source_cluster = sample.gaussian.source.value[cluster, :, 0]
 
-        # todo: implement likelihood
-        for j in range(features_cluster.shape[1]):
-            f_c = features_cluster[:, j]
-            condition_lh[:, j] = np.repeat(0.5, len(features_candidates[:, j]))
+        # _condition_lh = np.zeros(features_candidates.shape)
+        # for i_f in range(self.shapes.n_features_gaussian):
+        #     f = features_cluster[:, i_f]
+        #     sigma_fixed = np.nanstd(f)
+        #     _condition_lh[:, i_f] = gaussian_posterior_predictive_logpdf(
+        #         x_new=features_candidates[:, i_f], x=f, sigma=sigma_fixed,
+        #         mu_0=mu_0[i_f], sigma_0=sigma_0[i_f],
+        #         in_component=source_cluster[:, i_f],
+        #     )
 
+        sigma_fixed = np.nanstd(features_cluster, axis=0, keepdims=True)
+        condition_lh = gaussian_posterior_predictive_logpdf(
+            x_new=features_candidates, x=features_cluster, sigma=sigma_fixed,
+            mu_0=mu_0, sigma_0=sigma_0, in_component=source_cluster,
+        )
+        # assert np.allclose(_condition_lh, condition_lh)
+
+        condition_lh = np.exp(condition_lh)
         return condition_lh
 
 

@@ -12,7 +12,6 @@ class ModelShapes:
     n_features: int
     n_clusters: int
     n_objects: int
-    n_features: int
     n_features_categorical: int
     n_states_categorical: int
     states_per_feature: NDArray[bool]

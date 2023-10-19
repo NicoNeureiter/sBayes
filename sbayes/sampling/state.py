@@ -1,16 +1,14 @@
 from __future__ import annotations
 from collections import OrderedDict
-from copy import copy, deepcopy
+from copy import copy
 from contextlib import contextmanager
-from enum import Enum
 from functools import lru_cache
-from typing import Optional, Generic, TypeVar, Type, Iterator
+from typing import Generic, TypeVar, Type, Iterator
 
 from numpy.typing import NDArray
 import numpy as np
 
-from sbayes.load_data import Confounder, Features
-from sbayes.model import model_shapes
+from sbayes.load_data import Confounder, FeatureType
 from sbayes.model.model_shapes import ModelShapes
 from sbayes.util import get_along_axis
 
@@ -19,16 +17,6 @@ Value = TypeVar('Value', NDArray, float)
 DType = TypeVar('DType', bool, float, int)
 VersionType = TypeVar('VersionType', tuple, int)
 
-
-class FeatureType(str, Enum):
-    categorical = "categorical"
-    gaussian = "gaussian"
-    poisson = "poisson"
-    logitnormal = "logitnormal"
-
-    @classmethod
-    def values(cls) -> Iterator[str]:
-        return iter(cls)
 
 class Parameter(Generic[Value]):
 
@@ -307,7 +295,7 @@ class CacheNode(Generic[Value]):
         return self.cached_version[self.input_idx[input_key]]
 
     @property
-    def version(self) -> tuple[VersionType]:
+    def version(self) -> VersionType:
         """Calculate the current version number from the inputs."""
         return tuple(inpt.version for inpt in self.inputs.values())
         # return hash(tuple(i.version for i in self.inputs))
@@ -325,7 +313,11 @@ class CacheNode(Generic[Value]):
 
     def clear_group_version(self, key: str):
         """Mark the group versions of a specific input as outdated."""
-        shape = self.inputs[key].group_versions.shape
+        inpt = self.inputs[key]
+        if not isinstance(inpt, GroupedParameters):
+            raise ValueError(f"Bad input: {key}. Can only clear group_version for GroupedParameter inputs.")
+
+        shape = inpt.group_versions.shape
         new_group_version = outdated_group_version(shape)
         self.cached_group_versions[key] = new_group_version
         new_group_version.flags.writeable = False
@@ -356,7 +348,7 @@ class SufficientStatistics(GroupedParameters):
         changed_groups = np.any(new != old, axis=new.shape[1:])
         self.group_versions[changed_groups] = self.version
 
-    def mark_changes(self, changed_groups: NDArray[bool]):  # shape: (n_groups, n_features)
+    def mark_changes(self, changed_groups: NDArray[bool]):  # shape: (n_groups)
         if self.shared:
             self.resolve_sharing()
         self.version += 1
@@ -418,7 +410,7 @@ class HasComponents(CacheNode[NDArray[bool]]):
         if not self.is_outdated():
             return self._value
         else:
-            self._value[:, 0] = self.inputs['clusters'].any_cluster()
+            self._value[:, 0] = self.clusters.any_cluster()
             self.cached_version = self.version
             return self._value
 
@@ -482,15 +474,12 @@ class GenericTypeCache:
 
     prior: CacheNode[float]
     source_prior: CacheNode[NDArray[float]]
-    cluster_effect_prior: CacheNode[float]
-    confounding_effects_prior: dict[str, CacheNode[float]]
     weights_prior: CacheNode[float]
 
     has_components: CacheNode[bool]
 
     def __init__(self, sample: Sample):
         # self.likelihood = CacheNode(0.)
-
         self.sample_type = self.get_typed_sample(sample)
 
         self.component_likelihoods = CacheNode(
@@ -503,23 +492,12 @@ class GenericTypeCache:
         self.weights_normalized = CacheNode(
             value=np.empty((sample.n_objects, self.sample_type.n_features, sample.n_components))
         )
-        self.cluster_effect_prior = CacheNode(value=0.0)
-        self.confounding_effects_prior = {
-            conf: CacheNode(value=np.ones(sample.n_groups(conf)))
-            for conf in sample.confounders
-        }
         self.weights_prior = CacheNode(value=0.0)
         self.has_components = HasComponents(sample.clusters, sample.confounders)
 
         # Set up the dependencies in form of CacheNode inputs:
         self.component_likelihoods.add_input('clusters', sample.clusters)
         self.weights_normalized.add_input('has_components', self.has_components)
-
-        # # self.group_likelihoods['cluster'].add_input('cluster_effect', sample.cluster_effect)
-        # # self.component_likelihoods.add_input('cluster_effect', sample.cluster_effect)
-        # for conf, effect in self.sample_type.confounding_effects.items():
-        #     self.group_likelihoods[conf].add_input(f'c_{conf}', effect)
-        #     self.component_likelihoods.add_input(f'c_{conf}', effect)
 
         self.weights_prior.add_input('weights', self.sample_type.weights)
         self.weights_normalized.add_input('weights', self.sample_type.weights)
@@ -552,11 +530,8 @@ class GenericTypeCache:
         self.component_likelihoods.clear()
         self.weights_normalized.clear()
         self.source_prior.clear()
-        self.cluster_effect_prior.clear()
         self.weights_prior.clear()
         self.has_components.clear()
-        for conf_eff in self.confounding_effects_prior.values():
-            conf_eff.clear()
         for group_lh in self.group_likelihoods.values():
             group_lh.clear()
 
@@ -564,11 +539,8 @@ class GenericTypeCache:
         new_cache.component_likelihoods.assign_from(self.component_likelihoods)
         new_cache.weights_normalized.assign_from(self.weights_normalized)
         new_cache.source_prior.assign_from(self.source_prior)
-        new_cache.cluster_effect_prior.assign_from(self.cluster_effect_prior)
         new_cache.weights_prior.assign_from(self.weights_prior)
         new_cache.has_components.assign_from(self.has_components)
-        for conf, conf_eff_prior in new_cache.confounding_effects_prior.items():
-            conf_eff_prior.assign_from(self.confounding_effects_prior[conf])
         for comp, group_lh in new_cache.group_likelihoods.items():
             group_lh.assign_from(self.group_likelihoods[comp])
         return new_cache
@@ -578,7 +550,6 @@ class CategoricalCache(GenericTypeCache):
 
     def __init__(self, sample: Sample):
         super().__init__(sample)
-        categorical_sample = self.get_typed_sample(sample)
 
     @staticmethod
     def get_typed_sample(sample: Sample):
@@ -675,18 +646,21 @@ class Sample:
         self._groups_and_clusters = None
 
         self.feature_type_samples = {
-            "categorical": self.categorical,
-            "gaussian": self.gaussian,
-            "poisson": self.poisson,
-            "logitnormal": self.logitnormal,
+            FeatureType.categorical: self.categorical,
+            FeatureType.gaussian: self.gaussian,
+            FeatureType.poisson: self.poisson,
+            FeatureType.logitnormal: self.logitnormal,
         }
+
+    def __getitem__(self, ft: FeatureType | str) -> GenericTypeSample:
+        """Getter for more convenient/concise access to feature-type samples."""
+        return self.feature_type_samples[ft]
 
     @classmethod
     def from_numpy_arrays(
         cls: Type[S],
         clusters: NDArray[bool],
         weights: dict[str, NDArray[float]],
-        # confounding_effects: dict[str, dict[str, NDArray[float]]],
         confounders: dict[str, Confounder],
         source: Source,
         feature_counts: dict[str, NDArray[int]],
@@ -699,7 +673,6 @@ class Sample:
         if weights.get('categorical') is not None:
             sample_categorical = CategoricalSample(
                 weights=ArrayParameter(weights['categorical']),
-                # confounding_effects={k: GroupedParameters(v['categorical']) for k, v in confounding_effects.items()},
                 source=GroupedParameters(source['categorical']),
                 sufficient_statistics={k: FeatureCounts(v) for k, v in feature_counts.items()},
                 model_shapes=model_shapes,
@@ -713,7 +686,6 @@ class Sample:
                 suff_stats[c] = SufficientStatistics.create_empty(conf.n_groups, n_features)
             sample_gaussian = GaussianSample(
                 weights=ArrayParameter(weights['gaussian']),
-                # confounding_effects={k: GroupedParameters(v['gaussian']) for k, v in confounding_effects.items()},
                 source=GroupedParameters(source['gaussian']),
                 sufficient_statistics=suff_stats,
                 model_shapes=model_shapes,
@@ -727,7 +699,6 @@ class Sample:
                 suff_stats[c] = SufficientStatistics.create_empty(conf.n_groups, n_features)
             sample_poisson = PoissonSample(
                 weights=ArrayParameter(weights['poisson']),
-                # confounding_effects={k: GroupedParameters(v['poisson']) for k, v in confounding_effects.items()},
                 source=GroupedParameters(source['poisson']),
                 sufficient_statistics=suff_stats,
                 model_shapes=model_shapes,
@@ -741,7 +712,6 @@ class Sample:
                 suff_stats[c] = SufficientStatistics.create_empty(conf.n_groups, n_features)
             sample_logitnormal = LogitNormalSample(
                 weights=ArrayParameter(weights['logitnormal']),
-                # confounding_effects={k: GroupedParameters(v['logitnormal']) for k, v in confounding_effects.items()},
                 source=GroupedParameters(source['logitnormal']),
                 sufficient_statistics=suff_stats,
                 model_shapes=model_shapes,
@@ -820,13 +790,11 @@ class GenericTypeSample:
     def __init__(
         self,
         weights: ArrayParameter[float],                     # shape: (n_features, n_components)
-        # confounding_effects: dict[str, GroupedParameters],  # shape per conf:  (n_groups, n_features, n_states)
         source: GroupedParameters[bool],                    # shape: (n_objects, n_features, n_components)
         sufficient_statistics: dict[str, SufficientStatistics],  # shape per conf: (n_groups, n_features)
         model_shapes: ModelShapes,
     ):
         self._weights = weights
-        # self._confounding_effects = confounding_effects
         self._source = source
         self._sufficient_statistics = sufficient_statistics
         self.model_shapes = model_shapes
@@ -834,7 +802,6 @@ class GenericTypeSample:
     def copy(self: S) -> S:
         return type(self)(
             weights=self.weights.copy(),
-            # confounding_effects={k: v.copy() for k, v in self.confounding_effects.items()},
             source=self.source.copy(),
             sufficient_statistics={k: v.copy() for k, v in self.sufficient_statistics.items()},
             model_shapes=self.model_shapes,
@@ -844,10 +811,6 @@ class GenericTypeSample:
     @property
     def weights(self) -> ArrayParameter:
         return self._weights
-
-    # @property
-    # def confounding_effects(self) -> dict[str, GroupedParameters]:
-    #     return self._confounding_effects
 
     @property
     def source(self) -> GroupedParameters[bool]:  # shape: (n_objects, n_features, n_components)
@@ -865,27 +828,11 @@ class GenericTypeSample:
 
 class CategoricalSample(GenericTypeSample):
 
-    def __init__(
-        self,
-        weights: ArrayParameter[float],                     # shape: (n_features, n_components)
-        # confounding_effects: dict[str, GroupedParameters],  # shape per conf:  (n_groups, n_features, n_states)
-        source: GroupedParameters[bool],                    # shape: (n_objects, n_features, n_components)
-        sufficient_statistics: dict[str, FeatureCounts],           # shape per conf: (n_groups, n_features)
-        model_shapes: ModelShapes,
-    ):
-        super().__init__(weights, source, sufficient_statistics, model_shapes)
-
-    # def copy(self: S) -> S:
-    #     return CategoricalSample(
-    #         weights=self.weights.copy(),
-    #         confounding_effects={k: v.copy() for k, v in self.confounding_effects.items()},
-    #         source=self.source.copy(),
-    #         sufficient_statistics={k: v.copy() for k, v in self.sufficient_statistics.items()},
-    #     )
+    sufficient_statistics: dict[str, FeatureCounts]
 
     @property
     def n_states(self) -> int:
-        return next(iter(self.model_shapes.values())).shape[2]
+        return self.model_shapes.n_states_categorical
 
 
 class GaussianSample(GenericTypeSample):

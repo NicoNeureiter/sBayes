@@ -3,15 +3,18 @@
 """ Imports the real world data """
 from __future__ import annotations
 
+from enum import Enum
+
 import pyproj
 import pandas as pd
 import numpy as np
+
 try:
     import ruamel.yaml as yaml
 except ImportError:
     import ruamel_yaml as yaml
 try:
-    from typing import Literal
+    from typing import Literal, Iterator
 except ImportError:
     from typing_extensions import Literal
 
@@ -257,13 +260,24 @@ class LogitNormalFeatures:
 
 @dataclass
 class Features:
+
     categorical: CategoricalFeatures | None
     gaussian: GaussianFeatures | None
     poisson: PoissonFeatures | None
     logitnormal: LogitNormalFeatures | None
 
-    def __getitem__(self, key: str) -> NDArray | list | int:
-        return getattr(self, key)
+    def __getitem__(self, key: FeatureType):
+        if key in FeatureType.values():
+            return getattr(self, key)
+        else:
+            raise ValueError(f"Unknown feature type {key}.")
+
+    def get_ft_features(self, ft: FeatureType):
+        if ft == FeatureType.categorical: return self.categorical
+        if ft == FeatureType.gaussian: return self.gaussian
+        if ft == FeatureType.poisson: return self.poisson
+        if ft == FeatureType.logitnormal: return self.logitnormal
+        raise AttributeError(f'Unknown feature type {ft}')
 
     @property
     def n_features(self) -> int:
@@ -438,26 +452,6 @@ class Data:
         logger.info("##########################################")
 
 
-# @dataclass(frozen=True)
-# class PriorCounts:
-#     counts: NDArray[int]
-#     states: list[...]
-#
-#     def __getitem__(self, key: str):
-#         return getattr(self, key)
-#
-#
-# def parse_prior_counts(
-#     counts: dict[FeatureName, dict[StateName, int]],
-#     features: Features,
-# ) -> PriorCounts:
-#     ...
-#     return PriorCounts(
-#         counts=...,
-#         states=...,
-#     )
-
-
 def read_features_from_file(
     data_path: PathLike,
     feature_types_path: PathLike,
@@ -523,3 +517,15 @@ def read_features_from_file(
             pass
 
     return objects, features, confounders
+
+
+class FeatureType(str, Enum):
+
+    categorical = "categorical"
+    gaussian = "gaussian"
+    poisson = "poisson"
+    logitnormal = "logitnormal"
+
+    @classmethod
+    def values(cls) -> Iterator[FeatureType | str]:
+        return iter(cls)
