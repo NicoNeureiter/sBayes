@@ -6,13 +6,14 @@ from __future__ import annotations
 import math
 import os
 import random
+import sys
 import time
 from multiprocessing import Process, Pipe
 from multiprocessing.connection import Connection
 
 import numpy as np
 
-from sbayes.config.config import MCMCConfig
+from sbayes.config.config import MCMCConfig, WarmupConfig
 from sbayes.results import Results
 from sbayes.sampling.conditionals import impute_source
 from sbayes.sampling.counts import recalculate_feature_counts
@@ -349,6 +350,7 @@ class MCMCChainProcess(Process):
     ) -> (None, bool):
         """Initialize the MCMC chain in this process"""
         print(f"Initializing MCMCChain {self.i_chain} in worker process {os.getpid()}")
+
         initializer = SbayesInitializer(
             model=model,
             data=data,
@@ -356,7 +358,6 @@ class MCMCChainProcess(Process):
             attempts=mcmc_config.initialization.attempts,
             initial_cluster_steps=mcmc_config.initialization.initial_cluster_steps,
         )
-        sample = initializer.generate_sample()
 
         self.mcmc_chain = MCMCChain(
             model=model,
@@ -368,7 +369,29 @@ class MCMCChainProcess(Process):
             temperature=temperature,
         )
 
+        sample = self.initialize_sample(initializer, self.mcmc_chain, mcmc_config.warmup)
+
         return sample, True
+
+    def initialize_sample(self, initializer: SbayesInitializer, mcmc_chain: MCMCChain, cfg: WarmupConfig) -> Sample:
+        best_sample = None
+        best_ll = -np.inf
+        for i_attempt in range(cfg.warmup_chains):
+            sample = initializer.generate_sample(c=self.i_chain)
+            sample = mcmc_chain.run(
+                n_steps=cfg.warmup_steps,
+                logging_interval=sys.maxsize,
+                initial_sample=sample
+            )
+
+            ll = mcmc_chain._ll
+            if ll > best_ll:
+                best_sample = sample
+                best_ll = ll
+
+            mcmc_chain.reset_posterior_cache()
+
+        return best_sample
 
     def run_chain(self, sample: Sample) -> (Sample, bool):
         sample = self.mcmc_chain.run(

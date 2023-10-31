@@ -269,19 +269,8 @@ class MCMCChain:
         # self.screen_logger.info(f"Memory usage: {(process.memory_info().rss/1E9):.3f} GB")
         logging.info(f"Memory usage (proc {process.pid}): {(process.memory_info().rss/1E9):.3f} GB")
 
-    def get_temperature(self):
-        return self.temperature
 
-    def get_ll(self):
-        return self._ll
-
-    def set_ll(self, ll):
-        self._ll = ll
-
-    def get_prior(self):
-        return self._prior
-
-    def set_prior(self, prior):
-        self._prior = prior
-
-
+    def reset_posterior_cache(self):
+        """Reset the cached likelihood and prior for when the chain is repurposed to use a different sample"""
+        self._ll = -np.inf
+        self._prior = -np.inf
