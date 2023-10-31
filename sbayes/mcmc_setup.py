@@ -270,7 +270,7 @@ Ratio of confounding_effects steps (changing probabilities in confounders): {op_
         self.logger.info(f"MCMC run finished after {(time.time() - self.t_start):.1f} seconds")
 
         for conn in connections:
-            conn.send(MCMCChainProcess.TERMINATE)
+            conn.send((MCMCChainProcess.TERMINATE,))
         for proc in processes:
             proc.join()
 
