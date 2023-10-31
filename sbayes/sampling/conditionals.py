@@ -104,14 +104,22 @@ def conditional_effect_mean_from_scratch(
 
 def conditional_effect_mean(
     prior_counts: NDArray[float],                # shape: (n_groups, n_features, n_states)
-    feature_counts: NDArray[int] = None,         # shape: (n_groups, n_features, n_states)
+    feature_counts: NDArray[int],                # shape: (n_groups, n_features, n_states)
+    unif_counts: NDArray[int] = None,
+    prior_temperature: float = None,
+    temperature: float = None,
 ) -> NDArray[float]:                             # shape: (n_groups, n_features, n_states)
 
-    # Sum up the feature counts and prior counts to obtain posterior effect counts
-    counts = feature_counts + prior_counts
+    if prior_temperature is not None:
+        assert unif_counts is not None
+        prior_counts = unif_counts + (prior_counts - unif_counts) / prior_temperature
 
+    if temperature is not None:
+        feature_counts = feature_counts / temperature
+
+    # Sum up the feature counts and prior counts to obtain posterior effect counts
     # The expected effect is given by the normalized posterior counts
-    return normalize(counts, axis=-1)
+    return normalize(feature_counts + prior_counts, axis=-1)
 
 
 def conditional_effect_sample(
@@ -212,6 +220,80 @@ def likelihood_per_component(
     if caching and CHECK_CACHING:
         cached = np.copy(cache.value)
         recomputed = likelihood_per_component(model, sample, caching=False)
+        assert np.allclose(cached, recomputed)
+
+    return cache.value
+
+
+def likelihood_per_component_subset(
+    model,
+    sample: Sample,
+    caching=True
+) -> NDArray[float]:  # shape: (n_objects, n_feature, n_components)
+    """Update the likelihood values for each of the mixture components"""
+    CHECK_CACHING = False
+
+    features = model.data.features
+    confounders = model.data.confounders
+    feature_counts = sample.feature_counts
+
+    cache = sample.cache.component_likelihoods
+    if caching and not cache.is_outdated():
+        if CHECK_CACHING:
+            assert np.all(cache.value == likelihood_per_component_subset(model, sample, caching=False))
+        return cache.value
+
+    with cache.edit() as component_likelihood:
+        changed_clusters = cache.what_changed(input_key=['clusters', 'clusters_counts'], caching=caching)
+
+        if len(changed_clusters) > 0:
+            # The expected cluster effect is given by the normalized posterior counts
+            cluster_effect_counts = (  # feature counts + prior counts
+                feature_counts['clusters'].value +
+                model.prior.prior_cluster_effect.concentration_array
+            )
+            cluster_effect = normalize(cluster_effect_counts, axis=-1)
+
+            # Update component likelihood for cluster effects:
+            compute_component_likelihood(
+                features=features.values,
+                probs=cluster_effect,
+                groups=sample.clusters.value,
+                changed_groups=changed_clusters,
+                out=component_likelihood[..., 0],
+            )
+
+        # Update component likelihood for confounding effects:
+        for i, conf in enumerate(confounders.keys(), start=1):
+            conf_prior = model.prior.prior_confounding_effects[conf]
+            hyperprior_has_changed = conf_prior.any_dynamic_priors and cache.ahead_of('universal_counts')
+            changed_groups = cache.what_changed(input_key=f'{conf}_counts', caching=caching and not hyperprior_has_changed)
+
+            if len(changed_groups) == 0:
+                continue
+
+            groups = confounders[conf].group_assignment
+
+            # The expected confounding effect is given by the normalized posterior counts
+            conf_effect_counts = (  # feature counts + prior counts
+                feature_counts[conf].value +
+                model.prior.prior_confounding_effects[conf].concentration_array(sample)
+            )
+            conf_effect = normalize(conf_effect_counts, axis=-1)
+
+            compute_component_likelihood(
+                features=features.values,
+                probs=conf_effect,
+                groups=groups,
+                changed_groups=changed_groups,
+                out=component_likelihood[..., i],
+            )
+
+        component_likelihood[features.na_values] = 1.
+
+    if caching and CHECK_CACHING:
+        cached = np.copy(cache.value)
+        recomputed = likelihood_per_component_subset(model, sample, caching=False)
         assert np.allclose(cached, recomputed)
 
     return cache.value
@@ -360,7 +442,7 @@ def impute_source(sample: Sample, model: Model):
 
     # Sample the new source assignments
     with sample.source.edit() as source:
-        source = sample_categorical(p=p, binary_encoding=True)
+        source[:] = sample_categorical(p=p, binary_encoding=True)
         source[na_features] = 0
 
     recalculate_feature_counts(model.data.features.values, sample)

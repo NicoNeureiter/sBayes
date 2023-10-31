@@ -3,6 +3,8 @@
 
 """ Setup of the MCMC process """
 from __future__ import annotations
+
+import logging
 import math
 import os
 import random
@@ -12,6 +14,7 @@ from multiprocessing import Process, Pipe
 from multiprocessing.connection import Connection
 
 import numpy as np
+from numpy.typing import NDArray
 
 from sbayes.config.config import MCMCConfig, WarmupConfig
 from sbayes.results import Results
@@ -30,13 +33,20 @@ from sbayes.util import RNG
 
 
 class MCMCSetup:
+
+    swap_matrix: NDArray[int] = None
+    last_swap_matrix_save: int = 0
+
     def __init__(self, data: Data, experiment: Experiment):
         self.data = data
         self.config = experiment.config
-        self.path_results = experiment.path_results
 
         # Create the model to sample from
         self.model = Model(data=self.data, config=self.config.model)
+
+        # Set the results directory based on the number of clusters
+        self.path_results = experiment.path_results / f'K{self.model.n_clusters}'
+        self.path_results.mkdir(exist_ok=True)
 
         # Samples
         self.sampler = None
@@ -124,18 +134,12 @@ Ratio of confounding_effects steps (changing probabilities in confounders): {op_
 
     def get_sample_loggers(self, run: int, resume: bool, chain: int = 0) -> list[ResultsLogger]:
         k = self.model.n_clusters
-        base_dir = self.path_results / f'K{k}'
-        base_dir.mkdir(exist_ok=True)
-        if chain == 0:
-            params_path = base_dir / f'stats_K{k}_{run}.txt'
-            clusters_path = base_dir / f'clusters_K{k}_{run}.txt'
-            likelihood_path = base_dir / f'likelihood_K{k}_{run}.h5'
-            op_stats_path = base_dir / f'operator_stats_K{k}_{run}.txt'
-        else:
-            params_path = base_dir / f'stats_K{k}_{run}.chain{chain}.txt'
-            clusters_path = base_dir / f'clusters_K{k}_{run}.chain{chain}.txt'
-            likelihood_path = base_dir / f'likelihood_K{k}_{run}.chain{chain}.h5'
-            op_stats_path = base_dir / f'operator_stats_K{k}_{run}.chain{chain}.txt'
+        base_dir = self.path_results
+        chain_str = '' if chain == 0 else f'.chain{chain}'
+        params_path = base_dir / f'stats_K{k}_{run}{chain_str}.txt'
+        clusters_path = base_dir / f'clusters_K{k}_{run}{chain_str}.txt'
+        likelihood_path = base_dir / f'likelihood_K{k}_{run}{chain_str}.h5'
+        op_stats_path = base_dir / f'operator_stats_K{k}_{run}{chain_str}.txt'
 
         sample_loggers = [
             ParametersCSVLogger(params_path, self.data, self.model,
@@ -153,8 +157,8 @@ Ratio of confounding_effects steps (changing probabilities in confounders): {op_
 
     def read_previous_results(self, run=1) -> Results:
         k = self.model.n_clusters
-        params_path = self.path_results / f'K{k}' / f'stats_K{k}_{run}.txt'
-        clusters_path = self.path_results / f'K{k}' / f'clusters_K{k}_{run}.txt'
+        params_path = self.path_results / f'stats_K{k}_{run}.txt'
+        clusters_path = self.path_results / f'clusters_K{k}_{run}.txt'
         return Results.from_csv_files(clusters_path, params_path)
 
     def last_sample(self, results: Results) -> Sample:
@@ -203,11 +207,12 @@ Ratio of confounding_effects steps (changing probabilities in confounders): {op_
 
     def sample_mc3(self, resume: bool = False, run: int = 1):
         mcmc_config = self.config.mcmc
-        n_chains = mcmc_config.mc3_chains
+        n_chains = mcmc_config.mc3.chains
         logging_interval = int(np.ceil(mcmc_config.steps / mcmc_config.samples))
-        n_swaps = int(mcmc_config.steps / mcmc_config.mc3_swap_interval)
+        n_swaps = int(mcmc_config.steps / mcmc_config.mc3.swap_interval)
 
-        temperatures = [1 + (c * mcmc_config.mc3_temperature_diff) for c in range(n_chains)]
+        temperatures = [1 + (c * mcmc_config.mc3.temperature_diff) for c in range(n_chains)]
+        prior_temperatures = [1 + (c * mcmc_config.mc3.prior_temperature_diff) for c in range(n_chains)]
         loggers = [self.get_sample_loggers(run, resume, chain=c) for c in range(n_chains)]
 
         processes: list[MCMCChainProcess] = []
@@ -217,12 +222,14 @@ Ratio of confounding_effects steps (changing probabilities in confounders): {op_
             parent_conn, child_conn = Pipe()
             proc = MCMCChainProcess(
                 conn=child_conn,
-                subchain_length=mcmc_config.mc3_swap_interval,
+                subchain_length=mcmc_config.mc3.swap_interval,
                 logging_interval=logging_interval,
                 i_chain=c,
+                temperature=temperatures[c],
+                prior_temperature=prior_temperatures[c],
             )
             proc.start()
-            parent_conn.send(('initialize_chain', mcmc_config, self.model, self.data, loggers[c], temperatures[c]))
+            parent_conn.send(('initialize_chain', mcmc_config, self.model, self.data, loggers[c]))
             processes.append(proc)
             connections.append(parent_conn)
 
@@ -237,6 +244,7 @@ Ratio of confounding_effects steps (changing probabilities in confounders): {op_
         # Remember starting time for runtime estimates
         self.swap_attempts = 0
         self.swap_accepts = 0
+        self.swap_matrix = np.zeros((n_chains, n_chains), dtype=int)
         self.t_start = time.time()
         self.logger.info("Sampling from posterior...")
 
@@ -251,7 +259,13 @@ Ratio of confounding_effects steps (changing probabilities in confounders): {op_
                 samples[c] = connections[c].recv()
 
             # Swap the chains of the current samples
-            self.swap_chains(samples, temperatures, attempts=mcmc_config.mc3_swap_attempts)
+            self.swap_chains(samples, temperatures, prior_temperatures, attempts=mcmc_config.mc3.swap_attempts)
+
+            new_swap = self.last_swap_matrix_save < self.swap_attempts
+            if mcmc_config.mc3.log_swap_matrix and new_swap:
+                self.swap_matrix_path = self.path_results / f"mc3_swaps_K{self.model.n_clusters}_{run}.txt"
+                np.savetxt(self.swap_matrix_path, self.swap_matrix, fmt="%i")
+                self.last_swap_matrix_save = self.swap_accepts
 
         self.logger.info(f"MCMC run finished after {(time.time() - self.t_start):.1f} seconds")
 
@@ -260,21 +274,37 @@ Ratio of confounding_effects steps (changing probabilities in confounders): {op_
         for proc in processes:
             proc.join()
 
-    def swap_chains(self, samples: list[Sample], temperatures: list[float], attempts: int):
-        """Chose random chains and try to swap with first chain"""
+    def swap_chains(
+        self,
+        samples: list[Sample],
+        temperatures: list[float],
+        prior_temperatures: list[float],
+        attempts: int,
+        only_swap_neighbours: bool = False,
+    ):
+        """Chose random chains and try to swap with chain."""
         n_chains = len(samples)
 
-        for swap_from in RNG.choice(n_chains - 1, size=attempts, replace=False):
-            swap_to = swap_from + 1
+        if only_swap_neighbours:
+            # Only consecutive indices are possible swaps
+            possible_swaps = [(i, i + 1) for i in range(n_chains - 1)]
+        else:
+            # All pairs of indices are possible swaps
+            possible_swaps = [(i, j) for i in range(n_chains - 1) for j in range(i + 1, n_chains)]
 
-            # Compute posterior ratio for both chains
-            posterior_from = self.model(samples[swap_from])
-            pow_from = 1 / temperatures[swap_from]
+        # Choose `attempts` index pairs to propose swaps
+        for swap_from, swap_to in RNG.choice(possible_swaps, size=attempts, replace=False):
 
-            posterior_to = self.model(samples[swap_to])
-            pow_to = 1 / temperatures[swap_to]
+            # Compute prior ratio for both chains
+            log_prior_ratio = self.model.prior(samples[swap_from]) - self.model.prior(samples[swap_to])
+            log_lh_ratio = self.model.likelihood(samples[swap_from]) - self.model.likelihood(samples[swap_to])
 
-            mh_ratio = (posterior_from - posterior_to) * (pow_to - pow_from)
+            prior_exp_diff = (1 / prior_temperatures[swap_from]) - (1 / prior_temperatures[swap_to])
+            lh_exp_diff = (1 / temperatures[swap_from]) - (1 / temperatures[swap_to])
+
+            mh_ratio = -(log_prior_ratio * prior_exp_diff + log_lh_ratio * lh_exp_diff)
+
+            # mh_ratio = (posterior_from - posterior_to) * (pow_to - pow_from)
             # Equivalent to:
             #   joint_posterior_noswap = posterior_from * temp_from + posterior_to * temp_to
             #   joint_posterior_swap = posterior_from * temp_to + posterior_to * temp_from
@@ -285,6 +315,8 @@ Ratio of confounding_effects steps (changing probabilities in confounders): {op_
             if accept:
                 samples[swap_from], samples[swap_to] = samples[swap_to], samples[swap_from]
                 self.swap_accepts += 1
+                self.swap_matrix[swap_from, swap_to] += 1
+
             self.swap_attempts += 1
 
             accept_str = 'ACCEPT' if accept else 'REJECT'
@@ -312,13 +344,17 @@ class MCMCChainProcess(Process):
         self, conn: Connection,
         subchain_length: int,
         logging_interval: int,
-        i_chain: int
+        i_chain: int,
+        temperature: float,
+        prior_temperature: float,
     ):
         super().__init__()
         self.conn = conn
         self.subchain_length = subchain_length
         self.logging_interval = logging_interval
         self.i_chain = i_chain
+        self.temperature = temperature
+        self.prior_temperature = prior_temperature
 
         # Will be initialized for each process in MCMCChainProcess.initialize
         self.mcmc_chain = None
@@ -346,17 +382,16 @@ class MCMCChainProcess(Process):
         model: Model,
         data: Data,
         sample_loggers: list[ResultsLogger],
-        temperature: float
     ) -> (None, bool):
         """Initialize the MCMC chain in this process"""
-        print(f"Initializing MCMCChain {self.i_chain} in worker process {os.getpid()}")
-
+        logging.info(f"Initializing MCMCChain {self.i_chain} in worker process {os.getpid()}")
         initializer = SbayesInitializer(
             model=model,
             data=data,
             initial_size=mcmc_config.init_objects_per_cluster,
             attempts=mcmc_config.initialization.attempts,
             initial_cluster_steps=mcmc_config.initialization.initial_cluster_steps,
+            n_em_steps=mcmc_config.initialization.em_steps,
         )
 
         self.mcmc_chain = MCMCChain(
@@ -366,7 +401,8 @@ class MCMCChainProcess(Process):
             sample_from_prior=mcmc_config.sample_from_prior,
             screen_log_interval=mcmc_config.screen_log_interval,
             sample_loggers=sample_loggers,
-            temperature=temperature,
+            temperature=self.temperature,
+            prior_temperature=self.prior_temperature,
         )
 
         sample = self.initialize_sample(initializer, self.mcmc_chain, mcmc_config.warmup)

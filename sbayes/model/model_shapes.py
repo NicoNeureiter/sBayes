@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from numpy._typing import NDArray
+from numpy.typing import NDArray
 
 
 @dataclass

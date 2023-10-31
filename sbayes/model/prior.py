@@ -172,6 +172,8 @@ class DirichletPrior:
     concentration: Concentration | dict[GroupName, Concentration]
     concentration_array: NDArray[float]
 
+    uniform_concentration_array: NDArray[float] = None
+
     def __init__(
         self,
         config: DirichletPriorConfig | dict[GroupName, DirichletPriorConfig],
@@ -187,6 +189,10 @@ class DirichletPrior:
         self.concentration = None
 
         self.parse_attributes()
+
+        self.uniform_concentration_array = self.concentration_list_to_array(
+            self.get_symmetric_concentration(1.0)
+        )
 
     @property
     def n_features(self):
@@ -236,6 +242,12 @@ class DirichletPrior:
                 np.ones(shape=n_states_f) / n_states_f
             )
         return concentration
+
+    def concentration_list_to_array(self, concentration: list[NDArray[float]]):
+        concentration_array = np.zeros((self.shapes.n_features, self.shapes.n_states))
+        for i_f, c_g_f in enumerate(concentration):
+            concentration_array[i_f, :len(c_g_f)] = c_g_f
+        return concentration_array
 
     def parse_attributes(self):
         raise NotImplementedError()

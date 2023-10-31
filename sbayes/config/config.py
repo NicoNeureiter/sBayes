@@ -5,9 +5,6 @@ import warnings
 import json
 from typing import Union, List, Dict, Optional
 
-from pydantic.types import PathType
-from pydantic_core import core_schema, PydanticCustomError
-
 try:
     from typing import Annotated, Literal
 except ImportError:
@@ -21,6 +18,8 @@ from pydantic import model_validator, BaseModel, Field
 from pydantic import ValidationError
 from pydantic import DirectoryPath
 from pydantic import PositiveInt, PositiveFloat, NonNegativeFloat
+from pydantic.types import PathType
+from pydantic_core import core_schema, PydanticCustomError
 
 from sbayes.util import fix_relative_path, decompose_config_path, PathLike
 from sbayes.util import update_recursive
@@ -328,6 +327,74 @@ class InitializationConfig(BaseConfig):
     initial_cluster_steps: bool = True
     """Whether to apply an initial cluster operator to each cluster before selecting the best sample."""
 
+    em_steps: PositiveInt = 50
+    """Number of steps in the expectation-maximization initializer."""
+
+
+class MC3Config(BaseConfig):
+
+    """Configuration of Metropolis-Coupled Markov Chain Monte Carlo (MC3) parameters."""
+
+    activate: bool = False
+    """Whether or not to use Metropolis-Coupled Markov Chain Monte Carlo sampling (MC3)."""
+
+    chains: PositiveInt = 4
+    """Number of MC3 chains."""
+
+    swap_interval: PositiveInt = 1000
+    """Number of MCMC steps between each MC3 chain swap attempt."""
+
+    swap_attempts: PositiveInt = 2
+    """Number of chain pairs which are proposed to be swapped after each interval."""
+
+    only_swap_adjacent_chains: bool = False
+    """Only swap chains that are next to each other in the temperature schedule."""
+
+    temperature_diff: PositiveFloat = 0.05
+    """Difference between temperatures of MC3 chains."""
+
+    prior_temperature_diff: PositiveFloat | None = None
+    """Difference between prior-temperatures of MC3 chains. Defaults to the same values as 
+    `temperature_diff` if `only_heat_likelihood == False`, and 0 otherwise."""
+
+    only_heat_likelihood: bool = False
+    """If `True`, only likelihood is affected by the MC3 temperature, i.e. all chains use the same prior."""
+
+    log_swap_matrix: bool = True
+    """If `True`, write a matrix containing the number of swaps between each pair of chains to an npy-file."""
+
+    @model_validator(mode="after")
+    def validate_mc3(self):
+        if self.activate and self.chains < 2:
+            self.activate = False
+            warnings.warn(f"Deactivated MC3, as it is pointless with less than 2 chains.")
+
+        # The number of swap attempts cannot exceed the number of valid chain pairs. The
+        # number of valid chain pairs depends on whether we restrict swaps to adjacent
+        # chains.
+        if self.only_swap_adjacent_chains:
+            valid_chain_pairs = self.chain - 1
+        else:
+            valid_chain_pairs = int(self.chains * (self.chains - 1) / 2)
+        if self.swap_attempts > valid_chain_pairs:
+            self.swap_attempts = valid_chain_pairs
+            warnings.warn(
+                f"With `only_swap_adjacent_chains={self.only_swap_adjacent_chains}` and "
+                f"{self.chains} chains the number of swap attempts can not be more than "
+                f"{valid_chain_pairs}. Adjusted swap_attempts={valid_chain_pairs}."
+            )
+
+        # Default behavior of `prior_temperature_diff` depends on the
+        # `prior_temperature_diff` flag.
+        if self.prior_temperature_diff is None:
+            if self.only_heat_likelihood:
+                # Prior is not heated at all -> prior_temperature_diff is 0
+                self.prior_temperature_diff = 0.0
+            else:
+                # Prior is heated the same as the posterior
+                self.prior_temperature_diff = self.temperature_diff
+
+        return self
 
 class MCMCConfig(BaseConfig):
 
@@ -357,24 +424,7 @@ class MCMCConfig(BaseConfig):
     operators: OperatorsConfig = Field(default_factory=OperatorsConfig)
     warmup: WarmupConfig = Field(default_factory=WarmupConfig)
     initialization: InitializationConfig = Field(default_factory=InitializationConfig)
-
-    use_mc3: bool = False
-    """Whether or not to use Metropolis-coupled Markov chain monte carlo sampling (MC3)."""
-
-    mc3_chains: PositiveInt = 4
-    """Number of chains for MC3."""
-
-    mc3_swap_interval: PositiveInt = 1000
-    """Number of MCMC steps between each MC3 chain swap attempt."""
-
-    mc3_temperature_diff: PositiveFloat = 0.05
-    """Difference between temperatures of MC3 chains."""
-
-    mc3_swap_attempts: PositiveInt = 2
-    """Number of chain pairs which are proposed to be swapped after each interval."""
-
-    # mc3_only_heat_likelihood: bool = False
-    # """If `True`, only likelihood is affected by the MC3 temperature, i.e. all chains use the same prior."""
+    mc3: MC3Config = Field(default_factory=MC3Config)
 
     @model_validator(mode="after")
     def validate_sample_spacing(self):
@@ -382,15 +432,6 @@ class MCMCConfig(BaseConfig):
         spacing = self.steps % self.samples
         if spacing != 0.:
             raise ValueError("Inconsistent spacing between samples. Set ´steps´ to be a multiple of ´samples´.")
-
-        # Since we only swap neighbouring chains and attempting to swap the same pair of
-        # chains twice is pointless, the number of swap attempts has to be less than the
-        # number of chains.
-        if self.mc3_swap_attempts > self.mc3_chains - 1:
-            self.mc3_swap_attempts = self.mc3_chains - 1
-            warnings.warn(f"The number of swap attempts needs to be less than the number "
-                          f"of chains. Adjusted swap attempts to {self.mc3_chains - 1}.")
-
         return self
 
 
