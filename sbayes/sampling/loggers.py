@@ -349,6 +349,7 @@ class LikelihoodLogger(ResultsLogger):
         lh_per_comp_exact = likelihood_per_component_exact(model=self.model, sample=sample)
         lh = np.sum(weights * lh_per_comp_exact, axis=2).ravel()
         self.logged_likelihood_array.append(lh[None, ...])
+        self.file.flush()
 
 
 class OperatorStatsLogger(ResultsLogger):
