@@ -43,7 +43,7 @@ def get_permuted_params(results: Results, permutation: list) -> pd.DataFrame:
     params: pd.DataFrame = results.parameters
     cluster_names = np.array(results.cluster_names)
     remap = {}
-    for clust_i, clust_j in zip(cluster_names, cluster_names[perm]):
+    for clust_i, clust_j in zip(cluster_names, cluster_names[permutation]):
         # Fix areal effects columns
         prefix_i = f"areal_{clust_i}_"
         prefix_j = f"areal_{clust_j}_"
@@ -53,7 +53,7 @@ def get_permuted_params(results: Results, permutation: list) -> pd.DataFrame:
                 k_j = prefix_j + k[len(prefix_i):]
                 remap[k] = params[k_j]
 
-    for i, j in enumerate(perm):
+    for i, j in enumerate(permutation):
         # Fix cluster size columns
         remap[f"size_a{i}"] = params[f"size_a{j}"]
 
@@ -63,7 +63,7 @@ def get_permuted_params(results: Results, permutation: list) -> pd.DataFrame:
     return params
 
 
-if __name__ == '__main__':
+def main():
     from shutil import copyfile
     import argparse
 
@@ -106,3 +106,7 @@ if __name__ == '__main__':
 
     write_clusters(clusters_path_2, clusters_2_aligned)
     params_2_aligned.to_csv(parameters_path_2, index=False, sep="\t")
+
+
+if __name__ == '__main__':
+    main()
