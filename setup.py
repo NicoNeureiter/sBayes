@@ -39,7 +39,8 @@ setup(
     entry_points={
         'console_scripts': [
             'sbayes = sbayes.cli:cli',
-            'sbayesPlot = sbayes.plot:cli'
+            'sbayesPlot = sbayes.plot:cli',
+            'sbayesAlignClusters = sbayes.tools.align_clusters:main',
         ]
     }
 )

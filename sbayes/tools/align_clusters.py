@@ -2,11 +2,6 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
-import matplotlib
-import matplotlib.pyplot as plt
-import seaborn as sns
-import tkinter as tk
-from tkinter import filedialog
 from numpy.typing import NDArray
 from scipy.optimize import linear_sum_assignment
 
@@ -16,6 +11,10 @@ from sbayes.util import parse_cluster_columns, normalize, format_cluster_columns
 
 def load_clusters(filename=None) -> NDArray[int]:  # shape: (n_samples, n_clusters, n_objects)
     if filename is None:
+        # Import tkinter only when needed (CLI works without it)
+        import tkinter as tk
+        from tkinter import filedialog
+
         tk.Tk().withdraw()
         filename = filedialog.askopenfilename(title='Select clusters file.', initialdir='../experiments/',
                                               filetypes=(('txt', '*.txt'),('all', '*.*')))
