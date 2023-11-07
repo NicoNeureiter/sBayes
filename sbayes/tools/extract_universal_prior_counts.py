@@ -4,9 +4,6 @@ import json
 import os
 import argparse
 
-import tkinter as tk
-from tkinter import filedialog
-
 from sbayes.load_data import read_features_from_csv, Confounder
 from sbayes.util import scale_counts
 
@@ -32,47 +29,42 @@ def main(args):
     max_counts = args.scaleCounts
 
     # GUI
-    tk_started = False
-    current_directory = '.'
+    gui_required = (prior_data_file is None
+                    or feature_states_file is None
+                    or output_file is None)
+    if gui_required:
+        import tkinter as tk
+        from tkinter import filedialog
 
-    if prior_data_file is None:
-        if not tk_started:
-            tk.Tk().withdraw()
-            tk_started = True
+        tk.Tk().withdraw()
+        current_directory = '.'
 
-        # Ask the user for data file
-        prior_data_file = filedialog.askopenfilename(
-            title='Select the data file in CSV format.',
-            initialdir=current_directory,
-            filetypes=(('csv files', '*.csv'), ('all files', '*.*'))
+        if prior_data_file is None:
+            # Ask the user for data file
+            prior_data_file = filedialog.askopenfilename(
+                title='Select the data file in CSV format.',
+                initialdir=current_directory,
+                filetypes=(('csv files', '*.csv'), ('all files', '*.*'))
 
-        )
-        current_directory = os.path.dirname(prior_data_file)
+            )
+            current_directory = os.path.dirname(prior_data_file)
 
-    if feature_states_file is None:
-        if not tk_started:
-            tk.Tk().withdraw()
-            tk_started = True
+        if feature_states_file is None:
+            # Ask the user for feature states file
+            feature_states_file = filedialog.askopenfilename(
+                title='Select the feature_states file in CSV format.',
+                initialdir=current_directory,
+                filetypes=(('csv files', '*.csv'), ('all files', '*.*'))
+            )
+            current_directory = os.path.dirname(feature_states_file)
 
-        # Ask the user for feature states file
-        feature_states_file = filedialog.askopenfilename(
-            title='Select the feature_states file in CSV format.',
-            initialdir=current_directory,
-            filetypes=(('csv files', '*.csv'), ('all files', '*.*'))
-        )
-        current_directory = os.path.dirname(feature_states_file)
-
-    if output_file is None:
-        if not tk_started:
-            tk.Tk().withdraw()
-            tk_started = True
-
-        # Ask the user for output directory
-        output_file = filedialog.asksaveasfilename(
-            title='Select the output file (for universal prior counts) in JSON format.',
-            initialdir=current_directory,
-            filetypes=(('json files', '*.json'), ('all files', '*.*'))
-        )
+        if output_file is None:
+            # Ask the user for output directory
+            output_file = filedialog.asksaveasfilename(
+                title='Select the output file (for universal prior counts) in JSON format.',
+                initialdir=current_directory,
+                filetypes=(('json files', '*.json'), ('all files', '*.*'))
+            )
 
     prior_data_file = Path(prior_data_file)
     feature_states_file = Path(feature_states_file)

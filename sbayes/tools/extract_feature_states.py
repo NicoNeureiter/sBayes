@@ -5,37 +5,10 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-import tkinter as tk
-from tkinter import filedialog, messagebox
-
 from sbayes.util import normalize_str, read_data_csv
 
 ORDER_STATES = True
 '''bool: Whether to order the features states alphabetically'''
-
-
-def select_open_file(default_dir='.'):
-    path = filedialog.askopenfilename(
-        title='Select a data file in CSV format.',
-        initialdir=default_dir,
-        filetypes=(('csv files', '*.csv'), ('all files', '*.*'))
-    )
-    return path
-
-
-def select_save_file(default_dir='.', default_name='feature_states.csv'):
-    path = filedialog.asksaveasfile(
-        title='Select an output file in CSV format.',
-        initialdir=default_dir,
-        initialfile=default_name,
-        filetypes=(('csv files', '*.csv'), ('all files', '*.*'))
-    )
-    return path
-
-
-def ask_more_files():
-    MsgBox = tk.messagebox.askquestion ('Additional data files','Would you like to add more data files?')
-    return MsgBox == 'yes'
 
 
 def collect_feature_states(features_path):
@@ -72,6 +45,31 @@ def main(args):
 
     # GUI
     if (csv_paths is None) or (len(csv_paths) == 0):
+        # Import tkinter only when needed (CLI works without it)
+        import tkinter as tk
+        from tkinter import filedialog, messagebox
+
+        def select_open_file(default_dir='.'):
+            path = filedialog.askopenfilename(
+                title='Select a data file in CSV format.',
+                initialdir=default_dir,
+                filetypes=(('csv files', '*.csv'), ('all files', '*.*'))
+            )
+            return path
+
+        def select_save_file(default_dir='.', default_name='feature_states.csv'):
+            path = filedialog.asksaveasfile(
+                title='Select an output file in CSV format.',
+                initialdir=default_dir,
+                initialfile=default_name,
+                filetypes=(('csv files', '*.csv'), ('all files', '*.*'))
+            )
+            return path
+
+        def ask_more_files():
+            MsgBox = tk.messagebox.askquestion('Additional data files', 'Would you like to add more data files?')
+            return MsgBox == 'yes'
+
         tk.Tk().withdraw()
 
         # Ask the user for input files
