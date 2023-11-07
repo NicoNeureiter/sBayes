@@ -373,7 +373,7 @@ class MC3Config(BaseConfig):
         # number of valid chain pairs depends on whether we restrict swaps to adjacent
         # chains.
         if self.only_swap_adjacent_chains:
-            valid_chain_pairs = self.chain - 1
+            valid_chain_pairs = self.chains - 1
         else:
             valid_chain_pairs = int(self.chains * (self.chains - 1) / 2)
         if self.swap_attempts > valid_chain_pairs:

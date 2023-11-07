@@ -57,6 +57,8 @@ class MCMCSetup:
 
         self.logger = experiment.logger
 
+
+
     def log_setup(self):
         mcmc_cfg = self.config.mcmc
         wu_cfg = mcmc_cfg.warmup
@@ -259,7 +261,9 @@ Ratio of confounding_effects steps (changing probabilities in confounders): {op_
                 samples[c] = connections[c].recv()
 
             # Swap the chains of the current samples
-            self.swap_chains(samples, temperatures, prior_temperatures, attempts=mcmc_config.mc3.swap_attempts)
+            self.swap_chains(samples, temperatures, prior_temperatures,
+                             attempts=mcmc_config.mc3.swap_attempts,
+                             only_swap_neighbours=mcmc_config.mc3.only_swap_adjacent_chains)
 
             new_swap = self.last_swap_matrix_save < self.swap_attempts
             if mcmc_config.mc3.log_swap_matrix and new_swap:
