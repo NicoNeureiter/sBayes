@@ -724,7 +724,6 @@ class ClusterOperator(Operator):
 
                 log_q = np.log(p[source[object_subset]]).sum()
 
-
             log_q_back = np.log(p_back[sample_old.source.value[object_subset]]).sum()
 
             update_feature_counts(sample_old, sample_new, features, object_subset)
@@ -771,17 +770,19 @@ class ClusterOperator(Operator):
 
         # Make sure object_subset is a boolean index array
         object_subset = np.isin(np.arange(sample_new.n_objects), object_subset)
+
+        # Compute the likelihood for each mixture component
         lh_per_component = component_likelihood_given_unchanged(
             model, sample_new, object_subset, i_cluster=i_cluster
         ) ** (1 / self.temperature)
 
+        # Compute the source-prior for each mixture component
         if self.sample_from_prior:
             p = update_weights(sample_new)[object_subset]
         else:
             w = update_weights(sample_new)[object_subset] ** (1 / self.prior_temperature)
             p = normalize(w * lh_per_component, axis=-1)
             # p = self.calculate_source_posterior(sample_new, object_subset)
-
 
         # Sample the new source assignments
         with sample_new.source.edit() as source:

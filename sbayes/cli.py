@@ -1,6 +1,3 @@
-import sys
-import warnings
-import traceback
 import multiprocessing
 from copy import deepcopy
 from itertools import product
@@ -8,7 +5,7 @@ import argparse
 from pathlib import Path
 
 from sbayes.experiment_setup import Experiment
-from sbayes.util import PathLike, update_recursive
+from sbayes.util import PathLike, update_recursive, activate_verbose_warnings
 from sbayes.load_data import Data
 from sbayes.mcmc_setup import MCMCSetup
 
@@ -96,20 +93,14 @@ def main(
         pool.map(runner, run_configurations)
 
 
-def warn_with_traceback(message, category, filename, lineno, file=None, line=None):
-    log = file if hasattr(file, 'write') else sys.stderr
-    # traceback.print_stack(file=log)
-    warning_trace = traceback.format_stack()
-    warning_trace_str = "".join(["\n\t|" + l for l in "".join(warning_trace).split("\n")])
-    message = str(message) + warning_trace_str
-    log.write(warnings.formatwarning(message, category, filename, lineno, line))
-
-
 def cli():
     """Command line interface."""
-    if __debug__:
-        warnings.showwarning = warn_with_traceback
 
+    # When in debug mode, activate verbose warning (printing stack trace)
+    if __debug__:
+        activate_verbose_warnings()
+
+    # Initialize CLI argument parser
     parser = argparse.ArgumentParser(
         description="An MCMC algorithm to identify contact zones"
     )
@@ -121,7 +112,7 @@ def cli():
         help="The JSON configuration file"
     )
 
-    # Optional named arguments:
+    # Optional named CLI arguments:
     parser.add_argument(
         "-n", "--name",
         nargs="?",

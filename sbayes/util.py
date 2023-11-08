@@ -2,9 +2,12 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 import datetime
+import sys
 import time
 import csv
 import os
+import traceback
+import warnings
 from pathlib import Path
 from math import sqrt, floor, ceil
 from itertools import combinations, permutations
@@ -1502,3 +1505,16 @@ if __name__ == "__main__":
     # print(
     #     tfp.distributions.DirichletMultinomial(4, a).prob(k)
     # )
+
+
+def warn_with_traceback(message, category, filename, lineno, file=None, line=None):
+    log = file if hasattr(file, 'write') else sys.stderr
+    # traceback.print_stack(file=log)
+    warning_trace = traceback.format_stack()
+    warning_trace_str = "".join(["\n\t|" + l for l in "".join(warning_trace).split("\n")])
+    message = str(message) + warning_trace_str
+    log.write(warnings.formatwarning(message, category, filename, lineno, line))
+
+
+def activate_verbose_warnings():
+    warnings.showwarning = warn_with_traceback
