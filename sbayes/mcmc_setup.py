@@ -431,6 +431,7 @@ class MCMCChainProcess(Process):
 
             mcmc_chain.reset_posterior_cache()
 
+        best_sample.i_step = 0
         return best_sample
 
     def run_chain(self, sample: Sample) -> (Sample, bool):
