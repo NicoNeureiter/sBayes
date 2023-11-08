@@ -77,9 +77,14 @@ def main(results_dir: Path, burnin: float = 0.1):
             print("ELPD-LOO for", (experiment, k, run_id), ":", loo)
             df.loc[(experiment, k, run_id)] = [loo]
         except Exception as e:
-            warnings.warn(e)
+            msg = f"Error in likelihood file '{run_path}'. Will be skipped in model comparison."
+            msg += "".join(["\n\t| " + l for l in str(e).split("\n")])
+            warnings.warn(msg)
 
-        print()
+
+    if len(df) == 0:
+        warnings.warn(f"No results with valid likelihood files were found in directory '{results_dir}'.")
+        return
 
     df = df.reset_index()
     if len(df.k.unique()) == 1:
