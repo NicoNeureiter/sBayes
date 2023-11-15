@@ -42,6 +42,7 @@ setup(
             'sbayesPlot = sbayes.plot:cli',
             'sbayesAlignClusters = sbayes.tools.align_clusters:main',
             'sbayesELPD = sbayes.tools.elpd:cli',
+            'sbayesSubsample = sbayes.tools.subsample:main',
         ]
     }
 )
