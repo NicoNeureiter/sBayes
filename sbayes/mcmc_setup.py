@@ -57,7 +57,7 @@ class MCMCSetup:
 
         self.logger = experiment.logger
 
-
+        self.t_start = None
 
     def log_setup(self):
         mcmc_cfg = self.config.mcmc
@@ -208,18 +208,27 @@ Ratio of confounding_effects steps (changing probabilities in confounders): {op_
         return sample
 
     def sample_mc3(self, resume: bool = False, run: int = 1):
+        """Generate samples using MC3.
+        Args:
+            resume: whether or not to resume a previous run.
+            run: ID of this sampling run (when multiple runs of the same configuration are started)
+        """
         mcmc_config = self.config.mcmc
         n_chains = mcmc_config.mc3.chains
         logging_interval = int(np.ceil(mcmc_config.steps / mcmc_config.samples))
         n_swaps = int(mcmc_config.steps / mcmc_config.mc3.swap_interval)
 
+        # Remember time before initializing MC3 chains
+        t_pre_init = time.time()
+
+        # Calculate temperatures and create loggers for each chain
         temperatures = [1 + (c * mcmc_config.mc3.temperature_diff) for c in range(n_chains)]
         prior_temperatures = [1 + (c * mcmc_config.mc3.prior_temperature_diff) for c in range(n_chains)]
         loggers = [self.get_sample_loggers(run, resume, chain=c) for c in range(n_chains)]
 
-        processes: list[MCMCChainProcess] = []
-        connections: list[Connection] = []
-        samples: list[Sample] = []
+        processes = []
+        connections = []
+        samples = []
         for c in range(n_chains):
             parent_conn, child_conn = Pipe()
             proc = MCMCChainProcess(
@@ -235,19 +244,23 @@ Ratio of confounding_effects steps (changing probabilities in confounders): {op_
             processes.append(proc)
             connections.append(parent_conn)
 
+        # Wait for each chain to finish initialization and warm-up and store the initial samples
         for c in range(n_chains):
             sample = connections[c].recv()
             samples.append(sample)
 
+        # Sanity checks
         assert len(processes) == n_chains
         assert len(connections) == n_chains
         assert len(samples) == n_chains
 
-        # Remember starting time for runtime estimates
+        # Initialize counters and timer
         self.swap_attempts = 0
         self.swap_accepts = 0
         self.swap_matrix = np.zeros((n_chains, n_chains), dtype=int)
         self.t_start = time.time()
+
+        self.logger.info(f"Initialization and warm-up finished after {self.t_start - t_pre_init:.1f} seconds")
         self.logger.info("Sampling from posterior...")
 
         for i_swap in range(n_swaps):
