@@ -308,7 +308,7 @@ class ConfoundingEffectsPrior(DirichletPrior):
                 self.concentration = self.get_oneovern_concentration()
             elif group_prior_type is self.PriorType.DIRICHLET:
                 self.concentration[group] = self.load_concentration(config_g)
-            elif self.prior_type is self.PriorType.SYMMETRIC_DIRICHLET:
+            elif group_prior_type is self.PriorType.SYMMETRIC_DIRICHLET:
                 self.concentration[group] = self.get_symmetric_concentration(config_g.prior_concentration)
             elif group_prior_type is self.PriorType.UNIVERSAL:
                 # Concentration will change based on sample of universal distribution...
@@ -400,17 +400,8 @@ class ConfoundingEffectsPrior(DirichletPrior):
     def get_setup_message(self):
         """Compile a set-up message for logging."""
         msg = f"Prior on confounding effect {self.conf}:\n"
-
         for i_g, group in enumerate(self.group_names):
-        # for i_g, group in enumerate(self.config):
-            if self.config[group].type is self.PriorType.UNIFORM:
-                msg += f'\tUniform prior for confounder {self.conf} = {group}.\n'
-            elif self.config[group].type is self.PriorType.DIRICHLET:
-                msg += f'\tDirichlet prior for confounder {self.conf} = {group}.\n'
-            elif self.config[group].type is self.PriorType.UNIVERSAL:
-                msg += f'\tDirichlet prior with universal distribution as mean for confounder {self.conf} = {group}.\n'
-            else:
-                raise ValueError(self.invalid_prior_message(self.config.type))
+            msg += f"\tPrior {self.config[group].type.value} for confounder {self.conf} = {group}.\n"
         return msg
 
 
