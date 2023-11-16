@@ -408,9 +408,9 @@ independent samples.
 
 An analysis in `sBayes` returns the following output:
 
--   areas\*.txt: posterior samples of contact areas
+-   `areas\*.txt`: posterior samples of contact areas
 
--   stats\*.txt: posterior samples of all remaining parameters, prior,
+-   `stats\*.txt`: posterior samples of all remaining parameters, prior,
     posterior and log-likelihood of each sample
 
 -   log.txt: a log file with statistics about the run.
@@ -429,7 +429,7 @@ assess the quality of the posterior sample:
     rate indicates too frequent and, thus, inefficient sampling, a low
     acceptance rate indicates too sparse sampling.
 
--   Convergence and effective sample size: The results in stats\*.txt
+-   Convergence and effective sample size: The results in `stats\*.txt`
     are compatible with `Tracer` (<https://beast.community/tracer>), a
     software package to visualise and analyse the MCMC trace files
     generated through Bayesian phylogenetic inference. Tracer provides
@@ -534,14 +534,9 @@ A default analysis in `sBayes` consists of three main steps:
 
 Users define the settings of a `sBayes`-analysis in the *config.JSON*
 file. The *config.JSON* file has four main keys:
-
 -   `data`: provides the file paths to the empirical data
-
--   `model`: defines the likelihood, the prior, and additional model
-    parameters
-
+-   `model`: defines the likelihood, the prior, and additional model parameters
 -   `mcmc`: gives the settings for the Markov chain Monte Carlo sampling
-
 -   `results`: gives the location and the name of the result files
 
 ### *config.JSON*: `data`
@@ -608,24 +603,18 @@ area.
 }
 ```
 
-Table [7](#tab:config_file_model){reference-type="ref"
-reference="tab:config_file_model"} summarizes all keys in `model` and
+The [table below](#tab:config_file_model) summarizes all keys in `model` and
 gives the default values and expected data types.
 
-::: {#tab:config_file_model}
-  --------------- ---------------- ------------ -------------------------------------------------------------
-                                                
-                                                
-  `inheritance`   boolean          (required)   Does the model consider inheritance?
-  `areas`         number \| list   (required)   Number (or a list of numbers) of contact areas in the model
-  `prior`         JSON                          Defines the prior of the model. See below.
-                                                
-  --------------- ---------------- ------------ -------------------------------------------------------------
+#### Table: The `config.JSON` file: keys in `model`
+<a name="tab:config_file_model"></a>
 
-  : The *config.JSON* file: keys in `model`
-:::
+| **key**             | **data type** | **default value** | **description**                            |
+|---------------------|---------------|-------------------|--------------------------------------------|
+| `inheritance`       | boolean       | (required)        | Does the model consider inheritance?       |
+| `areas`             | number \| list| (required)        | Number (or a list of numbers) of contact areas in the model |
+| `prior`             | JSON          |                   | Defines the prior of the model. See below. |
 
-[]{#tab:config_file_model label="tab:config_file_model"}
 
 ### *config.JSON*: `model` \> `prior`
 
@@ -683,13 +672,11 @@ for the features *pers_aff*, *role_mark*, and *vow_con*
 (Table [2](#tab:features_example){reference-type="ref"
 reference="tab:features_example"}):
 
-  --------------------------------------------------------------------------------------------------- -----------------------------------------------------------------------------------------------------------------------------------------------------
-  $$\begin{aligned}                                                                                   
-         P(\alpha_{\textit{pers\_aff}}) = \textrm{Dir}(\psi_{Y}=6.1, \\                               
-      \psi_{N}=7.9 )\end{aligned}$$                                                                   
-  $$\begin{aligned}                                                                                   $$\begin{aligned}
-      P(\alpha_{\textit{vow\_con}}) = \textrm{Dir}(\psi_{Y}=\;\;2.0,\\\psi_{N}=12.0)\end{aligned}$$       P(\alpha_{\textit{role\_mark}}) = \textrm{Dir}(\psi_{A}=2.0, \\\psi_{B}=0.3, \\\psi_{C}=4.7, \\\psi_{D} = 3.0, \\\psi_{E} = 4.0)\end{aligned}$$
-  --------------------------------------------------------------------------------------------------- -----------------------------------------------------------------------------------------------------------------------------------------------------
+$ P(\alpha_{\textit{pers\_aff}}) = \textrm{Dir}(\psi_{Y}=6.1, \psi_{N}=7.9 ) $
+
+$ P(\alpha_{\textit{vow\_con}}) = \textrm{Dir}(\psi_{Y}=\;\;2.0,\psi_{N}=12.0) $
+
+$ P(\alpha_{\textit{role\_mark}}) = \textrm{Dir}(\psi_{A}=2.0, \psi_{B}=0.3, \psi_{C}=4.7, \psi_{D} = 3.0, \psi_{E} = 4.0) $
 
 The JSON snippet below encodes the universal prior:
 
