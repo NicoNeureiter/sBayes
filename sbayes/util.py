@@ -26,6 +26,9 @@ import scipy.stats as stats
 from scipy.sparse import csr_matrix
 from numba import jit, njit, float32, float64, int64, boolean, vectorize
 
+
+FLOAT_TYPE = np.float64
+INT_TYPE = np.int64
 EPS = np.finfo(float).eps
 RNG = np.random.default_rng()
 
