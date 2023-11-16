@@ -980,7 +980,7 @@ def normalize(x, axis=-1):
            [0.5, 0.5, 0.5, 0.5]])
     """
     assert np.all(np.sum(x, axis=axis) > 0)
-    return x / np.sum(x, axis=axis, keepdims=True)
+    return (x / np.sum(x, axis=axis, keepdims=True)).astype(FLOAT_TYPE)
 
 
 def mle_weights(samples):
@@ -1343,7 +1343,7 @@ def dirichlet_multinomial_logpdf(
     sum_a = a.sum(axis=-1)
     const = (gammaln(n + 1) + gammaln(sum_a)) - gammaln(n + sum_a)
     series = np.where(a > 0, gammaln(counts + a) - (gammaln(counts + 1) + gammaln(a)), 0.)
-    return const + series.sum(axis=-1)
+    return (const + series.sum(axis=-1)).astype(FLOAT_TYPE)
 
 
 @jit(nopython=True, fastmath=True, nogil=True)
@@ -1367,7 +1367,7 @@ def dirichlet_categorical_logpdf(
     sum_a = a.sum(axis=-1)
     const = gammaln(sum_a) - gammaln(n + sum_a)
     series = np.where(a > 0, gammaln(counts + a) - gammaln(a), 0.)
-    return const + series.sum(axis=-1)
+    return (const + series.sum(axis=-1)).astype(FLOAT_TYPE)
 
 
 def get_along_axis(a: NDArray, index: int, axis: int):
