@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from sbayes.sampling.counts import recalculate_feature_counts
-from sbayes.util import dirichlet_categorical_logpdf
+from sbayes.util import dirichlet_categorical_logpdf, FLOAT_TYPE
 from numba import njit
 
 try:
@@ -183,7 +183,7 @@ def normalize_weights(
 
     # Calculate the normalized weights per pattern
     w_per_pattern = pattern[:, None, :] * weights[None, :, :]
-    w_per_pattern /= np.sum(w_per_pattern, axis=-1, keepdims=True)
+    w_per_pattern /= np.sum(w_per_pattern, axis=-1, keepdims=True, dtype=FLOAT_TYPE)
 
     # Broadcast the normalized weights per pattern to the objects where the patterns appeared using pattern_inv
     return w_per_pattern[pattern_inv]

@@ -17,7 +17,7 @@ from sbayes.model.likelihood import update_weights, normalize_weights
 from sbayes.preprocessing import sample_categorical
 from sbayes.sampling.state import Sample, Clusters
 from sbayes.util import (compute_delaunay, n_smallest_distances, log_multinom,
-                         dirichlet_logpdf, log_expit, PathLike, log_binom, normalize)
+                         dirichlet_logpdf, log_expit, PathLike, log_binom, normalize, FLOAT_TYPE)
 from sbayes.config.config import PriorConfig, DirichletPriorConfig, GeoPriorConfig, ClusterSizePriorConfig, \
     ConfoundingEffectPriorConfig
 from sbayes.load_data import Data, ComputeNetwork, GroupName, ConfounderName, StateName, FeatureName, Confounder
@@ -224,7 +224,7 @@ class DirichletPrior:
                 self.initial_counts + concentration_dict[f][s]
                 for s in state_names_f
             ]
-            concentration.append(np.array(conc_f))
+            concentration.append(np.array(conc_f, dtype=FLOAT_TYPE))
         return concentration
 
     def get_symmetric_concentration(self, c: float) -> list[np.ndarray]:
@@ -481,7 +481,7 @@ class WeightsPrior(DirichletPrior):
         else:
             raise ValueError(self.invalid_prior_message(self.prior_type))
 
-        self.concentration_array = np.array(self.concentration)
+        self.concentration_array = np.array(self.concentration, dtype=FLOAT_TYPE)
 
     def __call__(self, sample: Sample, caching=True) -> float:
         """Compute the prior for weights (or load from cache).
@@ -554,7 +554,7 @@ class SourcePrior:
             if len(changed) > 0:
                 w = update_weights(sample)[changed]
                 s = sample.source.value[changed]
-                observation_weights = np.sum(w*s, axis=-1)
+                observation_weights = np.sum(w * s, axis=-1)
                 source_prior[changed] = np.sum(np.log(observation_weights), axis=-1, where=self.valid_observations[changed])
 
         return cache.value.sum()
@@ -806,9 +806,9 @@ class GeoPrior(object):
 
 
 def compute_gaussian_geo_prior(
-        cluster: np.array,
+        cluster: NDArray[bool],
         network: ComputeNetwork,
-        cov: np.array,
+        cov: NDArray[float],
 ) -> float:
     """This function computes the 2D Gaussian geo-prior for all edges in the cluster.
 
@@ -848,8 +848,8 @@ def compute_gaussian_geo_prior(
 
 
 def compute_diameter_based_geo_prior(
-        clusters: np.array,
-        cost_mat: np.array,
+        clusters: NDArray[bool],
+        cost_mat: NDArray[float],
         aggregator: Aggregator,
         probability_function: Callable[[float], float],
 ) -> float:

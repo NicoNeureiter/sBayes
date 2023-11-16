@@ -12,10 +12,11 @@ import scipy.stats as stats
 from scipy.special import softmax
 
 from sbayes.load_data import Features, Data
-from sbayes.sampling.conditionals import likelihood_per_component, conditional_effect_mean
+from sbayes.sampling.conditionals import likelihood_per_component, conditional_effect_mean, \
+    likelihood_per_component_exact
 from sbayes.sampling.counts import recalculate_feature_counts, update_feature_counts
 from sbayes.sampling.state import Sample
-from sbayes.util import dirichlet_logpdf, normalize, get_neighbours, inner1d, RNG
+from sbayes.util import dirichlet_logpdf, normalize, get_neighbours, inner1d, RNG, FLOAT_TYPE
 from sbayes.model import Model, Likelihood, normalize_weights, update_weights
 from sbayes.preprocessing import sample_categorical
 from sbayes.config.config import OperatorsConfig
@@ -141,6 +142,15 @@ def get_operator_schedule(
             temperature=temperature,
             prior_temperature=prior_temperature,
         ),
+        # 'gibbs_sample_sources_single': GibbsSampleSource(
+        #     weight=10.0*operators_config.source,
+        #     model=model,
+        #     sample_from_prior=sample_from_prior,
+        #     object_selector=ObjectSelector.RANDOM_SUBSET,
+        #     max_size=1,
+        #     temperature=temperature,
+        #     prior_temperature=prior_temperature,
+        # ),
         'gibbs_sample_sources': GibbsSampleSource(
             weight=0.4*operators_config.source,
             model=model,
@@ -316,7 +326,7 @@ class DirichletOperator(Operator, ABC):
             The back probability q_back
         """
         alpha = 1 + step_precision * w
-        w_new = RNG.dirichlet(alpha)
+        w_new = RNG.dirichlet(alpha).astype(FLOAT_TYPE)
         log_q = dirichlet_logpdf(w_new, alpha)
 
         alpha_back = 1 + step_precision * w_new
@@ -521,7 +531,8 @@ class GibbsSampleSource(Operator):
         """Compute the posterior support for source assignments of every object and feature."""
 
         # Compute likelihood for each component
-        lh_per_component = likelihood_per_component(model=self.model, sample=sample, caching=True)
+        lh_per_component = likelihood_per_component_exact(model=self.model, sample=sample)
+        # lh_per_component = likelihood_per_component(model=self.model, sample=sample, caching=True)
 
         # Multiply by weights and normalize over components to get the source posterior
         weights = update_weights(sample)
@@ -586,7 +597,7 @@ class GibbsSampleWeights(Operator):
         # Compute hastings ratio for each feature and accept/reject independently
         # TODO use temperature earlier in the proposal
         p_accept = np.exp((log_p_new - log_p_old + log_q_back - log_q) / self.prior_temperature)
-        accept = RNG.random(p_accept.shape) < p_accept
+        accept = RNG.random(p_accept.shape, dtype=FLOAT_TYPE) < p_accept
         sample.weights.set_value(np.where(accept[:, np.newaxis], w_new, w))
 
         assert ~np.any(np.isnan(sample.weights.value))
@@ -1442,9 +1453,9 @@ class AlterClusterGibbsishWide(AlterClusterGibbsish):
 
         p = self.compute_cluster_probs(sample, i_cluster, available)
 
-        cluster_new = (RNG.random(n_available) < p)
+        cluster_new = (RNG.random(n_available, dtype=FLOAT_TYPE) < p)
         while np.all(cluster_new == cluster_old[available]):
-            cluster_new = (RNG.random(n_available) < p)
+            cluster_new = (RNG.random(n_available, dtype=FLOAT_TYPE) < p)
 
         if not (model.min_size <= np.count_nonzero(cluster_new) <= model.max_size):
             # Reject if proposal goes out of cluster size bounds

@@ -10,8 +10,7 @@ import numpy as np
 
 from sbayes.load_data import Confounder
 from sbayes.model.model_shapes import ModelShapes
-from sbayes.util import get_along_axis
-
+from sbayes.util import get_along_axis, FLOAT_TYPE
 
 S = TypeVar('S')
 Value = TypeVar('Value', NDArray, float)
@@ -362,7 +361,7 @@ class HasComponents(CacheNode[NDArray[bool]]):
         has_components = [clusters.any_cluster()]
         for conf in confounders.values():
             has_components.append(conf.any_group())
-        super().__init__(value=np.array(has_components).T)
+        super().__init__(value=np.array(has_components, dtype=bool).T)
 
         self.clusters = clusters
         self.inputs['clusters'] = clusters
@@ -544,7 +543,7 @@ class Sample:
     ) -> S:
         return cls(
             clusters=Clusters(clusters),
-            weights=ArrayParameter(weights),
+            weights=ArrayParameter(weights.astype(FLOAT_TYPE)),
             confounders=confounders,
             source=GroupedParameters(source, group_dim=0),
             feature_counts={k: FeatureCounts(v) for k, v in feature_counts.items()},
