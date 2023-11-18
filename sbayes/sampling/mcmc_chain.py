@@ -169,10 +169,6 @@ class MCMCChain:
             if (i_step+1) % self.screen_log_interval == 0:
                 self.print_screen_log(i_step + 1, sample)
 
-            # Print memory usage
-            if log_memory_usage and (i_step+1) % 10_000 == 0:  # TODO make settable in config file
-                self.print_memory_usage()
-
         return sample
 
     def close_loggers(self):
@@ -264,11 +260,6 @@ class MCMCChain:
         time_str = f'{time_per_million:.0f} seconds / million steps'
 
         self.screen_logger.info(i_step_str + likelihood_str + time_str)
-
-    def print_memory_usage(self):
-        process = psutil.Process()
-        # self.screen_logger.info(f"Memory usage: {(process.memory_info().rss/1E9):.3f} GB")
-        logging.info(f"Memory usage (proc {process.pid}): {(process.memory_info().rss/1E9):.3f} GB")
 
     def reset_posterior_cache(self):
         """Reset the cached likelihood and prior for when the chain is repurposed to use a different sample"""

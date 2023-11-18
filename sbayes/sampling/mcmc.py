@@ -21,6 +21,7 @@ from sbayes.sampling.operators import Operator, get_operator_schedule
 from sbayes.config.config import OperatorsConfig
 
 from sbayes.sampling.state import Sample
+from sbayes.util import process_memory
 
 
 class Initializer(Protocol):
@@ -350,5 +351,4 @@ class MCMC:
         self.logger.info(i_step_str + likelihood_str + time_str)
 
     def print_memory_usage(self):
-        process = psutil.Process()
-        self.logger.info(f"Memory usage: {(process.memory_info().rss/1E9):.3f} GB")
+        self.logger.info(f"Memory usage: {process_memory() >> 20} MB")

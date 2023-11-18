@@ -12,6 +12,8 @@ from pathlib import Path
 from math import sqrt, floor, ceil
 from itertools import combinations, permutations
 from typing import Sequence, Union, Iterator
+
+import psutil
 from unidecode import unidecode
 from math import lgamma
 
@@ -1521,3 +1523,9 @@ def warn_with_traceback(message, category, filename, lineno, file=None, line=Non
 
 def activate_verbose_warnings():
     warnings.showwarning = warn_with_traceback
+
+
+def process_memory(pid: int = None) -> int:
+    """Memory usage of the process with give `pid`,
+    or the current process if `pid` is None."""
+    return psutil.Process(pid).memory_info().rss

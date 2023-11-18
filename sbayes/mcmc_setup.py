@@ -11,7 +11,6 @@ import random
 import sys
 import time
 from multiprocessing import Process, Pipe
-from multiprocessing.connection import Connection
 
 import numpy as np
 from numpy.typing import NDArray
@@ -29,7 +28,7 @@ from sbayes.sampling.loggers import ResultsLogger, ParametersCSVLogger, Clusters
     OperatorStatsLogger
 from sbayes.experiment_setup import Experiment
 from sbayes.load_data import Data
-from sbayes.util import RNG
+from sbayes.util import RNG, process_memory
 
 
 class MCMCSetup:
@@ -210,7 +209,7 @@ Ratio of confounding_effects steps (changing probabilities in confounders): {op_
     def sample_mc3(self, resume: bool = False, run: int = 1):
         """Generate samples using MC3.
         Args:
-            resume: whether or not to resume a previous run.
+            resume: whether to resume a previous run.
             run: ID of this sampling run (when multiple runs of the same configuration are started)
         """
         mcmc_config = self.config.mcmc
@@ -227,12 +226,9 @@ Ratio of confounding_effects steps (changing probabilities in confounders): {op_
         loggers = [self.get_sample_loggers(run, resume, chain=c) for c in range(n_chains)]
 
         processes = []
-        connections = []
         samples = []
         for c in range(n_chains):
-            parent_conn, child_conn = Pipe()
             proc = MCMCChainProcess(
-                conn=child_conn,
                 subchain_length=mcmc_config.mc3.swap_interval,
                 logging_interval=logging_interval,
                 i_chain=c,
@@ -240,18 +236,16 @@ Ratio of confounding_effects steps (changing probabilities in confounders): {op_
                 prior_temperature=prior_temperatures[c],
             )
             proc.start()
-            parent_conn.send(('initialize_chain', mcmc_config, self.model, self.data, loggers[c]))
+            proc.send_initialize_chain(mcmc_config, self.model, self.data, loggers[c])
             processes.append(proc)
-            connections.append(parent_conn)
 
         # Wait for each chain to finish initialization and warm-up and store the initial samples
         for c in range(n_chains):
-            sample = connections[c].recv()
+            sample = processes[c].receive()
             samples.append(sample)
 
         # Sanity checks
         assert len(processes) == n_chains
-        assert len(connections) == n_chains
         assert len(samples) == n_chains
 
         # Initialize counters and timer
@@ -267,11 +261,11 @@ Ratio of confounding_effects steps (changing probabilities in confounders): {op_
 
             # Send the current sample to each process to start the next MCMC sub-chain
             for c in range(n_chains):
-                connections[c].send(('run_chain', samples[c]))
+                processes[c].send_run_chain(samples[c])
 
             # Wait for the next final sample of each chain
             for c in range(n_chains):
-                samples[c] = connections[c].recv()
+                samples[c] = processes[c].receive()
 
             # Swap the chains of the current samples
             self.swap_chains(samples, temperatures, prior_temperatures,
@@ -284,11 +278,16 @@ Ratio of confounding_effects steps (changing probabilities in confounders): {op_
                 np.savetxt(self.swap_matrix_path, self.swap_matrix, fmt="%i")
                 self.last_swap_matrix_save = self.swap_accepts
 
+            if i_swap % 10 == 0:
+                memory_parent = process_memory() >> 20
+                memory_by_chain = [process_memory(proc.pid) >> 20 for proc in processes]
+                self.logger.info(f"Memory usage of parent process: {memory_parent} MB")
+                self.logger.info(f"Memory usage of MC3 chain processes: {memory_by_chain} MB")
+
         self.logger.info(f"MCMC run finished after {(time.time() - self.t_start):.1f} seconds")
 
-        for conn in connections:
-            conn.send((MCMCChainProcess.TERMINATE,))
         for proc in processes:
+            proc.send_terminate()
             proc.join()
 
     def swap_chains(
@@ -358,7 +357,7 @@ class MCMCChainProcess(Process):
     TERMINATE = 'terminate'
 
     def __init__(
-        self, conn: Connection,
+        self,
         subchain_length: int,
         logging_interval: int,
         i_chain: int,
@@ -366,7 +365,7 @@ class MCMCChainProcess(Process):
         prior_temperature: float,
     ):
         super().__init__()
-        self.conn = conn
+        self.parent_connection, self.connection = Pipe()
         self.subchain_length = subchain_length
         self.logging_interval = logging_interval
         self.i_chain = i_chain
@@ -379,7 +378,7 @@ class MCMCChainProcess(Process):
     def run(self):
         while True:
             # Get method name and args from the parent process
-            method_name, *args = self.conn.recv()
+            method_name, *args = self.connection.recv()
 
             if method_name == self.TERMINATE:
                 self.shut_down()
@@ -391,7 +390,7 @@ class MCMCChainProcess(Process):
 
             # Send the result back to the parent process
             if send_back:
-                self.conn.send(result)
+                self.connection.send(result)
 
     def initialize_chain(
         self,
@@ -457,3 +456,23 @@ class MCMCChainProcess(Process):
 
     def shut_down(self):
         self.mcmc_chain.close_loggers()
+
+    """ Interface for the parent process """
+
+    def send_initialize_chain(
+        self,
+        mcmc_config: MCMCConfig,
+        model: Model,
+        data: Data,
+        sample_loggers: list[ResultsLogger],
+    ):
+        self.parent_connection.send(("initialize_chain", mcmc_config, model, data, sample_loggers))
+
+    def send_run_chain(self, sample: Sample):
+        self.parent_connection.send(("run_chain", sample))
+
+    def send_terminate(self):
+        self.parent_connection.send((self.TERMINATE,))
+
+    def receive(self):
+        return self.parent_connection.recv()
