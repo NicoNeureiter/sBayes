@@ -329,7 +329,6 @@ class SbayesInitializer:
             recalculate_feature_counts(self.features, sample)
 
             # Apply cluster operator to each cluster again
-            # cluster_operator.cluster_effect_proposal = ClusterEffectProposals.residual_counts  # TODO remove?
             for i_c in range(self.n_clusters):
                 sample = cluster_operator.ml_step(sample, i_cluster=i_c)
 

@@ -360,6 +360,9 @@ class MC3Config(BaseConfig):
     only_heat_likelihood: bool = False
     """If `True`, only likelihood is affected by the MC3 temperature, i.e. all chains use the same prior."""
 
+    exponential_temperatures: bool = False
+    """If `True`, temperature increase exponentially ((1 + dt)**i), instead of linearly (1 + dt*i)."""
+
     log_swap_matrix: bool = True
     """If `True`, write a matrix containing the number of swaps between each pair of chains to an npy-file."""
 

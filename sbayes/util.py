@@ -1525,7 +1525,20 @@ def activate_verbose_warnings():
     warnings.showwarning = warn_with_traceback
 
 
-def process_memory(pid: int = None) -> int:
+def process_memory(pid: int = None, unit="B") -> int:
     """Memory usage of the process with give `pid`,
     or the current process if `pid` is None."""
-    return psutil.Process(pid).memory_info().rss
+    mem_in_bytes = psutil.Process(pid).memory_info().rss
+    if unit == "B":
+        return mem_in_bytes
+    elif unit == "KB":
+        return mem_in_bytes >> 10
+    elif unit == "MB":
+        return mem_in_bytes >> 20
+    elif unit == "GB":
+        return mem_in_bytes >> 30
+    elif unit == "TB":
+        return mem_in_bytes >> 40
+    else:
+        raise ValueError(f"Unknown unit `{unit}`")
+

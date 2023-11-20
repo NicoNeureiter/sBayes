@@ -213,34 +213,43 @@ Ratio of confounding_effects steps (changing probabilities in confounders): {op_
             run: ID of this sampling run (when multiple runs of the same configuration are started)
         """
         mcmc_config = self.config.mcmc
-        n_chains = mcmc_config.mc3.chains
+        mc3_config = mcmc_config.mc3
+        n_chains = mc3_config.chains
         logging_interval = int(np.ceil(mcmc_config.steps / mcmc_config.samples))
-        n_swaps = int(mcmc_config.steps / mcmc_config.mc3.swap_interval)
+        n_swaps = int(mcmc_config.steps / mc3_config.swap_interval)
 
         # Remember time before initializing MC3 chains
         t_pre_init = time.time()
 
-        # Calculate temperatures and create loggers for each chain
-        temperatures = [1 + (c * mcmc_config.mc3.temperature_diff) for c in range(n_chains)]
-        prior_temperatures = [1 + (c * mcmc_config.mc3.prior_temperature_diff) for c in range(n_chains)]
-        loggers = [self.get_sample_loggers(run, resume, chain=c) for c in range(n_chains)]
+        # Calculate temperatures for each chain
+        chain_idxs = np.arange(n_chains)
+        if mc3_config.exponential_temperatures:
+            temperatures = (1 + mc3_config.temperature_diff) ** chain_idxs
+            prior_temperatures = (1 + mc3_config.prior_temperature_diff) ** chain_idxs
+        else:
+            temperatures = 1 + mc3_config.temperature_diff * chain_idxs
+            prior_temperatures = 1 + mc3_config.prior_temperature_diff * chain_idxs
 
         processes = []
-        samples = []
-        for c in range(n_chains):
+        for c in chain_idxs:
+            # Create and start MCMCChainProcess for chain c
             proc = MCMCChainProcess(
-                subchain_length=mcmc_config.mc3.swap_interval,
+                subchain_length=mc3_config.swap_interval,
                 logging_interval=logging_interval,
                 i_chain=c,
                 temperature=temperatures[c],
                 prior_temperature=prior_temperatures[c],
             )
             proc.start()
-            proc.send_initialize_chain(mcmc_config, self.model, self.data, loggers[c])
             processes.append(proc)
 
+            # Start the initializer for chain c
+            logger = self.get_sample_loggers(run, resume, chain=c)
+            proc.send_initialize_chain(mcmc_config, self.model, self.data, logger)
+
         # Wait for each chain to finish initialization and warm-up and store the initial samples
-        for c in range(n_chains):
+        samples = []
+        for c in chain_idxs:
             sample = processes[c].receive()
             samples.append(sample)
 
@@ -258,29 +267,28 @@ Ratio of confounding_effects steps (changing probabilities in confounders): {op_
         self.logger.info("Sampling from posterior...")
 
         for i_swap in range(n_swaps):
-
             # Send the current sample to each process to start the next MCMC sub-chain
-            for c in range(n_chains):
+            for c in chain_idxs:
                 processes[c].send_run_chain(samples[c])
 
             # Wait for the next final sample of each chain
-            for c in range(n_chains):
+            for c in chain_idxs:
                 samples[c] = processes[c].receive()
 
             # Swap the chains of the current samples
             self.swap_chains(samples, temperatures, prior_temperatures,
-                             attempts=mcmc_config.mc3.swap_attempts,
-                             only_swap_neighbours=mcmc_config.mc3.only_swap_adjacent_chains)
+                             attempts=mc3_config.swap_attempts,
+                             only_swap_neighbours=mc3_config.only_swap_adjacent_chains)
 
             new_swap = self.last_swap_matrix_save < self.swap_attempts
-            if mcmc_config.mc3.log_swap_matrix and new_swap:
+            if mc3_config.log_swap_matrix and new_swap:
                 self.swap_matrix_path = self.path_results / f"mc3_swaps_K{self.model.n_clusters}_{run}.txt"
                 np.savetxt(self.swap_matrix_path, self.swap_matrix, fmt="%i")
                 self.last_swap_matrix_save = self.swap_accepts
 
             if i_swap % 10 == 0:
-                memory_parent = process_memory() >> 20
-                memory_by_chain = [process_memory(proc.pid) >> 20 for proc in processes]
+                memory_parent = process_memory(unit="MB")
+                memory_by_chain = [process_memory(proc.pid, unit="MB") for proc in processes]
                 self.logger.info(f"Memory usage of parent process: {memory_parent} MB")
                 self.logger.info(f"Memory usage of MC3 chain processes: {memory_by_chain} MB")
 
