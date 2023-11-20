@@ -281,8 +281,8 @@ necessarily \"uniform\".
 The prior on weights ($w_f$) is uniform, i.e. a priori universal
 preference, inheritance and contact are equally likely:
 
-$$\begin{aligned}
-    P(w_f) &= \textrm{Dir}(\psi_1=1, \;\psi_2=1, \;\psi_3=1)\;\textrm{.}\end{aligned}$$
+$ P(w_f) = \textrm{Dir}(\psi_1=1, \psi_2=1, \psi_3=1) . $
+
 
 ## The geo-prior
 
@@ -305,22 +305,16 @@ costs are made symmetric, e.g. by averaging the entries for $c_{i,j}$
 and $c_{j,i}$ in the cost matrix. The cost matrix has the following
 structure:
 
-::: {#tab:features_structure}
-  ------------------ -- ---------------------------------------
-                        
-  *language*            a unique identifier for each language
-  <*language 1*>      distances to language 1
-  \<*language 2*\>      distances to language 2
-  *\...*                
-                        
-  ------------------ -- ---------------------------------------
+#### Table: Columns in `cost_matrix.csv`
 
-  : Columns in *cost_matrix.csv*
-:::
+| **Column**       | **Description**                        |
+|------------------|----------------------------------------|
+| *language*       | a unique identifier for each language  |
+| <*language 1*>   | distances to language 1                |
+| <*language 2*>   | distances to language 2                |
+| *...*            |                                        |
 
-[]{#tab:features_structure label="tab:features_structure"}
-
-\<*language 1*\>, \<*language 2*\> are placeholder for the unique
+<*language 1*>, <*language 2*> are placeholder for the unique
 identifiers of language 1 and 2. The element $(i,j)$ in the CSV gives
 the costs to travel from entity $i$ to entity $j$. The cost matrix has a
 trace of zero, i.e. the distance of each entity to itself is zero. The
@@ -329,18 +323,15 @@ the costs $(j,i)$. Table [5](#tab:cost_matrix){reference-type="ref"
 reference="tab:cost_matrix"} shows an example of a cost matrix, again
 corresponding to data in `features.csv`.
 
-::: {#tab:cost_matrix}
-  ----- ----- ----- ----
-                    
-  des   0     100   40
-  tuo   100   0     15
-  trn   40    15    0
-  ----- ----- ----- ----
+#### Table: Example of `cost_matrix.csv`
 
-  : Example of *cost_matrix.csv*
-:::
+| **id** | **des** | **tuo** | **trn** |
+|--------|---------|---------|---------|
+| des    | 0       | 100     | 40      |
+| tuo    | 100     | 0       | 15      |
+| trn    | 40      | 15      | 0       |
 
-[]{#tab:cost_matrix label="tab:cost_matrix"}
+
 
 ## Size of an area
 
@@ -352,8 +343,7 @@ on size, such that larger $|Z|$ are preferred over smaller ones: there
 are $(M-m+1)/m$ more ways to choose $m$ objects from a population $M$
 than $m-1$ objects, given $m \leq M/2$. The *uniform size prior* assumes
 that all $|Z|$ are equally likely a-priori, i.e. $P(|Z|)$ has a uniform
-prior in the interval
-$\left[\textrm{min}(|Z|), \textrm{max}(|Z|)\right]$.
+prior in the interval $[min(|Z|), max(|Z|)]$.
 
 # MCMC and diagnostics
 
@@ -563,24 +553,20 @@ Lambert Azimuthal Equal-Area projection (\"epsg:3035\").
   "projection": "epsg:3035"}
 ```
 
-Table [6](#tab:config_file_data){reference-type="ref"
-reference="tab:config_file_data"} summarizes all keys in *data* and
+Table [6](#config-file-data) summarizes all keys in *data* and
 gives the default values and expected data types. *(required)* indicates
 that a key is mandatory and has to be set by the user.
 
-<!-- (::: {#tab:config_file_data}) -->
+<a name="config-file-data"></a>
+#### Table 6: The `config.JSON` file: keys in `data`
 
-| key               | data type | default value | description |
-| ----------------- | --------- | ------------- | ----------- |
-| `features`        | string    | (required)    | file path to the `features.csv` file |
-| `feature_states`  | string    | (required)    | file path to the `feature_states.csv` file |
-| `projection`      | string    | \"epsg:4326\" | CRS of the location data, as PROJ or EPSG |
-                                          
+| **key**            | **data type** | **default value** | **description**                                           |
+|--------------------|---------------|-------------------|-----------------------------------------------------------|
+| `features`         | string        | (required)        | file path to the `features.csv` file                      |
+| `feature_states`   | string        | (required)        | file path to the `feature_states.csv` file                |
+| `projection`       | string        | "epsg:4326"       | CRS of the location data, as PROJ or EPSG                 |
 
-  : The *config.JSON* file: keys in `data`
-:::
 
-[]{#tab:config_file_data label="tab:config_file_data"}
 
 ### *config.JSON*: `model`
 
@@ -724,13 +710,14 @@ in the Arawakan family for the features *pers_aff*, *role_mark*, and
 *vow_con* (Table [2](#tab:features_example){reference-type="ref"
 reference="tab:features_example"}):
 
-  ------------------------------------------------------------------------------------------------------------------ ---------------------------------------------------------------------------------------------------------------------------------------------------------------------
-  $$\begin{aligned}                                                                                                  
-         P(\beta_{\textit{pers\_aff}, \textit{Arawak}}) = \textrm{Dir}(\psi_{Y}=6.0, \\                              
-      \psi_{N}=1.0 )\end{aligned}$$                                                                                  
-  $$\begin{aligned}                                                                                                  $$\begin{aligned}
-      P(\beta_{\textit{vow\_con}, \textit{Arawak}}) = \textrm{Dir}(\psi_{Y}=\;\;3.0,\\\psi_{N}=4.0)\end{aligned}$$       P(\beta_{\textit{role\_mark}, \textit{Arawak}}) = \textrm{Dir}(\psi_{A}=2.0, \\\psi_{B}=1.0, \\\psi_{C}=2.9, \\\psi_{D} = 1.0, \\\psi_{E} = 0.1)\end{aligned}$$
-  ------------------------------------------------------------------------------------------------------------------ ---------------------------------------------------------------------------------------------------------------------------------------------------------------------
+------------------------------------------------------------------------------------------------------------------ ---------------------------------------------------------------------------------------------------------------------------------------------------------------------
+$$\begin{aligned}
+     P(\beta_{\textit{pers\_aff}, \textit{Arawak}}) = \textrm{Dir}(\psi_{Y}=6.0, \\
+  \psi_{N}=1.0 )\end{aligned}$$
+
+$$\begin{aligned}                                                                                                  $$\begin{aligned}
+  P(\beta_{\textit{vow\_con}, \textit{Arawak}}) = \textrm{Dir}(\psi_{Y}=\;\;3.0,\\\psi_{N}=4.0)\end{aligned}$$       P(\beta_{\textit{role\_mark}, \textit{Arawak}}) = \textrm{Dir}(\psi_{A}=2.0, \\\psi_{B}=1.0, \\\psi_{C}=2.9, \\\psi_{D} = 1.0, \\\psi_{E} = 0.1)\end{aligned}$$
+------------------------------------------------------------------------------------------------------------------ ---------------------------------------------------------------------------------------------------------------------------------------------------------------------
 
 The JSON snippet below encodes the prior for Arawak and Tucanoan:
 
@@ -840,56 +827,41 @@ per area.
 }
 ```
 
-Table [8](#tab:config_file_prior){reference-type="ref"
-reference="tab:config_file_prior"} summarizes all `prior` keys, gives
+The [following table](#config-file-prior) summarizes all `prior` keys, gives
 the default values and expected data types.
 
-::: {#tab:config_file_prior}
-  ---------------------- -------- ------------------ --------------------------------------------------------------------------
-                                                     
-                                                     
-  `universal`            JSON     \-                 the prior for universal preference
-  `type`                 string   (required)         type of the prior, either \"uniform\" or \"dirichlet\"
-  `parameters`           JSON     \-                 parameterization of the prior distribution
-  `file`                 string   \-                 alternatively: file path to *universal_prior.JSON*
-                                                     
-  `inheritance`          JSON     \-                 the prior for preference in a family
-  `family 1`             JSON     \-                 prior distribution for family 1
-  `type`                 string   (required)         type of prior, either \"uniform\" or \"dirichlet\"
-  `parameters`           JSON     \-                 parameterization of the prior distribution for family 1
-  `file`                 JSON     \-                 alternatively: file path to *prior\_.JSON*
-  `family 2`             JSON     \-                 prior distribution for family 2
-  `type`                 string   (required)         type of prior, either \"uniform\" or \"dirichlet\"
-  `parameters`           JSON     \-                 parameterization of the prior distribution for family 2
-  `file`                 JSON     \-                 alternatively: file paths to *prior\_.JSON*
-  \...                                               
-                                                     
-  `contact`              JSON     \-                 the prior for preference in an area
-  `type`                 string   \"uniform\"        only \"uniform\" priors are supported
-                                                     
-  `weights`              JSON     \-                 the weights prior
-  `type`                 string   \"uniform\"        only \"uniform\" priors are supported
-                                                     
-  `geo`                  JSON     \-                 the geo-prior
-  `type`                 string   \"uniform\"        type of geo-prior: \"uniform\", \"gaussian\" or \"cost_based\"
-  `parameters`           JSON     \-                 additional parameters for defining the geo-prior
-  `covariance`           array    \-                 Gaussian covariance matrix (for \"gaussian\" geo-prior)
-  `costs`                string   \"from_data\"      \"from_data\" or file path to cost matrix (for \"cost_based\" geo-prior)
-  `rate`                 number   \-                 rate of exponential distribution (for \"cost_based\" geo-prior)
-  `linkage`              string   \"mst\"            linkage criterion (for \"cost_based\" geo-prior)
-                                                     
-  `languages_per_area`   JSON     \-                 the prior on the number of languages per area.
-  `type`                 string   \"uniform_size\"   type of prior, either \"uniform_area\" or \"uniform_size\".
-  `min`                  number   2                  minimum number of languages per area.
-  `max`                  number   10000              maximum number of languages per area.
-                                                     
-                                                     
-  ---------------------- -------- ------------------ --------------------------------------------------------------------------
+<a name="config-file-prior"></a>
+#### Table: The `config.JSON` file: keys in `prior`
 
-  : The *config.JSON* file: keys in `prior`
-:::
+| **key**                                      | **data type** | **default value** | **description**                                        |
+|----------------------------------------------|---------------|-------------------|--------------------------------------------------------|
+| `universal`                                  | JSON          | -                 | the prior for universal preference                     |
+| &nbsp; &nbsp; `type`                       | string        | (required)        | type of the prior, either "uniform" or "dirichlet"     |
+| &nbsp; &nbsp; `parameters`                 | JSON          | -                 | parameterization of the prior distribution             |
+| &nbsp; &nbsp; `file`                       | string        | -                 | alternatively: file path to `universal_prior.JSON`     |
+| `inheritance`                                | JSON          | -                 | the prior for preference in a family                   |
+| &nbsp; &nbsp; `family 1`                   | JSON          | -                 | prior distribution for family 1                        |
+| &nbsp; &nbsp; &nbsp; &nbsp; `type`       | string        | (required)        | type of prior, either "uniform" or "dirichlet"         |
+| &nbsp; &nbsp; &nbsp; &nbsp; `parameters` | JSON          | -                 | parameterization of the prior distribution for family 1|
+| &nbsp; &nbsp; &nbsp; &nbsp; `file`       | JSON          | -                 | alternatively: file path to `prior_<family 1>.JSON`   |
+| &nbsp; &nbsp; `family 2`                   | JSON          | -                 | prior distribution for family 2                        |
+| &nbsp; &nbsp; &nbsp; &nbsp; ...          |               |                   |                                                        |
+| `contact`                                    | JSON          | -                 | the prior for preference in an area                    |
+| &nbsp; &nbsp; `type`                       | string        | "uniform"         | only "uniform" priors are supported                    |
+| `weights`                                    | JSON          | -                 | the weights prior                                      |
+| &nbsp; &nbsp; `type`                       | string        | "uniform"         | only "uniform" priors are supported                    |
+| `geo`                                        | JSON          | -                 | the geo-prior                                          |
+| &nbsp; &nbsp; `type`                       | string        | "uniform"         | type of geo-prior: "uniform", "gaussian" or "cost_based"|
+| &nbsp; &nbsp; `parameters`                 | JSON          | -                 | additional parameters for defining the geo-prior       |
+| &nbsp; &nbsp; &nbsp; &nbsp; `covariance` | array         | -                 | Gaussian covariance matrix (for "gaussian" geo-prior)  |
+| &nbsp; &nbsp; &nbsp; &nbsp; `costs`      | string        | "from_data"       | "from_data" or file path to cost matrix (for "cost_based" geo-prior) |
+| &nbsp; &nbsp; &nbsp; &nbsp; `rate`       | number        | -                 | rate of exponential distribution (for "cost_based" geo-prior) |
+| &nbsp; &nbsp; &nbsp; &nbsp; `linkage`    | string        | "mst"             | linkage criterion (for "cost_based" geo-prior)         |
+| `languages_per_area`                         | JSON          | -                 | the prior on the number of languages per area          |
+| &nbsp; &nbsp; `type`                       | string        | "uniform_size"    | type of prior, either "uniform_area" or "uniform_size" |
+| &nbsp; &nbsp; `min`                        | number        | 2                 | minimum number of languages per area                   |
+| &nbsp; &nbsp; `max`                        | number        | 10000             | maximum number of languages per area                   |
 
-[]{#tab:config_file_prior label="tab:config_file_prior"}
 
 ### *config.JSON*: `mcmc`
 
@@ -967,8 +939,8 @@ languages.
 }
 ```
 
-Table [9](#tab:config_file_mcmc){reference-type="ref"
-reference="tab:config_file_mcmc"} summarizes all `mcmcm` settings, gives
+The [following table](#config-file-mcmc)
+ summarizes all `mcmcm` settings, gives
 the default values and expected data types. Note that the default values
 for `steps` and `warmup_steps` might be much too low for complex models
 and also other MCMC parameter depend on model characteristics. Users
@@ -976,33 +948,27 @@ should always verify that the MCMCM has converged to a stable
 distribution and that it has created sufficient independent samples for
 each parameter.
 
-::: {#tab:config_file_mcmc}
-  ---------------------- --------- -------- ----------------------------------------------------
-                                            
-                                            
-  `runs`                 number    1        number of independent runs of the analysis
-  `steps`                number    100000   number of steps in the Markov chain
-  `samples`              number    1000     number of samples in the posterior
-  `warmup`               JSON      \-       settings for the warmup
-  `warmup_chains`        number    15       number of warmup chains
-  `warmup_steps`         number    100000   number of warmup steps
-  `operators`            JSON      \-       operators and their frequencies
-  `area`                 number    0.05     frequency of area operator
-  `weights`              number    0.4      frequency of weights operator
-  `universal`            number    0.05     frequency of universal operator
-  `inheritance`          number    0.1      frequency of inheritance operator
-  `contact`              number    0.4      frequency of contact operator
-  `grow_to_adjacent`     number    0.85     frequency of grow steps to adjacent languages
-  `init_lang_per_area`   number    5        initial number of languages per area
-  `sample_from_prior`    boolean   false    whether to only sample from the prior distribution
-                                            
-                                            
-  ---------------------- --------- -------- ----------------------------------------------------
+<a name="config-file-mcmc"></a>
+#### Table: The `config.JSON` file: keys in `mcmc`
 
-  : The *config.JSON* file: keys in `mcmc`
-:::
+| **key**                       | **data type** | **default value** | **description**                                      |
+|-------------------------------|---------------|-------------------|------------------------------------------------------|
+| `runs`                        | number        | 1                 | number of independent runs of the analysis           |
+| `steps`                       | number        | 100000            | number of steps in the Markov chain                 |
+| `samples`                     | number        | 1000              | number of samples in the posterior                  |
+| `warmup`                      | JSON          | -                 | settings for the warmup                             |
+| &nbsp; &nbsp; `warmup_chains` | number        | 15                | number of warmup chains                              |
+| &nbsp; &nbsp; `warmup_steps`  | number        | 100000            | number of warmup steps                               |
+| `operators`                   | JSON          | -                 | operators and their frequencies                      |
+| &nbsp; &nbsp; `area`          | number        | 0.05              | frequency of area operator                           |
+| &nbsp; &nbsp; `weights`       | number        | 0.4               | frequency of weights operator                        |
+| &nbsp; &nbsp; `universal`     | number        | 0.05              | frequency of universal operator                      |
+| &nbsp; &nbsp; `inheritance`   | number        | 0.1               | frequency of inheritance operator                    |
+| &nbsp; &nbsp; `contact`       | number        | 0.4               | frequency of contact operator                        |
+| `grow_to_adjacent`            | number        | 0.85              | frequency of grow steps to adjacent languages        |
+| `init_lang_per_area`          | number        | 5                 | initial number of languages per area                 |
+| `sample_from_prior`           | boolean       | false             | whether to only sample from the prior distribution   |
 
-[]{#tab:config_file_mcmc label="tab:config_file_mcmc"}
 
 ### *config.JSON*: `results`
 
@@ -1025,23 +991,17 @@ information about the number of areas is added to the result files.
 }
 ```
 
-Table [10](#tab:config_file_results){reference-type="ref"
-reference="tab:config_file_results"} summarizes all keys in `results`,
+The [following table](#config-file-results) summarizes all keys in `results`,
 gives the default values and expected data types.
 
-::: {#tab:config_file_results}
-  ------------ --------- ------------- ----------------------------------
-                                       
-                                       
-  `path`       string    \"results\"   file location to save the result
-  `log_file`   boolean   true          return a log file?
-                                       
-  ------------ --------- ------------- ----------------------------------
+<a name="config-file-results"></a>
+#### Table: The `config.JSON` file: keys in `results`
 
-  : The *config.JSON* file: keys in `results`
-:::
+| **key**      | **data type** | **default value** | **description**                   |
+|--------------|---------------|-------------------|-----------------------------------|
+| `path`       | string        | "results"         | file location to save the result  |
+| `log_file`   | boolean       | true              | return a log file?                |
 
-[]{#tab:config_file_results label="tab:config_file_results"}
 
 ## Inference
 
