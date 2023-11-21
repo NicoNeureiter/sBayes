@@ -78,6 +78,8 @@ jobs:
       - name: Update config_template.yaml and add/commit/push it
         run: |
           python -m sbayes.config.generate_template
+          git config --global user.name "NicoNeureiter"
+          git config --global user.email "nico.neureiter@gmail.com"
           git add config_template.yaml
           git commit -m "[GitHub] generated new config_template.yaml"
           git push
