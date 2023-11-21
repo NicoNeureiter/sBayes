@@ -287,7 +287,6 @@ class OperatorsTest(unittest.TestCase):
             s.clusters.value
             for s in self.reference_samples
         ]).transpose((1, 0, 2))
-
         experiment.close()
 
     def setUp(self) -> None:
@@ -318,6 +317,7 @@ class OperatorsTest(unittest.TestCase):
                     p=self.ref_importance.dot(self.ref_clusters[i_clust][:, i_obj])
                 )
                 print(f'p-value for cluster {i_clust} object {i_obj}:    {p_value:.3f}')
+                assert p_value > 0.01
 
             p_value_size = binom_test(
                 x=np.sum(cluster),
@@ -325,6 +325,7 @@ class OperatorsTest(unittest.TestCase):
                 p=self.ref_clusters[i_clust].mean()
             )
             print(f'p-value for cluster {i_clust} size:    {p_value_size:.3f}')
+            assert p_value_size > 0.01
 
 
 
