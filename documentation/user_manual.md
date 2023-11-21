@@ -1,9 +1,11 @@
----
-author:
-- Peter Ranacher, Nico Neureiter, Natalia Chousou-Polydouri, Olga
-  Sozinova
-title: "`sBayes` documentation"
----
+<p align="center">
+  <img src="figures/logo_sbayes-400x200xc.png" alt="sBayes logo">
+  <br>
+  <b>USER MANUAL</b>
+  <br><br>
+  <i>Peter Ranacher, Nico Neureiter, Natalia Chousou-Polydouri, Olga Sozinova</i>
+  <br><br>
+</p>
 
 # Introduction
 
