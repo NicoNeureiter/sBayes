@@ -13,7 +13,7 @@ features. Contact areas comprise geographically proximate languages,
 which are similar and whose similarity cannot be explained by the
 confounding effect of universal preference and inheritance. For more
 details, see [the original
-publication](https://www.biorxiv.org/content/10.1101/2021.03.31.437731v3).
+publication](https://royalsocietypublishing.org/doi/10.1098/rsif.2020.1031).
 A typical analysis in `sBayes` consists of five steps:
 
 1.  Data coding and preparing the features file
