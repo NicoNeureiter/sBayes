@@ -269,9 +269,13 @@ be be more likely to share these states, which requires a re-tuning of
 the confounding effect. `sBayes` models the prior for universal
 preference with a Dirichlet distribution:
 
-$$\begin{aligned}
-\label{eq:prior_universal}
-    P(\alpha_f) = \textrm{Dir}(\psi_i) \;\ \;\;\; \textrm{for } i \in 1, ...\;N_f, \end{aligned}$$
+$$
+\begin{aligned}
+P(\alpha_f) = \textrm{Dir}(\psi_i) \quad \textrm{for } i \in 1, \ldots, N_f,
+\end{aligned}
+$$
+
+
 
 where $N_f$ is the number of states for feature $f$ and $\psi_i$ is the
 concentration parameter for state $i$.
