@@ -9,6 +9,7 @@ on:
     paths:
       - sbayes/**
       - test/**
+      - .github/workflows/python-package.yml
   pull_request:
     branches: [master, language_sbayes, devel]
 
