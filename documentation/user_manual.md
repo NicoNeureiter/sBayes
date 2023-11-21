@@ -718,16 +718,16 @@ in the Arawakan family for the features *pers_aff*, *role_mark*, and
 *vow_con* ([Table 2](#features_example)):
 
 $$
-P(\beta_{\textit{pers\_aff}, \textit{Arawak}}) = \textrm{Dir}(\psi_{Y}=6.0, \, \psi_{N}=1.0)
+P(\beta_{\mathit{pers\_aff}, \mathit{Arawak}}) = \textrm{Dir}(\psi_{Y}=6.0, \, \psi_{N}=1.0)
 $$
 
 
 $$
-P(\beta_{\textit{vow\_con}, \textit{Arawak}}) = \textrm{Dir}(\psi_{Y}=3.0, \, \psi_{N}=4.0)
+P(\beta_{\mathit{vow\_con}, \textit{Arawak}}) = \textrm{Dir}(\psi_{Y}=3.0, \, \psi_{N}=4.0)
 $$
 
 $$
-P(\beta_{\textit{role\_mark}, \textit{Arawak}}) = \textrm{Dir}(\psi_{A}=2.0, \, \psi_{B}=1.0, \, \psi_{C}=2.9, \, \psi_{D} = 1.0, \, \psi_{E} = 0.1)
+P(\beta_{\mathit{role\_mark}, \textit{Arawak}}) = \textrm{Dir}(\psi_{A}=2.0, \, \psi_{B}=1.0, \, \psi_{C}=2.9, \, \psi_{D} = 1.0, \, \psi_{E} = 0.1)
 $$
 
 
