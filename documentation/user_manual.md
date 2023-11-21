@@ -12,8 +12,8 @@ finding areas of language contact in space, based on linguistic
 features. Contact areas comprise geographically proximate languages,
 which are similar and whose similarity cannot be explained by the
 confounding effect of universal preference and inheritance. For more
-details, see [[the original
-publication]{.underline}](https://www.biorxiv.org/content/10.1101/2021.03.31.437731v3).
+details, see [the original
+publication](https://royalsocietypublishing.org/doi/10.1098/rsif.2020.1031).
 A typical analysis in `sBayes` consists of five steps:
 
 1.  Data coding and preparing the features file
@@ -72,11 +72,15 @@ to install `sBayes` and follow these steps:
 4.  Install `sBayes` along with some required python libraries by
     running `pip install .`
 
+If you have Apple Silicon, it is possible that you ran into problems with homebrew installing GEOS and GDAL.
+In this case, install [MacPorts](https://www.macports.org/) and ran:
+
+`sudo port install proj geos gdal` instead.
+
 ### Windows
 
-On Windows we recommend using <https://www.anaconda.com/>Anaconda to
-install the required packages. To do this, download Anaconda from
-<https://www.anaconda.com/>, open an Anaconda terminal window, navigate
+On Windows we recommend using [Anaconda](https://www.anaconda.com/) to
+install the required packages. To do this, download Anaconda, open an Anaconda terminal window, navigate
 to the folder where you want to install `sBayes` and follow these steps:
 
 1.  Get the `sBayes` source code by running:\
