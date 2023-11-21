@@ -60,7 +60,8 @@ class Prior:
                 conf=conf_name,
                 feature_names=data.features.feature_and_state_names,
                 group_names=conf.group_names,
-                conf_effect_priors = self.prior_confounding_effects,
+                conf_effect_priors=self.prior_confounding_effects,
+                features=data.features.values,
             )
             if self.prior_confounding_effects[conf_name].any_dynamic_priors:
                 conf.has_universal_prior = True
@@ -271,12 +272,14 @@ class ConfoundingEffectsPrior(DirichletPrior):
         conf: ConfounderName,
         group_names: list[str],
         conf_effect_priors: dict[str, ConfoundingEffectsPrior],
+        features: NDArray[bool],
         **kwargs
     ):
         self.conf = conf
         self.group_names = group_names
         self.any_dynamic_priors = False
         self.conf_effect_priors = conf_effect_priors
+        self.features = features
         self.precision = 0.0
         super(ConfoundingEffectsPrior, self).__init__(*args, **kwargs)
 
@@ -346,6 +349,40 @@ class ConfoundingEffectsPrior(DirichletPrior):
             # OLD: We add 1 to the precision for each possible feature state
             # NEW: We scale the precision by the number of feature states
             # TODO: discuss whether this makes sense
+            precision *= np.asarray(self.shapes.n_states_per_feature)[:, np.newaxis]
+
+            # Scale the mean vector to length precision
+            concentration = mean * precision
+
+            for i_g, group in enumerate(self.group_names):
+                if self.config[group].type is self.PriorType.UNIVERSAL:
+                    self._concentration_array[i_g] = concentration
+
+        return self._concentration_array
+
+    def concentration_array_given_unchanged(self, sample: Sample, changed_objects: NDArray[bool]):
+        if self.any_dynamic_priors:
+            universal_prior_counts = self.conf_effect_priors['universal'].concentration_array(sample)[0]
+            universal_feature_counts = sample.feature_counts['universal'].value[0]
+
+            univ_counts = universal_prior_counts + universal_feature_counts
+
+            univ_counts_changeable = np.sum(sample.source.value[changed_objects, :, 0, None] *
+                                            self.features[changed_objects, :, :], axis=0)
+
+            univ_counts -= univ_counts_changeable
+            mean = normalize(univ_counts, axis=-1)
+            # shape: (n_features, n_states)
+
+            # Add 5% uniform distribution to avoid overly pointy
+            uniform = normalize(self.shapes.states_per_feature, axis=-1)
+            mean = 0.95 * mean + 0.05 * uniform
+
+            # # Clip precision at the actual universal posterior counts
+            # precision = np.minimum(self.precision, univ_counts.sum(axis=-1, keepdims=True))
+            precision = self.precision
+
+            # scale the precision by the number of feature states
             precision *= np.asarray(self.shapes.n_states_per_feature)[:, np.newaxis]
 
             # Scale the mean vector to length precision
@@ -464,6 +501,12 @@ class WeightsPrior(DirichletPrior):
 
     def get_oneovern_concentration(self) -> list[np.ndarray]:
         return self.get_symmetric_concentration(1 / self.shapes.n_components)
+
+    def concentration_list_to_array(self, concentration: list[NDArray[float]]):
+        concentration_array = np.zeros((self.shapes.n_features, self.shapes.n_components))
+        for i_f, c_g_f in enumerate(concentration):
+            concentration_array[i_f, :len(c_g_f)] = c_g_f
+        return concentration_array
 
     def parse_attributes(self):
         self.prior_type = self.config.type
