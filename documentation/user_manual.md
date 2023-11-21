@@ -73,9 +73,11 @@ to install `sBayes` and follow these steps:
     running `pip install .`
 
 If you have Apple Silicon, it is possible that you ran into problems with homebrew installing GEOS and GDAL.
-In this case, install [MacPorts](https://www.macports.org/) and ran:
+In this case, install [MacPorts](https://www.macports.org/) and run:
 
-`sudo port install proj geos gdal` instead.
+`sudo port install proj geos gdal` 
+
+in step 3 instead.
 
 ### Windows
 
