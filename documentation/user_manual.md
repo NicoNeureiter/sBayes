@@ -172,36 +172,38 @@ Languages with the same entry for *family* are assumed to belong to a
 common family (or sub-clade of a family). If left empty, inheritance is
 not modelled for this language.
 
-Table [2](#tab:features_example){reference-type="ref"
-reference="tab:features_example"} shows an example of a
+Table [2](#features_example) shows an example of a
 `features.csv`-file.
-Table [3](#tab:features_states){reference-type="ref"
-reference="tab:features_states"} gives the applicable states for the
-three features in Table [2](#tab:features_example){reference-type="ref"
-reference="tab:features_example"}: person affixes for possession
+Table [3](#features_states) gives the applicable states for the
+three features in Table [2](#features-example): person affixes for possession
 (*pers_aff*) are either *Y* (present) or *N* (absent), participant roles
 marked on verb (*role_mark*) can take states *A* (A marking), *B* (P
 marking), *c* (both A and P marking), *D* (either A or P marking), or
 *E* (neither A nor P marking), and phonemic oral-nasal contrast for
 vowels (*vow_con*) is *Y* (present) or *N* (absent).
 
-| id   | name     | x            | y           | family   | pers_aff | role_mark | vow_con |
-|------|----------|--------------|-------------|----------|----------|-----------| --- |
-| des  | Desano   | -1092883.205 | 3570461.932 | Tucanoan | N        | A         | Y |
-| tuo  | Tucano   | -1102073.299 | 3569861.124 | Tucanoan | N        | A         | Y |
-| cot  | Caquinte | -1423618.645 | 2206737.923 | Arawak   | Y        | C         | N |
-  
-Example of `features.csv`
+#### Table: Example of `features.csv`
+<a name="features-example"></a>
 
-| pers_aff | role_mark | vow_con |
-|----|----|----|
-| N  | A  | N  |
-| Y  | B  | Y  |
-|    | C  |    |
-|    | D  |    |   
-|    | E  |    |
+| **id** | **name**  | **x**            | **y**            | **family** | **pers_aff** | **role_mark** | **vow_con** |
+|--------|-----------|------------------|------------------|------------|--------------|---------------|-------------|
+| des    | Desano    | -1092883.205     | 3570461.932      | Tucanoan   | N            | A             | Y           |
+| tuo    | Tucano    | -1102073.299     | 3569861.124      | Tucanoan   | N            | A             | Y           |
+| cot    | Caquinte  | -1423618.645     | 2206737.923      | Arawak     | Y            | C             | N           |
+| ...    |           |                  |                  |            |              |               |             |
 
-All applicable states in the corresponding `feature_states.csv`. {#tab:feature_states}
+
+#### Table: All applicable states in the corresponding `feature_states.csv`
+<a name="features-states"></a>
+
+| **pers_aff** | **role_mark** | **vow_con** |
+|--------|--------|--------|
+| N      | A      | N      |
+| Y      | B      | Y      |
+|        | C      |        |
+|        | D      |        |
+|        | E      |        |
+
 
 
 
@@ -291,7 +293,7 @@ necessarily \"uniform\".
 The prior on weights ($w_f$) is uniform, i.e. a priori universal
 preference, inheritance and contact are equally likely:
 
-$ P(w_f) = \textrm{Dir}(\psi_1=1, \psi_2=1, \psi_3=1) . $
+$$ P(w_f) = \textrm{Dir}(\psi_1=1, \psi_2=1, \psi_3=1) $$
 
 
 ## The geo-prior
@@ -316,6 +318,7 @@ and $c_{j,i}$ in the cost matrix. The cost matrix has the following
 structure:
 
 #### Table: Columns in `cost_matrix.csv`
+<a name="cost_matrix_columns"></a>
 
 | **Column**       | **Description**                        |
 |------------------|----------------------------------------|
@@ -329,11 +332,11 @@ identifiers of language 1 and 2. The element $(i,j)$ in the CSV gives
 the costs to travel from entity $i$ to entity $j$. The cost matrix has a
 trace of zero, i.e. the distance of each entity to itself is zero. The
 matrix is not necessarily symmetric. The costs $(i,j)$ might differ from
-the costs $(j,i)$. Table [5](#tab:cost_matrix){reference-type="ref"
-reference="tab:cost_matrix"} shows an example of a cost matrix, again
+the costs $(j,i)$. The [table below](#cost_matrix) shows an example of a cost matrix, again
 corresponding to data in `features.csv`.
 
 #### Table: Example of `cost_matrix.csv`
+<a name="cost_matrix"></a>
 
 | **id** | **des** | **tuo** | **trn** |
 |--------|---------|---------|---------|
@@ -655,18 +658,15 @@ priors provides automated approaches to construct the prior from
 empirical data outside the study area. Both, `parameters` and the
 external JSON file have the exact same keys and values. In what follows,
 we explain how to parameterize the universal prior for the three
-features in Table [2](#tab:features_example){reference-type="ref"
-reference="tab:features_example"} and the applicable states in
-Table [3](#tab:features_states){reference-type="ref"
-reference="tab:features_states"}.
+features in Table [2](#features_example) and the applicable states in
+Table [3](#features_states).
 
 In `parameters`, each feature is a key and all applicable states are
 sub-keys which take the concentration parameters of the Dirichlet
 distribution as values. Let us assume that the following three Dirichlet
 distributions define a weakly informative prior for universal preference
 for the features *pers_aff*, *role_mark*, and *vow_con*
-(Table [2](#tab:features_example){reference-type="ref"
-reference="tab:features_example"}):
+(Table [2](#features_example)):
 
 $ P(\alpha_{\textit{pers\_aff}}) = \textrm{Dir}(\psi_{Y}=6.1, \psi_{N}=7.9 ) $
 
@@ -706,10 +706,8 @@ path to an external JSON files (e.g. *prior_Arawak.JSON*) where the
 prior is parameterized. The `parameters` and the external JSON file have
 the exact same keys and values. In what follows, we explain how to
 parameterize the prior for Arawak for the three features in
-Table [2](#tab:features_example){reference-type="ref"
-reference="tab:features_example"} and the applicable states in
-Table [3](#tab:features_states){reference-type="ref"
-reference="tab:features_states"}. For Tacanoan, we define a uniform
+Table [2](#features_example) and the applicable states in
+Table [3](#features_states). For Tacanoan, we define a uniform
 prior.
 
 In `parameters`, each feature is a key and all applicable states are
@@ -717,17 +715,21 @@ sub-keys which take the concentration parameters of the Dirichlet
 distribution as values. Let us assume that the following three Dirichlet
 distributions define a weakly informative prior for universal preference
 in the Arawakan family for the features *pers_aff*, *role_mark*, and
-*vow_con* (Table [2](#tab:features_example){reference-type="ref"
-reference="tab:features_example"}):
+*vow_con* ([Table 2](#features_example)):
 
------------------------------------------------------------------------------------------------------------------- ---------------------------------------------------------------------------------------------------------------------------------------------------------------------
-$$\begin{aligned}
-     P(\beta_{\textit{pers\_aff}, \textit{Arawak}}) = \textrm{Dir}(\psi_{Y}=6.0, \\
-  \psi_{N}=1.0 )\end{aligned}$$
+$$
+P(\beta_{\textit{pers\_aff}, \textit{Arawak}}) = \textrm{Dir}(\psi_{Y}=6.0, \, \psi_{N}=1.0)
+$$
 
-$$\begin{aligned}                                                                                                  $$\begin{aligned}
-  P(\beta_{\textit{vow\_con}, \textit{Arawak}}) = \textrm{Dir}(\psi_{Y}=\;\;3.0,\\\psi_{N}=4.0)\end{aligned}$$       P(\beta_{\textit{role\_mark}, \textit{Arawak}}) = \textrm{Dir}(\psi_{A}=2.0, \\\psi_{B}=1.0, \\\psi_{C}=2.9, \\\psi_{D} = 1.0, \\\psi_{E} = 0.1)\end{aligned}$$
------------------------------------------------------------------------------------------------------------------- ---------------------------------------------------------------------------------------------------------------------------------------------------------------------
+
+$$
+P(\beta_{\textit{vow\_con}, \textit{Arawak}}) = \textrm{Dir}(\psi_{Y}=3.0, \, \psi_{N}=4.0)
+$$
+
+$$
+P(\beta_{\textit{role\_mark}, \textit{Arawak}}) = \textrm{Dir}(\psi_{A}=2.0, \, \psi_{B}=1.0, \, \psi_{C}=2.9, \, \psi_{D} = 1.0, \, \psi_{E} = 0.1)
+$$
+
 
 The JSON snippet below encodes the prior for Arawak and Tucanoan:
 
@@ -749,12 +751,12 @@ The JSON snippet below encodes the prior for Arawak and Tucanoan:
 }
 ```
 
-### `contact` and `weights` {#contact-and-weights .unnumbered}
+### `contact` and `weights`
 
 The priors for preference in an area (`contact`) and the `weights` are
 currently always set to \"uniform\".
 
-### `geo` {#geo .unnumbered}
+### `geo` 
 
 The `geo` prior takes as input a JSON object with the keys `type` and
 `parameters`. The default prior has type \"uniform\", in which case
