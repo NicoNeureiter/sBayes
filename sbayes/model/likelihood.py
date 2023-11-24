@@ -103,12 +103,12 @@ class Likelihood(object):
 
 @njit
 def compute_component_likelihood(
-    features: NDArray[bool],    # shape: (n_objects, n_features, n_states)
-    probs: NDArray[float],      # shape: (n_groups, n_features, n_states)
-    groups: NDArray[bool],      # shape: (n_groups, n_objects)
-    changed_groups: NDArray[int],
-    out: NDArray[float]         # shape: (n_objects, n_features)
-) -> NDArray[float]:            # shape: (n_objects, n_features)
+    features: NDArray[bool],        # shape: (n_objects, n_features, n_states)
+    probs: NDArray[float],          # shape: (n_groups, n_features, n_states)
+    groups: NDArray[bool],          # shape: (n_groups, n_objects)
+    changed_groups: NDArray[int],   # shape: (n_changed_groups)
+    out: NDArray[float]             # shape: (n_objects, n_features)
+) -> NDArray[float]:                # shape: (n_objects, n_features)
     """Compute the likelihood of each observation in `features` according to one mixture
     components.
     Args:
@@ -129,6 +129,7 @@ def compute_component_likelihood(
         p_g = probs[i, :, :]
         out[g, :] = np.sum(f_g * p_g[np.newaxis, ...], axis=-1)
         # assert np.allclose(out[g, :], np.einsum('ijk,jk->ij', f_g, p_g))
+
     return out
 
 

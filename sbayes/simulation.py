@@ -4,7 +4,6 @@
 """ Defines the class ContactAreasSimulator
     Outputs a simulated contact areas, together with network, features,
     states, families, weights, p_universal (alpha), p_inheritance(beta), p_contact(gamma) """
-from __future__ import absolute_import, division, print_function, unicode_literals, annotations
 from pathlib import Path
 
 import json

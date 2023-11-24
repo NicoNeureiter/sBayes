@@ -128,6 +128,14 @@ def conditional_effect_sample(
     applicable_states: NDArray[bool],            # shape: (n_features, n_states)
     prior_counts: NDArray[float] | float = 0.1,  # shape: (n_groups, n_features, n_states)
 ) -> NDArray[float]:                             # shape: (n_groups, n_features, n_states)
+    """Generate a sample for the probability vectors of a confounding effect,
+    conditioned on the `features`, `is_source_group` and the `prior_counts`.
+    Args:
+        features: categorical data for each object and feature.
+        is_source_group: the assignment of observations (a feature of an object) to groups.
+        applicable_states: indicator for which states are applicable in which feature.
+        prior_counts: concentration of a dirichlet prior on the probability vectors.
+    """
     concentration = conditional_effect_concentration(
         features=features,
         is_source_group=is_source_group,
@@ -141,20 +149,10 @@ def conditional_effect_sample(
     return p
 
 
-def sample_dirichlet_batched(
-    concentration: NDArray[float] ,    # shape: (*batch_shape, n_features, n_states)
-    applicable_states: NDArray[bool],  # shape: (n_features, n_states)
-) -> NDArray[float]:  # shape: (*batch_shape, n_features, n_states)
-    p = np.zeros_like(concentration)
-    for i_f, states_f in enumerate(applicable_states):
-        p[..., i_f, states_f] = np.random.dirichlet(concentration[..., i_f, states_f])
-    return p
-
-
 def likelihood_per_component(
-    model,
+    model: Model,
     sample: Sample,
-    caching=True
+    caching: bool = True,
 ) -> NDArray[float]:  # shape: (n_objects, n_feature, n_components)
     """Update the likelihood values for each of the mixture components"""
     CHECK_CACHING = False
@@ -226,7 +224,7 @@ def likelihood_per_component(
 
 
 def likelihood_per_component_subset(
-    model,
+    model: Model,
     sample: Sample,
     caching=True
 ) -> NDArray[float]:  # shape: (n_objects, n_feature, n_components)
@@ -300,7 +298,7 @@ def likelihood_per_component_subset(
 
 
 def likelihood_per_component_exact(
-    model,
+    model: Model,
     sample: Sample,
 ) -> NDArray[float]:  # shape: (n_objects, n_feature, n_components)
     """Update the likelihood values for each of the mixture components"""
@@ -369,48 +367,6 @@ def likelihood_per_component_exact(
     return component_likelihood
 
 
-def approx_likelihood_per_component(
-    model: Model,
-    sample: Sample,
-    object_subset: NDArray[bool],  # (n_objects,)
-) -> NDArray[float]:  # shape: (n_objects, n_feature, n_components)
-    features = model.data.features
-    confounders = model.data.confounders
-
-    # Compute the normalized weights for each language and feature
-    weights = update_weights(sample, caching=True)
-
-    # Compute approximate likelihood for the clusters and confounders
-    likelihoods = np.zeros((sample.n_objects, sample.n_features, sample.n_components))
-    likelihoods[..., 0] = approx_component_likelihood(sample.clusters.value, features, object_subset, weights[..., 0])
-    for i_conf, conf in enumerate(confounders.keys(), start=1):
-        groups = confounders[conf].group_assignment
-        likelihoods[..., i_conf] = approx_component_likelihood(groups, features, object_subset, weights[..., i_conf])
-
-    # Fix likelihood of NA features to 1
-    likelihoods[features.na_values] = 1.
-
-    return likelihoods
-
-
-def approx_component_likelihood(
-    groups: NDArray[bool],  # (n_groups, n_objects)
-    features: Features,
-    object_subset,
-    weights: NDArray[float],  # (n_objects, n_features)
-) -> NDArray[float]:  # (n_objects, n_features)
-    lh = np.zeros((features.n_objects, features.n_features))
-    unchanged_objects = ~object_subset
-    group_features = features.values * weights[..., None]
-
-    for g in groups:
-        feature_counts_g = np.sum(group_features[g & unchanged_objects], axis=0)
-        p = normalize(features.states + feature_counts_g, axis=-1)  # TODO: use prior counts, rather than 1+
-        lh[g] = np.sum(p[None, ...] * features.values[g], axis=-1)
-
-    return lh
-
-
 def sample_source_from_prior(
     sample: Sample,
 ) -> NDArray:
@@ -419,14 +375,8 @@ def sample_source_from_prior(
     return sample_categorical(p, binary_encoding=True)
 
 
-def logprob_source_from_prior(
-    sample: Sample,
-) -> float:
-    p = update_weights(sample)
-    return np.log(p[sample.source]).sum()
-
-
 def impute_source(sample: Sample, model: Model):
+    """Generate the `source` parameter for the given sample."""
     na_features = model.data.features.na_values
 
     # Next iteration: sample source from prior (allows calculating feature counts)
