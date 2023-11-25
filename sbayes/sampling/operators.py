@@ -16,7 +16,7 @@ from sbayes.sampling.conditionals import likelihood_per_component, conditional_e
     likelihood_per_component_exact
 from sbayes.sampling.counts import recalculate_feature_counts, update_feature_counts
 from sbayes.sampling.state import Sample
-from sbayes.util import dirichlet_logpdf, normalize, get_neighbours, inner1d, RNG, FLOAT_TYPE
+from sbayes.util import dirichlet_logpdf, normalize, get_neighbours, inner1d, RNG, FLOAT_TYPE, heat_binary_probability
 from sbayes.model import Model, Likelihood, normalize_weights, update_weights
 from sbayes.preprocessing import sample_categorical
 from sbayes.config.config import OperatorsConfig
@@ -48,16 +48,52 @@ def get_operator_schedule(
     consider_geo_prior = (geo_prior.prior_type == geo_prior.prior_type.COST_BASED)
 
     operators = {
-        # 'sample_cluster': AlterCluster(
-        #     weight=operators_config.clusters,
-        #     adjacency_matrix=data.network.adj_mat,
-        #     p_grow_connected=p_grow_connected,
-        #     model=model,
-        #     resample_source=model.sample_source,
-        #     resample_source_mode=ResampleSourceMode.PRIOR,
-        #     sample_from_prior=sample_from_prior,
-        # ),
-        'gibbsish_sample_cluster': AlterClusterGibbsish(
+        'cluster_naive_n1': AlterClusterGibbsish(
+            weight=0.05 * operators_config.clusters,
+            adjacency_matrix=data.network.adj_mat,
+            model=model,
+            features=data.features.values,
+            resample_source=model.sample_source,
+            resample_source_mode=ResampleSourceMode.GIBBS,
+            sample_from_prior=sample_from_prior,
+            n_changes=1,
+            consider_geo_prior=False,
+            temperature=temperature,
+            prior_temperature=prior_temperature,
+            neighbourhood=Neighbourhood.direct,
+            gibbsish=False,
+        ),
+        'cluster_naive_n1_geo': AlterClusterGibbsish(
+            weight=0.05 * operators_config.clusters,
+            adjacency_matrix=data.network.adj_mat,
+            model=model,
+            features=data.features.values,
+            resample_source=model.sample_source,
+            resample_source_mode=ResampleSourceMode.GIBBS,
+            sample_from_prior=sample_from_prior,
+            n_changes=1,
+            consider_geo_prior=consider_geo_prior,
+            temperature=temperature,
+            prior_temperature=prior_temperature,
+            neighbourhood=Neighbourhood.direct,
+            gibbsish=False,
+        ),
+        'cluster_naive_n2_geo': AlterClusterGibbsish(
+            weight=0.05 * operators_config.clusters,
+            adjacency_matrix=data.network.adj_mat,
+            model=model,
+            features=data.features.values,
+            resample_source=model.sample_source,
+            resample_source_mode=ResampleSourceMode.GIBBS,
+            sample_from_prior=sample_from_prior,
+            n_changes=1,
+            consider_geo_prior=consider_geo_prior,
+            temperature=temperature,
+            prior_temperature=prior_temperature,
+            neighbourhood=Neighbourhood.twostep,
+            gibbsish=False,
+        ),
+        'cluster_gibbsish': AlterClusterGibbsish(
             weight=0.05 * operators_config.clusters,
             adjacency_matrix=data.network.adj_mat,
             model=model,
@@ -69,8 +105,8 @@ def get_operator_schedule(
             temperature=temperature,
             prior_temperature=prior_temperature,
         ),
-        'gibbsish_sample_cluster_geo': AlterClusterGibbsish(
-            weight=0.55 * operators_config.clusters,
+        'cluster_gibbsish_geo': AlterClusterGibbsish(
+            weight=0.35 * operators_config.clusters,
             adjacency_matrix=data.network.adj_mat,
             model=model,
             features=data.features.values,
@@ -142,15 +178,15 @@ def get_operator_schedule(
             temperature=temperature,
             prior_temperature=prior_temperature,
         ),
-        # 'gibbs_sample_sources_single': GibbsSampleSource(
-        #     weight=10.0*operators_config.source,
-        #     model=model,
-        #     sample_from_prior=sample_from_prior,
-        #     object_selector=ObjectSelector.RANDOM_SUBSET,
-        #     max_size=1,
-        #     temperature=temperature,
-        #     prior_temperature=prior_temperature,
-        # ),
+        'gibbs_sample_sources_single': GibbsSampleSource(
+            weight=1.0*operators_config.source,
+            model=model,
+            sample_from_prior=sample_from_prior,
+            object_selector=ObjectSelector.RANDOM_SUBSET,
+            max_size=1,
+            temperature=temperature,
+            prior_temperature=prior_temperature,
+        ),
         'gibbs_sample_sources': GibbsSampleSource(
             weight=0.4*operators_config.source,
             model=model,
@@ -241,7 +277,7 @@ class Operator(ABC):
         self.prior_temperature = prior_temperature
 
     def function(self, sample: Sample, **kwargs) -> tuple[Sample, float, float]:
-        # TODO: potentially do some book-keeping
+        # ... potentially do some bookkeeping
         return self._propose(sample, **kwargs)
 
     @abstractmethod
@@ -492,7 +528,7 @@ class GibbsSampleSource(Operator):
 
         if self.sample_from_prior:
             weights = update_weights(sample)[object_subset]
-            p = normalize(weights **  (1 / self.prior_temperature), axis=-1)
+            p = normalize(weights ** (1 / self.prior_temperature), axis=-1)
         else:
             p = self.calculate_source_posterior(sample, object_subset)
 
@@ -531,8 +567,8 @@ class GibbsSampleSource(Operator):
         """Compute the posterior support for source assignments of every object and feature."""
 
         # Compute likelihood for each component
-        lh_per_component = likelihood_per_component_exact(model=self.model, sample=sample)
-        # lh_per_component = likelihood_per_component(model=self.model, sample=sample, caching=True)
+        # lh_per_component = likelihood_per_component_exact(model=self.model, sample=sample)
+        lh_per_component = likelihood_per_component(model=self.model, sample=sample, caching=True)
 
         # Multiply by weights and normalize over components to get the source posterior
         weights = update_weights(sample)
@@ -683,6 +719,7 @@ class ClusterOperator(Operator):
         sample_from_prior: bool = False,
         p_grow: float = 0.5,
         n_changes: int = 1,
+        p_grow_connected: float = 0.85,
         resample_source_mode: ResampleSourceMode = ResampleSourceMode.GIBBS,
         **kwargs,
     ):
@@ -693,6 +730,7 @@ class ClusterOperator(Operator):
         self.sample_from_prior = sample_from_prior
         self.p_grow = p_grow
         self.n_changes = n_changes
+        self.p_grow_connected = p_grow_connected
 
     @staticmethod
     def available(sample: Sample, i_cluster: int) -> NDArray[bool]:
@@ -828,7 +866,8 @@ class ClusterOperator(Operator):
 
     def get_parameters(self) -> dict[str, Any]:
         params = super().get_parameters()
-        params["resample_source_mode"] = self.resample_source_mode.value
+        if self.resample_source_mode != ResampleSourceMode.GIBBS:
+            params["resample_source_mode"] = self.resample_source_mode.value
         return params
 
 
@@ -837,6 +876,8 @@ def component_likelihood_given_unchanged(
     sample: Sample,
     object_subset: NDArray[bool],
     i_cluster: int,
+    temperature: float = 1.0,
+    prior_temperature: float = 1.0,
 ) -> NDArray[float]:  # shape: (n_objects, n_feature, n_components)
     features = model.data.features
     confounders = model.data.confounders
@@ -845,9 +886,24 @@ def component_likelihood_given_unchanged(
     subset_size = np.count_nonzero(object_subset)
 
     likelihoods = np.zeros((subset_size, sample.n_features, sample.n_components))
-    likelihoods[..., 0] = cluster_likelihood_given_unchanged(cluster, features, object_subset, source)
+
+    # cluster_features = features.values * source[:, :, 0, None]
+    # feature_counts_c = np.sum(cluster_features[cluster & ~object_subset], axis=0)
+    # p = conditional_effect_mean(
+    #     prior_counts=model.prior.prior_cluster_effect.concentration_array,
+    #     feature_counts=np.sum(cluster_features[cluster & ~object_subset], axis=0),
+    #     unif_counts=model.prior.prior_cluster_effect.uniform_concentration_array,
+    #     prior_temperature=prior_temperature, temperature=temperature,
+    # )
+    # likelihoods[..., 0] = np.sum(p[None, ...] * features.values[object_subset], axis=-1)
+
+    likelihoods[..., 0] = cluster_likelihood_given_unchanged(
+        cluster, features, object_subset, source,
+        prior_concentration=model.prior.prior_cluster_effect.concentration_array
+    )
 
     for i_conf, conf in enumerate(confounders, start=1):
+        conf_prior = model.prior.prior_confounding_effects[conf]
         groups = confounders[conf].group_assignment
 
         features_conf = features.values * sample.source.value[:, :, i_conf, None]
@@ -856,7 +912,11 @@ def component_likelihood_given_unchanged(
             for g in groups
         ])
         unchangeable_feature_counts = sample.feature_counts[conf].value - changeable_counts
-        prior_counts = model.prior.prior_confounding_effects[conf].concentration_array(sample)
+        if conf_prior.any_dynamic_priors:
+            prior_counts = conf_prior.concentration_array_given_unchanged(sample, changed_objects=object_subset)
+        else:
+            prior_counts = conf_prior.concentration_array(sample)
+
         conf_effect = normalize(unchangeable_feature_counts + prior_counts, axis=-1)
 
         # group_likelihood_given_unchanged(
@@ -901,30 +961,44 @@ def component_likelihood_given_unchanged(
 
 
 def cluster_likelihood_given_unchanged(
-    cluster: NDArray[bool],  # (n_objects,)
+    cluster: NDArray[bool],                 # (n_objects,)
     features: Features,
-    object_subset: NDArray[bool],  # (n_objects,)
-    source: NDArray[bool],  # (n_objects, n_features, n_components)
+    object_subset: NDArray[bool],           # (n_objects,)
+    source: NDArray[bool],                  # (n_objects, n_features, n_components)
+    prior_concentration: NDArray[float],    # (n_features, n_states)
 ) -> NDArray[float]:  # (n_objects, n_features)
     cluster_features = features.values * source[:, :, 0, None]
     feature_counts_c = np.sum(cluster_features[cluster & ~object_subset], axis=0)
-    p = normalize(features.states + feature_counts_c, axis=-1)  # TODO: use prior counts, rather than 1+
+    p = normalize(prior_concentration + feature_counts_c, axis=-1)
     return np.sum(p[None, ...] * features.values[object_subset], axis=-1)
 
 
+class Neighbourhood(Enum):
+    direct = "direct"
+    twostep = "twostep"
+    everywhere = "everywhere"
+
+
 class AlterClusterGibbsish(ClusterOperator):
+
     def __init__(
         self,
         *args,
         adjacency_matrix,
         features: NDArray[bool],
         consider_geo_prior: bool = False,
+        neighbourhood: Neighbourhood = Neighbourhood.everywhere,
+        additive_smoothing: float = 0,
+        gibbsish: bool = True,
         **kwargs,
     ):
         super().__init__(*args, **kwargs)
         self.adjacency_matrix = adjacency_matrix
         self.features = features
         self.consider_geo_prior = consider_geo_prior
+        self.neighbourhood = neighbourhood
+        self.additive_smoothing = additive_smoothing
+        self.gibbsish = gibbsish
 
     def _propose(self, sample: Sample, **kwargs) -> tuple[Sample, float, float]:
         model = self.model
@@ -978,8 +1052,9 @@ class AlterClusterGibbsish(ClusterOperator):
         available: NDArray[bool],
     ) -> NDArray[float]:  # shape: (n_available, )
         model = self.model
+        NAs = model.data.features.na_values[available, :]
 
-        if self.sample_from_prior:
+        if self.sample_from_prior or not self.gibbsish:
             n_available = np.count_nonzero(available)
             return 0.5*np.ones(n_available)
 
@@ -992,6 +1067,7 @@ class AlterClusterGibbsish(ClusterOperator):
         cluster_lh_z = inner1d(self.features[available], p)
         all_lh = deepcopy(likelihood_per_component(model, sample, caching=True)[available, :])
         all_lh[..., 0] = cluster_lh_z
+        all_lh[NAs, 0] = 1.
 
         weights_z01 = self.compute_feature_weights_with_and_without(sample, available)
         feature_lh_z01 = inner1d(all_lh[np.newaxis, ...], weights_z01)
@@ -1000,6 +1076,11 @@ class AlterClusterGibbsish(ClusterOperator):
 
         if self.consider_geo_prior:
             cluster_posterior *= np.exp(model.prior.geo_prior.get_costs_per_object(sample, i_cluster)[available] / self.prior_temperature)
+
+        if self.additive_smoothing > 0:
+            # Add the additive smoothing constant and renormalize
+            a = self.additive_smoothing
+            cluster_posterior = (cluster_posterior + a) / (1 + 2 * a)
 
         return cluster_posterior
 
@@ -1025,9 +1106,17 @@ class AlterClusterGibbsish(ClusterOperator):
 
         return weights_z01
 
-    @staticmethod
-    def grow_candidates(sample: Sample) -> NDArray[bool]:
-        return ~sample.clusters.any_cluster()
+    def grow_candidates(self, sample: Sample, i_cluster: int) -> NDArray[bool]:
+        cluster_current = sample.clusters.value[i_cluster]
+        occupied = sample.clusters.any_cluster()
+        if self.neighbourhood == Neighbourhood.everywhere:
+            return ~occupied
+        elif self.neighbourhood == Neighbourhood.direct:
+            return get_neighbours(cluster_current, occupied, self.adjacency_matrix)
+        elif self.neighbourhood == Neighbourhood.twostep:
+            return get_neighbours(cluster_current, occupied, self.adjacency_matrix, indirection=1)
+        else:
+            raise ValueError(f"Unknown neighborhood {self.neighbourhood}")
 
     @staticmethod
     def shrink_candidates(sample: Sample, i_cluster: int) -> NDArray[bool]:
@@ -1046,8 +1135,7 @@ class AlterClusterGibbsish(ClusterOperator):
         cluster = sample.clusters.value[i_cluster, :]
 
         # Load and precompute useful variables
-        available = self.available(sample, i_cluster)
-        candidates = self.grow_candidates(sample)
+        candidates = self.grow_candidates(sample, i_cluster)
 
         # If all the space is take we can't grow
         if not np.any(candidates):
@@ -1062,47 +1150,40 @@ class AlterClusterGibbsish(ClusterOperator):
 
         # Assign probabilities for each unoccupied object
         cluster_posterior = np.zeros(sample.n_objects)
-        cluster_posterior[available] = self.compute_cluster_posterior(
-            sample, i_cluster, available
-        ) ** (1 / self.temperature)
-        p_add = normalize(cluster_posterior * candidates)
+        cluster_posterior[candidates] = heat_binary_probability(
+            self.compute_cluster_posterior(sample, i_cluster, candidates),
+            self.temperature
+        )
+        p_add = normalize(cluster_posterior)
 
-        # # Draw new object according to posterior
-        # object_new = RNG.choice(sample.n_objects, p=p_add, replace=False)
-        # sample_new.clusters.add_object(i_cluster, object_new)
-        #
-        # # The removal probability of an inverse step
-        # shrink_candidates = self.shrink_candidates(sample_new, i_cluster)
-        # p_remove = normalize((1 - cluster_posterior) * shrink_candidates)
+        if np.sum(p_add) == 0:
+            return sample, self.Q_REJECT, self.Q_BACK_REJECT
 
         # Draw new object according to posterior
-        # n_add = min(self.n_changes, np.sum(candidates))
-        n_add = min(1, np.sum(candidates))
-
-        new_objects = RNG.choice(sample.n_objects, p=p_add, size=n_add, replace=False)
-        for obj in new_objects:
-            sample_new.clusters.add_object(i_cluster, obj)
+        object_add = RNG.choice(sample.n_objects, p=p_add, replace=False)
+        sample_new.clusters.add_object(i_cluster, object_add)
 
         if self.resample_source and sample.source is not None:
             sample_new, log_q_s, log_q_back_s = self.propose_new_sources(
                 sample_old=sample,
                 sample_new=sample_new,
                 i_cluster=i_cluster,
-                object_subset=new_objects,
+                object_subset=[object_add],
             )
         else:
             log_q_s = log_q_back_s = 0
 
         # The removal probability of an inverse step
-        cluster_posterior_back = np.zeros(sample_new.n_objects)
-        cluster_posterior_back[available] = self.compute_cluster_posterior(
-            sample_new, i_cluster, available
-        ) ** (1 / self.temperature)
         shrink_candidates = self.shrink_candidates(sample_new, i_cluster)
+        cluster_posterior_back = np.zeros(sample_new.n_objects)
+        cluster_posterior_back[shrink_candidates] = heat_binary_probability(
+            self.compute_cluster_posterior(sample_new, i_cluster, shrink_candidates),
+            self.temperature
+        )
         p_remove = normalize((1 - cluster_posterior_back) * shrink_candidates)
 
-        log_q = np.log(p_add[new_objects]).sum() + log_q_s
-        log_q_back = np.log(p_remove[new_objects]).sum() + log_q_back_s
+        log_q = np.log(p_add[object_add]).sum() + log_q_s
+        log_q_back = np.log(p_remove[object_add]).sum() + log_q_back_s
 
         return sample_new, log_q, log_q_back
 
@@ -1131,21 +1212,18 @@ class AlterClusterGibbsish(ClusterOperator):
 
         # Assign probabilities for each unoccupied object
         cluster_posterior = np.zeros(sample.n_objects)
-        cluster_posterior[available] = self.compute_cluster_posterior(
-            sample, i_cluster, available
-        ) ** (1 / self.temperature)
+        cluster_posterior[candidates] = heat_binary_probability(
+            self.compute_cluster_posterior(sample, i_cluster, candidates),
+            self.temperature
+        )
 
         x = (1 - cluster_posterior) * candidates
         if np.sum(x) == 0:
             return sample, self.Q_REJECT, self.Q_BACK_REJECT
         p_remove = normalize(x)
 
-        n_removable = np.sum(p_remove > 0)
-        # n_remove = min(self.n_changes, n_removable - model.min_size)
-        n_remove = min(1, n_removable - self.model.min_size)
-
         # Draw object to be removed according to posterior
-        removed_objects = RNG.choice(sample.n_objects, p=p_remove, size=n_remove, replace=False)
+        removed_objects = RNG.choice(sample.n_objects, p=p_remove, size=1, replace=False)
         for obj in removed_objects:
             sample_new.clusters.remove_object(i_cluster, obj)
 
@@ -1160,12 +1238,13 @@ class AlterClusterGibbsish(ClusterOperator):
             log_q_s = log_q_back_s = 0
 
         # The add probability of an inverse step
+        grow_candidates = self.grow_candidates(sample_new, i_cluster)
         cluster_posterior_back = np.zeros(sample_new.n_objects)
-        cluster_posterior_back[available] = self.compute_cluster_posterior(
-            sample_new, i_cluster, available
-        ) ** (1 / self.temperature)
-        grow_candidates = self.grow_candidates(sample_new)
-        p_add = normalize(cluster_posterior_back * grow_candidates)
+        cluster_posterior_back[grow_candidates] = heat_binary_probability(
+            self.compute_cluster_posterior(sample_new, i_cluster, grow_candidates),
+            self.temperature
+        )
+        p_add = normalize(cluster_posterior_back)
 
         log_q = np.log(p_remove[removed_objects]).sum() + log_q_s
         log_q_back = np.log(p_add[removed_objects]).sum() + log_q_back_s
@@ -1174,9 +1253,16 @@ class AlterClusterGibbsish(ClusterOperator):
 
     def get_parameters(self) -> dict[str, Any]:
         params = super().get_parameters()
-        params["n_changes"] = self.n_changes
+        if self.n_changes > 1:
+            params["n_changes"] = self.n_changes
         if self.consider_geo_prior:
-            params["consider_geo_prior"] = self.consider_geo_prior
+            params["geo"] = self.consider_geo_prior
+        if self.neighbourhood != Neighbourhood.everywhere:
+            params["neighbours"] = self.neighbourhood.value
+        if self.additive_smoothing > 0.0:
+            params["additive_smoothing"] = self.additive_smoothing
+        if not self.gibbsish:
+            params["gibbsish"] = self.gibbsish
         return params
 
 
@@ -1311,11 +1397,18 @@ class ClusterEffectProposals:
 
         # Iterate over mixture components
         for i_comp, (name_conf, conf) in enumerate(confounders.items(), start=1):
+            conf_prior = model.prior.prior_confounding_effects[name_conf]
+
+            # if conf_prior.any_dynamic_priors:
+            #     prior_counts = ...
+            # else:
+            prior_counts = conf_prior.concentration_array(sample)
+
             # The expected confounding effect is given by the prior counts and feature
             # counts normalized to 1 over the different states.
             c = ClusterEffectProposals.posterior_counts(
                 unif_counts=unif_counts,
-                prior_counts= model.prior.prior_confounding_effects[name_conf].concentration_array(sample),
+                prior_counts=prior_counts,
                 feature_counts=sample.feature_counts[name_conf].value,
                 temperature=temperature,
                 prior_temperature=prior_temperature,
@@ -1383,6 +1476,7 @@ class AlterClusterGibbsishWide(AlterClusterGibbsish):
             available: Boolean array indicating which objects can be added/removed.
         """
         model = self.model
+        NAs = model.data.features.na_values[available]
         n_available = np.count_nonzero(available)
 
         if self.sample_from_prior:
@@ -1394,6 +1488,7 @@ class AlterClusterGibbsishWide(AlterClusterGibbsish):
         cluster_lh_z = inner1d(self.features[available], p) ** (1 / self.temperature)
         all_lh = deepcopy(likelihood_per_component(model, sample, caching=True)[available, :])
         all_lh[..., 0] = cluster_lh_z
+        all_lh[NAs, 0] = 1.
 
         weights_z01 = self.compute_feature_weights_with_and_without(sample, available)
         feature_lh_z01 = inner1d(all_lh[np.newaxis, ...], weights_z01)
@@ -1496,7 +1591,6 @@ class AlterClusterGibbsishWide(AlterClusterGibbsish):
 
     def get_parameters(self) -> dict[str, Any]:
         params = super().get_parameters()
-        params.pop("n_changes")
 
         if self.w_stay != 0.0:
             params["w_stay"] = self.w_stay
@@ -1613,12 +1707,10 @@ class AlterCluster(ClusterOperator):
         self,
         *args,
         adjacency_matrix: NDArray[bool],
-        p_grow_connected: float,
         **kwargs,
     ):
         super().__init__(*args, **kwargs)
         self.adjacency_matrix = adjacency_matrix
-        self.p_grow_connected = p_grow_connected
 
     def _propose(self, sample: Sample, **kwargs) -> tuple[Sample, float, float]:
         log_q = 0.
@@ -1658,7 +1750,7 @@ class AlterCluster(ClusterOperator):
 
         if current_size >= self.model.max_size:
             # Cluster too big to grow: don't modify the sample and reject the step (q_back = 0)
-            return sample, 0, -np.inf
+            return sample, self.Q_REJECT, self.Q_BACK_REJECT
 
         neighbours = get_neighbours(cluster_current, occupied, self.adjacency_matrix)
         connected_step = random.random() < self.p_grow_connected
@@ -1671,7 +1763,7 @@ class AlterCluster(ClusterOperator):
 
         # When stuck (no candidates) return current sample and reject the step (q_back = 0)
         if not np.any(candidates):
-            return sample, 0, -np.inf
+            return sample, self.Q_REJECT, self.Q_BACK_REJECT
 
         # Choose a random candidate and add it to the cluster
         object_add = RNG.choice(candidates.nonzero()[0])
