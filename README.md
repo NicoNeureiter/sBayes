@@ -6,7 +6,7 @@ described in
 (Ranacher P., Neureiter N., Van Gijn R., Sonnenhauser B., Escher A., Weibel R., Muysken P., Bickel B.).
 *sBayes* implements a custom MCMC sampler to generate contact areas according to the model. Here we describe
 the installation process and the basic commands needed to run an analysis. For more detailed instructions explaining
-each step in the analysis and the various settings, please consult the user manual (`sbayes_documentation.pdf`).
+each step in the analysis and the various settings, please consult the [user manual](documentation/user_manual.md).
 
 
 ## Installation
