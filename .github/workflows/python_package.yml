@@ -1,0 +1,77 @@
+# This workflow will install Python dependencies, run tests and lint with a variety of Python versions
+# For more information see: https://help.github.com/actions/language-and-framework-guides/using-python-with-github-actions
+
+name: Python package
+
+on:
+  push:
+    branches: [master, language_sbayes, devel]
+    paths:
+      - sbayes/**
+      - test/**
+      - .github/workflows/python_package.yml
+  pull_request:
+    branches: [master, language_sbayes, devel]
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 90
+
+    defaults:
+      run:
+        shell: bash -l {0}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: [3.9]
+        #python-version: [3.7, 3.9, 3.11]
+
+    steps:
+    
+      - uses: actions/checkout@v2
+
+      - uses: conda-incubator/setup-miniconda@v2
+        with:
+          miniconda-version: "latest"
+          channels: bioconda, conda-forge, defaults
+          use-only-tar-bz2: true  # IMPORTANT: This needs to be set for caching to work properly!
+          auto-update-conda: true
+          auto-activate-base: true
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update && sudo apt-get install -y libproj-dev proj-data proj-bin libgeos-dev
+
+      - name: Create conda environment
+        run: |
+          conda init bash
+          conda create -n myenv python=${{ matrix.python-version }}
+
+      - name: Activate conda environment
+        run: |
+          conda activate myenv
+          conda config --set always_yes yes --set changeps1 no
+          
+      - name: Update conda environment
+        run: |
+          conda update --name base -q conda
+
+      - name: Install python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install flake8 pytest
+          python -m pip install cython numpy
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+
+      - name: Lint with flake8
+        run: |
+          # stop the build if there are Python syntax errors or undefined names
+          flake8 . --count --select=E9,F63,F7,F82 --show-source --statistics
+          # exit-zero treats all errors as warnings. The GitHub editor is 127 chars wide
+          flake8 . --count --exit-zero --max-complexity=10 --max-line-length=127 --statistics
+
+      - name: Test with pytest
+        run: |
+          pytest
