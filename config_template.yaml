@@ -74,6 +74,7 @@ mcmc:
         # Configuration for the initialization of the MCMC / each warm-up chain.
         attempts: 10                    # Number of initial samples for each warm-up chain. Only the one with highest posterior will be used.
         initial_cluster_steps: true     # Whether to apply an initial cluster operator to each cluster before selecting the best sample.
+        em_steps: 50                    # Number of steps in the expectation-maximization initializer.
 
     mc3:
         # Configuration of Metropolis-Coupled Markov Chain Monte Carlo (MC3) parameters.
@@ -85,6 +86,8 @@ mcmc:
         temperature_diff: 0.05          # Difference between temperatures of MC3 chains.
         prior_temperature_diff: <REQUIRED> # Difference between prior-temperatures of MC3 chains. Defaults to the same values as `temperature_diff` if `only_heat_likelihood == False`, and 0 otherwise.
         only_heat_likelihood: false     # If `True`, only likelihood is affected by the MC3 temperature, i.e. all chains use the same prior.
+        exponential_temperatures: false # If `True`, temperature increase exponentially ((1 + dt)**i), instead of linearly (1 + dt*i).
+        log_swap_matrix: true           # If `True`, write a matrix containing the number of swaps between each pair of chains to an npy-file.
 
 results:
     # Information on where and how results are written.

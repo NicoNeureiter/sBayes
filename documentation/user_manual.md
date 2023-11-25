@@ -1,9 +1,11 @@
----
-author:
-- Peter Ranacher, Nico Neureiter, Natalia Chousou-Polydouri, Olga
-  Sozinova
-title: "`sBayes` documentation"
----
+<p align="center">
+  <img src="figures/logo_sbayes-400x200xc.png" alt="sBayes logo">
+  <br>
+  <b>USER MANUAL</b>
+  <br><br>
+  <i>Peter Ranacher, Nico Neureiter, Natalia Chousou-Polydouri, Olga Sozinova</i>
+  <br><br>
+</p>
 
 # Introduction
 
@@ -668,11 +670,17 @@ distributions define a weakly informative prior for universal preference
 for the features *pers_aff*, *role_mark*, and *vow_con*
 (Table [2](#features_example)):
 
-$ P(\alpha_{\textit{pers\_aff}}) = \textrm{Dir}(\psi_{Y}=6.1, \psi_{N}=7.9 ) $
+$$
+P(\alpha_{\mathit{pers\textunderscore aff}}) = \textrm{Dir}(\psi_{Y}=6.1, \psi_{N}=7.9 )
+$$
 
-$ P(\alpha_{\textit{vow\_con}}) = \textrm{Dir}(\psi_{Y}=\;\;2.0,\psi_{N}=12.0) $
+$$
+ P(\alpha_{\mathit{vow\textunderscore con}}) = \textrm{Dir}(\psi_{Y}=2.0,\psi_{N}=12.0) 
+$$
 
-$ P(\alpha_{\textit{role\_mark}}) = \textrm{Dir}(\psi_{A}=2.0, \psi_{B}=0.3, \psi_{C}=4.7, \psi_{D} = 3.0, \psi_{E} = 4.0) $
+$$
+ P(\alpha_{\mathit{role\textunderscore mark}}) = \textrm{Dir}(\psi_{A}=2.0, \psi_{B}=0.3, \psi_{C}=4.7, \psi_{D} = 3.0, \psi_{E} = 4.0) 
+$$
 
 The JSON snippet below encodes the universal prior:
 
@@ -717,12 +725,17 @@ distributions define a weakly informative prior for universal preference
 in the Arawakan family for the features *pers_aff*, *role_mark*, and
 *vow_con* ([Table 2](#features_example)):
 
-$ P(\beta_{\mathit{pers\_aff}, \mathit{Arawak}}) = \textrm{Dir}(\psi_{Y}=6.0, \, \psi_{N}=1.0) $
+$$
+P(\beta_{\mathit{pers\textunderscore aff}, \mathit{Arawak}}) = \textrm{Dir}(\psi_{Y}=6.0, \psi_{N}=1.0) 
+$$
 
+$$
+P(\beta_{\mathit{vow\textunderscore con}, \textit{Arawak}}) = \textrm{Dir}(\psi_{Y}=3.0, \psi_{N}=4.0) 
+$$
 
-$ P(\beta_{\mathit{vow\_con}, \textit{Arawak}}) = \textrm{Dir}(\psi_{Y}=3.0, \, \psi_{N}=4.0) $
-
-$ P(\beta_{\mathit{role\_mark}, \textit{Arawak}}) = \textrm{Dir}(\psi_{A}=2.0, \, \psi_{B}=1.0, \, \psi_{C}=2.9, \, \psi_{D} = 1.0, \, \psi_{E} = 0.1) $
+$$
+P(\beta_{\mathit{role\textunderscore mark}, \textit{Arawak}}) = \textrm{Dir}(\psi_{A}=2.0, \psi_{B}=1.0, \psi_{C}=2.9, \psi_{D} = 1.0, \psi_{E} = 0.1) 
+$$
 
 
 The JSON snippet below encodes the prior for Arawak and Tucanoan:
