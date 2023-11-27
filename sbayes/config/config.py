@@ -353,7 +353,7 @@ class MC3Config(BaseConfig):
     temperature_diff: PositiveFloat = 0.05
     """Difference between temperatures of MC3 chains."""
 
-    prior_temperature_diff: PositiveFloat | None = None
+    prior_temperature_diff: Optional[PositiveFloat] = None
     """Difference between prior-temperatures of MC3 chains. Defaults to the same values as 
     `temperature_diff` if `only_heat_likelihood == False`, and 0 otherwise."""
 
