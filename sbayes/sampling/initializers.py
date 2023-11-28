@@ -106,7 +106,6 @@ class SbayesInitializer:
         We estimate distributions for each cluster/confounder group and a flat continuous
         assignment of each object to clusters and confounder groups.
         """
-        n_steps = self.n_em_steps
         features = self.data.features.values
         valid_observations = ~self.data.features.na_values
         n_objects, n_features, n_states = features.shape
@@ -122,6 +121,7 @@ class SbayesInitializer:
         groups = [f"a{c}" for c in range(n_clusters)]
         for conf_name, conf in self.data.confounders.items():
             groups += [f"{conf_name}_{grp_name}" for grp_name in conf.group_names]
+
         n_groups = len(groups)
 
         groups_available = np.zeros((n_groups, n_objects), dtype=bool)
@@ -143,7 +143,7 @@ class SbayesInitializer:
         _features = np.copy(features)
         _features[~valid_observations, :] = 1
 
-        for i_step in range(n_steps):
+        for i_step in range(self.n_em_steps):
             state_counts = np.einsum("ij,jkl->ikl", z, features, optimize='optimal')
             # shape: (n_groups, n_features, n_states)
 
@@ -166,8 +166,9 @@ class SbayesInitializer:
                 geo_likelihoods = np.exp(-avg_dist_to_cluster / geo_prior.scale / 2)
                 geo_likelihoods[n_clusters:] = np.mean(geo_likelihoods[:n_clusters])
 
-            temperature = (n_steps / (1+i_step)) ** 3
-            lh = geo_likelihoods * group_likelihoods ** (1/temperature)
+            temperature = (self.n_em_steps / (1+i_step)) ** 3
+            lh = geo_likelihoods * group_likelihoods ** (1/temperature) + EPS
+
             z = normalize(lh * groups_available, axis=0)
 
             if (self.init_cluster_logger is not None) and (i_step % 5 == 0):
@@ -254,10 +255,7 @@ class SbayesInitializer:
         # Weights
         initial_weights = self.generate_initial_weights()
 
-        if self.model.sample_source:
-            initial_source = np.empty((self.n_objects, self.n_features, self.n_sources), dtype=bool)
-        else:
-            initial_source = None
+        initial_source = np.empty((self.n_objects, self.n_features, self.n_sources), dtype=bool)
 
         sample = Sample.from_numpy_arrays(
             clusters=initial_clusters,
@@ -296,7 +294,6 @@ class SbayesInitializer:
             adjacency_matrix=self.data.network.adj_mat,
             model=self.model,
             features=self.data.features.values,
-            resample_source=True,
             consider_geo_prior=True,
         )
         source = full_source_operator.function(sample)[0].source.value
