@@ -53,7 +53,6 @@ def get_operator_schedule(
             adjacency_matrix=data.network.adj_mat,
             model=model,
             features=data.features.values,
-            resample_source=model.sample_source,
             resample_source_mode=ResampleSourceMode.GIBBS,
             sample_from_prior=sample_from_prior,
             n_changes=1,
@@ -68,7 +67,6 @@ def get_operator_schedule(
             adjacency_matrix=data.network.adj_mat,
             model=model,
             features=data.features.values,
-            resample_source=model.sample_source,
             resample_source_mode=ResampleSourceMode.GIBBS,
             sample_from_prior=sample_from_prior,
             n_changes=1,
@@ -83,7 +81,6 @@ def get_operator_schedule(
             adjacency_matrix=data.network.adj_mat,
             model=model,
             features=data.features.values,
-            resample_source=model.sample_source,
             resample_source_mode=ResampleSourceMode.GIBBS,
             sample_from_prior=sample_from_prior,
             n_changes=1,
@@ -98,7 +95,6 @@ def get_operator_schedule(
             adjacency_matrix=data.network.adj_mat,
             model=model,
             features=data.features.values,
-            resample_source=model.sample_source,
             resample_source_mode=ResampleSourceMode.GIBBS,
             sample_from_prior=sample_from_prior,
             n_changes=1,
@@ -110,7 +106,6 @@ def get_operator_schedule(
             adjacency_matrix=data.network.adj_mat,
             model=model,
             features=data.features.values,
-            resample_source=model.sample_source,
             resample_source_mode=ResampleSourceMode.GIBBS,
             sample_from_prior=sample_from_prior,
             n_changes=1,
@@ -123,7 +118,6 @@ def get_operator_schedule(
         #     adjacency_matrix=data.network.adj_mat,
         #     model=model,
         #     features=data.features.values,
-        #     resample_source=model.sample_source,
         #     resample_source_mode=ResampleSourceMode.GIBBS,
         #     sample_from_prior=sample_from_prior,
         #     consider_geo_prior=consider_geo_prior,
@@ -134,7 +128,6 @@ def get_operator_schedule(
             adjacency_matrix=data.network.adj_mat,
             model=model,
             features=data.features.values,
-            resample_source=model.sample_source,
             resample_source_mode=ResampleSourceMode.GIBBS,
             sample_from_prior=sample_from_prior,
             w_stay=0.15,
@@ -148,7 +141,6 @@ def get_operator_schedule(
             adjacency_matrix=data.network.adj_mat,
             model=model,
             features=data.features.values,
-            resample_source=model.sample_source,
             resample_source_mode=ResampleSourceMode.GIBBS,
             sample_from_prior=sample_from_prior,
             w_stay=0.0,
@@ -163,7 +155,6 @@ def get_operator_schedule(
         #     adjacency_matrix=data.network.adj_mat,
         #     model=model,
         #     features=data.features.values,
-        #     resample_source=model.sample_source,
         #     resample_source_mode=ResampleSourceMode.GIBBS,
         #     sample_from_prior=sample_from_prior,
         #     w_stay=0.0,
@@ -172,7 +163,6 @@ def get_operator_schedule(
         'cluster_jump_gibbsish': ClusterJump(
             weight=0.25 * operators_config.clusters if model.n_clusters > 1 else 0.0,
             model=model,
-            resample_source=True,
             sample_from_prior=sample_from_prior,
             gibbsish=True,
             temperature=temperature,
@@ -715,7 +705,6 @@ class ClusterOperator(Operator):
         self,
         *args,
         model: Model,
-        resample_source: bool,
         sample_from_prior: bool = False,
         p_grow: float = 0.5,
         n_changes: int = 1,
@@ -725,7 +714,6 @@ class ClusterOperator(Operator):
     ):
         super().__init__(*args, **kwargs)
         self.model = model
-        self.resample_source = resample_source
         self.resample_source_mode = resample_source_mode
         self.sample_from_prior = sample_from_prior
         self.p_grow = p_grow
@@ -822,12 +810,13 @@ class ClusterOperator(Operator):
 
         # Compute the likelihood for each mixture component
         lh_per_component = component_likelihood_given_unchanged(
-            model, sample_new, object_subset, i_cluster=i_cluster
-        ) ** (1 / self.temperature)
+            model, sample_new, object_subset, i_cluster=i_cluster,
+            temperature=self.temperature, prior_temperature=self.prior_temperature,
+        )
 
         # Compute the source-prior for each mixture component
         if self.sample_from_prior:
-            p = update_weights(sample_new)[object_subset]
+            p = update_weights(sample_new)[object_subset] ** (1 / self.prior_temperature)
         else:
             w = update_weights(sample_new)[object_subset] ** (1 / self.prior_temperature)
             p = normalize(w * lh_per_component, axis=-1)
@@ -848,7 +837,7 @@ class ClusterOperator(Operator):
 
         # Transition probability backward:
         if self.sample_from_prior:
-            p_back = update_weights(sample_old)[object_subset]
+            p_back = update_weights(sample_old)[object_subset] ** (1 / self.prior_temperature)
         else:
             w = update_weights(sample_old)[object_subset] ** (1 / self.prior_temperature)
             p_back = normalize(w * lh_per_component, axis=-1)
@@ -885,22 +874,22 @@ def component_likelihood_given_unchanged(
     source = sample.source.value
     subset_size = np.count_nonzero(object_subset)
 
-    likelihoods = np.zeros((subset_size, sample.n_features, sample.n_components))
+    likelihoods = np.zeros((subset_size, sample.n_features, sample.n_components), dtype=FLOAT_TYPE)
 
-    # cluster_features = features.values * source[:, :, 0, None]
+    cluster_features = features.values * source[:, :, 0, None]
     # feature_counts_c = np.sum(cluster_features[cluster & ~object_subset], axis=0)
-    # p = conditional_effect_mean(
-    #     prior_counts=model.prior.prior_cluster_effect.concentration_array,
-    #     feature_counts=np.sum(cluster_features[cluster & ~object_subset], axis=0),
-    #     unif_counts=model.prior.prior_cluster_effect.uniform_concentration_array,
-    #     prior_temperature=prior_temperature, temperature=temperature,
-    # )
-    # likelihoods[..., 0] = np.sum(p[None, ...] * features.values[object_subset], axis=-1)
-
-    likelihoods[..., 0] = cluster_likelihood_given_unchanged(
-        cluster, features, object_subset, source,
-        prior_concentration=model.prior.prior_cluster_effect.concentration_array
+    cluster_effect = conditional_effect_mean(
+        prior_counts=model.prior.prior_cluster_effect.concentration_array,
+        feature_counts=np.sum(cluster_features[cluster & ~object_subset], axis=0),
+        unif_counts=model.prior.prior_cluster_effect.uniform_concentration_array,
+        prior_temperature=prior_temperature, temperature=temperature,
     )
+    likelihoods[..., 0] = np.sum(cluster_effect[None, ...] * features.values[object_subset], axis=-1)
+
+    # likelihoods[..., 0] = cluster_likelihood_given_unchanged(
+    #     cluster, features, object_subset, source,
+    #     prior_concentration=model.prior.prior_cluster_effect.concentration_array
+    # )
 
     for i_conf, conf in enumerate(confounders, start=1):
         conf_prior = model.prior.prior_confounding_effects[conf]
@@ -917,15 +906,13 @@ def component_likelihood_given_unchanged(
         else:
             prior_counts = conf_prior.concentration_array(sample)
 
-        conf_effect = normalize(unchangeable_feature_counts + prior_counts, axis=-1)
-
-        # group_likelihood_given_unchanged(
-        #     features=features.values,
-        #     probs=conf_effect,
-        #     object_subset=object_subset,
-        #     groups=groups,
-        #     out=likelihoods[:, :, i_conf],
-        # )
+        conf_effect = conditional_effect_mean(
+            prior_counts=prior_counts,
+            feature_counts=unchangeable_feature_counts,
+            unif_counts=conf_prior.uniform_concentration_array,
+            prior_temperature=prior_temperature, temperature=temperature,
+        )
+        # conf_effect = normalize(unchangeable_feature_counts + prior_counts, axis=-1)
 
         # Calculate the likelihood of each observation in each group that is represented in object_subset
         subset_groups = groups[:, object_subset]
@@ -938,7 +925,7 @@ def component_likelihood_given_unchanged(
     # Fix likelihood of NA features to 1
     likelihoods[features.na_values[object_subset]] = 1.
 
-    return likelihoods
+    return likelihoods ** (1 / temperature)
 
 # @njit(fastmath=True)
 # def group_likelihood_given_unchanged(
@@ -1149,7 +1136,7 @@ class AlterClusterGibbsish(ClusterOperator):
         sample_new = sample.copy()
 
         # Assign probabilities for each unoccupied object
-        cluster_posterior = np.zeros(sample.n_objects)
+        cluster_posterior = np.zeros(sample.n_objects, dtype=FLOAT_TYPE)
         cluster_posterior[candidates] = heat_binary_probability(
             self.compute_cluster_posterior(sample, i_cluster, candidates),
             self.temperature
@@ -1163,19 +1150,16 @@ class AlterClusterGibbsish(ClusterOperator):
         object_add = RNG.choice(sample.n_objects, p=p_add, replace=False)
         sample_new.clusters.add_object(i_cluster, object_add)
 
-        if self.resample_source and sample.source is not None:
-            sample_new, log_q_s, log_q_back_s = self.propose_new_sources(
-                sample_old=sample,
-                sample_new=sample_new,
-                i_cluster=i_cluster,
-                object_subset=[object_add],
-            )
-        else:
-            log_q_s = log_q_back_s = 0
+        sample_new, log_q_s, log_q_back_s = self.propose_new_sources(
+            sample_old=sample,
+            sample_new=sample_new,
+            i_cluster=i_cluster,
+            object_subset=[object_add],
+        )
 
         # The removal probability of an inverse step
         shrink_candidates = self.shrink_candidates(sample_new, i_cluster)
-        cluster_posterior_back = np.zeros(sample_new.n_objects)
+        cluster_posterior_back = np.zeros(sample_new.n_objects, dtype=FLOAT_TYPE)
         cluster_posterior_back[shrink_candidates] = heat_binary_probability(
             self.compute_cluster_posterior(sample_new, i_cluster, shrink_candidates),
             self.temperature
@@ -1211,7 +1195,7 @@ class AlterClusterGibbsish(ClusterOperator):
         sample_new = sample.copy()
 
         # Assign probabilities for each unoccupied object
-        cluster_posterior = np.zeros(sample.n_objects)
+        cluster_posterior = np.zeros(sample.n_objects, dtype=FLOAT_TYPE)
         cluster_posterior[candidates] = heat_binary_probability(
             self.compute_cluster_posterior(sample, i_cluster, candidates),
             self.temperature
@@ -1227,19 +1211,16 @@ class AlterClusterGibbsish(ClusterOperator):
         for obj in removed_objects:
             sample_new.clusters.remove_object(i_cluster, obj)
 
-        if self.resample_source and sample.source is not None:
-            sample_new, log_q_s, log_q_back_s = self.propose_new_sources(
-                sample_old=sample,
-                sample_new=sample_new,
-                i_cluster=i_cluster,
-                object_subset=removed_objects,
-            )
-        else:
-            log_q_s = log_q_back_s = 0
+        sample_new, log_q_s, log_q_back_s = self.propose_new_sources(
+            sample_old=sample,
+            sample_new=sample_new,
+            i_cluster=i_cluster,
+            object_subset=removed_objects,
+        )
 
         # The add probability of an inverse step
         grow_candidates = self.grow_candidates(sample_new, i_cluster)
-        cluster_posterior_back = np.zeros(sample_new.n_objects)
+        cluster_posterior_back = np.zeros(sample_new.n_objects, dtype=FLOAT_TYPE)
         cluster_posterior_back[grow_candidates] = heat_binary_probability(
             self.compute_cluster_posterior(sample_new, i_cluster, grow_candidates),
             self.temperature
@@ -1315,32 +1296,6 @@ class ClusterEffectProposals:
         return normalize(c, axis=-1)
 
     @staticmethod
-    def residual4(
-        model: Model,
-        sample: Sample,
-        i_cluster: int,
-        temperature: float = 1.0,
-        prior_temperature: float = 1.0
-    ) -> NDArray[float]:
-        features = model.data.features.values
-        free_objects = ~sample.clusters.any_cluster()
-
-        # Create counts in free objects
-        prior_counts = model.prior.prior_cluster_effect.concentration_array
-        exp_counts_conf = ClusterEffectProposals.expected_confounder_features(model, sample, temperature, prior_temperature)
-        residual_features = features[free_objects] - exp_counts_conf[free_objects]
-        residual_counts = residual_features.clip(0).sum(axis=0)
-
-        # Create counts in free objects
-        prior_counts = model.prior.prior_cluster_effect.concentration_array
-        exp_counts_conf = ClusterEffectProposals.expected_confounder_features(model, sample, temperature, prior_temperature)
-        residual_features = features[free_objects] - exp_counts_conf[free_objects]
-        residual_counts = residual_features.clip(0).sum(axis=0)
-
-        # The expected effect is given by the normalized posterior counts
-        return normalize(residual_counts + prior_counts, axis=-1)
-
-    @staticmethod
     def residual_counts(
         model: Model,
         sample: Sample,
@@ -1388,7 +1343,7 @@ class ClusterEffectProposals:
             model: Model, sample: Sample, temperature: float, prior_temperature: float
         ) -> NDArray[float]:
         """Compute the expected value for each feature according to the mixture of confounders."""
-        expected_features = np.zeros((sample.n_objects, sample.n_features, sample.n_states))
+        expected_features = np.zeros((sample.n_objects, sample.n_features, sample.n_states), dtype=FLOAT_TYPE)
         weights = update_weights(sample, caching=False)
         weights_heated = normalize(weights ** (1 / prior_temperature), axis=-1)
 
@@ -1783,15 +1738,14 @@ class AlterCluster(ClusterOperator):
         log_q = np.log(q)
         log_q_back = np.log(q_back)
 
-        if self.resample_source and sample.source is not None:
-            sample_new, log_q_s, log_q_back_s = self.propose_new_sources(
-                sample_old=sample,
-                sample_new=sample_new,
-                i_cluster=i_cluster,
-                object_subset=[object_add],
-            )
-            log_q += log_q_s
-            log_q_back += log_q_back_s
+        sample_new, log_q_s, log_q_back_s = self.propose_new_sources(
+            sample_old=sample,
+            sample_new=sample_new,
+            i_cluster=i_cluster,
+            object_subset=[object_add],
+        )
+        log_q += log_q_s
+        log_q_back += log_q_back_s
 
         return sample_new, log_q, log_q_back
 
@@ -1833,15 +1787,14 @@ class AlterCluster(ClusterOperator):
         log_q = np.log(q)
         log_q_back = np.log(q_back)
 
-        if self.resample_source and sample.source is not None:
-            sample_new, log_q_s, log_q_back_s = self.propose_new_sources(
-                sample_old=sample,
-                sample_new=sample_new,
-                i_cluster=i_cluster,
-                object_subset=[object_remove],
-            )
-            log_q += log_q_s
-            log_q_back += log_q_back_s
+        sample_new, log_q_s, log_q_back_s = self.propose_new_sources(
+            sample_old=sample,
+            sample_new=sample_new,
+            i_cluster=i_cluster,
+            object_subset=[object_remove],
+        )
+        log_q += log_q_s
+        log_q_back += log_q_back_s
 
         return sample_new, log_q, log_q_back
 
@@ -1860,6 +1813,7 @@ class ClusterJump(ClusterOperator):
     def get_jump_lh(self, sample: Sample, i_source_cluster: int, i_target_cluster: int) -> NDArray[float]:
         model = self.model
         features = model.data.features.values
+        NAs = model.data.features.na_values
         source_cluster = sample.clusters.value[i_source_cluster]
         weights = update_weights(sample)
         weights_heated = normalize(weights ** (1 / self.prior_temperature), axis=-1)
@@ -1885,11 +1839,9 @@ class ClusterJump(ClusterOperator):
         p_total_target = p_conf + w_clust[..., np.newaxis] * p_clust_target
 
         lh_stay_per_feature = np.sum(features[source_cluster] * p_total_source, axis=-1)
-        lh_stay = np.prod(lh_stay_per_feature, axis=-1,
-                          where=~model.data.features.na_values[source_cluster])
+        lh_stay = np.prod(lh_stay_per_feature, axis=-1, where=~NAs[source_cluster])
         lh_jump_per_feature = np.sum(features[source_cluster] * p_total_target, axis=-1)
-        lh_jump = np.prod(lh_jump_per_feature, axis=-1,
-                          where=~model.data.features.na_values[source_cluster])
+        lh_jump = np.prod(lh_jump_per_feature, axis=-1, where=~NAs[source_cluster])
 
         # Apply temperature (for MC3)
         lh_stay **= (1 / self.temperature)
@@ -1925,17 +1877,13 @@ class ClusterJump(ClusterOperator):
         sample_new.clusters.remove_object(i_source_cluster, jumping_object)
         sample_new.clusters.add_object(i_target_cluster, jumping_object)
 
-        if self.resample_source and sample.source is not None:
-            sample_new, log_q_s, log_q_back_s = self.gibbs_sample_source_jump(
-                sample_new=sample_new,
-                sample_old=sample,
-                i_cluster_new=i_target_cluster,
-                i_cluster_old=i_source_cluster,
-                object_subset=[jumping_object],
-            )
-        else:
-            update_feature_counts(sample, sample_new, self.model.data.features.values, [jumping_object])
-            log_q_s = log_q_back_s = 0
+        sample_new, log_q_s, log_q_back_s = self.gibbs_sample_source_jump(
+            sample_new=sample_new,
+            sample_old=sample,
+            i_cluster_new=i_target_cluster,
+            i_cluster_old=i_source_cluster,
+            object_subset=[jumping_object],
+        )
 
         if self.gibbsish:
             p_jump_back = normalize(self.get_jump_lh(sample_new, i_target_cluster, i_source_cluster))
@@ -1972,7 +1920,8 @@ class ClusterJump(ClusterOperator):
             p = w
         else:
             lh_per_component_new = component_likelihood_given_unchanged(
-                model, sample_new, object_subset, i_cluster=i_cluster_new
+                model, sample_new, object_subset, i_cluster=i_cluster_new,
+                temperature=self.temperature, prior_temperature=self.prior_temperature,
             )
             p = normalize(w * lh_per_component_new, axis=-1)
 
@@ -1994,7 +1943,8 @@ class ClusterJump(ClusterOperator):
             p_back = w
         else:
             lh_per_component_old = component_likelihood_given_unchanged(
-                model, sample_old, object_subset, i_cluster=i_cluster_old
+                model, sample_old, object_subset, i_cluster=i_cluster_old,
+                temperature=self.temperature, prior_temperature=self.prior_temperature,
             )
             p_back = normalize(w * lh_per_component_old, axis=-1)
 
@@ -2090,17 +2040,13 @@ class ClusterJump2(ClusterOperator):
         sample_new.clusters.remove_object(i_source_cluster, jumping_object)
         sample_new.clusters.add_object(i_target_cluster, jumping_object)
 
-        if self.resample_source and sample.source is not None:
-            sample_new, log_q_s, log_q_back_s = self.gibbs_sample_source_jump(
-                sample_new=sample_new,
-                sample_old=sample,
-                i_cluster_new=i_target_cluster,
-                i_cluster_old=i_source_cluster,
-                object_subset=[jumping_object],
-            )
-        else:
-            update_feature_counts(sample, sample_new, model.data.features.values, [jumping_object])
-            log_q_s = log_q_back_s = 0
+        sample_new, log_q_s, log_q_back_s = self.gibbs_sample_source_jump(
+            sample_new=sample_new,
+            sample_old=sample,
+            i_cluster_new=i_target_cluster,
+            i_cluster_old=i_source_cluster,
+            object_subset=[jumping_object],
+        )
 
         if self.gibbsish:
             p_jump_back = normalize(self.get_jump_lh(sample_new, i_target_cluster, i_source_cluster))
@@ -2136,7 +2082,8 @@ class ClusterJump2(ClusterOperator):
             p = w
         else:
             lh_per_component_new = component_likelihood_given_unchanged(
-                self.model, sample_new, object_subset, i_cluster=i_cluster_new
+                self.model, sample_new, object_subset, i_cluster=i_cluster_new,
+                temperature=self.temperature, prior_temperature=self.prior_temperature,
             )
             p = normalize(w * lh_per_component_new, axis=-1)
 
@@ -2158,7 +2105,8 @@ class ClusterJump2(ClusterOperator):
             p_back = w
         else:
             lh_per_component_old = component_likelihood_given_unchanged(
-                self.model, sample_old, object_subset, i_cluster=i_cluster_old
+                self.model, sample_old, object_subset, i_cluster=i_cluster_old,
+                temperature=self.temperature, prior_temperature=self.prior_temperature,
             )
             p_back = normalize(w * lh_per_component_old, axis=-1)
 
@@ -2168,13 +2116,8 @@ class ClusterJump2(ClusterOperator):
         return sample_new, log_q, log_q_back
 
 
-
-
 class OperatorSchedule:
-    RW_OPERATORS_BY_NAMES = {
-        "weights": AlterWeights,
-        "...": "...",
-    }
+
     GIBBS_OPERATORS_BY_NAMES = {
         "weights": GibbsSampleWeights,
         "...": "...",
@@ -2196,10 +2139,7 @@ class OperatorSchedule:
         return RNG.choice(self.operators, 1, p=self.weights)[0]
 
     def get_operator_by_name(self, name):
-        if self.sample_source:
-            return self.GIBBS_OPERATORS_BY_NAMES[name]
-        else:
-            return self.RW_OPERATORS_BY_NAMES[name]
+        return self.GIBBS_OPERATORS_BY_NAMES[name]
 
 
 def verify_counts(sample: Sample, features: NDArray[bool]):

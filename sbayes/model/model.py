@@ -28,7 +28,6 @@ class Model:
         self.n_clusters = config.clusters
         self.min_size = config.prior.objects_per_cluster.min
         self.max_size = config.prior.objects_per_cluster.max
-        self.sample_source = config.sample_source
         n_sites, n_features, n_states = self.data.features.values.shape
 
         self.shapes = ModelShapes(
@@ -42,7 +41,7 @@ class Model:
         )
 
         # Create likelihood and prior objects
-        self.prior = Prior(shapes=self.shapes, config=self.config.prior, data=data, sample_source=self.sample_source)
+        self.prior = Prior(shapes=self.shapes, config=self.config.prior, data=data)
         self.likelihood = Likelihood(data=self.data, shapes=self.shapes, prior=self.prior)
 
     def __call__(self, sample, caching=True):

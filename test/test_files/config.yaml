@@ -16,7 +16,6 @@ mcmc:
     sample_from_prior: false
 model:
     clusters: 1
-    sample_source: true
     confounders:
         - universal
         - family

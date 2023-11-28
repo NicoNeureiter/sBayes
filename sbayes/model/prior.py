@@ -34,11 +34,10 @@ class Prior:
         prior_confounding_effects (ConfoundingEffectsPrior): prior on all confounding effects
     """
 
-    def __init__(self, shapes: ModelShapes, config: PriorConfig, data: Data, sample_source: bool):
+    def __init__(self, shapes: ModelShapes, config: PriorConfig, data: Data):
         self.shapes = shapes
         self.config = config
         self.data = data
-        self.sample_source = sample_source
 
         self.size_prior = ClusterSizePrior(config=self.config.objects_per_cluster,
                                            shapes=self.shapes)
@@ -81,19 +80,7 @@ class Prior:
         log_prior += self.size_prior(sample, caching=caching)
         log_prior += self.geo_prior(sample, caching=caching)
         log_prior += self.prior_weights(sample, caching=caching)
-
-        # AFTER THE DIRI-MULT MODEL CHANGES, THE FOLLOWING PRIORS ARE NOT NEEDED:
-        # log_prior += self.prior_cluster_effect(sample, caching=caching)
-        # for k, v in self.prior_confounding_effects.items():
-        #     log_prior += v(sample, caching=caching)
-
-        if self.sample_source:
-            assert sample.source is not None
-            log_prior += self.source_prior(sample, caching=caching)
-        else:
-            assert sample.source is None
-            pass
-
+        log_prior += self.source_prior(sample, caching=caching)
         return log_prior
 
     def get_setup_message(self):
@@ -112,7 +99,6 @@ class Prior:
             shapes=self.shapes,
             config=self.config,
             data=self.data,
-            sample_source=self.sample_source,
         )
 
     def generate_sample(self) -> Sample:

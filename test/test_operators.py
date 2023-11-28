@@ -215,7 +215,6 @@ Value = TypeVar("Value")
 #             adjacency_matrix=np.ones((self.N_OBJECTS, self.N_OBJECTS), dtype=bool),
 #             p_grow_connected=0.8,
 #             model_by_chain={0: DummyModel(self.N_OBJECTS)},
-#             resample_source=False,
 #             sample_from_prior=False,
 #         )
 #
@@ -227,7 +226,6 @@ Value = TypeVar("Value")
 # #             adjacency_matrix=np.ones((self.N_OBJECTS, self.N_OBJECTS), dtype=bool),
 # #             p_grow_connected=0.8,
 # #             model_by_chain={0: DummyModel(self.N_OBJECTS)},
-# #             resample_source=False,
 # #             sample_from_prior=False,
 # #             features=np.zeros((self.N_OBJECTS, 1, 1))
 # #         )

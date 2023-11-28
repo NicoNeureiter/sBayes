@@ -270,9 +270,6 @@ class ModelConfig(BaseConfig):
     confounders: List[str] = Field(default_factory=list)
     """The list of confounder names."""
 
-    sample_source: bool = True
-    """Sample the source component for each observation (implicitly activates Gibbs sampling)."""
-
     prior: PriorConfig
     """The config section defining the priors of the model"""
 
@@ -490,13 +487,6 @@ class SBayesConfig(BaseConfig):
     model: ModelConfig
     mcmc: MCMCConfig
     results: ResultsConfig = Field(default_factory=ResultsConfig)
-
-    @model_validator(mode="after")
-    def validate_operators(self):
-        # Do not use source operators if sampling from source is disabled
-        if not self.model.sample_source:
-            self.mcmc.operators.source = 0.0
-        return self
 
     @classmethod
     def from_config_file(

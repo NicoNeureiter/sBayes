@@ -83,11 +83,6 @@ class ParametersCSVLogger(ResultsLogger):
         self.log_source = log_source
         self.log_sample_id = log_sample_id
 
-        # For logging single cluster likelihood values we do not want to use the sampled
-        # source arrays
-        self.model.sample_source = False
-        self.model.prior.sample_source = False
-
         self.cluster_sum = np.zeros((self.model.shapes.n_clusters, self.model.shapes.n_sites), dtype=int)
 
     def write_header(self, sample: Sample):
