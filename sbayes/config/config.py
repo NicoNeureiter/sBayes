@@ -174,7 +174,7 @@ class DirichletPriorConfig(BaseConfig):
         SYMMETRIC_DIRICHLET = "symmetric_dirichlet"
 
     type: Types = Types.UNIFORM
-    """Type of prior distribution (`uniform` or `dirichlet`)."""
+    """Type of prior distribution. Choose from: [uniform, dirichlet, jeffreys, BBS, universal, symmetric_dirichlet]"""
 
     file: Optional[RelativeFilePath] = None
     """Path to the parameters of the Dirichlet distribution."""
@@ -322,7 +322,7 @@ class InitializationConfig(BaseConfig):
     """Number of initial samples for each warm-up chain. Only the one with highest posterior will be used."""
 
     initial_cluster_steps: bool = True
-    """Whether to apply an initial cluster operator to each cluster before selecting the best sample."""
+    """If `true`, apply an initial cluster operator step to each cluster before selecting the best sample."""
 
     em_steps: PositiveInt = 50
     """Number of steps in the expectation-maximization initializer."""
@@ -333,7 +333,7 @@ class MC3Config(BaseConfig):
     """Configuration of Metropolis-Coupled Markov Chain Monte Carlo (MC3) parameters."""
 
     activate: bool = False
-    """Whether or not to use Metropolis-Coupled Markov Chain Monte Carlo sampling (MC3)."""
+    """If `true`, use Metropolis-Coupled Markov Chain Monte Carlo sampling (MC3)."""
 
     chains: PositiveInt = 4
     """Number of MC3 chains."""
@@ -355,10 +355,10 @@ class MC3Config(BaseConfig):
     `temperature_diff` if `only_heat_likelihood == False`, and 0 otherwise."""
 
     only_heat_likelihood: bool = False
-    """If `True`, only likelihood is affected by the MC3 temperature, i.e. all chains use the same prior."""
+    """If `true`, only likelihood is affected by the MC3 temperature, i.e. all chains use the same prior."""
 
     exponential_temperatures: bool = False
-    """If `True`, temperature increase exponentially ((1 + dt)**i), instead of linearly (1 + dt*i)."""
+    """If `true`, temperature increase exponentially ((1 + dt)**i), instead of linearly (1 + dt*i)."""
 
     log_swap_matrix: bool = True
     """If `True`, write a matrix containing the number of swaps between each pair of chains to an npy-file."""
