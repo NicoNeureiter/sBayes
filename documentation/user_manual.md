@@ -142,6 +142,7 @@ The `features.csv` has the following structure:
 | Columns | | Description |
 | --- | --- |--- | 
 | *id* | required | a unique identifier for each language |
+| *name* | required | a name for each language |
 | *x* | required | the spatial x-coordinate of the language |
 | *y* | required | the spatial y-coordinate of the language |
 | *family* | | the name of a family or sub-clade of a family |
