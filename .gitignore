@@ -110,3 +110,7 @@ data/
 
 # MacOS file
 .DS_Store
+
+# sBayes results
+experiments/*/results
+test/*/results
