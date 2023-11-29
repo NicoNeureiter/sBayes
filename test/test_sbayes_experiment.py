@@ -35,7 +35,7 @@ class TestExperiment(unittest.TestCase):
 
         custom_settings = deepcopy(TestExperiment.CUSTOM_SETTINGS)
         sbayes_main(
-            config="experiments/mobility_behaviour/config.json",
+            config="experiments/mobility_behaviour/config.yaml",
             custom_settings=custom_settings,
             experiment_name="test_mobility_run",
         )
@@ -59,7 +59,7 @@ class TestExperiment(unittest.TestCase):
         custom_settings["mcmc"]["sample_from_prior"] = True
 
         sbayes_main(
-            config="experiments/mobility_behaviour/config.json",
+            config="experiments/mobility_behaviour/config.yaml",
             custom_settings=custom_settings,
             experiment_name="test_mobility_run_prior",
         )
