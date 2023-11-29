@@ -174,7 +174,7 @@ class DirichletPriorConfig(BaseConfig):
         SYMMETRIC_DIRICHLET = "symmetric_dirichlet"
 
     type: Types = Types.UNIFORM
-    """Type of prior distribution. Choose from: [uniform, dirichlet, jeffreys, BBS, universal, symmetric_dirichlet]"""
+    """Type of prior distribution. Choose from: [uniform, dirichlet, jeffreys, BBS, symmetric_dirichlet]"""
 
     file: Optional[RelativeFilePath] = None
     """Path to the parameters of the Dirichlet distribution."""
@@ -197,22 +197,28 @@ class DirichletPriorConfig(BaseConfig):
             )
         return values
 
-    @model_validator(mode="before")
-    @classmethod
-    def validate_dirichlet_parameters(cls, values):
-        prior_type = values.get("type")
-
-        if prior_type == "dirichlet":
-            if (values.get("file") is None) and (values.get("parameters") is None):
+    @model_validator(mode="after")
+    def validate_dirichlet_parameters(self):
+        cls_name = type(self).__name__
+        if self.type == self.Types.DIRICHLET:
+            if (self.file is None) and (self.parameters is None):
                 raise ValidationError(
-                    f"Provide `file` or `parameters` for `{cls.__name__}` of type `dirichlet`."
+                    f"Provide `file` or `parameters` for `{cls_name}` of type `dirichlet`."
                 )
 
-        elif prior_type in ["universal", "symmetric_dirichlet"]:
-            if values.get("prior_concentration") is None:
-                raise ValidationError(f"Provide `prior_concentration` for `{cls.__name__}` of type `{prior_type}`.")
+        elif self.type in [self.Types.UNIVERSAL, self.Types.SYMMETRIC_DIRICHLET]:
+            if self.prior_concentration is None:
+                raise ValidationError(f"Provide `prior_concentration` for `{cls_name}` of type `{self.type}`.")
 
-        return values
+        return self
+
+    @model_validator(mode="after")
+    def validate_no_hierarchical_prior(self):
+        if self.type == self.Types.UNIVERSAL:
+            type_options = [t.value for t in self.Types if t != self.Types.UNIVERSAL]
+            raise NotImplementedError(f"The hierarchical prior type `universal` is not implemented yet."
+                                      f" Choose one of the following prior types: {type_options}")
+        return self
 
     def dict(self, *args, **kwargs):
         """A custom dict method to hide non-applicable attributes depending on prior type."""
