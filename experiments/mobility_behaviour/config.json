@@ -36,8 +36,7 @@
 					}
 				}
 			}
-		},
-		"sample_source": true
+		}
 	},
 	"mcmc": {
 		"steps": 10000,
