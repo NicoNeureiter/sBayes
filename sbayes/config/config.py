@@ -81,6 +81,19 @@ class BaseConfig(BaseModel, extra='forbid'):
                     return s
         return None
 
+    @classmethod
+    def deprecated_attributes(cls) -> list:
+        return []
+
+    @model_validator(mode="before")
+    def warn_about_deprecated_attributes(cls, values: dict):
+        for key in cls.deprecated_attributes():
+            if key in values:
+                warnings.warn(f"The {key} key in {cls.__name__} is deprecated "
+                              f"and will be removed in future versions of sBayes.")
+                values.pop(key)
+        return values
+
 
 """ ===== PRIOR CONFIGS ===== """
 
@@ -279,6 +292,10 @@ class ModelConfig(BaseConfig):
     prior: PriorConfig
     """The config section defining the priors of the model"""
 
+    @classmethod
+    def deprecated_attributes(cls) -> list:
+        return ["sample_source"]
+
     @model_validator(mode="before")
     @classmethod
     def validate_confounder_priors(cls, values):
@@ -293,20 +310,18 @@ class OperatorsConfig(BaseConfig):
 
     """The frequency of each MCMC operator. Will be normalized to 1.0 at runtime."""
 
-    clusters: NonNegativeFloat = 45.0
+    clusters: NonNegativeFloat = 70.0
     """Frequency at which the assignment of objects to clusters is changed."""
 
-    weights: NonNegativeFloat = 15.0
+    weights: NonNegativeFloat = 10.0
     """Frequency at which mixture weights are changed."""
 
-    cluster_effect: NonNegativeFloat = 5.0
-    """Frequency at which cluster effect parameters are changed."""
-
-    confounding_effects: NonNegativeFloat = 15.0
-    """Frequency at which confounding effects parameters are changed."""
-
-    source: NonNegativeFloat = 10.0
+    source: NonNegativeFloat = 20.0
     """Frequency at which the assignments of observations to mixture components are changed."""
+
+    @classmethod
+    def deprecated_attributes(cls) -> list:
+        return ["cluster_effect", "confounding_effects"]
 
 
 class WarmupConfig(BaseConfig):

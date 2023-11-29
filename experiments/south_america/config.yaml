@@ -3,11 +3,9 @@ mcmc:
     samples: 10_000
     runs: 4
     operators:
-        clusters: 60
-        weights: 8
-        cluster_effect: 0
-        confounding_effects: 0
-        source: 12
+        clusters: 70
+        weights: 10
+        source: 20
     init_objects_per_cluster: 10
     warmup:
         warmup_steps: 100_000

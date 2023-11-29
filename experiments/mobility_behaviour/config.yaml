@@ -32,8 +32,6 @@ mcmc:
   operators:
     clusters: 5
     weights: 40
-    cluster_effect: 30
-    confounding_effects: 30
     source: 10
   init_objects_per_cluster: 5
   warmup:
