@@ -33,7 +33,7 @@ the last section of the manual.
 
 ## How to install `sBayes`
 
-In order to install `sBayes`, you need to have Python3 on your computer.
+In order to install `sBayes`, you need to have Python (3.8 or later) on your computer.
 You can check what version of python you have by opening a terminal and
 typing `python`. Then you can install `sBayes`. The exact steps to do
 this depend on your operating system (due to different ways of
