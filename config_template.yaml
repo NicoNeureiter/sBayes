@@ -58,11 +58,9 @@ mcmc:
 
     operators:
         # The frequency of each MCMC operator. Will be normalized to 1.0 at runtime.
-        clusters: 45.0                  # Frequency at which the assignment of objects to clusters is changed.
-        weights: 15.0                   # Frequency at which mixture weights are changed.
-        cluster_effect: 5.0             # Frequency at which cluster effect parameters are changed.
-        confounding_effects: 15.0       # Frequency at which confounding effects parameters are changed.
-        source: 10.0                    # Frequency at which the assignments of observations to mixture components are changed.
+        clusters: 70.0                  # Frequency at which the assignment of objects to clusters is changed.
+        weights: 10.0                   # Frequency at which mixture weights are changed.
+        source: 20.0                    # Frequency at which the assignments of observations to mixture components are changed.
 
     warmup:
         # Configuration of the warm-up phase in the MCMC chain.
