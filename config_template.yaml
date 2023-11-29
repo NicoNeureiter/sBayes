@@ -9,7 +9,6 @@ model:
     # Configuration of the sBayes model.
     clusters: 1                         # The number of clusters to be inferred.
     confounders: []                     # The list of confounder names.
-    sample_source: true                 # Sample the source component for each observation (implicitly activates Gibbs sampling).
 
     prior:
         # Configuration of all priors of a sBayes model.
@@ -17,7 +16,7 @@ model:
 
         cluster_effect:
             # Configuration of the prior on the parameters of the cluster-effect.
-            type: uniform               # Type of prior distribution (`uniform` or `dirichlet`).
+            type: uniform               # Type of prior distribution. Choose from: [uniform, dirichlet, jeffreys, BBS, symmetric_dirichlet]
             file: <REQUIRED>            # Path to the parameters of the Dirichlet distribution.
             parameters: <REQUIRED>      # Parameters of the Dirichlet distribution.
             prior_confounder: <REQUIRED> # A string indicating which confounder should be used as the mean of the prior.
@@ -41,7 +40,7 @@ model:
 
         weights:
             # Configuration of the prion on the weights of the mixture components.
-            type: uniform               # Type of prior distribution (`uniform` or `dirichlet`).
+            type: uniform               # Type of prior distribution. Choose from: [uniform, dirichlet, jeffreys, BBS, symmetric_dirichlet]
             file: <REQUIRED>            # Path to the parameters of the Dirichlet distribution.
             parameters: <REQUIRED>      # Parameters of the Dirichlet distribution.
             prior_confounder: <REQUIRED> # A string indicating which confounder should be used as the mean of the prior.
@@ -73,20 +72,20 @@ mcmc:
     initialization:
         # Configuration for the initialization of the MCMC / each warm-up chain.
         attempts: 10                    # Number of initial samples for each warm-up chain. Only the one with highest posterior will be used.
-        initial_cluster_steps: true     # Whether to apply an initial cluster operator to each cluster before selecting the best sample.
+        initial_cluster_steps: true     # If `true`, apply an initial cluster operator step to each cluster before selecting the best sample.
         em_steps: 50                    # Number of steps in the expectation-maximization initializer.
 
     mc3:
         # Configuration of Metropolis-Coupled Markov Chain Monte Carlo (MC3) parameters.
-        activate: false                 # Whether or not to use Metropolis-Coupled Markov Chain Monte Carlo sampling (MC3).
+        activate: false                 # If `true`, use Metropolis-Coupled Markov Chain Monte Carlo sampling (MC3).
         chains: 4                       # Number of MC3 chains.
         swap_interval: 1000             # Number of MCMC steps between each MC3 chain swap attempt.
         swap_attempts: 2                # Number of chain pairs which are proposed to be swapped after each interval.
         only_swap_adjacent_chains: false # Only swap chains that are next to each other in the temperature schedule.
         temperature_diff: 0.05          # Difference between temperatures of MC3 chains.
         prior_temperature_diff: <REQUIRED> # Difference between prior-temperatures of MC3 chains. Defaults to the same values as `temperature_diff` if `only_heat_likelihood == False`, and 0 otherwise.
-        only_heat_likelihood: false     # If `True`, only likelihood is affected by the MC3 temperature, i.e. all chains use the same prior.
-        exponential_temperatures: false # If `True`, temperature increase exponentially ((1 + dt)**i), instead of linearly (1 + dt*i).
+        only_heat_likelihood: false     # If `true`, only likelihood is affected by the MC3 temperature, i.e. all chains use the same prior.
+        exponential_temperatures: false # If `true`, temperature increase exponentially ((1 + dt)**i), instead of linearly (1 + dt*i).
         log_swap_matrix: true           # If `True`, write a matrix containing the number of swaps between each pair of chains to an npy-file.
 
 results:
