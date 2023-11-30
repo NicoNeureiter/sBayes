@@ -246,10 +246,8 @@ Ratio of source steps (changing source component assignment): {op_cfg.source}'''
             proc.send_initialize_chain(mcmc_config, self.model, self.data, logger)
 
         # Wait for each chain to finish initialization and warm-up and store the initial samples
-        samples = []
-        for c in chain_idxs:
-            sample = processes[c].receive()
-            samples.append(sample)
+        samples: list[Sample] = [None] * n_chains
+        self.receive_samples(processes, samples)
 
         # Sanity checks
         assert len(processes) == n_chains
@@ -270,8 +268,7 @@ Ratio of source steps (changing source component assignment): {op_cfg.source}'''
                 processes[c].send_run_chain(samples[c])
 
             # Wait for the next final sample of each chain
-            for c in chain_idxs:
-                samples[c] = processes[c].receive()
+            self.receive_samples(processes, samples)
 
             # Swap the chains of the current samples
             self.swap_chains(samples, temperatures, prior_temperatures,
@@ -292,6 +289,19 @@ Ratio of source steps (changing source component assignment): {op_cfg.source}'''
 
         self.logger.info(f"MCMC run finished after {(time.time() - self.t_start):.1f} seconds")
 
+        self.terminate_chains(processes)
+
+    def receive_samples(self, processes: list[MCMCChainProcess], samples: list[Sample]):
+        """Receive the current samples from all MC3 chain processes, handling forwarded exceptions."""
+        try:
+            for c, proc in enumerate(processes):
+                samples[c] = processes[c].receive()
+        except Exception:
+            self.terminate_chains(processes)
+            raise SubprocessException(c)
+
+    @staticmethod
+    def terminate_chains(processes: list[MCMCChainProcess]):
         for proc in processes:
             proc.send_terminate()
             proc.join()
@@ -392,7 +402,10 @@ class MCMCChainProcess(Process):
 
             # Get the method from the current object and call it
             method = getattr(self, method_name)
-            result, send_back = method(*args)
+            try:
+                result, send_back = method(*args)
+            except Exception as exception:
+                result, send_back = exception, True
 
             # Send the result back to the parent process
             if send_back:
@@ -481,4 +494,15 @@ class MCMCChainProcess(Process):
         self.parent_connection.send((self.TERMINATE,))
 
     def receive(self):
-        return self.parent_connection.recv()
+        result = self.parent_connection.recv()
+        if isinstance(result, Exception):
+            raise result
+        return result
+
+
+class SubprocessException(Exception):
+
+    """Exception in a subprocess that is re-raised in the parent process"""
+
+    def __init__(self, i_chain: int):
+        super().__init__(f"An error occurred in the MC3ChainProcess for chain {i_chain}")
