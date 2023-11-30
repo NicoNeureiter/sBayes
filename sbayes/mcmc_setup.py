@@ -10,6 +10,7 @@ import os
 import random
 import sys
 import time
+from datetime import timedelta
 from multiprocessing import Process, Pipe
 
 import numpy as np
@@ -259,7 +260,7 @@ Ratio of source steps (changing source component assignment): {op_cfg.source}'''
         self.swap_matrix = np.zeros((n_chains, n_chains), dtype=int)
         self.t_start = time.time()
 
-        self.logger.info(f"Initialization and warm-up finished after {self.t_start - t_pre_init:.1f} seconds")
+        self.logger.info(f"Initialization and warm-up time: {timedelta(seconds=int(self.t_start - t_pre_init))}")
         self.logger.info("Sampling from posterior...")
 
         for i_swap in range(n_swaps):
@@ -287,8 +288,7 @@ Ratio of source steps (changing source component assignment): {op_cfg.source}'''
                 self.logger.info(f"Memory usage of parent process: {memory_parent} MB")
                 self.logger.info(f"Memory usage of MC3 chain processes: {memory_by_chain} MB")
 
-        self.logger.info(f"MCMC run finished after {(time.time() - self.t_start):.1f} seconds")
-
+        self.logger.info(f"MCMC run finished after {timedelta(seconds=int(time.time() - self.t_start))}")
         self.terminate_chains(processes)
 
     def receive_samples(self, processes: list[MCMCChainProcess], samples: list[Sample]):
@@ -364,7 +364,7 @@ Ratio of source steps (changing source component assignment): {op_cfg.source}'''
         i_step_str = f"{i_step:<12}"
         likelihood_str = f'log-likelihood of the cold chain:  {likelihood:<19.2f}'
         time_per_million = (time.time() - self.t_start) / (i_step + 1) * 1000000
-        time_str = f'{time_per_million:.0f} seconds / million steps'
+        time_str = f'{timedelta(seconds=int(time_per_million))} / million steps'
         self.logger.info(i_step_str + likelihood_str + time_str)
 
 
