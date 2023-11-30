@@ -16,7 +16,8 @@ from sbayes.sampling.conditionals import likelihood_per_component, conditional_e
     likelihood_per_component_exact
 from sbayes.sampling.counts import recalculate_feature_counts, update_feature_counts
 from sbayes.sampling.state import Sample
-from sbayes.util import dirichlet_logpdf, normalize, get_neighbours, inner1d, RNG, FLOAT_TYPE, heat_binary_probability
+from sbayes.util import dirichlet_logpdf, normalize, get_neighbours, inner1d, RNG, FLOAT_TYPE, heat_binary_probability, \
+    EPS
 from sbayes.model import Model, Likelihood, normalize_weights, update_weights
 from sbayes.preprocessing import sample_categorical
 from sbayes.config.config import OperatorsConfig
@@ -1846,6 +1847,10 @@ class ClusterJump(ClusterOperator):
         # Apply temperature (for MC3)
         lh_stay **= (1 / self.temperature)
         lh_jump **= (1 / self.temperature)
+
+        # Avoid NaN values by adding EPS to both outcomes
+        lh_stay += EPS
+        lh_jump += EPS
 
         # TODO include geo prior?
 
