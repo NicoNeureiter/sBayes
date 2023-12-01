@@ -351,4 +351,4 @@ class MCMC:
         self.logger.info(i_step_str + likelihood_str + time_str)
 
     def print_memory_usage(self):
-        self.logger.info(f"Memory usage: {process_memory() >> 20} MB")
+        self.logger.info(f"Memory usage: {process_memory(unit='MB')} MB")

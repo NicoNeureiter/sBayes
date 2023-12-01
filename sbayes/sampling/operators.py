@@ -1399,7 +1399,7 @@ class AlterClusterGibbsishWide(AlterClusterGibbsish):
     def compute_cluster_probs(self, sample, i_cluster, available):
         cluster = sample.clusters.value[i_cluster]
         p = self.compute_raw_cluster_probs(sample, i_cluster, available)
-        p = normalize(p)
+        p = normalize(p + EPS)
 
         # For more local steps: proposal is a mixture of posterior and current cluster
         p = (1 - self.w_stay) * normalize(p + self.eps) + self.w_stay * normalize(cluster[available])

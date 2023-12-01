@@ -12,6 +12,8 @@ import pandas as pd
 import seaborn as sn
 import matplotlib.pyplot as plt
 
+from sbayes.util import activate_verbose_warnings
+
 # BURN_IN = 100
 # """Number of samples to be dropped at the start of the MCMC chain."""
 
@@ -58,6 +60,9 @@ def sbayes_psis_loo(likelihood_path: Path, burnin: float) -> float:
 
 
 def main(results_dir: Path, burnin: float = 0.1):
+    if __debug__:
+        activate_verbose_warnings()
+
     df = pd.DataFrame(columns=["experiment", "k", "run", "elpd_loo"])\
            .set_index(["experiment", "k", "run"])
 
