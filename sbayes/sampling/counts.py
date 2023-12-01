@@ -4,6 +4,7 @@ import numpy as np
 from numpy.typing import NDArray
 
 from sbayes.sampling.state import Sample, FeatureCounts
+from sbayes.util import FLOAT_TYPE
 
 
 def compute_effect_counts(
@@ -16,18 +17,18 @@ def compute_effect_counts(
     group_assignment = group_assignment[:, object_subset]
     n_groups, n_objects = group_assignment.shape
     _, n_features, n_states = features.shape
-    counts = np.zeros((n_groups, n_features, n_states))
+    counts = np.zeros((n_groups, n_features, n_states), dtype=FLOAT_TYPE)
 
     group_subset = np.any(group_assignment, axis=1)
     if not np.any(group_subset):
         return counts
 
-    features_from_group = (
-            group_assignment[group_subset, :, None, None]           # (n_groups, n_objects, 1, 1)
-            * source_is_component[None, object_subset, :, None]     # (1, n_objects, n_features, 1)
-            * features[None, object_subset, ...]                    # (1, n_objects, n_features, n_states)
-    )
-    counts[group_subset] = np.sum(features_from_group, axis=1)
+    src_in_subset = source_is_component[object_subset]
+    feat_in_subset = features[object_subset]
+    for i_g, g in enumerate(group_assignment):
+        if group_subset[i_g]:
+            counts[i_g] = np.count_nonzero(src_in_subset[g, :, None] & feat_in_subset[g], axis=0)
+
     return counts
 
 
