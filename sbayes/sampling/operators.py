@@ -1449,7 +1449,7 @@ class AlterClusterGibbsishWide(AlterClusterGibbsish):
         weights_z01 = self.compute_feature_weights_with_and_without(sample, available)
         feature_lh_z01 = inner1d(all_lh[np.newaxis, ...], weights_z01)
         marginal_lh_z01 = np.prod(feature_lh_z01, axis=-1) ** (1 / self.temperature)
-        cluster_posterior = marginal_lh_z01[1] / (marginal_lh_z01[0] + marginal_lh_z01[1])
+        cluster_posterior = marginal_lh_z01[1] / (marginal_lh_z01[0] + marginal_lh_z01[1] + EPS)
 
         if self.consider_geo_prior:
             if self.cluster_effect_proposal is ClusterEffectProposals.residual_counts:
