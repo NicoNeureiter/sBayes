@@ -69,6 +69,7 @@ class Likelihood(object):
             log_lh += self.poisson(sample=sample, caching=caching)
         if sample.logitnormal is not None:
             log_lh += self.logitnormal(sample=sample, caching=caching)
+
         return log_lh
 
 
@@ -96,16 +97,13 @@ class LikelihoodGenericType(object):
     def is_used(self, sample: Sample):
         raise NotImplementedError
 
-    def __call__(self, sample: Sample, caching=True) -> float:
+    def __call__(self, sample: Sample, caching: bool = True) -> float:
         """Compute the likelihood of all sites. The likelihood is defined as a mixture of areal and confounding effects.
             Args:
                 sample: A Sample object consisting of clusters and weights
             Returns:
                 The joint likelihood of the current sample
         """
-
-        if not caching:
-            recalculate_feature_counts(self.features.categorical.values, sample)
 
         # Sum up log-likelihood of each mixture component:
         log_lh = 0.0
@@ -211,6 +209,11 @@ class LikelihoodGenericType(object):
 class LikelihoodCategorical(LikelihoodGenericType):
 
     feature_type = FeatureType.categorical
+
+    def __call__(self, sample: Sample, caching: bool = True):
+        if not caching:
+            recalculate_feature_counts(self.features.categorical.values, sample)
+        super().__call__(sample, caching=caching)
 
     def is_used(self, sample: Sample):
         return sample.categorical is not None
@@ -447,12 +450,13 @@ class LikelihoodGaussian(LikelihoodGenericType):
             #         x_new=f, x=f, sigma=sigma_fixed, mu_0=mu_0[0, i_f], sigma_0=sigma_0[0, i_f],
             #         in_component=sample.gaussian.source.value[g, i_f, i_component],
             #     )
+
             y = gaussian_posterior_predictive_logpdf(
                     x_new=features[g],
                     x=features[g],
-                    sigma=np.nanstd(features[g], axis=0, keepdims=True),
-                    mu_0=mu_0[i_g, :, None],
-                    sigma_0=sigma_0[i_g, :, None],
+                    sigma=np.nanstd(features[g], axis=0),
+                    mu_0=mu_0[i_g, :],
+                    sigma_0=sigma_0[i_g, :],
                     in_component=sample.gaussian.source.value[g, :, i_component],
                 )
             # assert np.allclose(out[g, :], y), sample.gaussian.source.value[g, :, i_component]
@@ -483,7 +487,7 @@ class LikelihoodGaussian(LikelihoodGenericType):
         #         in_component=source_cluster[:, i_f],
         #     )
 
-        sigma_fixed = np.nanstd(features_cluster, axis=0, keepdims=True)
+        sigma_fixed = np.nanstd(features_cluster, axis=0)
         condition_lh = gaussian_posterior_predictive_logpdf(
             x_new=features_candidates, x=features_cluster, sigma=sigma_fixed,
             mu_0=mu_0, sigma_0=sigma_0, in_component=source_cluster,

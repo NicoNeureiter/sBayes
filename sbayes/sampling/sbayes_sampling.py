@@ -218,7 +218,7 @@ class ClusterMCMC(MCMC):
                                                   self.shapes.n_features_poisson,
                                                   self.n_sources), dtype=bool)
         else:
-            initial_source['gaussian'] = None
+            initial_source['poisson'] = None
 
         if self.features.logitnormal is not None:
             initial_source['logitnormal'] = np.empty((self.shapes.n_objects,
@@ -330,12 +330,15 @@ class ClusterMCMC(MCMC):
         else:
             initial_source = None
 
-        feature_counts = {'clusters': np.zeros((self.shapes.n_clusters,
-                                                self.shapes.n_features_categorical,
-                                                self.shapes.n_states_categorical)),
-                          **{conf: np.zeros((n_groups, self.shapes.n_features_categorical,
-                                             self.shapes.n_states_categorical))
-                             for conf, n_groups in self.n_groups.items()}}
+        if self.features.categorical is not None:
+            feature_counts = {'clusters': np.zeros((self.shapes.n_clusters,
+                                                    self.shapes.n_features_categorical,
+                                                    self.shapes.n_states_categorical)),
+                              **{conf: np.zeros((n_groups, self.shapes.n_features_categorical,
+                                                 self.shapes.n_states_categorical))
+                                 for conf, n_groups in self.n_groups.items()}}
+        else:
+            feature_counts = None
 
         sample = Sample.from_numpy_arrays(
             clusters=initial_clusters,
@@ -349,7 +352,9 @@ class ClusterMCMC(MCMC):
         )
 
         for t in ['categorical', 'gaussian', 'poisson', 'logitnormal']:
-            assert ~np.any(np.isnan(initial_weights[t])), initial_weights[t]
+
+            if initial_weights[t] is not None:
+                assert ~np.any(np.isnan(initial_weights[t])), initial_weights[t]
 
         self.generate_inital_source_with_gibbs(sample)
 

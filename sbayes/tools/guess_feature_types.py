@@ -9,9 +9,9 @@ except ImportError:
     import ruamel_yaml as yaml
 
 from pathlib import Path
-from tkinter import filedialog, messagebox
+from tkinter import filedialog, messagebox, simpledialog
 
-from sbayes.util import normalize_str, read_data_csv
+from util import normalize_str, read_data_csv
 
 ORDER_STATES = True
 '''bool: Whether to order the features states alphabetically'''
@@ -41,9 +41,40 @@ def ask_more_files():
     return MsgBox == 'yes'
 
 
+def ask_confounders(col_names):
+    selected_confounders = []  # List to store user-selected confounders
+
+    def submit():
+        for k, v in confounders_vars.items():
+            if v.get() == 1:
+                selected_confounders.append(k)
+        root.quit()
+
+    root = tk.Tk()
+    root.geometry("400x800")
+    frame = tk.LabelFrame(root, text="Select all confounder columns")
+    frame.pack()
+
+    confounders_vars = {}
+
+    for c in col_names:
+        confounders_vars[c] = tk.IntVar(root)
+        tk.Checkbutton(frame, text=c, width=200, variable=confounders_vars[c], onvalue=1, offvalue=0, anchor="w").pack()
+
+    submit_button = tk.Button(root, text="Submit", command=submit)
+    submit_button.pack()
+    root.mainloop()
+
+    return selected_confounders
+
+
 def collect_feature_states(features_path):
     features = read_data_csv(features_path)
-    METADATA_COLUMNS = ['id', 'name', 'family', 'x', 'y']
+
+    # Ask users for the names of the confounders
+    conf = ask_confounders(features.columns)
+
+    METADATA_COLUMNS = ['id', 'name', 'x', 'y'] + conf
     for column in METADATA_COLUMNS:
         if column not in features.columns:
             raise ValueError(f'Required column \'{column}\' missing in file {features_path}.')
@@ -191,6 +222,8 @@ def main(args):
 
             for f in feature_states.keys():
                 feature_states[f].update(new_feature_states[f])
+
+
 
     # Remove NAs and order states alphabetically (if ´ORDER_STATES´ is set)
     for f in feature_states.copy():

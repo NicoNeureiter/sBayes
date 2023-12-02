@@ -419,20 +419,35 @@ class ModelCache:
 
     geo_prior: CacheNode[NDArray[float]]
     cluster_size_prior: CacheNode[float]
-    categorical: CategoricalCache
-    gaussian: GaussianCache
-    poisson: PoissonCache
-    logitnormal: LogitNormalCache
+    categorical: CategoricalCache | None
+    gaussian: GaussianCache | None
+    poisson: PoissonCache | None
+    logitnormal: LogitNormalCache | None
 
     def __init__(self, sample: Sample, ):
         # self.likelihood = CacheNode(0.)
 
         self.geo_prior = CacheNode(value=np.zeros(sample.n_clusters))
         self.cluster_size_prior = CacheNode(value=0.0)
-        self.categorical = CategoricalCache(sample)
-        self.gaussian = GaussianCache(sample)
-        self.poisson = PoissonCache(sample)
-        self.logitnormal = LogitNormalCache(sample)
+        if sample.categorical:
+            self.categorical = CategoricalCache(sample)
+        else:
+            self.categorical = None
+
+        if sample.gaussian:
+            self.gaussian = GaussianCache(sample)
+        else:
+            self.gaussian = None
+
+        if sample.poisson:
+            self.poisson = PoissonCache(sample)
+        else:
+            self.poisson = None
+
+        if sample.logitnormal:
+            self.logitnormal = LogitNormalCache(sample)
+        else:
+            self.logitnormal = None
 
         # Set up the dependencies in form of CacheNode inputs:
         self.cluster_size_prior.add_input('clusters', sample.clusters)
@@ -448,19 +463,27 @@ class ModelCache:
     def clear(self):
         self.geo_prior.clear()
         self.cluster_size_prior.clear()
-        self.categorical.clear()
-        self.gaussian.clear()
-        self.poisson.clear()
-        self.logitnormal.clear()
+        if self.categorical:
+            self.categorical.clear()
+        if self.gaussian:
+            self.gaussian.clear()
+        if self.poisson:
+            self.poisson.clear()
+        if self.logitnormal:
+            self.logitnormal.clear()
 
     def copy(self, new_sample: Sample):
         new_cache = ModelCache(new_sample)
         new_cache.geo_prior.assign_from(self.geo_prior)
         new_cache.cluster_size_prior.assign_from(self.cluster_size_prior)
-        self.categorical.copy(new_cache.categorical)
-        self.gaussian.copy(new_cache.gaussian)
-        self.poisson.copy(new_cache.poisson)
-        self.logitnormal.copy(new_cache.logitnormal)
+        if self.categorical:
+            self.categorical.copy(new_cache.categorical)
+        if self.gaussian:
+            self.gaussian.copy(new_cache.gaussian)
+        if self.poisson:
+            self.poisson.copy(new_cache.poisson)
+        if self.logitnormal:
+            self.logitnormal.copy(new_cache.logitnormal)
 
         return new_cache
 
@@ -645,12 +668,15 @@ class Sample:
         # Caching:
         self._groups_and_clusters = None
 
-        self.feature_type_samples = {
-            FeatureType.categorical: self.categorical,
-            FeatureType.gaussian: self.gaussian,
-            FeatureType.poisson: self.poisson,
-            FeatureType.logitnormal: self.logitnormal,
-        }
+        self.feature_type_samples = {}
+        if self.categorical is not None:
+            self.feature_type_samples[FeatureType.categorical] = self.categorical
+        if self.gaussian is not None:
+            self.feature_type_samples[FeatureType.gaussian] = self.gaussian
+        if self.poisson is not None:
+            self.feature_type_samples[FeatureType.poisson] = self.poisson
+        if self.logitnormal is not None:
+            self.feature_type_samples[FeatureType.logitnormal] = self.logitnormal
 
     def __getitem__(self, ft: FeatureType | str) -> GenericTypeSample:
         """Getter for more convenient/concise access to feature-type samples."""
@@ -732,10 +758,10 @@ class Sample:
         return Sample(
             chain=self.chain,
             clusters=self._clusters.copy(),
-            categorical=self.categorical.copy(),
-            gaussian=self.gaussian.copy(),
-            poisson=self.poisson.copy(),
-            logitnormal=self.logitnormal.copy(),
+            categorical=self.categorical.copy() if self.categorical else None,
+            gaussian=self.gaussian.copy() if self.gaussian else None,
+            poisson=self.poisson.copy() if self.poisson else None,
+            logitnormal=self.logitnormal.copy() if self.logitnormal else None,
             confounders=self.confounders,
             model_shapes=self.model_shapes,
             _other_cache=self.cache,

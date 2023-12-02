@@ -1,0 +1,120 @@
+caretaking:
+  type: gaussian
+  states:
+    min: 0.0
+    max: 0.33271767810026387
+digital_entertainment:
+  type: gaussian
+  states:
+    min: 0.0
+    max: 0.29806295399515736
+drop_off_pick_up:
+  type: gaussian
+  states:
+    min: 0.0
+    max: 0.01578231292517007
+eating_cooking:
+  type: gaussian
+  states:
+    min: 0.0
+    max: 0.17947923124612522
+entertainment:
+  type: gaussian
+  states:
+    min: 0.0
+    max: 0.20881905727318803
+errands:
+  type: gaussian
+  states:
+    min: 0.0
+    max: 0.2682198327359618
+exercising:
+  type: gaussian
+  states:
+    min: 0.0
+    max: 0.08526315789473685
+household:
+  type: gaussian
+  states:
+    min: 0.0
+    max: 0.11444778111444778
+resting:
+  type: gaussian
+  states:
+    min: 0.0
+    max: 0.7009950248756219
+self_care:
+  type: gaussian
+  states:
+    min: 0.0
+    max: 0.2785388127853881
+shopping:
+  type: gaussian
+  states:
+    min: 0.0
+    max: 0.062156692685747326
+sleeping:
+  type: gaussian
+  states:
+    min: 0.0
+    max: 0.4701195219123506
+socializing:
+  type: gaussian
+  states:
+    min: 0.0
+    max: 0.18360864040660738
+working:
+  type: gaussian
+  states:
+    min: 0.0
+    max: 0.7728904847396768
+coworking:
+  type: gaussian
+  states:
+    min: 0.0
+    max: 0.28982725527831094
+gastronomy:
+  type: gaussian
+  states:
+    min: 0.0
+    max: 0.08128834355828221
+home_office:
+  type: gaussian
+  states:
+    min: 0.0
+    max: 0.3254237288135593
+working_studying:
+  type: gaussian
+  states:
+    min: 0.0
+    max: 0.4550898203592814
+waiting:
+  type: gaussian
+  states:
+    min: 0.0
+    max: 0.1626177491323748
+online_shopping:
+  type: gaussian
+  states:
+    min: 0.0
+    max: 0.024551927326295114
+leisure:
+  type: gaussian
+  states:
+    min: 0.0
+    max: 0.5360271263068663
+overnight_stay:
+  type: gaussian
+  states:
+    min: 0.0
+    max: 0.7035996936430942
+studying:
+  type: gaussian
+  states:
+    min: 0.0
+    max: 0.22816901408450704
+chores:
+  type: gaussian
+  states:
+    min: 0.0
+    max: 0.15774514448128849

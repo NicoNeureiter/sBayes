@@ -268,47 +268,49 @@ class GibbsSampleSource(Operator):
         sample_new = sample.copy()
 
         for ft in FeatureType.values():
-            features = self.model_by_chain[sample.chain].data.features.get_ft_features(ft).values
-            na_features = self.model_by_chain[sample.chain].data.features.get_ft_features(ft).na_values
+            if self.model_by_chain[sample.chain].data.features.get_ft_features(ft):
 
-            assert np.all(getattr(sample, ft).source.value[na_features] == 0)
+                features = self.model_by_chain[sample.chain].data.features.get_ft_features(ft).values
+                na_features = self.model_by_chain[sample.chain].data.features.get_ft_features(ft).na_values
 
-            object_subset = self.select_object_subset(sample)
+                assert np.all(getattr(sample, ft).source.value[na_features] == 0)
 
-            if self.sample_from_prior:
-                update_weights = getattr(sbayes.model, "update_" + ft + "_weights")
-                p = update_weights(sample)[object_subset]
-            else:
-                p = self.calculate_source_posterior(sample=sample, feature_type=ft, object_subset=object_subset)
+                object_subset = self.select_object_subset(sample)
 
-            # Sample the new source assignments
-            x = sample_categorical(p=p, binary_encoding=True)
-            x[na_features[object_subset]] = False
+                if self.sample_from_prior:
+                    update_weights = getattr(sbayes.model, "update_" + ft + "_weights")
+                    p = update_weights(sample)[object_subset]
+                else:
+                    p = self.calculate_source_posterior(sample=sample, feature_type=ft, object_subset=object_subset)
 
-            # with sample_new.source.edit() as source:
-            #     source[object_subset] = sample_categorical(p=p, binary_encoding=True)
-            #     source[na_features] = 0
-            if ft == FeatureType.categorical:
-                update_feature_counts(sample, sample_new, features, object_subset)
+                # Sample the new source assignments
+                x = sample_categorical(p=p, binary_encoding=True)
+                x[na_features[object_subset]] = False
 
-                if DEBUG:
-                    verify_counts(sample_new, features)
-            else:
-                update_sufficient_statistics(sample, sample_new, features, object_subset)
+                # with sample_new.source.edit() as source:
+                #     source[object_subset] = sample_categorical(p=p, binary_encoding=True)
+                #     source[na_features] = 0
+                if ft == FeatureType.categorical:
+                    update_feature_counts(sample, sample_new, features, object_subset)
 
-            # Transition probability forward:
-            log_q += np.log(p[getattr(sample_new, ft).source.value[object_subset]]).sum()
+                    if DEBUG:
+                        verify_counts(sample_new, features)
+                else:
+                    update_sufficient_statistics(sample, sample_new, features, object_subset)
 
-            assert np.all(getattr(sample_new, ft).source.value[na_features] == 0)
-            assert np.all(getattr(sample_new, ft).source.value[~na_features].sum(axis=-1) == 1)
+                # Transition probability forward:
+                log_q += np.log(p[getattr(sample_new, ft).source.value[object_subset]]).sum()
 
-            # Transition probability backward:
-            if self.sample_from_prior:
-                p_back = p
-            else:
-                p_back = self.calculate_source_posterior(sample=sample_new, feature_type=ft, object_subset=object_subset)
+                assert np.all(getattr(sample_new, ft).source.value[na_features] == 0)
+                assert np.all(getattr(sample_new, ft).source.value[~na_features].sum(axis=-1) == 1)
 
-            log_q_back += np.log(p_back[getattr(sample, ft).source.value[object_subset]]).sum()
+                # Transition probability backward:
+                if self.sample_from_prior:
+                    p_back = p
+                else:
+                    p_back = self.calculate_source_posterior(sample=sample_new, feature_type=ft, object_subset=object_subset)
+
+                log_q_back += np.log(p_back[getattr(sample, ft).source.value[object_subset]]).sum()
 
         return sample_new, log_q, log_q_back
 
@@ -383,7 +385,12 @@ class GibbsSampleSource(Operator):
         )
 
     def get_step_size(self, sample_old: Sample, sample_new: Sample) -> float:
-        return np.count_nonzero(sample_old.categorical.source.value ^ sample_new.categorical.source.value)
+        feature_types = ["categorical", "gaussian", "poisson", "logitnormal"]
+        count = 0
+        for ft in feature_types:
+            if getattr(sample_old, ft) is not None:
+                count += np.count_nonzero(getattr(sample_old, ft).source.value ^ getattr(sample_new, ft).source.value)
+        return count
 
     STEP_SIZE_UNIT: str = "observations reassigned"
 
@@ -775,7 +782,7 @@ class AlterClusterGibbsish(ClusterOperator):
         log_q_back = 0.
 
         for i in range(self.n_changes):
-            if DEBUG:
+            if DEBUG and sample.categorical is not None:
                 verify_counts(sample, self.model_by_chain[sample.chain].data.features.categorical.values)
 
             if random.random() < self.p_grow:
@@ -792,7 +799,7 @@ class AlterClusterGibbsish(ClusterOperator):
                 log_q += log_q_i
                 log_q_back += log_q_back_i
 
-        if DEBUG:
+        if DEBUG and sample.categorical is not None:
             verify_counts(sample, self.model_by_chain[sample.chain].data.features.categorical.values)
             verify_counts(sample_new, self.model_by_chain[sample.chain].data.features.categorical.values)
 
@@ -923,8 +930,8 @@ class AlterClusterGibbsish(ClusterOperator):
             sample_new.clusters.add_object(i_cluster, obj)
 
         log_q_s = log_q_back_s = 0
-        for ft in FeatureType.values():
-            if self.resample_source and sample.feature_type_samples[ft] is not None:
+        for ft in sample.feature_type_samples:
+            if self.resample_source:
                 if sample[ft].source is not None:
                     sample_new, log_q_s_ft, log_q_back_s_ft = self.propose_new_sources(
                         sample_old=sample,

@@ -72,7 +72,7 @@ def update_sufficient_statistics(
 
     # update_feature_counts(sample_old, sample_new, features, object_subset)
 
-    for ft in FeatureType:
+    for ft in sample_old.feature_type_samples.keys():
         ft_sample_old = sample_old.feature_type_samples[ft]
         ft_sample_new = sample_new.feature_type_samples[ft]
         if ft == FeatureType.categorical:

@@ -68,10 +68,11 @@ class Prior:
                                         features=data.features,
                                         group_names=data.confounders[k].group_names)
 
-        self.source_prior = SourcePrior(categorical_na=data.features.categorical.na_values,
-                                        gaussian_na=data.features.gaussian.na_values,
-                                        poisson_na=data.features.poisson.na_values,
-                                        logitnormal_na=data.features.logitnormal.na_values)
+        self.source_prior = SourcePrior(
+            categorical_na=data.features.categorical.na_values if data.features.categorical is not None else None,
+            gaussian_na=data.features.gaussian.na_values if data.features.gaussian is not None else None,
+            poisson_na=data.features.poisson.na_values if data.features.poisson is not None else None,
+            logitnormal_na=data.features.logitnormal.na_values if data.features.logitnormal is not None else None)
 
     def __call__(self, sample: Sample, caching=True) -> float:
         """Compute the prior of the current sample.
@@ -115,19 +116,29 @@ class Prior:
         setup_msg = self.geo_prior.get_setup_message()
         setup_msg += self.size_prior.get_setup_message()
         setup_msg += self.prior_weights.get_setup_message()
-        setup_msg += self.prior_cluster_effect.categorical.get_setup_message()
-        setup_msg += self.prior_cluster_effect.gaussian.mean.get_setup_message()
-        setup_msg += self.prior_cluster_effect.gaussian.variance.get_setup_message()
+        if self.prior_cluster_effect.categorical is not None:
+            setup_msg += self.prior_cluster_effect.categorical.get_setup_message()
+        if self.prior_cluster_effect.gaussian is not None:
+            setup_msg += self.prior_cluster_effect.gaussian.mean.get_setup_message()
+            setup_msg += self.prior_cluster_effect.gaussian.variance.get_setup_message()
+        if self.prior_cluster_effect.poisson is not None:
+            setup_msg += self.prior_cluster_effect.poisson.get_setup_message()
+        if self.prior_cluster_effect.logitnormal is not None:
+            setup_msg += self.prior_cluster_effect.poisson.get_setup_message()
         for k, v in self.prior_confounding_effects.items():
             setup_msg += v.get_setup_message()
-            setup_msg += v.categorical.get_setup_message()
-            setup_msg += v.gaussian.get_setup_message()
-            setup_msg += v.gaussian.mean.get_setup_message()
-            setup_msg += v.gaussian.variance.get_setup_message()
-            setup_msg += v.poisson.get_setup_message()
-            setup_msg += v.logitnormal.get_setup_message()
-            setup_msg += v.logitnormal.mean.get_setup_message()
-            setup_msg += v.logitnormal.variance.get_setup_message()
+            if v.categorical is not None:
+                setup_msg += v.categorical.get_setup_message()
+            if v.gaussian is not None:
+                setup_msg += v.gaussian.get_setup_message()
+                setup_msg += v.gaussian.mean.get_setup_message()
+                setup_msg += v.gaussian.variance.get_setup_message()
+            if v.poisson is not None:
+                setup_msg += v.poisson.get_setup_message()
+            if v.logitnormal is not None:
+                setup_msg += v.logitnormal.get_setup_message()
+                setup_msg += v.logitnormal.mean.get_setup_message()
+                setup_msg += v.logitnormal.variance.get_setup_message()
 
         return setup_msg
 
@@ -1106,10 +1117,10 @@ class SourcePrior:
         poisson_na: NDArray[bool] = None,
         logitnormal_na: NDArray[bool] = None
     ):
-        self.valid_categorical = ~categorical_na
-        self.valid_gaussian = ~gaussian_na
-        self.valid_poisson = ~poisson_na
-        self.valid_logitnormal = ~logitnormal_na
+        self.valid_categorical = ~categorical_na if categorical_na is not None else None
+        self.valid_gaussian = ~gaussian_na if gaussian_na is not None else None
+        self.valid_poisson = ~poisson_na if poisson_na is not None else None
+        self.valid_logitnormal = ~logitnormal_na if logitnormal_na is not None else None
 
     def __call__(self, sample: Sample, feature_type, caching=True) -> float:
         """Compute the prior for weights (or load from cache).

@@ -207,7 +207,7 @@ class MCMC(ABC):
 
             self.logger.info(f"Warm-up finished after {(_time.time() - self.t_start):.1f} seconds")
 
-            # For the last sample find the best chain (highest posterior)
+            # For the last sample find the best chain (with the highest posterior)
             posterior_samples = [self._ll[c] + self._prior[c] for c in self.chain_idx]
             best_chain = posterior_samples.index(max(posterior_samples))
 
@@ -274,7 +274,6 @@ class MCMC(ABC):
 
         # Compute the log-likelihood of the candidate
         ll_candidate = self.likelihood(candidate, c)
-
         # Compute the prior of the candidate
         prior_candidate = self.prior(candidate, c)
 

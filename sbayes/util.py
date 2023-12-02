@@ -1459,7 +1459,7 @@ def gaussian_posterior_predictive_logpdf(
     x_new: NDArray[float],
     x: NDArray[float],
     sigma: NDArray[float],
-    mu_0: float,
+    mu_0: NDArray[float],
     sigma_0: float,
     in_component: NDArray[bool],
 ) -> float | NDArray:
@@ -1483,8 +1483,16 @@ def gaussian_posterior_predictive_logpdf(
         if np.any(n == 0):
             if np.all(n == 0):
                 return np.zeros_like(x_new)
-            res = np.zeros_like(n)
-            res[..., n > 0] = gaussian_posterior_predictive_logpdf(x_new[..., n > 0], x[..., n > 0], sigma, mu_0[n > 0], sigma_0[n > 0], in_component[:, n > 0])
+
+            res = np.zeros_like(x_new)
+            res[..., n > 0] = gaussian_posterior_predictive_logpdf(
+                x_new=x_new[..., n > 0],
+                x=x[..., n > 0],
+                sigma=sigma[n > 0],
+                mu_0=mu_0[n > 0],
+                sigma_0=sigma_0[n > 0],
+                in_component=in_component[:, n > 0],
+            )
             return res
 
     # Derive Posterior parameters

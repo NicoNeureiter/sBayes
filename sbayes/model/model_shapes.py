@@ -22,7 +22,8 @@ class ModelShapes:
     confounder_index: dict[str, int] = None
 
     def __post_init__(self):
-        self.n_states_per_feature = [sum(applicable) for applicable in self.states_per_feature]
+        if self.states_per_feature is not None:
+            self.n_states_per_feature = [sum(applicable) for applicable in self.states_per_feature]
         self.confounder_index = {conf: i for i, conf in enumerate(self.n_groups.keys())}
 
     @property
