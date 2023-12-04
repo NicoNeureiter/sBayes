@@ -93,9 +93,21 @@ class Objects:
 
 
 @dataclass
-class CategoricalFeatures:
+class GenericTypeFeatures:
+
+    """Super class for features of a specific type."""
+
+    values: NDArray[bool]   # shape: (n_objects, n_features, n_states)
+    # or, depending on feature type: (n_objects, n_features)
+
+    @property
+    def n_features(self) -> int:
+        return self.values.shape[1]
+
+
+@dataclass
+class CategoricalFeatures(GenericTypeFeatures):
     # Binary representation of all categorical features
-    values: NDArray[bool]                     # shape: (n_objects, n_features, n_states)
     states: NDArray[bool]                     # shape: (n_features, n_states)
     names: OrderedDict[FeatureName, list[StateName]] = field(init=False)
     feature_names: NDArray[FeatureName]  # shape: (n_features,)
@@ -130,10 +142,6 @@ class CategoricalFeatures:
             return cls(**categorical_features_dict)
 
     @property
-    def n_features(self) -> int:
-        return self.values.shape[1]
-
-    @property
     def n_states(self) -> int:
         return self.values.shape[2]
 
@@ -143,7 +151,7 @@ class CategoricalFeatures:
 
 
 @dataclass
-class GaussianFeatures:
+class GaussianFeatures(GenericTypeFeatures):
     # All features that are continuous measurements
     values: NDArray[float]                          # shape: (n_objects, n_gaussian_features)
     names: NDArray[FeatureName]                     # shape: (n_gaussian_features,)
@@ -174,13 +182,9 @@ class GaussianFeatures:
             # return Feature class consisting of all gaussian features
             return cls(**gaussian_features_dict)
 
-    @property
-    def n_features(self) -> int:
-        return self.values.shape[1]
-
 
 @dataclass
-class PoissonFeatures:
+class PoissonFeatures(GenericTypeFeatures):
     # All features that are count variables
     values: NDArray[int]                            # shape: (n_objects, n_poisson_features)
     names: NDArray[FeatureName]                     # shape: (n_poisson_features,)
@@ -210,13 +214,9 @@ class PoissonFeatures:
             # return Feature class consisting of all poisson features
             return cls(**poisson_features_dict)
 
-    @property
-    def n_features(self) -> int:
-        return self.values.shape[1]
-
 
 @dataclass
-class LogitNormalFeatures:
+class LogitNormalFeatures(GenericTypeFeatures):
     # All features that are percentages
     values: NDArray[int]                            # shape: (n_objects, n_logit_normal_features)
     names: NDArray[FeatureName]                     # shape: (n_logit_normal_features, )
@@ -253,10 +253,6 @@ class LogitNormalFeatures:
             # return Feature class consisting of all logit-normal features
             return cls(**logit_normal_features_dict)
 
-    @property
-    def n_features(self) -> int:
-        return self.values.shape[1]
-
 
 @dataclass
 class Features:
@@ -272,7 +268,7 @@ class Features:
         else:
             raise ValueError(f"Unknown feature type {key}.")
 
-    def get_ft_features(self, ft: FeatureType):
+    def get_ft_features(self, ft: FeatureType) -> GenericTypeFeatures:
         if ft == FeatureType.categorical: return self.categorical
         if ft == FeatureType.gaussian: return self.gaussian
         if ft == FeatureType.poisson: return self.poisson
