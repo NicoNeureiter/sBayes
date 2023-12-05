@@ -92,4 +92,5 @@ results:
     log_file: true                      # Whether to write log-messages to a file.
     log_likelihood: true                # Whether to log the likelihood of each observation in a .h5 file (used for model comparison).
     log_source: false                   # Whether to log the proportion of objects assigned to each component in each feature.
+    log_hot_chains: true                # Whether to create log files (clusters, stats and operator_stats) for hot MC3 chains.
     float_precision: 8                  # The precision (number of decimal places) of real valued parameters in the stats file.
