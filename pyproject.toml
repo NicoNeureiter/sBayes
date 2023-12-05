@@ -35,6 +35,10 @@ dependencies = [
     "numba",
 ]
 
+[project.optional-dependencies]
+modelComparison = ["arviz"]
+gui = ["tkinter"]
+
 [project.urls]
 Source = "https://github.com/derpetermann/sBayes"
 Documentation = "https://github.com/derpetermann/sBayes/blob/devel/documentation/user_manual.md"

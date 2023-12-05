@@ -7,8 +7,9 @@ from typing import Union, List, Dict, Optional
 
 try:
     from typing import Annotated, Literal
-except ImportError:
+except ImportError:  # For python <= 3.8
     from typing_extensions import Annotated, Literal
+
 try:
     import ruamel.yaml as yaml
 except ImportError:
@@ -487,6 +488,9 @@ class ResultsConfig(BaseConfig):
 
     log_source: bool = False
     """Whether to log the proportion of objects assigned to each component in each feature."""
+
+    log_hot_chains: bool = True
+    """Whether to create log files (clusters, stats and operator_stats) for hot MC3 chains."""
 
     float_precision: PositiveInt = 8
     """The precision (number of decimal places) of real valued parameters in the stats file."""

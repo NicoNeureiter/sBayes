@@ -150,7 +150,9 @@ Ratio of source steps (changing source component assignment): {op_cfg.source}'''
             OperatorStatsLogger(op_stats_path, self.data, self.model, operators=[], resume=resume)
         ]
 
-        if not self.config.mcmc.sample_from_prior and self.config.results.log_likelihood:
+        if (not self.config.mcmc.sample_from_prior      # When sampling from prior, the likelihood is not interesting
+                and self.config.results.log_likelihood  # Likelihood logger can be manually deactivated
+                and chain > 0):                         # No likelihood logger for hot chains
             sample_loggers.append(LikelihoodLogger(likelihood_path, self.data, self.model, resume=resume))
 
         return sample_loggers
