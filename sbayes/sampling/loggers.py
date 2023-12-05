@@ -339,6 +339,17 @@ class LikelihoodLogger(ResultsLogger):
                 shape=(0, sample.n_objects * sample.n_features),
             )
 
+            na_values = self.model.data.features.na_values
+            na_array = self.file.create_carray(
+                where=self.file.root,
+                name="na_values",
+                obj=na_values.ravel(),
+                atom=tables.BoolCol(),
+                filters=tables.Filters(complevel=9, fletcher32=True),
+                shape=(sample.n_objects * sample.n_features, ),
+            )
+            na_array.close()
+
     def _write_sample(self, sample: Sample):
         weights = update_weights(sample)
         lh_per_comp_exact = likelihood_per_component_exact(model=self.model, sample=sample)

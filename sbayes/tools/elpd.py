@@ -26,15 +26,20 @@ def read_likelihood_for_az(likelihood_path: PathLike, burnin: float) -> az.Infer
     # Load the data into a numpy array (shape = n_samples*n_observations)
     likelihood_table = tables.open_file(likelihood_path, mode='r')
     likelihood_np = likelihood_table.root.likelihood[:]
+    if "na_values" in likelihood_table.root:
+        is_na = likelihood_table.root.na_values[:]
+    else:
+        warnings.warn(f"No `na_values` array found in the likelihood file `{likelihood_path}`. "
+                      f"Assuming all observations with a constant likelihood of 1.0 to be NAs.")
+        is_na = np.all(np.isclose(likelihood_np, 1), axis=0)
     likelihood_table.close()
+
+    # drop NA values
+    likelihood_np = likelihood_np[:, ~is_na]
 
     # drop burn-in
     burnin_int = int(burnin * len(likelihood_np))
     likelihood_np = likelihood_np[burnin_int:, :]
-
-    # drop NA values
-    is_na = np.all(likelihood_np == 1.0, axis=0)
-    likelihood_np = likelihood_np[:, ~is_na]
 
     # arviz interprets the first dimension as chains and the second as samples, but the
     # likelihood in the file is only for one chain, i.e. dimensions start with samples.
@@ -96,6 +101,8 @@ def main(results_dir: Path, burnin: float = 0.1):
         sn.boxplot(df, x="experiment", y="elpd_loo")
     else:
         sn.lineplot(df, x="k", y="elpd_loo", hue="experiment", lw=0.5, ls="dashed")
+
+    plt.tight_layout(pad=0.5)
     plt.show()
 
 
