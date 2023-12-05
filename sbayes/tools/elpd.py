@@ -14,9 +14,6 @@ import matplotlib.pyplot as plt
 
 from sbayes.util import activate_verbose_warnings
 
-# BURN_IN = 100
-# """Number of samples to be dropped at the start of the MCMC chain."""
-
 
 PathLike = Path | str
 """Convenience type for cases where `str` or `Path` are acceptable types."""
@@ -90,7 +87,6 @@ def main(results_dir: Path, burnin: float = 0.1):
             msg = f"Error in likelihood file '{run_path}'. Will be skipped in model comparison."
             msg += "".join(["\n\t| " + l for l in str(e).split("\n")])
             warnings.warn(msg)
-
 
     if len(df) == 0:
         warnings.warn(f"No results with valid likelihood files were found in directory '{results_dir}'.")

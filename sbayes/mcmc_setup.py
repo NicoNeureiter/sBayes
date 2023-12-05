@@ -133,6 +133,9 @@ Ratio of source steps (changing source component assignment): {op_cfg.source}'''
         )
 
     def get_sample_loggers(self, run: int, resume: bool, chain: int = 0) -> list[ResultsLogger]:
+        if not self.config.results.log_hot_chains and chain > 0:
+            return []
+
         k = self.model.n_clusters
         base_dir = self.path_results
         chain_str = '' if chain == 0 else f'.chain{chain}'
