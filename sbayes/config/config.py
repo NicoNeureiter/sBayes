@@ -107,7 +107,6 @@ class GeoPriorConfig(BaseConfig):
         UNIFORM = "uniform"
         COST_BASED = "cost_based"
         DIAMETER_BASED = "diameter_based"
-        # GAUSSIAN = "gaussian"
         SIMULATED = "simulated"
 
     class AggregationStrategies(str, Enum):

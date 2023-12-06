@@ -1,11 +1,9 @@
 import logging
-import time
-from collections import defaultdict
 import random
 
 import numpy as np
 from numpy.typing import NDArray
-from scipy.special import softmax
+from scipy.special import softmax, logsumexp
 from scipy.stats import truncnorm
 
 from sbayes.load_data import Data
@@ -13,21 +11,12 @@ from sbayes.model import Model, update_weights
 from sbayes.sampling.conditionals import sample_source_from_prior
 from sbayes.sampling.counts import recalculate_feature_counts
 from sbayes.sampling.loggers import ClustersLogger
-from sbayes.sampling.operators import ObjectSelector, GibbsSampleSource, AlterClusterGibbsish, AlterClusterGibbsishWide, \
-    ClusterEffectProposals
+from sbayes.sampling.operators import ObjectSelector, GibbsSampleSource, AlterClusterGibbsish, AlterClusterGibbsishWide
 from sbayes.sampling.state import Sample, Clusters
-from sbayes.util import get_neighbours, normalize, format_cluster_columns, trunc_exp_rv
+from sbayes.util import get_neighbours, normalize
 
 EPS = 1E-10
 RNG = np.random.default_rng()
-initial_sizes = np.arange(30, 150, 5)
-RNG.shuffle(initial_sizes)
-
-# USE_SKLEARN = False
-# if USE_SKLEARN:
-#     from sklearn.cluster import KMeans
-# else:
-#     KMeans = None
 
 
 class ClusterError(Exception):
@@ -138,12 +127,13 @@ class SbayesInitializer:
         # Decide whether to use geo-prior and, if yes, extract the cost_matrix
         geo_prior = self.model.prior.geo_prior
         consider_geo_prior = geo_prior.prior_type is geo_prior.PriorTypes.COST_BASED
-        geo_likelihoods = 1.
+        log_geo_priors = 0.0
 
         _features = np.copy(features)
-        _features[~valid_observations, :] = 1
+        _features[~valid_observations, :] = True
 
         for i_step in range(self.n_em_steps):
+
             state_counts = np.einsum("ij,jkl->ikl", z, features, optimize='optimal')
             # shape: (n_groups, n_features, n_states)
 
@@ -151,25 +141,25 @@ class SbayesInitializer:
             # shape: (n_groups, n_features, n_states)
 
             # How likely would each feature observation be if it was explained by each group
-            # pointwise_likelihood_by_group = np.sum(p[:, None, :, :] * features[None, :, :, :], axis=-1)
-            pointwise_likelihood_by_group = np.einsum("ikl,jkl->ijk", p, _features, optimize='optimal')
+            pointwise_ll_by_group = np.log(np.einsum("ikl,jkl->ijk", p, _features, optimize='optimal'))
             # shape: (n_groups, n_objects, n_features)
 
-            pointwise_likelihood_by_group[:, ~valid_observations] = 1
-            # group_likelihoods = np.sum(np.log(pointwise_likelihood_by_group), axis=-1)
-            group_likelihoods = np.prod(pointwise_likelihood_by_group, axis=-1)
+            group_lls = np.sum(pointwise_ll_by_group, axis=-1)
             # shape: (n_groups, n_objects)
 
             if consider_geo_prior:
                 z_peaky = softmax(n_objects * z, axis=1)
                 avg_dist_to_cluster = z_peaky.dot(geo_prior.cost_matrix)
-                geo_likelihoods = np.exp(-avg_dist_to_cluster / geo_prior.scale / 2)
-                geo_likelihoods[n_clusters:] = np.mean(geo_likelihoods[:n_clusters])
+                log_geo_priors = -avg_dist_to_cluster / geo_prior.scale / 2
+
+                # Non-cluster groups get the average geo-prior value of the clusters
+                log_geo_priors[n_clusters:] = logsumexp(log_geo_priors[:n_clusters]) - np.log(log_geo_priors[:n_clusters].size)
 
             temperature = (self.n_em_steps / (1+i_step)) ** 3
-            lh = geo_likelihoods * group_likelihoods ** (1/temperature) + EPS
+            lh = log_geo_priors + group_lls / temperature
 
-            z = normalize(lh * groups_available, axis=0)
+            lh = np.where(groups_available, lh, -np.inf)
+            z = softmax(lh, axis=0)
 
             if (self.init_cluster_logger is not None) and (i_step % 5 == 0):
                 clusters = self.discretize_fuzzy_cluster_2(z, total_size=total_size)
@@ -248,15 +238,10 @@ class SbayesInitializer:
         return best_sample
 
     def generate_sample_attempt(self, c: int = 0, i_attempt: int = 0) -> Sample:
-        # Clusters
-        # initial_clusters = self.generate_initial_clusters(c)
+
         initial_clusters = self.generate_clusters_em()
-
-        # Weights
         initial_weights = self.generate_initial_weights()
-
         initial_source = np.empty((self.n_objects, self.n_features, self.n_sources), dtype=bool)
-
         sample = Sample.from_numpy_arrays(
             clusters=initial_clusters,
             weights=initial_weights,
@@ -269,15 +254,14 @@ class SbayesInitializer:
             model_shapes=self.model.shapes,
         )
 
-        assert ~np.any(np.isnan(initial_weights)), initial_weights
-
         # Generate the initial source using a Gibbs sampling step
         sample.everything_changed()
-
         source = sample_source_from_prior(sample)
         source[self.data.features.na_values] = 0
         sample.source.set_value(source)
         recalculate_feature_counts(self.features, sample)
+
+        assert np.isfinite(self.model(sample))
 
         w = update_weights(sample, caching=False)
         s = sample.source.value

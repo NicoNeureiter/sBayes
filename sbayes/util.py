@@ -32,6 +32,7 @@ from numba import jit, njit, float32, float64, int64, boolean, vectorize
 FLOAT_TYPE = np.float32
 INT_TYPE = np.int64
 EPS = np.finfo(FLOAT_TYPE).eps
+LOG_EPS = np.finfo(FLOAT_TYPE).min
 RNG = np.random.default_rng()
 
 
@@ -342,7 +343,7 @@ def read_data_csv(csv_path: PathLike) -> pd.DataFrame:
     na_values = ["", " ", "\t", "  "]
     data: pd.DataFrame = pd.read_csv(csv_path, na_values=na_values, keep_default_na=False, dtype=str)
     data.columns = [unidecode(c) for c in data.columns]
-    return data.applymap(normalize_str)
+    return data.map(normalize_str)
 
 
 def read_costs_from_csv(file: str, logger=None):
@@ -985,7 +986,7 @@ def normalize(x, axis=-1):
     >>> normalize(np.ones((2, 4)), axis=0).tolist()
     [[0.5, 0.5, 0.5, 0.5], [0.5, 0.5, 0.5, 0.5]]
     """
-    assert np.all(np.sum(x, axis=axis) > 0)
+    assert np.all(np.sum(x, axis=axis) > 0), np.min(x)
     return (x / np.sum(x, axis=axis, keepdims=True)).astype(FLOAT_TYPE)
 
 
