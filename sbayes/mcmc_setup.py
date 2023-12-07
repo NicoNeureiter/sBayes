@@ -12,6 +12,7 @@ import sys
 import time
 from datetime import timedelta
 from multiprocessing import Process, Pipe
+from time import sleep
 
 import numpy as np
 from numpy.typing import NDArray
@@ -155,15 +156,16 @@ Ratio of source steps (changing source component assignment): {op_cfg.source}'''
 
         if (not self.config.mcmc.sample_from_prior      # When sampling from prior, the likelihood is not interesting
                 and self.config.results.log_likelihood  # Likelihood logger can be manually deactivated
-                and chain > 0):                         # No likelihood logger for hot chains
+                and chain == 0):                        # No likelihood logger for hot chains
             sample_loggers.append(LikelihoodLogger(likelihood_path, self.data, self.model, resume=resume))
 
         return sample_loggers
 
-    def read_previous_results(self, run=1) -> Results:
+    def read_previous_results(self, run, chain=0) -> Results:
         k = self.model.n_clusters
-        params_path = self.path_results / f'stats_K{k}_{run}.txt'
-        clusters_path = self.path_results / f'clusters_K{k}_{run}.txt'
+        chain_str = "" if chain == 0 else f".chain{chain}"
+        params_path = self.path_results / f'stats_K{k}_{run}{chain_str}.txt'
+        clusters_path = self.path_results / f'clusters_K{k}_{run}{chain_str}.txt'
         return Results.from_csv_files(clusters_path, params_path)
 
     def last_sample(self, results: Results) -> Sample:
@@ -247,9 +249,16 @@ Ratio of source steps (changing source component assignment): {op_cfg.source}'''
             proc.start()
             processes.append(proc)
 
+            if resume:
+                # Load results
+                results = self.read_previous_results(run, chain=c)
+                initial_sample = self.last_sample(results)
+            else:
+                initial_sample = None
+
             # Start the initializer for chain c
             logger = self.get_sample_loggers(run, resume, chain=c)
-            proc.send_initialize_chain(mcmc_config, self.model, self.data, logger)
+            proc.send_initialize_chain(mcmc_config, self.model, self.data, logger, initial_sample=initial_sample)
 
         # Wait for each chain to finish initialization and warm-up and store the initial samples
         samples: list[Sample] = [None] * n_chains
@@ -298,12 +307,16 @@ Ratio of source steps (changing source component assignment): {op_cfg.source}'''
 
     def receive_samples(self, processes: list[MCMCChainProcess], samples: list[Sample]):
         """Receive the current samples from all MC3 chain processes, handling forwarded exceptions."""
-        try:
-            for c, proc in enumerate(processes):
+        exceptions = []
+        for c, proc in enumerate(processes):
+            try:
                 samples[c] = processes[c].receive()
-        except Exception:
+            except SubprocessException as e:
+                exceptions.append(e)
+
+        if exceptions:
             self.terminate_chains(processes)
-            raise SubprocessException(c)
+            raise exceptions[0]
 
     @staticmethod
     def terminate_chains(processes: list[MCMCChainProcess]):
@@ -410,7 +423,8 @@ class MCMCChainProcess(Process):
             try:
                 result, send_back = method(*args)
             except Exception as exception:
-                result, send_back = exception, True
+                self.connection.send(exception)
+                raise exception
 
             # Send the result back to the parent process
             if send_back:
@@ -422,17 +436,10 @@ class MCMCChainProcess(Process):
         model: Model,
         data: Data,
         sample_loggers: list[ResultsLogger],
+        initial_sample: Sample = None,
     ) -> (None, bool):
         """Initialize the MCMC chain in this process"""
         logging.info(f"Initializing MCMCChain {self.i_chain} in worker process {os.getpid()}")
-        initializer = SbayesInitializer(
-            model=model,
-            data=data,
-            initial_size=mcmc_config.init_objects_per_cluster,
-            attempts=mcmc_config.initialization.attempts,
-            initial_cluster_steps=mcmc_config.initialization.initial_cluster_steps,
-            n_em_steps=mcmc_config.initialization.em_steps,
-        )
 
         self.mcmc_chain = MCMCChain(
             model=model,
@@ -445,9 +452,18 @@ class MCMCChainProcess(Process):
             prior_temperature=self.prior_temperature,
         )
 
-        sample = self.initialize_sample(initializer, self.mcmc_chain, mcmc_config.warmup)
+        if initial_sample is None:
+            initializer = SbayesInitializer(
+                model=model,
+                data=data,
+                initial_size=mcmc_config.init_objects_per_cluster,
+                attempts=mcmc_config.initialization.attempts,
+                initial_cluster_steps=mcmc_config.initialization.initial_cluster_steps,
+                n_em_steps=mcmc_config.initialization.em_steps,
+            )
+            initial_sample = self.initialize_sample(initializer, self.mcmc_chain, mcmc_config.warmup)
 
-        return sample, True
+        return initial_sample, True
 
     def initialize_sample(self, initializer: SbayesInitializer, mcmc_chain: MCMCChain, cfg: WarmupConfig) -> Sample:
         best_sample = None
@@ -481,6 +497,11 @@ class MCMCChainProcess(Process):
     def shut_down(self):
         self.mcmc_chain.close_loggers()
 
+    @staticmethod
+    def print(s: str):
+        """Print in the child process with process ID prefix. """
+        print(f"{os.getpid()} >> {s}", flush=True)
+
     """ Interface for the parent process """
 
     def send_initialize_chain(
@@ -489,8 +510,9 @@ class MCMCChainProcess(Process):
         model: Model,
         data: Data,
         sample_loggers: list[ResultsLogger],
+        initial_sample: Sample = None,
     ):
-        self.parent_connection.send(("initialize_chain", mcmc_config, model, data, sample_loggers))
+        self.parent_connection.send(("initialize_chain", mcmc_config, model, data, sample_loggers, initial_sample))
 
     def send_run_chain(self, sample: Sample):
         self.parent_connection.send(("run_chain", sample))
@@ -500,8 +522,12 @@ class MCMCChainProcess(Process):
 
     def receive(self):
         result = self.parent_connection.recv()
-        if isinstance(result, Exception):
-            raise result
+
+        if isinstance(result, BaseException):
+            # Wait so that exception can be printed cleanly in the MCMC chain process
+            sleep(0.5)
+            raise SubprocessException(self.i_chain)
+
         return result
 
 

@@ -183,7 +183,7 @@ class MCMCChain:
         operator_name = np.random.choice(possible_steps, 1, p=step_weights)[0]
         return self.callable_operators[operator_name]
 
-    def step(self, sample):
+    def step(self, sample: Sample) -> Sample:
         """This function performs a full MH step: first, a new candidate sample is proposed
         for either the clusters or the other parameters. Then the candidate is evaluated against the current sample
         and accepted with Metropolis-Hastings acceptance probability
