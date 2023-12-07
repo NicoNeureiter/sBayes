@@ -12,12 +12,11 @@ import scipy.stats as stats
 from scipy.special import softmax
 
 from sbayes.load_data import Features, Data
-from sbayes.sampling.conditionals import likelihood_per_component, conditional_effect_mean, \
-    likelihood_per_component_exact
+from sbayes.sampling.conditionals import likelihood_per_component, conditional_effect_mean
 from sbayes.sampling.counts import recalculate_feature_counts, update_feature_counts
 from sbayes.sampling.state import Sample
-from sbayes.util import dirichlet_logpdf, normalize, get_neighbours, inner1d, RNG, FLOAT_TYPE, heat_binary_probability, \
-    EPS
+from sbayes.util import dirichlet_logpdf, normalize, get_neighbours, inner1d, heat_binary_probability
+from sbayes.util import EPS, RNG, FLOAT_TYPE
 from sbayes.model import Model, Likelihood, normalize_weights, update_weights
 from sbayes.preprocessing import sample_categorical
 from sbayes.config.config import OperatorsConfig
@@ -1221,12 +1220,14 @@ class AlterClusterGibbsish(ClusterOperator):
 
         # The add probability of an inverse step
         grow_candidates = self.grow_candidates(sample_new, i_cluster)
-        cluster_posterior_back = np.zeros(sample_new.n_objects, dtype=FLOAT_TYPE)
-        cluster_posterior_back[grow_candidates] = heat_binary_probability(
-            self.compute_cluster_posterior(sample_new, i_cluster, grow_candidates),
-            self.temperature
-        )
-        p_add = normalize(cluster_posterior_back)
+        if np.count_nonzero(grow_candidates) == 0:
+            return sample, self.Q_REJECT, self.Q_BACK_REJECT
+
+        cluster_posterior_back = self.compute_cluster_posterior(sample_new, i_cluster, grow_candidates)
+        cluster_posterior_back = heat_binary_probability(cluster_posterior_back, self.temperature)
+
+        p_add = np.empty(sample_new.n_objects, dtype=FLOAT_TYPE)
+        p_add[grow_candidates] = normalize(cluster_posterior_back)
 
         log_q = np.log(p_remove[removed_objects]).sum() + log_q_s
         log_q_back = np.log(p_add[removed_objects]).sum() + log_q_back_s
@@ -2152,6 +2153,6 @@ def verify_counts(sample: Sample, features: NDArray[bool]):
     new_counts = recalculate_feature_counts(features, sample)
     assert set(cached_counts.keys()) == set(new_counts.keys())
     for k in cached_counts.keys():
-        assert np.allclose(cached_counts[k].value, new_counts[k].value), (f'counts not matching in ´{k}´.',
-            cached_counts[k].value.sum(axis=(1,2)), new_counts[k].value.sum(axis=(1,2))
-        )
+        c = cached_counts[k].value
+        c_new = new_counts[k].value
+        assert np.allclose(c, c_new), (f'counts not matching in ´{k}´.', c.sum(axis=(1, 2)), c_new.sum(axis=(1, 2)))
