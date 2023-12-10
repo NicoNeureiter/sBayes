@@ -343,7 +343,7 @@ def read_data_csv(csv_path: PathLike) -> pd.DataFrame:
     na_values = ["", " ", "\t", "  "]
     data: pd.DataFrame = pd.read_csv(csv_path, na_values=na_values, keep_default_na=False, dtype=str)
     data.columns = [unidecode(c) for c in data.columns]
-    return data.map(normalize_str)
+    return data.applymap(normalize_str)
 
 
 def read_costs_from_csv(file: str, logger=None):
