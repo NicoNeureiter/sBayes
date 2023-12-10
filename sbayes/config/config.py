@@ -106,7 +106,6 @@ class GeoPriorConfig(BaseConfig):
     class Types(str, Enum):
         UNIFORM = "uniform"
         COST_BASED = "cost_based"
-        DIAMETER_BASED = "diameter_based"
         SIMULATED = "simulated"
 
     class AggregationStrategies(str, Enum):
@@ -125,7 +124,7 @@ class GeoPriorConfig(BaseConfig):
         COMPLETE = "complete_graph"
 
     type: Types = Types.UNIFORM
-    """Type of prior distribution (`uniform`, `cost_based` or `gaussian`)."""
+    """Type of prior distribution. Choose from: [uniform, cost_based, simulated]."""
 
     costs: Union[RelativeFilePath, Literal["from_data"]] = "from_data"
     # costs: FilePath = "from_data"
@@ -133,20 +132,21 @@ class GeoPriorConfig(BaseConfig):
     (derive geodesic distances from locations) or path to a CSV file."""
 
     aggregation: AggregationStrategies = AggregationStrategies.MEAN
-    """Policy defining how costs of single edges are aggregated (`mean`, `sum` or `max`)."""
+    """Policy defining how costs of single edges are aggregated. Choose from: [mean, sum or max]."""
 
     probability_function: ProbabilityFunction = ProbabilityFunction.EXPONENTIAL
-    """Monotonic function that defines how costs are mapped to prior probabilities."""
+    """Monotonic function that defines how aggregated costs are mapped to prior probabilities."""
 
     rate: Optional[PositiveFloat] = None
-    """Rate at which the prior probability decreases for a cost_based geo-prior."""
+    """Rate at which the prior probability decreases for a cost_based geo-prior. Required if type=cost_based."""
 
     inflection_point: Optional[float] = None
-    """The point where a sigmoid probability function reaches 0.5."""
+    """Value where the sigmoid probability function reaches 0.5. Required if type=cost_based
+    and probability_function=sigmoid."""
 
     skeleton: Skeleton = Skeleton.MST
-    """The graph along which the costs are aggregated. Per default, the cost of edges on 
-    the minimum spanning tree are aggregated."""
+    """The graph along which the costs are aggregated. Per default, the cost of edges on the minimum
+     spanning tree (mst) are aggregated. Choose from: [mst, delaunay, diameter, complete_graph]"""
 
     @model_validator(mode="before")
     @classmethod
@@ -167,7 +167,7 @@ class ClusterSizePriorConfig(BaseConfig):
         QUADRATIC_SIZE = "quadratic"
 
     type: Types
-    """Type of prior distribution (`uniform_area`, `uniform_size` or `quadratic`)."""
+    """Type of prior distribution. Choose from: [uniform_area, uniform_size or quadratic]."""
 
     min: PositiveInt = 2
     """Minimum cluster size."""
@@ -190,16 +190,14 @@ class DirichletPriorConfig(BaseConfig):
     """Type of prior distribution. Choose from: [uniform, dirichlet, jeffreys, BBS, symmetric_dirichlet]"""
 
     file: Optional[RelativeFilePath] = None
-    """Path to the parameters of the Dirichlet distribution."""
+    """Path to parameters of the Dirichlet distribution (YAML or JSON format).
+    This or `parameters` is required if type=dirichlet."""
 
     parameters: Optional[dict] = None
-    """Parameters of the Dirichlet distribution."""
-
-    prior_confounder: Optional[str] = None
-    """A string indicating which confounder should be used as the mean of the prior."""
+    """Parameters of the Dirichlet distribution. This or `file` is required if type=dirichlet."""
 
     prior_concentration: Optional[float] = None
-    """If another confounder is used as mean, we need to manually define the concentration of the Dirichlet prior."""
+    """The concentration of the prior distribution. Required if type=symmetric_dirichlet."""
 
     @model_validator(mode="before")
     @classmethod
@@ -371,18 +369,18 @@ class MC3Config(BaseConfig):
     temperature_diff: PositiveFloat = 0.05
     """Difference between temperatures of MC3 chains."""
 
-    prior_temperature_diff: Optional[PositiveFloat] = None
-    """Difference between prior-temperatures of MC3 chains. Defaults to the same values as 
-    `temperature_diff` if `only_heat_likelihood == False`, and 0 otherwise."""
-
-    only_heat_likelihood: bool = False
-    """If `true`, only likelihood is affected by the MC3 temperature, i.e. all chains use the same prior."""
+    prior_temperature_diff: PositiveFloat = "temperature_diff"
+    """Difference between prior-temperatures of MC3 chains. Defaults to the same values as `temperature_diff`."""
 
     exponential_temperatures: bool = False
     """If `true`, temperature increase exponentially ((1 + dt)**i), instead of linearly (1 + dt*i)."""
 
     log_swap_matrix: bool = True
     """If `True`, write a matrix containing the number of swaps between each pair of chains to an npy-file."""
+
+    @classmethod
+    def deprecated_attributes(cls) -> list:
+        return ["only_heat_likelihood"]
 
     @model_validator(mode="after")
     def validate_mc3(self):
@@ -405,17 +403,12 @@ class MC3Config(BaseConfig):
                 f"{valid_chain_pairs}. Adjusted swap_attempts={valid_chain_pairs}."
             )
 
-        # Default behavior of `prior_temperature_diff` depends on the
-        # `prior_temperature_diff` flag.
-        if self.prior_temperature_diff is None:
-            if self.only_heat_likelihood:
-                # Prior is not heated at all -> prior_temperature_diff is 0
-                self.prior_temperature_diff = 0.0
-            else:
-                # Prior is heated the same as the posterior
-                self.prior_temperature_diff = self.temperature_diff
+        # Per default `prior_temperature_diff` is the same as `temperature_diff`.
+        if self.prior_temperature_diff == "temperature_diff":
+            self.prior_temperature_diff = self.temperature_diff
 
         return self
+
 
 class MCMCConfig(BaseConfig):
 
@@ -525,7 +518,7 @@ class SBayesConfig(BaseConfig):
         # Load a config dictionary from the json file
         with open(path, "r") as f:
             path_str = str(path).lower()
-            if path_str.endswith(".yaml"):
+            if path_str.endswith(".yaml") or path_str.endswith("yml"):
                 yaml_loader = yaml.YAML(typ='safe')
                 config_dict = yaml_loader.load(f)
             else:

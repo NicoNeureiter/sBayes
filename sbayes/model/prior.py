@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from functools import lru_cache
+from pathlib import Path
 from typing import List, Sequence, Callable, Optional, OrderedDict
 import json
 
@@ -10,6 +11,7 @@ import numpy as np
 from numpy.typing import NDArray
 
 import scipy.stats as stats
+from ruamel import yaml
 from scipy.sparse.csgraph import minimum_spanning_tree, csgraph_from_dense
 
 from sbayes.model.model_shapes import ModelShapes
@@ -196,7 +198,10 @@ class DirichletPrior:
     def parse_concentration_json(self, json_path: PathLike) -> list[np.ndarray]:
         # Read the concentration parameters from the JSON file
         with open(json_path, 'r') as f:
-            concentration_dict = json.load(f)
+            if Path(json_path).suffix.lower() in [".yaml", ".yml"]:
+                concentration_dict = yaml.YAML(typ='safe').load(json_path)
+            else:
+                concentration_dict = json.load(f)
         # Parse the resulting dictionary
         return self.parse_concentration_dict(concentration_dict)
 
