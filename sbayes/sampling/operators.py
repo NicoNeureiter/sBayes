@@ -975,7 +975,7 @@ class AlterClusterGibbsish(ClusterOperator):
         features: NDArray[bool],
         consider_geo_prior: bool = False,
         neighbourhood: Neighbourhood = Neighbourhood.everywhere,
-        additive_smoothing: float = 0,
+        additive_smoothing: float = 1E-6,
         gibbsish: bool = True,
         **kwargs,
     ):
@@ -1159,12 +1159,12 @@ class AlterClusterGibbsish(ClusterOperator):
 
         # The removal probability of an inverse step
         shrink_candidates = self.shrink_candidates(sample_new, i_cluster)
-        cluster_posterior_back = np.zeros(sample_new.n_objects, dtype=FLOAT_TYPE)
-        cluster_posterior_back[shrink_candidates] = heat_binary_probability(
-            self.compute_cluster_posterior(sample_new, i_cluster, shrink_candidates),
-            self.temperature
-        )
-        p_remove = normalize((1 - cluster_posterior_back) * shrink_candidates)
+        cluster_posterior_back = self.compute_cluster_posterior(sample_new, i_cluster, shrink_candidates)
+        cluster_posterior_back = heat_binary_probability(cluster_posterior_back, self.temperature)
+        assert np.all(cluster_posterior_back > 0) and np.all(cluster_posterior_back < 1)
+
+        p_remove = np.empty(sample_new.n_objects, dtype=FLOAT_TYPE)
+        p_remove[shrink_candidates] = normalize(1 - cluster_posterior_back)
 
         log_q = np.log(p_add[object_add]).sum() + log_q_s
         log_q_back = np.log(p_remove[object_add]).sum() + log_q_back_s
@@ -1242,7 +1242,7 @@ class AlterClusterGibbsish(ClusterOperator):
             params["geo"] = self.consider_geo_prior
         if self.neighbourhood != Neighbourhood.everywhere:
             params["neighbours"] = self.neighbourhood.value
-        if self.additive_smoothing > 0.0:
+        if self.additive_smoothing > 1E-6:
             params["additive_smoothing"] = self.additive_smoothing
         if not self.gibbsish:
             params["gibbsish"] = self.gibbsish

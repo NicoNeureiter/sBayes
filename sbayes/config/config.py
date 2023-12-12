@@ -306,7 +306,7 @@ class ModelConfig(BaseConfig):
 
 class OperatorsConfig(BaseConfig):
 
-    """The frequency of each MCMC operator. Will be normalized to 1.0 at runtime."""
+    """The frequency at which each parameter is updated by an MCMC operator. Will be normalized to 1.0 at runtime."""
 
     clusters: NonNegativeFloat = 70.0
     """Frequency at which the assignment of objects to clusters is changed."""
@@ -335,16 +335,23 @@ class WarmupConfig(BaseConfig):
 
 class InitializationConfig(BaseConfig):
 
-    """Configuration for the initialization of the MCMC / each warm-up chain."""
+    """Configuration for the initialization of a sample in each warm-up chain of the MCMC."""
 
     attempts: PositiveInt = 10
     """Number of initial samples for each warm-up chain. Only the one with highest posterior will be used."""
 
-    initial_cluster_steps: bool = True
-    """If `true`, apply an initial cluster operator step to each cluster before selecting the best sample."""
-
     em_steps: PositiveInt = 50
     """Number of steps in the expectation-maximization initializer."""
+
+    objects_per_cluster: PositiveInt = 10
+    """The average number of objects assigned to each cluster in the initialization phase."""
+
+    _initial_cluster_steps: bool = True
+    """If `true`, apply an initial cluster operator step to each cluster before selecting the best sample."""
+
+    @classmethod
+    def deprecated_attributes(cls) -> list:
+        return ["initial_cluster_steps"]
 
 
 class MC3Config(BaseConfig):
@@ -360,10 +367,10 @@ class MC3Config(BaseConfig):
     swap_interval: PositiveInt = 1000
     """Number of MCMC steps between each MC3 chain swap attempt."""
 
-    swap_attempts: PositiveInt = 2
+    _swap_attempts: PositiveInt = 100
     """Number of chain pairs which are proposed to be swapped after each interval."""
 
-    only_swap_adjacent_chains: bool = False
+    _only_swap_adjacent_chains: bool = False
     """Only swap chains that are next to each other in the temperature schedule."""
 
     temperature_diff: PositiveFloat = 0.05
@@ -380,7 +387,7 @@ class MC3Config(BaseConfig):
 
     @classmethod
     def deprecated_attributes(cls) -> list:
-        return ["only_heat_likelihood"]
+        return ["only_heat_likelihood", "swap_attempts", "only_swap_adjacent_chains"]
 
     @model_validator(mode="after")
     def validate_mc3(self):
@@ -391,17 +398,17 @@ class MC3Config(BaseConfig):
         # The number of swap attempts cannot exceed the number of valid chain pairs. The
         # number of valid chain pairs depends on whether we restrict swaps to adjacent
         # chains.
-        if self.only_swap_adjacent_chains:
+        if self._only_swap_adjacent_chains:
             valid_chain_pairs = self.chains - 1
         else:
             valid_chain_pairs = int(self.chains * (self.chains - 1) / 2)
-        if self.swap_attempts > valid_chain_pairs:
-            self.swap_attempts = valid_chain_pairs
-            warnings.warn(
-                f"With `only_swap_adjacent_chains={self.only_swap_adjacent_chains}` and "
-                f"{self.chains} chains the number of swap attempts can not be more than "
-                f"{valid_chain_pairs}. Adjusted swap_attempts={valid_chain_pairs}."
-            )
+        if self._swap_attempts > valid_chain_pairs:
+            self._swap_attempts = valid_chain_pairs
+            # warnings.warn(
+            #     f"With `only_swap_adjacent_chains={self.only_swap_adjacent_chains}` and "
+            #     f"{self.chains} chains the number of swap attempts can not be more than "
+            #     f"{valid_chain_pairs}. Adjusted swap_attempts={valid_chain_pairs}."
+            # )
 
         # Per default `prior_temperature_diff` is the same as `temperature_diff`.
         if self.prior_temperature_diff == "temperature_diff":
@@ -426,9 +433,6 @@ class MCMCConfig(BaseConfig):
     sample_from_prior: bool = False
     """If `true`, the MCMC ignores the data and samples parameters from the prior distribution."""
 
-    init_objects_per_cluster: PositiveInt = 5
-    """The number of objects in the initial clusters at the start of an MCMC run."""
-
     grow_to_adjacent: Annotated[float, Field(ge=0, le=1)] = 0.8
     """The fraction of grow-steps that only propose adjacent languages as candidates to be added to an area."""
 
@@ -436,9 +440,25 @@ class MCMCConfig(BaseConfig):
     """Frequency at which the step ID and log-likelihood are written to the screen logger (and log file)."""
 
     operators: OperatorsConfig = Field(default_factory=OperatorsConfig)
-    warmup: WarmupConfig = Field(default_factory=WarmupConfig)
     initialization: InitializationConfig = Field(default_factory=InitializationConfig)
+    warmup: WarmupConfig = Field(default_factory=WarmupConfig)
     mc3: MC3Config = Field(default_factory=MC3Config)
+
+    @model_validator(mode="before")
+    @classmethod
+    def forward_init_objects_per_cluster(cls, values):
+        if "init_objects_per_cluster" in values:
+            if "initialization" in values and "objects_per_cluster" in values["initialization"]:
+                raise ValueError("The `init_objects_per_cluster` field was moved to `initialization > "
+                                 "objects_per_cluster`. Please remove the old `init_objects_per_cluster` entry.")
+            else:
+                if "initialization" not in values:
+                    values["initialization"] = {}
+                values["initialization"]["objects_per_cluster"] = values.pop("init_objects_per_cluster")
+                warnings.warn("The `init_objects_per_cluster` field was moved to `initialization > objects_per_cluster."
+                              " The value is be forwarded automatically, but this will not be supported in future "
+                              "versions of sBayes. Please adapt the config file accordingly.")
+        return values
 
     @model_validator(mode="after")
     def validate_sample_spacing(self):

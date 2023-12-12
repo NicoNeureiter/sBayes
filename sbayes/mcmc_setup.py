@@ -107,9 +107,9 @@ Ratio of source steps (changing source component assignment): {op_cfg.source}'''
             initializer = SbayesInitializer(
                 model=self.model,
                 data=self.data,
-                initial_size=mcmc_config.init_objects_per_cluster,
+                initial_size=mcmc_config.initialization.objects_per_cluster,
                 attempts=mcmc_config.initialization.attempts,
-                initial_cluster_steps=mcmc_config.initialization.initial_cluster_steps,
+                initial_cluster_steps=mcmc_config.initialization._initial_cluster_steps,
             )
             initial_sample = warmup.generate_samples(
                 n_steps=0, n_samples=0, warm_up=True,
@@ -287,8 +287,8 @@ Ratio of source steps (changing source component assignment): {op_cfg.source}'''
 
             # Swap the chains of the current samples
             self.swap_chains(samples, temperatures, prior_temperatures,
-                             attempts=mc3_config.swap_attempts,
-                             only_swap_neighbours=mc3_config.only_swap_adjacent_chains)
+                             attempts=mc3_config._swap_attempts,
+                             only_swap_neighbours=mc3_config._only_swap_adjacent_chains)
 
             new_swap = self.last_swap_matrix_save < self.swap_attempts
             if mc3_config.log_swap_matrix and new_swap:
@@ -456,9 +456,9 @@ class MCMCChainProcess(Process):
             initializer = SbayesInitializer(
                 model=model,
                 data=data,
-                initial_size=mcmc_config.init_objects_per_cluster,
+                initial_size=mcmc_config.initialization.objects_per_cluster,
                 attempts=mcmc_config.initialization.attempts,
-                initial_cluster_steps=mcmc_config.initialization.initial_cluster_steps,
+                initial_cluster_steps=mcmc_config.initialization._initial_cluster_steps,
                 n_em_steps=mcmc_config.initialization.em_steps,
             )
             initial_sample = self.initialize_sample(initializer, self.mcmc_chain, mcmc_config.warmup)
