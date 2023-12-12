@@ -17,34 +17,32 @@ model:
         cluster_effect:
             # Configuration of the prior on the parameters of the cluster-effect.
             type: uniform               # Type of prior distribution. Choose from: [uniform, dirichlet, jeffreys, BBS, symmetric_dirichlet]
-            file: <REQUIRED>            # Path to the parameters of the Dirichlet distribution.
-            parameters: <REQUIRED>      # Parameters of the Dirichlet distribution.
-            prior_confounder: <REQUIRED> # A string indicating which confounder should be used as the mean of the prior.
-            prior_concentration: <REQUIRED> # If another confounder is used as mean, we need to manually define the concentration of the Dirichlet prior.
+            file: <REQUIRED>            # Path to parameters of the Dirichlet distribution (YAML or JSON format). This or `parameters` is required if type=dirichlet.
+            parameters: <REQUIRED>      # Parameters of the Dirichlet distribution. This or `file` is required if type=dirichlet.
+            prior_concentration: <REQUIRED> # The concentration of the prior distribution. Required if type=symmetric_dirichlet.
 
         geo:
             # Configuration of the geo-prior.
-            type: uniform               # Type of prior distribution (`uniform`, `cost_based` or `gaussian`).
+            type: uniform               # Type of prior distribution. Choose from: [uniform, cost_based, simulated].
             costs: from_data            # Source of the geographic costs used for cost_based geo-prior. Either `from_data` (derive geodesic distances from locations) or path to a CSV file.
-            aggregation: mean           # Policy defining how costs of single edges are aggregated (`mean`, `sum` or `max`).
-            probability_function: exponential # Monotonic function that defines how costs are mapped to prior probabilities.
-            rate: <REQUIRED>            # Rate at which the prior probability decreases for a cost_based geo-prior.
-            inflection_point: <REQUIRED> # The point where a sigmoid probability function reaches 0.5.
-            skeleton: mst               # The graph along which the costs are aggregated. Per default, the cost of edges on the minimum spanning tree are aggregated.
+            aggregation: mean           # Policy defining how costs of single edges are aggregated. Choose from: [mean, sum or max].
+            probability_function: exponential # Monotonic function that defines how aggregated costs are mapped to prior probabilities.
+            rate: <REQUIRED>            # Rate at which the prior probability decreases for a cost_based geo-prior. Required if type=cost_based.
+            inflection_point: <REQUIRED> # Value where the sigmoid probability function reaches 0.5. Required if type=cost_based and probability_function=sigmoid.
+            skeleton: mst               # The graph along which the costs are aggregated. Per default, the cost of edges on the minimum spanning tree (mst) are aggregated. Choose from: [mst, delaunay, diameter, complete_graph]
 
         objects_per_cluster:
             # Configuration of the area size prior.
-            type: <REQUIRED>            # Type of prior distribution (`uniform_area`, `uniform_size` or `quadratic`).
+            type: <REQUIRED>            # Type of prior distribution. Choose from: [uniform_area, uniform_size or quadratic].
             min: 2                      # Minimum cluster size.
             max: 10000                  # Maximum cluster size.
 
         weights:
             # Configuration of the prion on the weights of the mixture components.
             type: uniform               # Type of prior distribution. Choose from: [uniform, dirichlet, jeffreys, BBS, symmetric_dirichlet]
-            file: <REQUIRED>            # Path to the parameters of the Dirichlet distribution.
-            parameters: <REQUIRED>      # Parameters of the Dirichlet distribution.
-            prior_confounder: <REQUIRED> # A string indicating which confounder should be used as the mean of the prior.
-            prior_concentration: <REQUIRED> # If another confounder is used as mean, we need to manually define the concentration of the Dirichlet prior.
+            file: <REQUIRED>            # Path to parameters of the Dirichlet distribution (YAML or JSON format). This or `parameters` is required if type=dirichlet.
+            parameters: <REQUIRED>      # Parameters of the Dirichlet distribution. This or `file` is required if type=dirichlet.
+            prior_concentration: <REQUIRED> # The concentration of the prior distribution. Required if type=symmetric_dirichlet.
 
 mcmc:
     # Configuration of MCMC parameters.
@@ -81,8 +79,7 @@ mcmc:
         swap_attempts: 2                # Number of chain pairs which are proposed to be swapped after each interval.
         only_swap_adjacent_chains: false # Only swap chains that are next to each other in the temperature schedule.
         temperature_diff: 0.05          # Difference between temperatures of MC3 chains.
-        prior_temperature_diff: <REQUIRED> # Difference between prior-temperatures of MC3 chains. Defaults to the same values as `temperature_diff` if `only_heat_likelihood == False`, and 0 otherwise.
-        only_heat_likelihood: false     # If `true`, only likelihood is affected by the MC3 temperature, i.e. all chains use the same prior.
+        prior_temperature_diff: temperature_diff # Difference between prior-temperatures of MC3 chains. Defaults to the same values as `temperature_diff`.
         exponential_temperatures: false # If `true`, temperature increase exponentially ((1 + dt)**i), instead of linearly (1 + dt*i).
         log_swap_matrix: true           # If `True`, write a matrix containing the number of swaps between each pair of chains to an npy-file.
 
