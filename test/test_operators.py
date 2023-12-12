@@ -21,7 +21,7 @@ from sbayes.mcmc_setup import MCMCSetup
 from sbayes.model import Model
 from sbayes.results import Results
 from sbayes.sampling.counts import update_feature_counts, recalculate_feature_counts
-from sbayes.sampling.operators import Operator, AlterCluster, AlterClusterGibbsish
+from sbayes.sampling.operators import Operator, AlterCluster
 from sbayes.sampling.state import Sample, Clusters
 from sbayes.load_data import Data
 from sbayes.util import normalize

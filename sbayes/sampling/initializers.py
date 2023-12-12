@@ -11,7 +11,7 @@ from sbayes.model import Model, update_weights
 from sbayes.sampling.conditionals import sample_source_from_prior
 from sbayes.sampling.counts import recalculate_feature_counts
 from sbayes.sampling.loggers import ClustersLogger
-from sbayes.sampling.operators import ObjectSelector, GibbsSampleSource, AlterClusterGibbsish, AlterClusterGibbsishWide
+from sbayes.sampling.operators import ObjectSelector, GibbsSampleSource, AlterCluster, AlterClusterWide
 from sbayes.sampling.state import Sample, Clusters
 from sbayes.util import get_neighbours, normalize
 
@@ -273,7 +273,7 @@ class SbayesInitializer:
             sample_from_prior=False,
             object_selector=ObjectSelector.ALL,
         )
-        cluster_operator = AlterClusterGibbsishWide(
+        cluster_operator = AlterClusterWide(
             weight=0,
             adjacency_matrix=self.data.network.adj_mat,
             model=self.model,
@@ -320,7 +320,7 @@ class SbayesInitializer:
         return sample
 
     @staticmethod
-    def grow(sample: Sample, cluster_operator: AlterClusterGibbsish, i_cluster: int) -> Sample:
+    def grow(sample: Sample, cluster_operator: AlterCluster, i_cluster: int) -> Sample:
         for _ in range(20):
             sample, q, q_back = cluster_operator.grow_cluster(sample, i_cluster=i_cluster)
             if q != cluster_operator.Q_REJECT:

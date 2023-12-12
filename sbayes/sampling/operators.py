@@ -48,7 +48,7 @@ def get_operator_schedule(
     consider_geo_prior = (geo_prior.prior_type == geo_prior.prior_type.COST_BASED)
 
     operators = {
-        'cluster_naive_n1': AlterClusterGibbsish(
+        'cluster_naive_n1': AlterCluster(
             weight=0.05 * operators_config.clusters,
             adjacency_matrix=data.network.adj_mat,
             model=model,
@@ -62,7 +62,7 @@ def get_operator_schedule(
             neighbourhood=Neighbourhood.direct,
             gibbsish=False,
         ),
-        'cluster_naive_n1_geo': AlterClusterGibbsish(
+        'cluster_naive_n1_geo': AlterCluster(
             weight=0.05 * operators_config.clusters,
             adjacency_matrix=data.network.adj_mat,
             model=model,
@@ -76,7 +76,7 @@ def get_operator_schedule(
             neighbourhood=Neighbourhood.direct,
             gibbsish=False,
         ),
-        'cluster_naive_n2_geo': AlterClusterGibbsish(
+        'cluster_naive_n2_geo': AlterCluster(
             weight=0.05 * operators_config.clusters,
             adjacency_matrix=data.network.adj_mat,
             model=model,
@@ -90,7 +90,7 @@ def get_operator_schedule(
             neighbourhood=Neighbourhood.twostep,
             gibbsish=False,
         ),
-        'cluster_gibbsish': AlterClusterGibbsish(
+        'cluster_gibbsish': AlterCluster(
             weight=0.05 * operators_config.clusters,
             adjacency_matrix=data.network.adj_mat,
             model=model,
@@ -101,7 +101,7 @@ def get_operator_schedule(
             temperature=temperature,
             prior_temperature=prior_temperature,
         ),
-        'cluster_gibbsish_geo': AlterClusterGibbsish(
+        'cluster_gibbsish_geo': AlterCluster(
             weight=0.35 * operators_config.clusters,
             adjacency_matrix=data.network.adj_mat,
             model=model,
@@ -123,7 +123,7 @@ def get_operator_schedule(
         #     consider_geo_prior=consider_geo_prior,
         #     n_changes=2,
         # ),
-        'gibbsish_sample_cluster_wide_geo': AlterClusterGibbsishWide(
+        'gibbsish_sample_cluster_wide_geo': AlterClusterWide(
             weight=0.1 * operators_config.clusters,
             adjacency_matrix=data.network.adj_mat,
             model=model,
@@ -136,7 +136,7 @@ def get_operator_schedule(
             temperature=temperature,
             prior_temperature=prior_temperature,
         ),
-        'gibbsish_sample_cluster_wide_residual': AlterClusterGibbsishWide(
+        'gibbsish_sample_cluster_wide_residual': AlterClusterWide(
             weight=0.05 * operators_config.clusters,
             adjacency_matrix=data.network.adj_mat,
             model=model,
@@ -966,7 +966,7 @@ class Neighbourhood(Enum):
     everywhere = "everywhere"
 
 
-class AlterClusterGibbsish(ClusterOperator):
+class AlterCluster(ClusterOperator):
 
     def __init__(
         self,
@@ -1380,7 +1380,7 @@ class ClusterEffectProposals:
         return expected_features
 
 
-class AlterClusterGibbsishWide(AlterClusterGibbsish):
+class AlterClusterWide(AlterCluster):
 
     def __init__(
         self,
@@ -1561,7 +1561,7 @@ class AlterClusterGibbsishWide(AlterClusterGibbsish):
         return params
 
 
-class AlterClusterEM(AlterClusterGibbsishWide):
+class AlterClusterEM(AlterClusterWide):
 
     def compute_cluster_probs(self, sample, i_cluster, available, n_steps=10):
         model = self.model
@@ -1656,149 +1656,6 @@ class AlterClusterEM(AlterClusterGibbsishWide):
                 break
 
         return z_cluster
-
-
-class AlterCluster(ClusterOperator):
-
-    def __init__(
-        self,
-        *args,
-        adjacency_matrix: NDArray[bool],
-        **kwargs,
-    ):
-        super().__init__(*args, **kwargs)
-        self.adjacency_matrix = adjacency_matrix
-
-    def _propose(self, sample: Sample, **kwargs) -> tuple[Sample, float, float]:
-        log_q = 0.
-        log_q_back = 0.
-        for i in range(self.n_changes):
-            if random.random() < self.p_grow:
-                sample_new, log_q_i, log_q_back_i = self.grow_cluster(sample)
-                log_q_i += np.log(self.p_grow)
-                log_q_back_i += np.log(1 - self.p_grow)
-            else:
-                sample_new, log_q_i, log_q_back_i = self.shrink_cluster(sample)
-                log_q_i += np.log(1 - self.p_grow)
-                log_q_back_i += np.log(self.p_grow)
-
-            if log_q_back_i != self.Q_BACK_REJECT:
-                sample = sample_new
-                log_q += log_q_i
-                log_q_back += log_q_back_i
-
-        if DEBUG:
-            verify_counts(sample, self.model.data.features.values)
-            verify_counts(sample_new, self.model.data.features.values)
-
-        return sample_new, log_q, log_q_back
-
-    def grow_cluster(self, sample: Sample) -> tuple[Sample, float, float]:
-        """Grow a clusters in the current sample (i.e. add a new site to one cluster)."""
-        sample_new = sample.copy()
-        occupied = sample.clusters.any_cluster()
-
-        # Randomly choose one of the clusters to modify
-        i_cluster = RNG.choice(range(sample.clusters.n_clusters))
-        cluster_current = sample.clusters.value[i_cluster, :]
-
-        # Check if cluster is small enough to grow
-        current_size = np.count_nonzero(cluster_current)
-
-        if current_size >= self.model.max_size:
-            # Cluster too big to grow: don't modify the sample and reject the step (q_back = 0)
-            return sample, self.Q_REJECT, self.Q_BACK_REJECT
-
-        neighbours = get_neighbours(cluster_current, occupied, self.adjacency_matrix)
-        connected_step = random.random() < self.p_grow_connected
-        if connected_step:
-            # All neighboring sites that are not yet occupied by other clusters are candidates
-            candidates = neighbours
-        else:
-            # All free sites are candidates
-            candidates = ~occupied
-
-        # When stuck (no candidates) return current sample and reject the step (q_back = 0)
-        if not np.any(candidates):
-            return sample, self.Q_REJECT, self.Q_BACK_REJECT
-
-        # Choose a random candidate and add it to the cluster
-        object_add = RNG.choice(candidates.nonzero()[0])
-        sample_new.clusters.add_object(i_cluster, object_add)
-
-        # Transition probability when growing
-        q_non_connected = 1 / np.count_nonzero(~occupied)
-        q = (1 - self.p_grow_connected) * q_non_connected
-
-        if neighbours[object_add]:
-            q_connected = 1 / np.count_nonzero(neighbours)
-            q += self.p_grow_connected * q_connected
-
-        # Back-probability (shrinking)
-        q_back = 1 / (current_size + 1)
-
-        log_q = np.log(q)
-        log_q_back = np.log(q_back)
-
-        sample_new, log_q_s, log_q_back_s = self.propose_new_sources(
-            sample_old=sample,
-            sample_new=sample_new,
-            i_cluster=i_cluster,
-            object_subset=[object_add],
-        )
-        log_q += log_q_s
-        log_q_back += log_q_back_s
-
-        return sample_new, log_q, log_q_back
-
-    def shrink_cluster(self, sample: Sample) -> tuple[Sample, float, float]:
-        """Shrink a cluster in the current sample (i.e. remove one object from one cluster)."""
-        sample_new = sample.copy()
-
-        # Randomly choose one of the clusters to modify
-        i_cluster = RNG.choice(range(sample.clusters.n_clusters))
-        cluster_current = sample.clusters.value[i_cluster, :]
-
-        # Check if cluster is big enough to shrink
-        current_size = np.count_nonzero(cluster_current)
-        if current_size <= self.model.min_size:
-            # Cluster is too small to shrink: don't modify the sample and reject the step (q_back = 0)
-            return sample, 0, -np.inf
-
-        # Cluster is big enough: shrink
-        removal_candidates = self.get_removal_candidates(cluster_current)
-        object_remove = RNG.choice(removal_candidates)
-        sample_new.clusters.remove_object(i_cluster, object_remove)
-
-        # Transition probability when shrinking.
-        q = 1 / len(removal_candidates)
-        # Back-probability (growing)
-        cluster_new = sample_new.clusters.value[i_cluster]
-        occupied_new = sample_new.clusters.any_cluster()
-        back_neighbours = get_neighbours(cluster_new, occupied_new, self.adjacency_matrix)
-
-        # The back step could always be a non-connected grow step
-        q_back_non_connected = 1 / np.count_nonzero(~occupied_new)
-        q_back = (1 - self.p_grow_connected) * q_back_non_connected
-
-        # If z is a neighbour of the new zone, the back step could also be a connected grow-step
-        if back_neighbours[object_remove]:
-            q_back_connected = 1 / np.count_nonzero(back_neighbours)
-            q_back += self.p_grow_connected * q_back_connected
-
-        log_q = np.log(q)
-        log_q_back = np.log(q_back)
-
-        sample_new, log_q_s, log_q_back_s = self.propose_new_sources(
-            sample_old=sample,
-            sample_new=sample_new,
-            i_cluster=i_cluster,
-            object_subset=[object_remove],
-        )
-        log_q += log_q_s
-        log_q_back += log_q_back_s
-
-        return sample_new, log_q, log_q_back
 
 
 class ClusterJump(ClusterOperator):
