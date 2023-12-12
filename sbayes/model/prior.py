@@ -579,16 +579,28 @@ class SourcePrior:
         if caching and not cache.is_outdated():
             return cache.value.sum()
 
-        if cache.ahead_of("weights"):
-            changed = np.arange(sample.n_objects)
-        else:
-            changed = cache.what_changed(input_key=["source"], caching=caching)
+        # if cache.ahead_of("weights"):
+        #     changed = np.arange(sample.n_objects)
+        # else:
+        #     changed = cache.what_changed(input_key=["source"], caching=caching)
+        #
+        # if len(changed) > 0:
+        #     w = update_weights(sample)[changed]
+        #     s = sample.source.value[changed]
+        #     observation_weights = np.sum(w * s, axis=-1)
+        #     with cache.edit() as source_prior:
+        #         source_prior[changed] = np.sum(np.log(observation_weights), axis=-1, where=self.valid_observations[changed])
 
-        if len(changed) > 0:
-            w = update_weights(sample)[changed]
-            s = sample.source.value[changed]
-            observation_weights = np.sum(w * s, axis=-1)
-            with cache.edit() as source_prior:
+        with cache.edit() as source_prior:
+            if cache.ahead_of("weights"):
+                changed = np.arange(sample.n_objects)
+            else:
+                changed = cache.what_changed(input_key=["source"], caching=caching)
+
+            if len(changed) > 0:
+                w = update_weights(sample)[changed]
+                s = sample.source.value[changed]
+                observation_weights = np.sum(w * s, axis=-1)
                 source_prior[changed] = np.sum(np.log(observation_weights), axis=-1, where=self.valid_observations[changed])
 
         return cache.value.sum()
