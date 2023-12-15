@@ -239,7 +239,11 @@ def sample_categorical(p, binary_encoding=False):
     """
     *output_dims, n_states = p.shape
 
+    assert np.all(p >= 0)
+
     cdf = np.cumsum(p, axis=-1)
+    assert np.allclose(cdf[..., -1], 1.)
+    cdf /= cdf[..., [-1]]
     z = np.random.random(output_dims + [1])
 
     samples = np.argmax(z < cdf, axis=-1)
