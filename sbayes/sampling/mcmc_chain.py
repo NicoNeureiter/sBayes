@@ -228,6 +228,13 @@ class MCMCChain:
 
         self.previous_operator = operator
 
+        if not np.isfinite(self._ll):
+            raise ValueError(f'Non finite log-likelihood ({self._ll}) was accepted '
+                             f'after MCMC operator {operator.operator_name}.')
+        if not np.isfinite(self._prior):
+            raise ValueError(f'Non finite log-prior ({self._prior}) was accepted '
+                             f'after MCMC operator {operator.operator_name}.')
+
         return sample
 
     @staticmethod
