@@ -50,34 +50,31 @@ mcmc:
     samples: 1000                       # The number of samples to be generated (more samples implies lower sampling interval).
     runs: 1                             # The number of times the sampling is repeated (with new output files for each run).
     sample_from_prior: false            # If `true`, the MCMC ignores the data and samples parameters from the prior distribution.
-    init_objects_per_cluster: 5         # The number of objects in the initial clusters at the start of an MCMC run.
     grow_to_adjacent: 0.8               # The fraction of grow-steps that only propose adjacent languages as candidates to be added to an area.
     screen_log_interval: 1000           # Frequency at which the step ID and log-likelihood are written to the screen logger (and log file).
 
     operators:
-        # The frequency of each MCMC operator. Will be normalized to 1.0 at runtime.
+        # The frequency at which each parameter is updated by an MCMC operator. Will be normalized to 1.0 at runtime.
         clusters: 70.0                  # Frequency at which the assignment of objects to clusters is changed.
         weights: 10.0                   # Frequency at which mixture weights are changed.
         source: 20.0                    # Frequency at which the assignments of observations to mixture components are changed.
+
+    initialization:
+        # Configuration for the initialization of a sample in each warm-up chain of the MCMC.
+        attempts: 10                    # Number of initial samples for each warm-up chain. Only the one with highest posterior will be used.
+        em_steps: 50                    # Number of steps in the expectation-maximization initializer.
+        objects_per_cluster: 10         # The average number of objects assigned to each cluster in the initialization phase.
 
     warmup:
         # Configuration of the warm-up phase in the MCMC chain.
         warmup_steps: 50000             # The number of steps performed in the warm-up phase.
         warmup_chains: 10               # The number parallel chains used in the warm-up phase.
 
-    initialization:
-        # Configuration for the initialization of the MCMC / each warm-up chain.
-        attempts: 10                    # Number of initial samples for each warm-up chain. Only the one with highest posterior will be used.
-        initial_cluster_steps: true     # If `true`, apply an initial cluster operator step to each cluster before selecting the best sample.
-        em_steps: 50                    # Number of steps in the expectation-maximization initializer.
-
     mc3:
         # Configuration of Metropolis-Coupled Markov Chain Monte Carlo (MC3) parameters.
         activate: false                 # If `true`, use Metropolis-Coupled Markov Chain Monte Carlo sampling (MC3).
         chains: 4                       # Number of MC3 chains.
         swap_interval: 1000             # Number of MCMC steps between each MC3 chain swap attempt.
-        swap_attempts: 2                # Number of chain pairs which are proposed to be swapped after each interval.
-        only_swap_adjacent_chains: false # Only swap chains that are next to each other in the temperature schedule.
         temperature_diff: 0.05          # Difference between temperatures of MC3 chains.
         prior_temperature_diff: temperature_diff # Difference between prior-temperatures of MC3 chains. Defaults to the same values as `temperature_diff`.
         exponential_temperatures: false # If `true`, temperature increase exponentially ((1 + dt)**i), instead of linearly (1 + dt*i).
