@@ -342,6 +342,8 @@ Ratio of source steps (changing source component assignment): {op_cfg.source}'''
             # All pairs of indices are possible swaps
             possible_swaps = [(i, j) for i in range(n_chains - 1) for j in range(i + 1, n_chains)]
 
+        accepted_swaps = []
+
         # Choose `attempts` index pairs to propose swaps
         for swap_from, swap_to in RNG.choice(possible_swaps, size=attempts, replace=False):
 
@@ -366,15 +368,14 @@ Ratio of source steps (changing source component assignment): {op_cfg.source}'''
                 samples[swap_from], samples[swap_to] = samples[swap_to], samples[swap_from]
                 self.swap_accepts += 1
                 self.swap_matrix[swap_from, swap_to] += 1
+                accepted_swaps.append((swap_from, swap_to))
 
             self.swap_attempts += 1
 
-            accept_str = 'ACCEPT' if accept else 'REJECT'
-            self.logger.info(
-                f"swap chains {(swap_from, swap_to)}?   " +
-                f"{accept_str}  (p_accept={np.exp(mh_ratio):.2f})    " +
-                f"accept-rate={self.swap_accepts/self.swap_attempts}"
-            )
+        self.logger.info(
+            f"Accepted swaps ({attempts} attempts): {accepted_swaps}".ljust(60) +
+            f"accept-rate={self.swap_accepts/self.swap_attempts}"
+        )
 
         self.print_screen_log(samples[0].i_step, self.model.likelihood(samples[0]))
 
