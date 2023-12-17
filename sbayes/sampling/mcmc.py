@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 from __future__ import annotations
+
+from datetime import timedelta
+
 import psutil
 import logging
 import math
@@ -315,10 +318,10 @@ class MCMC:
 
         self.previous_operator = operator
 
-        if not np.isfinite(self._ll):
+        if not np.all(np.isfinite(self._ll)):
             raise ValueError(f'Non finite log-likelihood ({self._ll}) was accepted '
                              f'after MCMC operator {operator.operator_name}.')
-        if not np.isfinite(self._prior):
+        if not np.all(np.isfinite(self._prior)):
             raise ValueError(f'Non finite log-prior ({self._prior}) was accepted '
                              f'after MCMC operator {operator.operator_name}.')
 
@@ -352,8 +355,8 @@ class MCMC:
         likelihood = self.likelihood(sample[self.chain_idx[0]], self.chain_idx[0])
         likelihood_str = f'log-likelihood:  {likelihood:<19.2f}'
 
-        time_per_million = (_time.time() - self.t_start) / (i_step + 1 - self.i_step_start) * 1000000
-        time_str = f'{time_per_million:.0f} seconds / million steps'
+        time_per_million = (_time.time() - self.t_start) / (i_step + 1 - self.i_step_start) * 1_000_000
+        time_str = f'{timedelta(seconds=int(time_per_million))} / million steps'
 
         self.logger.info(i_step_str + likelihood_str + time_str)
 
