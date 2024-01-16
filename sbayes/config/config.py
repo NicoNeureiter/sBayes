@@ -82,6 +82,19 @@ class BaseConfig(BaseModel, extra='forbid'):
                     return s
         return None
 
+    @classmethod
+    def deprecated_attributes(cls) -> list:
+        return []
+
+    @model_validator(mode="before")
+    def warn_about_deprecated_attributes(cls, values: dict):
+        for key in cls.deprecated_attributes():
+            if key in values:
+                warnings.warn(f"The {key} key in {cls.__name__} is deprecated "
+                              f"and will be removed in future versions of sBayes.")
+                values.pop(key)
+        return values
+
 
 """ ===== PRIOR CONFIGS ===== """
 
@@ -94,7 +107,6 @@ class GeoPriorConfig(BaseConfig):
         UNIFORM = "uniform"
         COST_BASED = "cost_based"
         DIAMETER_BASED = "diameter_based"
-        # GAUSSIAN = "gaussian"
         SIMULATED = "simulated"
 
     class AggregationStrategies(str, Enum):
@@ -136,6 +148,7 @@ class GeoPriorConfig(BaseConfig):
     the minimum spanning tree are aggregated."""
 
     @model_validator(mode="before")
+    @classmethod
     def validate_dirichlet_parameters(cls, values):
         if (values.get("type") == "cost_based") and (values.get("rate") is None):
             raise ValidationError(
@@ -499,14 +512,12 @@ class OperatorsConfig(BaseConfig):
     weights: NonNegativeFloat = 15.0
     """Frequency at which mixture weights are changed."""
 
-    cluster_effect: NonNegativeFloat = 5.0
-    """Frequency at which cluster effect parameters are changed."""
-
-    confounding_effects: NonNegativeFloat = 15.0
-    """Frequency at which confounding effects parameters are changed."""
-
     source: NonNegativeFloat = 10.0
     """Frequency at which the assignments of observations to mixture components are changed."""
+
+    @classmethod
+    def deprecated_attributes(cls) -> list:
+        return ["cluster_effect", "confounding_effects"]
 
 
 class WarmupConfig(BaseConfig):
