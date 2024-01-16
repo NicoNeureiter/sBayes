@@ -4,14 +4,13 @@ from __future__ import annotations
 
 import numpy as np
 from numpy.typing import NDArray
-from numpy.core._umath_tests import inner1d
 from scipy.stats import nbinom
 
 from sbayes.model.model_shapes import ModelShapes
 from sbayes.sampling.state import Sample, ModelCache, GenericTypeCache
 from sbayes.sampling.counts import recalculate_feature_counts
 from sbayes.load_data import Data, Confounder, Features, FeatureType
-from sbayes.util import dirichlet_categorical_logpdf, normalize, \
+from sbayes.util import dirichlet_categorical_logpdf, normalize, inner1d, \
     gaussian_mu_marginalised_logpdf, lh_poisson_lambda_marginalised_logpdf, gaussian_posterior_predictive_logpdf
 
 try:
@@ -36,20 +35,27 @@ class Likelihood(object):
         for i, conf in enumerate(self.confounders, start=1):
             self.source_index[conf] = i
 
-        self.categorical = LikelihoodCategorical(features=self.features, confounders=self.confounders,
-                                                 shapes=self.shapes, prior=self.prior, has_counts=True)
-        self.gaussian = LikelihoodGaussian(features=self.features, confounders=self.confounders,
-                                           shapes=self.shapes, prior=self.prior)
-        self.poisson = LikelihoodPoisson(features=self.features, confounders=self.confounders,
-                                         shapes=self.shapes, prior=self.prior)
-        self.logitnormal = LikelihoodLogitNormal(features=self.features, confounders=self.confounders,
-                                                 shapes=self.shapes, prior=self.prior)
-        self.feature_type_likelihoods = [
-            self.categorical,
-            self.gaussian,
-            self.poisson,
-            self.logitnormal
-        ]
+        self.feature_type_likelihoods = {}
+
+        if data.features.categorical is not None:
+            self.categorical = LikelihoodCategorical(features=self.features, confounders=self.confounders,
+                                                     shapes=self.shapes, prior=self.prior, has_counts=True)
+            self.feature_type_likelihoods[FeatureType.categorical] = self.categorical
+
+        if data.features.gaussian is not None:
+            self.gaussian = LikelihoodGaussian(features=self.features, confounders=self.confounders,
+                                               shapes=self.shapes, prior=self.prior)
+            self.feature_type_likelihoods[FeatureType.gaussian] = self.gaussian
+
+        if data.features.poisson is not None:
+            self.poisson = LikelihoodPoisson(features=self.features, confounders=self.confounders,
+                                             shapes=self.shapes, prior=self.prior)
+            self.feature_type_likelihoods[FeatureType.poisson] = self.poisson
+
+        if data.features.logitnormal is not None:
+            self.logitnormal = LikelihoodLogitNormal(features=self.features, confounders=self.confounders,
+                                                     shapes=self.shapes, prior=self.prior)
+            self.feature_type_likelihoods[FeatureType.logitnormal] = self.logitnormal
 
     def __call__(self, sample: Sample, caching=True) -> float:
         """Compute the likelihood of all sites. The likelihood is defined as a mixture of areal and confounding effects.
@@ -58,19 +64,23 @@ class Likelihood(object):
             Returns:
                 The joint likelihood of the current sample
         """
-        log_lh = 0.0
-
-        # Sum up log-likelihood of each mixture component and each type of feature
-        if sample.categorical is not None:
-            log_lh += self.categorical(sample=sample, caching=caching)
-        if sample.gaussian is not None:
-            log_lh += self.gaussian(sample=sample, caching=caching)
-        if sample.poisson is not None:
-            log_lh += self.poisson(sample=sample, caching=caching)
-        if sample.logitnormal is not None:
-            log_lh += self.logitnormal(sample=sample, caching=caching)
-
-        return log_lh
+        return sum(
+            ft_likelihood(sample=sample, caching=caching)
+            for ft_likelihood in self.feature_type_likelihoods.values()
+        )
+        # log_lh = 0.0
+        #
+        # # Sum up log-likelihood of each mixture component and each type of feature
+        # if sample.categorical is not None:
+        #     log_lh += self.categorical(sample=sample, caching=caching)
+        # if sample.gaussian is not None:
+        #     log_lh += self.gaussian(sample=sample, caching=caching)
+        # if sample.poisson is not None:
+        #     log_lh += self.poisson(sample=sample, caching=caching)
+        # if sample.logitnormal is not None:
+        #     log_lh += self.logitnormal(sample=sample, caching=caching)
+        #
+        # return log_lh
 
 
 class LikelihoodGenericType(object):
@@ -203,7 +213,7 @@ class LikelihoodGenericType(object):
         raise NotImplementedError
 
     def na_values(self):
-        pass
+        raise NotImplementedError
 
 
 class LikelihoodCategorical(LikelihoodGenericType):
@@ -213,7 +223,7 @@ class LikelihoodCategorical(LikelihoodGenericType):
     def __call__(self, sample: Sample, caching: bool = True):
         if not caching:
             recalculate_feature_counts(self.features.categorical.values, sample)
-        super().__call__(sample, caching=caching)
+        return super().__call__(sample, caching=caching)
 
     def is_used(self, sample: Sample):
         return sample.categorical is not None
@@ -265,7 +275,7 @@ class LikelihoodCategorical(LikelihoodGenericType):
         sample: Sample,
         changed_clusters: list[int],
         out: NDArray[float],
-    ):
+    ) -> NDArray[float]:
         """Compute the likelihood distribution at each observation given all
         observations in the data-set.
 
@@ -284,7 +294,7 @@ class LikelihoodCategorical(LikelihoodGenericType):
 
         cluster_effect = normalize(cluster_effect_counts, axis=-1)
 
-        compute_component_likelihood(
+        return compute_component_likelihood(
             features=self.features.categorical.values,
             probs=cluster_effect,
             groups=sample.clusters.value,
@@ -298,7 +308,7 @@ class LikelihoodCategorical(LikelihoodGenericType):
         sample: Sample,
         changed_groups: list[int],
         out: NDArray[float],
-    ):
+    ) -> NDArray[float]:
         groups = confounder.group_assignment
         # The expected confounding effect is given by the normalized posterior counts
         prior = self.prior.prior_confounding_effects[confounder.name].categorical
@@ -309,7 +319,7 @@ class LikelihoodCategorical(LikelihoodGenericType):
         )
         conf_effect = normalize(conf_effect_counts, axis=-1)
 
-        compute_component_likelihood(
+        return compute_component_likelihood(
             features=self.features.categorical.values,
             probs=conf_effect,
             groups=groups,
@@ -403,10 +413,8 @@ class LikelihoodGaussian(LikelihoodGenericType):
         changed_clusters: list[int],
         out: NDArray[float],
     ):
-
         mu_0 = self.prior.prior_cluster_effect.gaussian.mean.mu_0_array
         sigma_0 = self.prior.prior_cluster_effect.gaussian.mean.sigma_0_array
-        # Jeffreys prior for variance
 
         groups = sample.clusters.value
         features = self.features.gaussian.values
@@ -419,10 +427,10 @@ class LikelihoodGaussian(LikelihoodGenericType):
             for i_f in range(self.shapes.n_features_gaussian):
                 f = features[g, i_f]
                 sigma_fixed = np.nanstd(f)
-                out[g, i_f] = gaussian_posterior_predictive_logpdf(
+                out[g, i_f] = np.exp(gaussian_posterior_predictive_logpdf(
                     x_new=f, x=f, sigma=sigma_fixed, mu_0=mu_0[i_f], sigma_0=sigma_0[i_f],
                     in_component=sample.gaussian.source.value[g, i_f, 0],
-                )
+                ))
 
     def compute_pointwise_confounder_likelihood(
         self,
@@ -430,7 +438,7 @@ class LikelihoodGaussian(LikelihoodGenericType):
         sample: Sample,
         changed_groups: list[int],
         out: NDArray[float],
-    ):
+    ) -> NDArray[float]:
 
         i_component = sample.model_shapes.get_component_index(confounder.name)
         mu_0 = self.prior.prior_confounding_effects[confounder.name].gaussian.mean.mu_0_array
@@ -443,24 +451,15 @@ class LikelihoodGaussian(LikelihoodGenericType):
 
         for i_g in changed_groups:
             g = groups[i_g]
-            # for i_f in range(self.shapes.n_features_gaussian):
-            #     f = features[g, i_f]
-            #     sigma_fixed = np.nanstd(f)
-            #     out[g, i_f] = gaussian_posterior_predictive_logpdf(
-            #         x_new=f, x=f, sigma=sigma_fixed, mu_0=mu_0[0, i_f], sigma_0=sigma_0[0, i_f],
-            #         in_component=sample.gaussian.source.value[g, i_f, i_component],
-            #     )
-
-            y = gaussian_posterior_predictive_logpdf(
+            out[g, :] = np.exp(gaussian_posterior_predictive_logpdf(
                     x_new=features[g],
                     x=features[g],
                     sigma=np.nanstd(features[g], axis=0),
                     mu_0=mu_0[i_g, :],
                     sigma_0=sigma_0[i_g, :],
                     in_component=sample.gaussian.source.value[g, :, i_component],
-                )
-            # assert np.allclose(out[g, :], y), sample.gaussian.source.value[g, :, i_component]
-            out[g, :] = y
+            ))
+        return out
 
     def pointwise_conditional_cluster_lh(
         self,
@@ -477,25 +476,93 @@ class LikelihoodGaussian(LikelihoodGenericType):
         features_cluster = self.features.gaussian.values[cluster]
         source_cluster = sample.gaussian.source.value[cluster, :, 0]
 
-        # _condition_lh = np.zeros(features_candidates.shape)
-        # for i_f in range(self.shapes.n_features_gaussian):
-        #     f = features_cluster[:, i_f]
-        #     sigma_fixed = np.nanstd(f)
-        #     _condition_lh[:, i_f] = gaussian_posterior_predictive_logpdf(
-        #         x_new=features_candidates[:, i_f], x=f, sigma=sigma_fixed,
-        #         mu_0=mu_0[i_f], sigma_0=sigma_0[i_f],
-        #         in_component=source_cluster[:, i_f],
-        #     )
-
         sigma_fixed = np.nanstd(features_cluster, axis=0)
-        condition_lh = gaussian_posterior_predictive_logpdf(
+        condition_lh = np.exp(gaussian_posterior_predictive_logpdf(
             x_new=features_candidates, x=features_cluster, sigma=sigma_fixed,
             mu_0=mu_0, sigma_0=sigma_0, in_component=source_cluster,
-        )
+        ))
         # assert np.allclose(_condition_lh, condition_lh)
 
-        condition_lh = np.exp(condition_lh)
         return condition_lh
+
+    def pointwise_conditional_cluster_likelihood_2(
+        self,
+        sample: Sample,
+        out: NDArray[float],  # shape: (n_objects, n_features)
+        changed_clusters: list[int] | None,
+        condition_on: NDArray[bool] | None,    # shape: (n_objects,)
+        evaluate_on: NDArray[bool] | None,     # shape: (n_objects,)
+    ):
+        if changed_clusters is None:
+            changed_clusters = range(sample.n_clusters)
+        if condition_on is None:
+            condition_on = np.ones(sample.n_objects, dtype=bool)
+        if evaluate_on is None:
+            evaluate_on = np.ones(sample.n_objects, dtype=bool)
+
+        mu_0 = self.prior.prior_cluster_effect.gaussian.mean.mu_0_array
+        sigma_0 = self.prior.prior_cluster_effect.gaussian.mean.sigma_0_array
+
+        groups = sample.clusters.value
+        features = self.features.gaussian.values
+
+        out[~groups.any(axis=0), :] = 0.
+
+        for i_g in changed_clusters:
+            g = groups[i_g]
+
+            for i_f in range(self.shapes.n_features_gaussian):
+                f = features[:, i_f]
+                f_cond = f[g & condition_on]
+                f_eval = f[g & evaluate_on]
+                sigma_fixed = np.nanstd(f_cond)
+                out[g, i_f] = np.exp(gaussian_posterior_predictive_logpdf(
+                    x_new=f_eval, x=f_cond, sigma=sigma_fixed, mu_0=mu_0[i_f], sigma_0=sigma_0[i_f],
+                    in_component=sample.gaussian.source.value[g, i_f, 0],
+                ))
+
+    def pointwise_conditional_confounder_likelihood_2(
+        self,
+        confounder: Confounder,
+        sample: Sample,
+        out: NDArray[float],
+        changed_groups: list[int] | None,
+        condition_on: NDArray[bool] | None,    # shape: (n_objects,)
+        evaluate_on: NDArray[bool] | None,     # shape: (n_objects,)
+    ) -> NDArray[float]:
+        if changed_groups is None:
+            changed_groups = np.arange(confounder.n_groups)
+        if condition_on is None:
+            condition_on = np.ones(sample.n_objects, dtype=bool)
+        if evaluate_on is None:
+            evaluate_on = np.ones(sample.n_objects, dtype=bool)
+
+        i_component = sample.model_shapes.get_component_index(confounder.name)
+        mu_0 = self.prior.prior_confounding_effects[confounder.name].gaussian.mean.mu_0_array
+        sigma_0 = self.prior.prior_confounding_effects[confounder.name].gaussian.mean.sigma_0_array
+
+        groups = confounder.group_assignment
+        features = self.features.gaussian.values
+
+        out[~groups.any(axis=0), :] = 0.
+
+        for i_g in changed_groups:
+            g = groups[i_g]
+            f_cond = features[g & condition_on]
+            f_eval = features[g & evaluate_on]
+            out[g, :] = np.exp(gaussian_posterior_predictive_logpdf(
+                x_new=f_eval,
+                x=f_cond,
+                sigma=np.nanstd(f_cond, axis=0),
+                mu_0=mu_0[i_g, :],
+                sigma_0=sigma_0[i_g, :],
+                in_component=sample.gaussian.source.value[g, :, i_component],
+            ))
+
+        return out
+
+    def na_values(self):
+        return self.features.gaussian.na_values
 
 
 class LikelihoodPoisson(LikelihoodGenericType):
@@ -589,7 +656,7 @@ class LikelihoodPoisson(LikelihoodGenericType):
             sample: Sample,
             changed_groups: list[int],
             out: NDArray[float],
-    ):
+    ) -> NDArray[float]:
 
         alpha_0 = self.prior.prior_confounding_effects[confounder.name].poisson.alpha_0_array
         beta_0 = self.prior.prior_confounding_effects[confounder.name].poisson.beta_0_array
@@ -609,6 +676,8 @@ class LikelihoodPoisson(LikelihoodGenericType):
                 beta_1 = beta_0[i, j] + n
 
                 out[g, j] = nbinom.pmf(f, alpha_1, beta_1 / (1 + beta_1))
+
+        return out
 
     def pointwise_conditional_cluster_lh(
         self,
@@ -631,6 +700,9 @@ class LikelihoodPoisson(LikelihoodGenericType):
             condition_lh[:, j] = nbinom.pmf(features_candidates[:, j], alpha_1, beta_1 / (1 + beta_1))
 
         return condition_lh
+
+    def na_values(self):
+        return self.features.poisson.na_values
 
 
 class LikelihoodLogitNormal(LikelihoodGenericType):
@@ -701,7 +773,7 @@ class LikelihoodLogitNormal(LikelihoodGenericType):
         sample: Sample,
         changed_clusters: list[int],
         out: NDArray[float],
-    ):
+    ) -> NDArray[float]:
 
         mu_0 = self.prior.prior_cluster_effect.logitnormal.mean.mu_0_array
         sigma_0 = self.prior.prior_cluster_effect.logitnormal.mean.sigma_0_array
@@ -720,6 +792,8 @@ class LikelihoodLogitNormal(LikelihoodGenericType):
                 f = f_g[:, j]
                 # todo: implement likelihood
                 out[g, j] = np.repeat(0.5, len(f))
+
+        return out
 
     def compute_pointwise_confounder_likelihood(
             self,
@@ -767,6 +841,10 @@ class LikelihoodLogitNormal(LikelihoodGenericType):
 
         return condition_lh
 
+    def na_values(self):
+        return (self.features.logitnormal.na_values)
+
+
 def compute_component_likelihood(
     features: NDArray[bool],    # shape: (n_objects, n_features, n_states)
     probs: NDArray[float],      # shape: (n_groups, n_features, n_states)
@@ -774,11 +852,6 @@ def compute_component_likelihood(
     changed_groups: list[int],
     out: NDArray[float]         # shape: (n_objects, n_features)
 ) -> NDArray[float]:            # shape: (n_objects, n_features)
-
-    # [NN] Idea: If the majority of groups is outdated, a full update (w/o caching) may be faster
-    # [NN] ...does not seem like it -> deactivate for now.
-    # if len(changed_groups) > 0.8 * groups.shape[0]:
-    #     return np.einsum('ijk,hjk,hi->ij', features, probs, groups, optimize=True)
 
     out[~groups.any(axis=0), :] = 0.
     for i in changed_groups:
@@ -790,6 +863,8 @@ def compute_component_likelihood(
         assert np.allclose(out[g, :], inner1d(f_g, p_g[np.newaxis, ...]))
 
     return out
+
+
 
 
 def update_categorical_weights(sample: Sample, caching=True) -> NDArray[float]:
@@ -866,6 +941,14 @@ def update_logitnormal_weights(sample: Sample, caching=True) -> NDArray[float]:
         cache.update_value(w_normed)
 
     return cache.value
+
+
+update_weights = {
+    FeatureType.categorical: update_categorical_weights,
+    FeatureType.gaussian: update_gaussian_weights,
+    FeatureType.poisson: update_poisson_weights,
+    FeatureType.logitnormal: update_logitnormal_weights,
+}
 
 
 def normalize_weights(

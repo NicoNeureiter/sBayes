@@ -8,8 +8,9 @@ from scipy.stats import norm as gaussian
 from scipy.special import logsumexp
 import matplotlib.pyplot as plt
 
-from sbayes.util import log_multinom, gaussian_mu_marginalised_logpdf, gaussian_mu_posterior_logpdf, \
-    gaussian_posterior_predictive_logpdf, normalize
+from sbayes.util import log_multinom, normalize
+from sbayes.model.gaussian import gaussian_mu_marginalised_logpdf, gaussian_mu_posterior_logpdf, \
+    gaussian_posterior_predictive_logpdf
 
 
 class TestGaussian(unittest.TestCase):

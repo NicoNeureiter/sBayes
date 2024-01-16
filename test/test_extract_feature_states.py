@@ -16,8 +16,8 @@ class TestExctactFeatureStates(unittest.TestCase):
         output_path = 'test/test_files/feature_states.csv'
         expected_output_path = 'test/test_files/feature_states_expected.csv'
 
-        extract_feature_states.main(['--input', input_path,
-                                     '--output', output_path])
+        guess_feature_types.main(['--input', input_path,
+                                  '--output', output_path])
 
         with open(output_path, 'r') as output_file:
             output = output_file.read()

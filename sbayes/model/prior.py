@@ -741,6 +741,7 @@ class CategoricalConfoundingEffectsPrior(DirichletPrior, ABC):
 
 
 class ClusterEffectPrior:
+
     categorical: CategoricalClusterEffectPrior | None
     poisson: PoissonClusterEffectPrior | None
     gaussian: GaussianClusterEffectPrior | None
@@ -859,7 +860,7 @@ class LogitNormalMeanClusterEffectPrior(GaussianMeanPrior, ABC):
             raise ValueError(self.invalid_prior_message(self.prior_type))
 
 
-class GaussianMeanClusterEffectPrior(GaussianMeanPrior, ABC):
+class GaussianMeanClusterEffectPrior(GaussianMeanPrior):
     def parse_attributes(self):
         self.prior_type = self.config.type
 
@@ -879,7 +880,7 @@ class GaussianMeanClusterEffectPrior(GaussianMeanPrior, ABC):
         return f'Prior on the cluster effect for Gaussian features (mean): {self.prior_type.value}\n'
 
 
-class GaussianVarianceClusterEffectPrior(GaussianVariancePrior, ABC):
+class GaussianVarianceClusterEffectPrior(GaussianVariancePrior):
     def parse_attributes(self):
         self.prior_type = self.config.type
 

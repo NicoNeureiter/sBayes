@@ -1403,14 +1403,13 @@ def gaussian_mu_marginalised_logpdf(
     return loga + logb + 1 / 2 * log(pi) - log(sqrt(c)) + (f ** 2 / (4 * c))
 
 
-def gaussian_mu_posterior_logpdf(
+def gaussian_mu_posterior(
     x: NDArray[float],
-    mu: NDArray[float],
     sigma: NDArray[float],
     mu_0: float,
     sigma_0: float,
     in_component: NDArray[bool],
-) -> float | NDArray:
+) -> stats.norm_gen:
     """
     Computes the posterior probability for mean `mu`, given standard deviation `sigma`
     and prior on mu is a normal distribution with N(mu_0, sigma_0**2).
@@ -1424,6 +1423,10 @@ def gaussian_mu_posterior_logpdf(
     Return:
         the marginal (log)-likelihood of the data
     """
+    if sigma is None:
+        # Use empirical estimate for sigma
+        sigma = np.nanstd(x, axis=0, where=in_component)
+        sigma[~np.any(in_component, axis=0)] = EPS
 
     # Sigma need to be positive (in practice, at least EPS)
     sigma = np.maximum(sigma, EPS)
@@ -1431,18 +1434,6 @@ def gaussian_mu_posterior_logpdf(
     # Sufficient statistics
     n = np.count_nonzero(in_component, axis=0)
     sample_mean = np.mean(x, axis=0, where=in_component)
-
-    if isinstance(n, (int, float, np.int64, np.int32)):
-        if n == 0:
-            return 0.
-    else:
-        assert isinstance(n, np.ndarray), type(n)
-        if np.any(n == 0):
-            if np.all(n == 0):
-                return np.zeros_like(mu)
-            res = np.zeros_like(n)
-            res[n > 0] = gaussian_mu_marginalised_logpdf(x[..., n > 0], sigma, mu_0[n > 0], sigma_0[n > 0], in_component[..., n > 0])
-            return res
 
     # Derive Posterior parameters
     prec = 1 / sigma ** 2
@@ -1452,16 +1443,65 @@ def gaussian_mu_posterior_logpdf(
     posterior_mean = w_observations * sample_mean + w_prior * mu_0
     posterior_var = 1 / (n * prec + prec_0)
 
-    return stats.norm.logpdf(mu, loc=posterior_mean, scale=np.sqrt(posterior_var))
+    return stats.norm(loc=posterior_mean, scale=np.sqrt(posterior_var))
+
+
+def gaussian_mu_posterior_logpdf(
+    x: NDArray[float],
+    mu: NDArray[float],
+    sigma: NDArray[float],
+    mu_0: float,
+    sigma_0: float,
+    in_component: NDArray[bool],
+) -> float | NDArray:
+    """
+    Computes the posterior probability for mean `mu`, given standard deviation `sigma`
+    and prior on mu is a normal distribution with N(mu_0, sigma_0**2).
+    Args:
+        x: the data, measurements following a normal distribution
+        mu: the mu value at which the posterior logpdf will be evaluated
+        mu_0: mean of the prior on mu
+        sigma_0: standard deviation of the prior on mu
+        sigma: standard deviation of the normal distribution
+        in_component: Boolean array (same shape as x) showing which values in x are from
+            the current mixture component, i.e. are included in the likelihood
+    Return:
+        the marginal (log)-likelihood of the data
+    """
+    return gaussian_mu_posterior(x=x, sigma=sigma, mu_0=mu_0, sigma_0=sigma_0, in_component=in_component).logpdf(mu)
+
+
+def gaussian_mu_posterior_sample(
+    x: NDArray[float],
+    sigma: NDArray[float],
+    mu_0: float,
+    sigma_0: float,
+    in_component: NDArray[bool],
+) -> NDArray[float]:
+    """
+    Computes the posterior probability for mean `mu`, given standard deviation `sigma`
+    and prior on mu is a normal distribution with N(mu_0, sigma_0**2).
+    Args:
+        x: the data, measurements following a normal distribution
+        mu: the mu value at which the posterior logpdf will be evaluated
+        mu_0: mean of the prior on mu
+        sigma_0: standard deviation of the prior on mu
+        sigma: standard deviation of the normal distribution
+        in_component: Boolean array (same shape as x) showing which values in x are from
+            the current mixture component, i.e. are included in the likelihood
+    Return:
+        the marginal (log)-likelihood of the data
+    """
+    return gaussian_mu_posterior(x=x, sigma=sigma, mu_0=mu_0, sigma_0=sigma_0, in_component=in_component).rvs()
 
 
 def gaussian_posterior_predictive_logpdf(
-    x_new: NDArray[float],
-    x: NDArray[float],
-    sigma: NDArray[float],
-    mu_0: NDArray[float],
-    sigma_0: float,
-    in_component: NDArray[bool],
+    x_new: NDArray[float],          # (n_objects, n_features)
+    x: NDArray[float],              # (n_objects_other, n_features)
+    sigma: NDArray[float],          # (n_objects, )
+    mu_0: NDArray[float],           # (n_objects, )
+    sigma_0: NDArray[float],        # (n_objects, )
+    in_component: NDArray[bool],    # (n_objects, n_features)
 ) -> float | NDArray:
     """
         P( x' | X, m, s, sigma ) = ∫ P( x' | µ, sigma ) P( µ | m, s, X, sigma ) dµ
@@ -1537,6 +1577,74 @@ def lh_poisson_lambda_marginalised_logpdf(
     return alpha_0 * log(beta_0) - log_factorial_sum - loggamma(alpha_0) + \
            loggamma(n * x_bar + alpha_0) - log(n + beta_0) * (n * x_bar + alpha_0)
 
+def poisson_lambda_posterior(
+    x: np.array,
+    alpha_0: float,
+    beta_0: float,
+    in_component: NDArray[bool],
+) -> stats.gamma:
+    """
+    Computes the marginal (log)-likelihood for a Poisson model with the rate (lambda) marginalised out where the
+    prior on lambda follows a gamma distribution: gamma(alpha_0, beta_0).
+    Args:
+        x: the data, measurements following a Poisson distribution
+        alpha_0: shape of the gamma prior on lambda
+        beta_0: rate of the gamma prior on lambda
+        in_component: Boolean array (same shape as x) showing which values in x are from
+            the current mixture component, i.e. are included in the likelihood.
+    Return:
+        the marginal (log)-likelihood of the data
+    """
+
+    # Sufficient statistics
+    n = np.count_nonzero(in_component, axis=0)
+    x_sum = x.sum(axis=0, where=in_component)
+
+    # Create gamma distribution objet for posterior
+    return stats.gamma(alpha_0 + x_sum, beta_0 + n)
+
+
+def poisson_lambda_posterior_logpdf(
+    x: NDArray[int],
+    poisson_mean: NDArray[float],
+    alpha_0: NDArray[float],
+    beta_0: NDArray[float],
+    in_component: NDArray[bool],
+) -> NDArray[float]:
+    """Computes the (log)-posterior density for the lambda parameter of a poisson likelihood.
+
+    Args:
+        x: the data, measurements following a Poisson distribution
+        alpha_0: shape of the gamma prior on lambda
+        beta_0: rate of the gamma prior on lambda
+        in_component: Boolean array (same shape as x) showing which values in x are from
+            the current mixture component, i.e. are included in the likelihood.
+    Return:
+        the marginal (log)-likelihood of the data
+    """
+    return poisson_lambda_posterior(x, alpha_0, beta_0, in_component).logpmf(poisson_mean)
+
+
+def poisson_lambda_posterior_sample(
+    x: NDArray[int],
+    alpha_0: NDArray[float],
+    beta_0: NDArray[float],
+    in_component: NDArray[bool],
+) -> NDArray[float]:
+    """Generate the mean of a poisson likelihood from the posterior distribution, i.e. conditioned on prior parameters
+    alpha_0, beta_0 (assuming a gamma prior) and data x.
+
+    Args:
+        x: the data, measurements following a Poisson distribution
+        alpha_0: shape of the gamma prior on lambda
+        beta_0: rate of the gamma prior on lambda
+        in_component: Boolean array (same shape as x) showing which values in x are from
+            the current mixture component, i.e. are included in the likelihood.
+    Return:
+        the marginal (log)-likelihood of the data
+    """
+    return poisson_lambda_posterior(x, alpha_0, beta_0, in_component).rvs()
+
 
 def get_along_axis(a: NDArray, index: int, axis: int):
     """Get the index-th entry in the axis-th dimension of array a.
@@ -1551,9 +1659,14 @@ def get_along_axis(a: NDArray, index: int, axis: int):
 
 def pmf_categorical_with_replacement(idxs: list[int], p: NDArray[float]):
     prob = 0
-    for idxs_perm in map(list, permutations(idxs)):
-        prob += np.prod(p[idxs_perm]) / np.prod(1-np.cumsum(p[idxs_perm][:-1]))
+    for idxs_perm in permutations(idxs):
+        p_perm = p[list(idxs_perm)]
+        prob += np.prod(p_perm) / np.prod(1-np.cumsum(p_perm[:-1]))
     return prob
+
+
+def inner1d(x: NDArray, y: NDArray) -> NDArray:
+    return np.sum(x * y, axis=-1)
 
 
 if __name__ == "__main__":

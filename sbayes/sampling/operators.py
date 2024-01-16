@@ -8,22 +8,18 @@ from typing import Sequence, Any
 
 import numpy as np
 from numpy.typing import NDArray
-from numpy.core.umath_tests import inner1d
 import scipy.stats as stats
 from scipy.stats import nbinom
 
-from sbayes.load_data import Features, CategoricalFeatures, GaussianFeatures, PoissonFeatures, LogitNormalFeatures, \
-    FeatureType
+from sbayes.load_data import Features, CategoricalFeatures, FeatureType
 from sbayes.sampling.conditionals import conditional_effect_mean
 from sbayes.sampling.counts import recalculate_feature_counts, update_feature_counts, update_sufficient_statistics
 from sbayes.sampling.state import Sample
-from sbayes.util import dirichlet_logpdf, normalize, get_neighbours, RND_SEED
-from sbayes.model import Model, normalize_weights, update_categorical_weights, \
-                                update_gaussian_weights, update_poisson_weights, update_logitnormal_weights
+from sbayes.util import dirichlet_logpdf, normalize, get_neighbours, RND_SEED, inner1d
+from sbayes.model import Model, normalize_weights
 from sbayes.preprocessing import sample_categorical
 from sbayes.config.config import OperatorsConfig
-from sbayes.model.likelihood import Likelihood
-import sbayes.model
+from sbayes.model.likelihood import update_weights
 
 
 DEBUG = 1
@@ -170,7 +166,6 @@ class DirichletOperator(Operator, ABC):
         return w_new, log_q, log_q_back
 
 
-# todo: is this class still relevant?
 class AlterWeights(DirichletOperator):
 
     STEP_PRECISION = 15
@@ -266,51 +261,48 @@ class GibbsSampleSource(Operator):
 
         log_q = log_q_back = 0
         sample_new = sample.copy()
+        model = self.model_by_chain[sample.chain]
 
-        for ft in FeatureType.values():
-            if self.model_by_chain[sample.chain].data.features.get_ft_features(ft):
+        for ft, ft_sample in sample.feature_type_samples.items():
+            features = model.data.features.get_ft_features(ft).values
+            na_features = model.data.features.get_ft_features(ft).na_values
 
-                features = self.model_by_chain[sample.chain].data.features.get_ft_features(ft).values
-                na_features = self.model_by_chain[sample.chain].data.features.get_ft_features(ft).na_values
+            assert np.all(getattr(sample, ft).source.value[na_features] == 0)
 
-                assert np.all(getattr(sample, ft).source.value[na_features] == 0)
+            object_subset = self.select_object_subset(sample)
 
-                object_subset = self.select_object_subset(sample)
+            if self.sample_from_prior:
+                update_ft_weights = update_weights[ft]
+                p = update_ft_weights(sample)[object_subset]
+            else:
+                p = self.calculate_source_posterior(sample=sample, feature_type=ft, object_subset=object_subset)
 
-                if self.sample_from_prior:
-                    update_weights = getattr(sbayes.model, "update_" + ft + "_weights")
-                    p = update_weights(sample)[object_subset]
-                else:
-                    p = self.calculate_source_posterior(sample=sample, feature_type=ft, object_subset=object_subset)
+            # Sample the new source assignments
+            with ft_sample.source.edit() as source:
+                source[object_subset] = sample_categorical(p=p, binary_encoding=True)
+                source[na_features] = False
 
-                # Sample the new source assignments
-                x = sample_categorical(p=p, binary_encoding=True)
-                x[na_features[object_subset]] = False
+            if ft == FeatureType.categorical:
+                update_feature_counts(sample, sample_new, features, object_subset)
 
-                # with sample_new.source.edit() as source:
-                #     source[object_subset] = sample_categorical(p=p, binary_encoding=True)
-                #     source[na_features] = 0
-                if ft == FeatureType.categorical:
-                    update_feature_counts(sample, sample_new, features, object_subset)
+                if DEBUG:
+                    verify_counts(sample_new, features)
+            else:
+                update_sufficient_statistics(sample, sample_new, features, object_subset)
 
-                    if DEBUG:
-                        verify_counts(sample_new, features)
-                else:
-                    update_sufficient_statistics(sample, sample_new, features, object_subset)
+            # Transition probability forward:
+            log_q += np.log(p[getattr(sample_new, ft).source.value[object_subset]]).sum()
 
-                # Transition probability forward:
-                log_q += np.log(p[getattr(sample_new, ft).source.value[object_subset]]).sum()
+            assert np.all(getattr(sample_new, ft).source.value[na_features] == 0)
+            assert np.all(getattr(sample_new, ft).source.value[~na_features].sum(axis=-1) == 1)
 
-                assert np.all(getattr(sample_new, ft).source.value[na_features] == 0)
-                assert np.all(getattr(sample_new, ft).source.value[~na_features].sum(axis=-1) == 1)
+            # Transition probability backward:
+            if self.sample_from_prior:
+                p_back = p
+            else:
+                p_back = self.calculate_source_posterior(sample=sample_new, feature_type=ft, object_subset=object_subset)
 
-                # Transition probability backward:
-                if self.sample_from_prior:
-                    p_back = p
-                else:
-                    p_back = self.calculate_source_posterior(sample=sample_new, feature_type=ft, object_subset=object_subset)
-
-                log_q_back += np.log(p_back[getattr(sample, ft).source.value[object_subset]]).sum()
+            log_q_back += np.log(p_back[getattr(sample, ft).source.value[object_subset]]).sum()
 
         return sample_new, log_q, log_q_back
 
@@ -370,26 +362,21 @@ class GibbsSampleSource(Operator):
 
         # 1. compute pointwise likelihood for each component
         model: Model = self.model_by_chain[sample.chain]
-        lh = Likelihood(data=model.data, shapes=model.shapes, prior=model.prior)
-
-        lh_per_component = getattr(lh, feature_type).pointwise_likelihood(model=model, sample=sample)
+        lh_per_component = model.likelihood.feature_type_likelihoods[feature_type].pointwise_likelihood(model=model, sample=sample)
 
         # 2. multiply by weights and normalize over components to get the source posterior
-        update_weights = getattr(sbayes.model, "update_" + feature_type + "_weights")
-        weights = update_weights(sample)
+        update_ft_weights = update_weights[feature_type]
+        weights = update_ft_weights(sample)
 
         # 3. The posterior of the source for each observation is likelihood times prior
         # (normalized to sum up to one across source components):
-        return normalize(
-            lh_per_component[object_subset] * weights[object_subset], axis=-1
-        )
+        return normalize(lh_per_component[object_subset] * weights[object_subset], axis=-1)
 
     def get_step_size(self, sample_old: Sample, sample_new: Sample) -> float:
-        feature_types = ["categorical", "gaussian", "poisson", "logitnormal"]
         count = 0
-        for ft in feature_types:
-            if getattr(sample_old, ft) is not None:
-                count += np.count_nonzero(getattr(sample_old, ft).source.value ^ getattr(sample_new, ft).source.value)
+        for ft in sample_old.feature_type_samples:
+                count += np.count_nonzero(sample_old.feature_type_samples[ft].source.value ^
+                                          sample_new.feature_type_samples[ft].source.value)
         return count
 
     STEP_SIZE_UNIT: str = "observations reassigned"
@@ -419,12 +406,12 @@ class GibbsSampleWeights(Operator):
 
         for ft in feature_types:
             if getattr(sample, ft) is not None:
-                na_features = getattr(model.likelihood, ft).na_values()
+                na_features = model.likelihood.feature_type_likelihoods[ft].na_values()
 
                 # Compute the old likelihood
                 w_old = getattr(sample, ft).weights.value
-                update_weights = getattr(sbayes.model, "update_" + ft + "_weights")
-                w_old_normalized = update_weights(sample)
+                update_ft_weights = update_weights[ft]
+                w_old_normalized = update_ft_weights(sample)
 
                 log_lh_old = self.source_lh_by_feature(getattr(sample, ft).source.value,
                                                        w_old_normalized, na_features)
@@ -435,7 +422,7 @@ class GibbsSampleWeights(Operator):
                 getattr(sample, ft).weights.set_value(w_new)
 
                 # Compute new likelihood
-                w_new_normalized = update_weights(sample)
+                w_new_normalized = update_ft_weights(sample)
                 log_lh_new = self.source_lh_by_feature(getattr(sample, ft).source.value, w_new_normalized, na_features)
                 log_prior_new = getattr(model.prior.prior_weights, ft).pointwise_prior(sample)
 
@@ -581,9 +568,9 @@ class ClusterOperator(Operator):
             )
 
         elif self.resample_source_mode == ResampleSourceMode.PRIOR:
-            update_weights = getattr(sbayes.model, "update_" + feature_type + "weights")
-            p = update_weights(sample_new)[object_subset]
-            p_back = update_weights(sample_old)[object_subset]
+            update_ft_weights = update_weights[feature_type]
+            p = update_ft_weights(sample_new)[object_subset]
+            p_back = update_ft_weights(sample_old)[object_subset]
             with getattr(sample_new, feature_type).source.edit() as source:
                 source[object_subset, :, :] = sample_categorical(p, binary_encoding=True)
                 source[na_features] = 0
@@ -633,7 +620,7 @@ class ClusterOperator(Operator):
         sample_new: Sample,
         sample_old: Sample,
         i_cluster: int,
-        feature_type: str,
+        feature_type: FeatureType,
         object_subset: slice | list[int] | NDArray[int] = slice(None)
     ) -> tuple[Sample, float, float]:
         """Resample the observations to mixture components (their source)."""
@@ -641,28 +628,29 @@ class ClusterOperator(Operator):
         features = getattr(model.data.features, feature_type).values
         na_features = getattr(model.data.features, feature_type).na_values
 
+        ft_sample_new = sample_new.feature_type_samples[feature_type]
+        ft_sample_old = sample_old.feature_type_samples[feature_type]
+
         # Make sure object_subset is a boolean index array
         object_subset = np.isin(np.arange(sample_new.n_objects), object_subset)
 
         # todo: activate for other feature types (gaussian, poisson, logitnormal)
         lh_per_component = component_likelihood_given_unchanged(
-            model, sample_new, object_subset, i_cluster=i_cluster,
-            feature_type=feature_type
+            model, sample_new, object_subset, i_cluster, feature_type
         )
 
-        update_weights = getattr(sbayes.model, "update_" + feature_type + "_weights")
-
+        update_ft_weights = update_weights[feature_type]
         if self.sample_from_prior:
-            p = update_weights(sample_new)[object_subset]
+            p = update_ft_weights(sample_new)[object_subset]
         else:
-            w = update_weights(sample_new)[object_subset]
+            w = update_ft_weights(sample_new)[object_subset]
             p = normalize(w * lh_per_component, axis=-1)
-            # p = self.calculate_source_posterior(sample_new, object_subset)
+            p[na_features] = 1.0
 
         # Sample the new source assignments
-        with getattr(sample_new, feature_type).source.edit() as source:
+        with ft_sample_new.source.edit() as source:
             source[object_subset] = sample_categorical(p=p, binary_encoding=True)
-            source[na_features] = 0
+            source[na_features] = False
 
         if feature_type == FeatureType.categorical:
             update_feature_counts(sample_old, sample_new, features, slice(None))
@@ -673,18 +661,18 @@ class ClusterOperator(Operator):
             update_sufficient_statistics(sample_old, sample_new, features, object_subset)
 
         # Transition probability forward:
-        source_new = getattr(sample_new, feature_type).source.value[object_subset]
+        source_new = ft_sample_new.source.value[object_subset]
         log_q = np.log(p[source_new]).sum()
 
         # Transition probability backward:
         if self.sample_from_prior:
-            p_back = update_weights(sample_old)[object_subset]
+            p_back = update_ft_weights(sample_old)[object_subset]
         else:
-            w = update_weights(sample_old)[object_subset]
+            w = update_ft_weights(sample_old)[object_subset]
             p_back = normalize(w * lh_per_component, axis=-1)
             # p_back = self.calculate_source_posterior(sample_old, object_subset)
 
-        source_old = getattr(sample_old, feature_type).source.value[object_subset]
+        source_old = ft_sample_old.source.value[object_subset]
         log_q_back = np.log(p_back[source_old]).sum()
 
         return sample_new, log_q, log_q_back
@@ -705,19 +693,19 @@ def component_likelihood_given_unchanged(
     sample: Sample,
     object_subset: NDArray[bool],
     i_cluster: int,
-    feature_type: str
+    feature_type: FeatureType
 ) -> NDArray[float]:  # shape: (n_objects, n_feature, n_components)
-
-    features = getattr(model.data.features, feature_type)
+    ft_sample = sample.feature_type_samples[feature_type]
+    features = model.data.features.get_ft_features(feature_type)
     confounders = model.data.confounders
     cluster = sample.clusters.value[i_cluster]
-    source = getattr(sample, feature_type).source.value
+    source = ft_sample.source.value
     subset_size = np.count_nonzero(object_subset)
 
-    likelihoods = np.zeros((subset_size, getattr(sample, feature_type).n_features, sample.n_components))
+    likelihoods = np.zeros((subset_size, ft_sample.n_features, sample.n_components))
 
     # todo: cluster likelihood given unchanged for poisson, gaussian and logitnormal
-    if feature_type == "categorical":
+    if feature_type == FeatureType.categorical:
         likelihoods[..., 0] = cluster_likelihood_categorical_given_unchanged(cluster, features, object_subset, source)
 
         for i_conf, conf in enumerate(confounders, start=1):
@@ -729,7 +717,7 @@ def component_likelihood_given_unchanged(
                 for g in groups
             ])
 
-            unchangeable_feature_counts = getattr(sample, feature_type).sufficient_statistics[conf].value - changeable_counts
+            unchangeable_feature_counts = ft_sample.sufficient_statistics[conf].value - changeable_counts
             prior_counts = getattr(model.prior.prior_confounding_effects[conf], feature_type).concentration_array(sample)
             conf_effect = normalize(unchangeable_feature_counts + prior_counts, axis=-1)
 
@@ -743,8 +731,29 @@ def component_likelihood_given_unchanged(
 
         # Fix likelihood of NA features to 1
         likelihoods[features.na_values[object_subset]] = 1.
+    elif feature_type == FeatureType.gaussian:
+        gaussian_lh = model.likelihood.gaussian
+        gaussian_lh.pointwise_conditional_cluster_likelihood_2(
+            sample=sample,
+            out=likelihoods[..., 0],
+            condition_on=object_subset,
+        )
+        for i, conf in enumerate(sample.confounders.values(), start=1):
+            gaussian_lh.pointwise_conditional_confounder_likelihood_2(
+                confounder=conf,
+                sample=sample,
+                out=likelihoods[..., i],
+                condition_on=object_subset,
+            )
+
+        # Fix likelihood of NA features to 1
+        likelihoods[features.na_values[object_subset]] = 1.
     else:
-        likelihoods[:, :] = 1/likelihoods.shape[2]
+        raise NotImplementedError
+        # likelihoods[:, :] = 1/likelihoods.shape[2]
+
+        # Fix likelihood of NA features to 1
+        likelihoods[features.na_values[object_subset]] = 1.
 
     assert np.all(likelihoods >= 0)
     return likelihoods
@@ -820,30 +829,24 @@ class AlterClusterGibbsish(ClusterOperator):
             n_available = np.count_nonzero(candidates)
             return 0.5 * np.ones(n_available)
 
-            # TODO: check with peter whether I didn't understand something here:
-            #  return cluster_posterior[0.5*np.ones(n_available)]
+        for ft_likelihood in model.likelihood.feature_type_likelihoods:
+            assert ft_likelihood.is_used(sample)
+            cluster_lh_z = ft_likelihood.pointwise_conditional_cluster_lh(
+                sample=sample, i_cluster=i_cluster, available=candidates
+            )
 
-        lh = Likelihood(data=model.data, shapes=model.shapes, prior=model.prior)
+            all_lh = deepcopy(
+                ft_likelihood.pointwise_likelihood(model=model, sample=sample)[candidates, :]
+            )
+            all_lh[..., 0] = cluster_lh_z
 
-        # for ft in feature_types:
-        for ft_likelihood in lh.feature_type_likelihoods:
-            if ft_likelihood.is_used(sample):
-                cluster_lh_z = ft_likelihood.pointwise_conditional_cluster_lh(
-                    sample=sample, i_cluster=i_cluster, available=candidates
-                )
+            weights_z01 = self.compute_feature_weights_with_and_without(
+                sample, candidates, feature_type=ft_likelihood.feature_type
+            )
+            feature_lh_z01 = inner1d(all_lh[np.newaxis, ...], weights_z01)
+            marginal_lh_z01 = np.prod(feature_lh_z01, axis=-1)
 
-                all_lh = deepcopy(
-                    ft_likelihood.pointwise_likelihood(model=model, sample=sample)[candidates, :]
-                )
-                all_lh[..., 0] = cluster_lh_z
-
-                weights_z01 = self.compute_feature_weights_with_and_without(
-                    sample, candidates, feature_type=ft_likelihood.feature_type
-                )
-                feature_lh_z01 = inner1d(all_lh[np.newaxis, ...], weights_z01)
-                marginal_lh_z01 = np.prod(feature_lh_z01, axis=-1)
-
-                cluster_posterior[candidates] *= marginal_lh_z01[1] / (marginal_lh_z01[0] + marginal_lh_z01[1])
+            cluster_posterior[candidates] *= marginal_lh_z01[1] / (marginal_lh_z01[0] + marginal_lh_z01[1])
 
         if self.consider_geo_prior:
             cluster_posterior *= np.exp(model.prior.geo_prior.get_costs_per_object(sample, i_cluster)[candidates])
@@ -856,15 +859,8 @@ class AlterClusterGibbsish(ClusterOperator):
         available: NDArray[bool],   # shape: (n_objects, )
         feature_type: FeatureType,
     ) -> NDArray[float]:            # shape: (2, n_objects, n_features, n_components)
-        update_weights_by_ft = {
-            FeatureType.categorical: update_categorical_weights,
-            FeatureType.gaussian: update_gaussian_weights,
-            FeatureType.poisson: update_poisson_weights,
-            FeatureType.logitnormal: update_logitnormal_weights,
-        }
-
-        update_weights = update_weights_by_ft[feature_type]
-        weights_current = update_weights(sample, caching=True)[available]
+        update_ft_weights = update_weights[feature_type]
+        weights_current = update_ft_weights(sample, caching=True)[available]
         # weights = normalize_weights(sample.weights.value, has_components)
 
         has_components = deepcopy(sample.cache.feature_type_cache[feature_type].has_components.value[available, :])
@@ -1066,7 +1062,7 @@ class ClusterEffectProposals:
     @staticmethod
     def expected_confounder_features(model: Model, sample: Sample) -> NDArray[float]:
         expected_features = np.zeros((sample.n_objects, sample.n_features, sample.n_states))
-        weights = update_weights(sample, caching=False)
+        weights = update_weights[ft](sample, caching=False)
         confounders = model.data.confounders
         for i_comp, (name_conf, conf) in enumerate(confounders.items(), start=1):
             prior_counts = model.prior.prior_confounding_effects[name_conf].concentration_array(sample)
@@ -1127,25 +1123,23 @@ class AlterClusterGibbsishWide(AlterClusterGibbsish):
         cluster_posterior = np.zeros(sample.n_objects)
         cluster_posterior[available] = 1.
 
-        lh = Likelihood(data=model.data, shapes=model.shapes, prior=model.prior)
+        for ft_likelihood in model.likelihood.feature_type_likelihoods:
+            assert ft_likelihood.is_used(sample)
+            cluster_lh_z = ft_likelihood.pointwise_conditional_cluster_lh(
+                sample=sample, i_cluster=i_cluster, available=available
+            )
+            all_lh = deepcopy(
+                ft_likelihood.pointwise_likelihood(model=model, sample=sample)[available, :]
+            )
+            all_lh[..., 0] = cluster_lh_z
 
-        for ft_likelihood in lh.feature_type_likelihoods:
-            if ft_likelihood.is_used(sample):
-                cluster_lh_z = ft_likelihood.pointwise_conditional_cluster_lh(
-                    sample=sample, i_cluster=i_cluster, available=available
-                )
-                all_lh = deepcopy(
-                    ft_likelihood.pointwise_likelihood(model=model, sample=sample)[available, :]
-                )
-                all_lh[..., 0] = cluster_lh_z
+            weights_z01 = self.compute_feature_weights_with_and_without(
+                sample, available, feature_type=ft_likelihood.feature_type
+            )
+            feature_lh_z01 = inner1d(all_lh[np.newaxis, ...], weights_z01)
+            marginal_lh_z01 = np.prod(feature_lh_z01, axis=-1)
 
-                weights_z01 = self.compute_feature_weights_with_and_without(
-                    sample, available, feature_type=ft_likelihood.feature_type
-                )
-                feature_lh_z01 = inner1d(all_lh[np.newaxis, ...], weights_z01)
-                marginal_lh_z01 = np.prod(feature_lh_z01, axis=-1)
-
-                cluster_posterior *= marginal_lh_z01[1] / (marginal_lh_z01[0] + marginal_lh_z01[1])
+            cluster_posterior *= marginal_lh_z01[1] / (marginal_lh_z01[0] + marginal_lh_z01[1])
 
         if self.consider_geo_prior:
             cluster_posterior *= np.exp(model.prior.geo_prior.get_costs_per_object(sample, i_cluster)[available])
@@ -1244,9 +1238,9 @@ class AlterCluster(ClusterOperator):
                 log_q += log_q_i
                 log_q_back += log_q_back_i
 
-        if DEBUG:
-            verify_counts(sample, self.model_by_chain[sample.chain].data.features.values)
-            verify_counts(sample_new, self.model_by_chain[sample.chain].data.features.values)
+        if DEBUG and (FeatureType.categorical in sample.feature_type_samples):
+            verify_counts(sample, self.model_by_chain[sample.chain].data.features.categorical.values)
+            verify_counts(sample_new, self.model_by_chain[sample.chain].data.features.categorical.values)
 
         return sample_new, log_q, log_q_back
 
@@ -1297,13 +1291,14 @@ class AlterCluster(ClusterOperator):
         log_q = np.log(q)
         log_q_back = np.log(q_back)
 
-        for ft in FeatureType:
+        for ft in sample.feature_type_samples:
             if self.resample_source and sample[ft].source is not None:
                 sample_new, log_q_s, log_q_back_s = self.propose_new_sources(
                     sample_old=sample,
                     sample_new=sample_new,
                     i_cluster=i_cluster,
                     object_subset=[object_add],
+                    feature_type=ft,
                 )
                 log_q += log_q_s
                 log_q_back += log_q_back_s
@@ -1348,15 +1343,17 @@ class AlterCluster(ClusterOperator):
         log_q = np.log(q)
         log_q_back = np.log(q_back)
 
-        if self.resample_source and sample.source is not None:
-            sample_new, log_q_s, log_q_back_s = self.propose_new_sources(
-                sample_old=sample,
-                sample_new=sample_new,
-                i_cluster=i_cluster,
-                object_subset=[object_remove],
-            )
-            log_q += log_q_s
-            log_q_back += log_q_back_s
+        for ft in sample.feature_type_samples:
+            if self.resample_source and sample[ft].source is not None:
+                sample_new, log_q_s, log_q_back_s = self.propose_new_sources(
+                    sample_old=sample,
+                    sample_new=sample_new,
+                    i_cluster=i_cluster,
+                    object_subset=[object_remove],
+                    feature_type=ft,
+                )
+                log_q += log_q_s
+                log_q_back += log_q_back_s
 
         return sample_new, log_q, log_q_back
 
@@ -1377,7 +1374,7 @@ class ClusterJump(ClusterOperator):
         model = self.model_by_chain[sample.chain]
         features = model.data.features.values
         source_cluster = sample.clusters.value[i_source_cluster]
-        w_clust = update_weights(sample)[source_cluster, :, 0]
+        w_clust = update_weights[ft](sample)[source_cluster, :, 0]
 
         p_clust_source = conditional_effect_mean(
             prior_counts=model.prior.prior_cluster_effect.concentration_array,
@@ -1470,7 +1467,7 @@ class ClusterJump(ClusterOperator):
 
         # Make sure object_subset is a boolean index array
         object_subset = np.isin(np.arange(sample_new.n_objects), object_subset)
-        w = update_weights(sample_new)[object_subset]
+        w = update_weights[ft](sample_new)[object_subset]
 
         if self.sample_from_prior:
             p = w

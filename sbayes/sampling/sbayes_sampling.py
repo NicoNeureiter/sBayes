@@ -415,26 +415,26 @@ class ClusterMCMC(MCMC):
         """
 
         operators = {
-            # 'sample_cluster': AlterCluster(
-            #     weight=operators_config.clusters,
-            #     adjacency_matrix=self.data.network.adj_mat,
-            #     p_grow_connected=self.p_grow_connected,
-            #     model_by_chain=self.posterior_per_chain,
-            #     resample_source=self.model.sample_source,
-            #     resample_source_mode=ResampleSourceMode.PRIOR,
-            #     sample_from_prior=self.sample_from_prior,
-            # ),
-            'gibbsish_sample_cluster': AlterClusterGibbsish(
-                # weight=0.2 * operators_config.clusters,
-                weight=1 * operators_config.clusters,
+            'sample_cluster': AlterCluster(
+                weight=operators_config.clusters,
                 adjacency_matrix=self.data.network.adj_mat,
+                p_grow_connected=self.p_grow_connected,
                 model_by_chain=self.posterior_per_chain,
-                features=self.features,
                 resample_source=self.model.sample_source,
-                resample_source_mode=ResampleSourceMode.GIBBS,
+                resample_source_mode=ResampleSourceMode.PRIOR,
                 sample_from_prior=self.sample_from_prior,
-                n_changes=1,
             ),
+            # 'gibbsish_sample_cluster': AlterClusterGibbsish(
+            #     # weight=0.2 * operators_config.clusters,
+            #     weight=1 * operators_config.clusters,
+            #     adjacency_matrix=self.data.network.adj_mat,
+            #     model_by_chain=self.posterior_per_chain,
+            #     features=self.features,
+            #     resample_source=self.model.sample_source,
+            #     resample_source_mode=ResampleSourceMode.GIBBS,
+            #     sample_from_prior=self.sample_from_prior,
+            #     n_changes=1,
+            # ),
             # 'gibbsish_sample_cluster_geo': AlterClusterGibbsish(
             #     weight=0.2 * operators_config.clusters,
             #     adjacency_matrix=self.data.network.adj_mat,

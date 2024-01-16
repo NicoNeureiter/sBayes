@@ -11,7 +11,7 @@ except ImportError:
 from pathlib import Path
 from tkinter import filedialog, messagebox, simpledialog
 
-from util import normalize_str, read_data_csv
+from sbayes.util import normalize_str, read_data_csv
 
 ORDER_STATES = True
 '''bool: Whether to order the features states alphabetically'''
