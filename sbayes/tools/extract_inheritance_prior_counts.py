@@ -20,14 +20,14 @@ def main(args):
     parser.add_argument("--data", nargs="?", type=Path, help="The input CSV file")
     parser.add_argument("--featureStates", nargs="?", type=Path, help="The feature states CSV file")
     parser.add_argument("--output", nargs="?", type=Path, help="The output directory")
-    parser.add_argument("--c0", nargs="?", default=1.0, type=float, help="Concentration of the hyper-prior (1.0 is Uniform)")
+    parser.add_argument("--add", nargs="?", default=1.0, type=float, help="Concentration of the hyper-prior (1.0 is Uniform)")
     parser.add_argument("--scaleCounts", nargs="?", default=None, type=float, help="An upper bound on the concentration of the prior (default is infinity/no upper bound).")
 
     args = parser.parse_args(args)
     prior_data_file = args.data
     feature_states_file = args.featureStates
     output_directory = args.output
-    hyper_prior_concentration = args.c0
+    hyper_prior_concentration = args.add
     max_counts = args.scaleCounts
 
     # ===== GUI =====
