@@ -124,40 +124,37 @@ class ParametersCSVLogger(ResultsLogger):
 
                 # Areal effect
                 for i_c in range(sample.n_clusters):
-                    for i_f, f in enumerate(feature_names[ft]):
-                        if ft == "categorical":
-                            for i_s, s in enumerate(state_names[f]):
-                                column_names += [f"areal_a{i_c}_{f}_{s}"]
-                        elif ft == "gaussian":
-                            column_names += [f"areal_a{i_c}_{f}_mu"]
-                            column_names += [f"areal_a{i_c}_{f}_sigma"]
-                        elif ft == "poisson":
-                            column_names += [f"areal_a{i_c}_{f}_lambda"]
-                        elif ft == "logitnormal":
-                            column_names += [f"areal_a{i_c}_{f}_mu_logit"]
-                            column_names += [f"areal_a{i_c}_{f}_sigma_logit"]
+                    if ft == "categorical":
+                        for i_s, s in enumerate(state_names[f]):
+                            column_names += [f"areal_a{i_c}_{f}_{s}"]
+                    elif ft == "gaussian":
+                        column_names += [f"areal_a{i_c}_{f}_mu"]
+                        column_names += [f"areal_a{i_c}_{f}_sigma"]
+                    elif ft == "poisson":
+                        column_names += [f"areal_a{i_c}_{f}_lambda"]
+                    elif ft == "logitnormal":
+                        column_names += [f"areal_a{i_c}_{f}_mu_logit"]
+                        column_names += [f"areal_a{i_c}_{f}_sigma_logit"]
 
                 # Confounding effects
                 for conf in self.data.confounders.values():
                     for i_g, g in enumerate(conf.group_names):
-                        for i_f, f in enumerate(feature_names[ft]):
-                            if ft == "categorical":
-                                for i_s, s in enumerate(state_names[f]):
-                                    column_names += [f"{conf.name}_{g}_{f}_{s}"]
-                            elif ft == "gaussian":
-                                column_names += [f"{conf.name}_{g}_{f}_mu"]
-                                column_names += [f"{conf.name}_{g}_{f}_sigma"]
-                            elif ft == "poisson":
-                                column_names += [f"{conf.name}_{g}_{f}_lambda"]
-                            elif ft == "logitnormal":
-                                column_names += [f"{conf.name}_{g}_{f}_mu_logit"]
-                                column_names += [f"{conf.name}_{g}_{f}_sigma_logit"]
+                        if ft == "categorical":
+                            for i_s, s in enumerate(state_names[f]):
+                                column_names += [f"{conf.name}_{g}_{f}_{s}"]
+                        elif ft == "gaussian":
+                            column_names += [f"{conf.name}_{g}_{f}_mu"]
+                            column_names += [f"{conf.name}_{g}_{f}_sigma"]
+                        elif ft == "poisson":
+                            column_names += [f"{conf.name}_{g}_{f}_lambda"]
+                        elif ft == "logitnormal":
+                            column_names += [f"{conf.name}_{g}_{f}_mu_logit"]
+                            column_names += [f"{conf.name}_{g}_{f}_sigma_logit"]
 
                 # Contribution of each component to each feature (mean source assignment across objects)
                 if self.log_source:
-                    for i_f, f in enumerate(feature_names[ft]):
-                        for i_s, source in enumerate(sample.component_names):
-                            column_names += [f"source_{source}_{f}"]
+                    for i_s, source in enumerate(sample.component_names):
+                        column_names += [f"source_{source}_{f}"]
 
         # lh, prior, posteriors
         if self.log_contribution_per_cluster:
@@ -177,8 +174,8 @@ class ParametersCSVLogger(ResultsLogger):
 
     def _write_sample(self, sample: Sample):
         features = self.data.features
-
         clusters = sample.clusters.value
+        prior = self.model.prior
 
         # Compute cluster effects
 
@@ -189,7 +186,7 @@ class ParametersCSVLogger(ResultsLogger):
                 features=features.categorical.values,
                 is_source_group=is_source_cluster,
                 applicable_states=features.categorical.states,
-                prior_counts=self.model.prior.prior_cluster_effect.concentration_array,
+                prior_counts=prior.prior_cluster_effect.concentration_array,
             )
         if FeatureType.gaussian in sample.feature_type_samples:
             cluster_effect[FeatureType.gaussian] = np.empty((sample.n_clusters, sample.gaussian.n_features, 2))
@@ -198,8 +195,8 @@ class ParametersCSVLogger(ResultsLogger):
                 cluster_effect[FeatureType.gaussian][i_c, :, 0] = gaussian_mu_posterior_sample(
                     x=self.data.features.gaussian.values,
                     sigma=None,
-                    mu_0=self.model.prior.prior_cluster_effect.gaussian.mean.mu_0_array,
-                    sigma_0=self.model.prior.prior_cluster_effect.gaussian.mean.sigma_0_array,
+                    mu_0=prior.prior_cluster_effect.gaussian.mean.mu_0_array,
+                    sigma_0=prior.prior_cluster_effect.gaussian.mean.sigma_0_array,
                     in_component=is_source_cluster,
                 )
 
@@ -213,8 +210,8 @@ class ParametersCSVLogger(ResultsLogger):
                 is_source_cluster = cluster[:, np.newaxis] & sample.poisson.source.value[..., 0]
                 cluster_effect[FeatureType.poisson][i_c] = poisson_lambda_posterior_sample(
                     x=self.data.features.poisson.values,
-                    alpha_0=self.model.prior.prior_cluster_effect.poisson.mean.mu_0_array,
-                    beta_0=self.model.prior.prior_cluster_effect.poisson.mean.sigma_0_array,
+                    alpha_0=prior.prior_cluster_effect.poisson.mean.mu_0_array,
+                    beta_0=prior.prior_cluster_effect.poisson.mean.sigma_0_array,
                     in_component=is_source_cluster,
                 )
 
@@ -243,6 +240,7 @@ class ParametersCSVLogger(ResultsLogger):
             row[col_name] = np.count_nonzero(cluster)
 
         for ft in sample.feature_type_samples:
+
             # Weights
             for i_f, f in enumerate(features[ft].names):
 
@@ -286,36 +284,63 @@ class ParametersCSVLogger(ResultsLogger):
 
             # Confounding effects
             for i_conf, conf in enumerate(self.data.confounders.values(), start=1):
+                conf_prior = prior.prior_confounding_effects[conf.name]
 
-                # todo: activate again
-                # conf_effect = conditional_effect_sample(
-                #     features=features.values,
-                #     is_source_group=conf.group_assignment[..., np.newaxis] & sample.source.value[np.newaxis, ..., i_conf],
-                #     applicable_states=features.states,
-                #     prior_counts=self.model.prior.prior_confounding_effects[conf.name].concentration_array(sample),
-                # )
-
-                for i_g, g in enumerate(conf.group_names):
-                    for i_f, f in enumerate(features[ft].names):
-
-                        if ft == FeatureType.categorical:
-                            for i_s, s in enumerate(features[ft].names[f]):
+                if ft == FeatureType.categorical:
+                    conf_effect = conditional_effect_sample(
+                        features=features.categorical.values,
+                        is_source_group=conf.group_assignment[..., None] & sample.categorical.source.value[None, ..., i_conf],
+                        applicable_states=features.categorical.states,
+                        prior_counts=conf_prior.concentration_array(sample),
+                    )
+                    for i_g, g in enumerate(conf.group_names):
+                        for i_f, f in enumerate(features.categorical.names):
+                            for i_s, s in enumerate(features.categorical.names[f]):
                                 col_name = f"{conf.name}_{g}_{f}_{s}"
-                                # todo: activate again
-                                row[col_name] = 13 #conf_effect[i_g, i_f, i_s]
+                                row[col_name] = conf_effect[i_g, i_f, i_s]
 
-                        if ft == FeatureType.gaussian:
+                if ft == FeatureType.gaussian:
+
+                    for i_g, g in enumerate(conf.group_names):
+                        # Sample gaussian parameters (mu and sigma) from conditional posterior
+                        is_source_group = conf.group_assignment[i_g, :, np.newaxis] & sample.gaussian.source.value[..., 0]
+                        mu = gaussian_mu_posterior_sample(
+                            x=features.gaussian.values,
+                            sigma=None,
+                            mu_0=conf_prior.gaussian.mean.mu_0_array,
+                            sigma_0=conf_prior.gaussian.mean.sigma_0_array,
+                            in_component=is_source_group,
+                        )
+                        # print(conf, mu.shape, conf.group_assignment.shape)
+                        sigma = np.nanstd(features.gaussian.values, axis=0, where=is_source_group)
+
+                        # Write to row dictionary
+                        for i_f, f in enumerate(features.gaussian.names):
                             col_name = f"{conf.name}_{g}_{f}_mu"
-                            row[col_name] = 13
+                            row[col_name] = mu[i_g, i_f]
 
                             col_name = f"{conf.name}_{g}_{f}_sigma"
-                            row[col_name] = 13
+                            row[col_name] = sigma[i_f]
 
-                        if ft == FeatureType.poisson:
+                if ft == FeatureType.poisson:
+                    for i_g, g in enumerate(conf.group_names):
+                        # Sample poisson mean from conditional posterior distribution
+                        is_source_group = conf.group_assignment[i_g, :, None] & sample.poisson.source.value[..., 0]
+                        poisson_mean = poisson_lambda_posterior_sample(
+                            x=features.poisson.values,
+                            alpha_0=conf_prior.poisson.mean.mu_0_array,
+                            beta_0=conf_prior.poisson.mean.sigma_0_array,
+                            in_component=is_source_group,
+                        )
+
+                        # Write to row dictionary
+                        for i_f, f in enumerate(features.poisson.names):
                             col_name = f"{conf.name}_{g}_{f}_lambda"
-                            row[col_name] = 13
+                            row[col_name] = poisson_mean[i_f]
 
-                        if ft == FeatureType.logitnormal:
+                if ft == FeatureType.logitnormal:
+                    for i_g, g in enumerate(conf.group_names):
+                        for i_f, f in enumerate(features[ft].names):
                             col_name = f"{conf.name}_{g}_{f}_mu_logit"
                             row[col_name] = 13
 
