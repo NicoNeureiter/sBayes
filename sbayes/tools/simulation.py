@@ -23,7 +23,8 @@ def simulate_objects(n: int):
     df = pd.DataFrame().assign(
         x=np.random.rand(n),
         y=np.random.rand(n),
-        id=range(n))
+        id=range(n),
+        name=["".join(['object', str(i)]) for i in range(n)])
 
     return Objects.from_dataframe(df)
 
@@ -137,7 +138,6 @@ def simulate_confounding_effect_prior(feat: dict, conf: dict, p_hyper: dict):
         Returns:
             (dict): confounding effect prior for each feature, structured per feature type"""
 
-    n_states_per_categorical_feat = [i for i, c in feat['categorical'] for _ in range(c)]
     prior = {}
 
     for ft, fs in feat.items():
@@ -146,6 +146,9 @@ def simulate_confounding_effect_prior(feat: dict, conf: dict, p_hyper: dict):
             prior[ft][c] = {}
             for g in groups.keys():
                 if ft == 'categorical':
+
+                    n_states_per_categorical_feat = [i for i, c in feat['categorical'] for _ in range(c)]
+
                     concentration = []
                     for n_states_f in n_states_per_categorical_feat:
                         concentration_f = np.full(shape=n_states_f, fill_value=1.)
@@ -190,13 +193,12 @@ def simulate_cluster_effect_prior(feat: dict,  clust: dict, p_hyper: dict):
         Returns:
             (dict): cluster effect prior for each feature, structured per feature type """
 
-    n_states_per_categorical_feat = [i for i, c in feat['categorical'] for _ in range(c)]
-
     prior = {}
     for ft, fs in feat.items():
         prior[ft] = {}
         for cl in clust.keys():
             if ft == 'categorical':
+                n_states_per_categorical_feat = [i for i, c in feat['categorical'] for _ in range(c)]
                 concentration = []
                 for n_states_f in n_states_per_categorical_feat:
                     concentration_f = np.full(shape=n_states_f, fill_value=1.)
@@ -254,9 +256,6 @@ def simulate_confounding_effect(prior: dict):
         Returns:
             (dict): simulated confounding effect per confounder for each feature, structured per feature type"""
 
-    max_categorical_states = max(len(i) for i in next(iter(next(iter(prior['categorical'].
-                                                                     values())).values()))['concentration'])
-
     conf_effect = {}
     for ft, conf in prior.items():
         conf_effect[ft] = {}
@@ -265,6 +264,9 @@ def simulate_confounding_effect(prior: dict):
             for g, params in groups.items():
                 conf_effect[ft][c][g] = {}
                 if ft == 'categorical':
+                    max_categorical_states = \
+                        max(len(i) for i in next(iter(next(iter(prior['categorical'].values())).
+                                                      values()))['concentration'])
                     p = []
                     for f in params['concentration']:
                         p_f = np.zeros(max_categorical_states)
@@ -293,14 +295,13 @@ def simulate_cluster_effect(prior: dict):
         Returns:
             (dict): simulated cluster effect for each feature, structured per feature type"""
 
-    max_categorical_states = max(len(i) for i in next(iter(prior['categorical'].values()))['concentration'])
-
     clust_effect = {}
     for ft, clust in prior.items():
         clust_effect[ft] = {}
         for cl, params in clust.items():
 
             if ft == 'categorical':
+                max_categorical_states = max(len(i) for i in next(iter(prior['categorical'].values()))['concentration'])
                 p = []
                 for f in params['concentration']:
                     p_f = np.zeros(max_categorical_states)
@@ -446,7 +447,8 @@ def combine_data(ob: Objects, conf: OrderedDict, feat: dict):
     df = pd.DataFrame().assign(
         x=ob.locations[:, 0],
         y=ob.locations[:, 1],
-        id=ob.id)
+        id=ob.id,
+        name=ob.names)
 
     # Reverse the one-hot encoding of the confounders
     for n, cf in conf.items():
@@ -545,9 +547,9 @@ def write_parameters(params, names, path):
                 """
 
     feat_names = dict(
-        categorical=list(names['categorical'].keys()),
-        gaussian=names['gaussian'],
-        poisson=names['poisson']
+        categorical=list(names['categorical'].keys()) if 'categorical' in names.keys() else None,
+        gaussian=names['gaussian'] if 'gaussian' in names.keys() else None,
+        poisson=names['poisson'] if 'poisson' in names.keys() else None
     )
 
     column_names = []
@@ -631,14 +633,14 @@ def write_priors(priors, names, folder):
     float_style = '%.3f'
     ext = 'prior_sim.yaml'
     assignment_order = ["cluster"]
-
-    for c in priors['confounding_effect_prior']['categorical'].keys():
+    any_ft = list(priors['confounding_effect_prior'].keys())[0]
+    for c in priors['confounding_effect_prior'][any_ft].keys():
         assignment_order.append(c)
 
     feat_names = dict(
-        categorical=list(names['categorical'].keys()),
-        gaussian=names['gaussian'],
-        poisson=names['poisson']
+        categorical=list(names['categorical'].keys()) if 'categorical' in names.keys() else None,
+        gaussian=names['gaussian'] if 'gaussian' in names.keys() else None,
+        poisson=names['poisson'] if 'poisson' in names.keys() else None
     )
 
     # Weights prior
@@ -722,16 +724,17 @@ clusters_meta = dict(
 
 # Number of simulated features per feature type
 # For categorical features the tuple (2, 3) simulates 3 features with 2 states
-features_meta = dict(
-    categorical=[(2, 10), (3, 4), (4, 5)],
-    gaussian=10,
-    poisson=10,
-)
+# features_meta = dict(
+#     categorical=[(2, 10), (3, 4), (4, 5)],
+#     gaussian=10,
+#     poisson=10,
+# )
+features_meta = dict(gaussian=20)
 
 
 # Range of the concentration values for simulating the weights prior
 # A higher concentration yields a pointier prior
-p_hyper_weights_prior = dict(concentration=(1, 10))
+p_hyper_weights_prior = dict(concentration=(1, 1))
 
 # Range of the hyperparameter values for simulating the confounding effect prior
 p_hyper_confounding_effect_prior = dict(
@@ -739,31 +742,31 @@ p_hyper_confounding_effect_prior = dict(
         concentration=(1, 1)),
     gaussian=dict(
         mean=dict(
-            mu_0=(-10, 10),
-            sigma_0=(0.5, 0.5)),
+            mu_0=(0, 0),
+            sigma_0=(1000, 1000)),
         variance=dict(
-            alpha_0=(2, 5),
-            beta_0=(0, 1))),
+            alpha_0=(1, 1),
+            beta_0=(1, 1))),
     poisson=dict(
         rate=dict(
-            alpha_0=(0, 10),
-            beta_0=(0, 10))))
+            alpha_0=(0, 0),
+            beta_0=(10, 10))))
 
 # Range of the hyperparameter values for simulating the cluster effect prior
 p_hyper_cluster_effect_prior = dict(
     categorical=dict(
-        concentration=(1, 10)),
+        concentration=(1, 1)),
     gaussian=dict(
         mean=dict(
-            mu_0=(-10, 10),
-            sigma_0=(0, 0.5)),
+            mu_0=(0, 0),
+            sigma_0=(1000, 1000)),
         variance=dict(
-            alpha_0=(2, 5),
-            beta_0=(0, 1))),
+            alpha_0=(1, 1),
+            beta_0=(1, 1))),
     poisson=dict(
         rate=dict(
-            alpha_0=(0, 10),
-            beta_0=(0, 10))))
+            alpha_0=(0, 0),
+            beta_0=(10, 10))))
 
 
 # Define the objects
