@@ -71,14 +71,15 @@ def ask_confounders(col_names):
 def collect_feature_states(features_path):
     features = read_data_csv(features_path)
 
-    # Ask users for the names of the confounders
-    conf = ask_confounders(features.columns)
-
-    METADATA_COLUMNS = ['id', 'name', 'x', 'y'] + conf
-    for column in METADATA_COLUMNS:
+    metadata_columns = ['id', 'name', 'x', 'y']
+    for column in metadata_columns:
         if column not in features.columns:
             raise ValueError(f'Required column \'{column}\' missing in file {features_path}.')
-    features = features.drop(METADATA_COLUMNS, axis=1)
+    features = features.drop(metadata_columns, axis=1)
+
+    # Ask users for the names of the confounders
+    confounder_columns = ask_confounders(features.columns)
+    features = features.drop(confounder_columns, axis=1)
     features = features.applymap(normalize_str)
     return {f: set(features[f].dropna().unique()) for f in features.columns}
 
