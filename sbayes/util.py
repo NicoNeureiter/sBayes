@@ -1511,10 +1511,10 @@ def gaussian_posterior_predictive_logpdf(
     # Sigma need to be positive (in practice, at least EPS)
     sigma = np.maximum(sigma, EPS)
 
-    # Sufficient statistics
+    # First sufficient statistic: observation counts
     n = np.count_nonzero(in_component, axis=0)
-    sample_mean = np.mean(x, axis=0, where=in_component)
 
+    # Handle special case of no observations
     if isinstance(n, (int, float, np.int64, np.int32)):
         if n == 0:
             return 0.
@@ -1534,6 +1534,9 @@ def gaussian_posterior_predictive_logpdf(
                 in_component=in_component[:, n > 0],
             )
             return res
+
+    # Second sufficient statistic: sample mean
+    sample_mean = np.mean(x, axis=0, where=in_component)
 
     # Derive Posterior parameters
     prec = 1 / sigma ** 2
