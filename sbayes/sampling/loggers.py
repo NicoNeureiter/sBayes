@@ -108,7 +108,6 @@ class ParametersCSVLogger(ResultsLogger):
 
         # weights
         for ft in sample.feature_type_samples:
-            ft_features = self.data.features.get_ft_features(ft)
 
             for i_f, f in enumerate(feature_names[ft]):
                 # Areal effect
@@ -201,8 +200,7 @@ class ParametersCSVLogger(ResultsLogger):
                 )
 
                 # TODO properly sample sigma from posterior too
-                cluster_effect[FeatureType.gaussian][i_c, :, 1] = np.nanstd(self.data.features.gaussian.values,
-                                                                            axis=0, where=is_source_cluster)
+                cluster_effect[FeatureType.gaussian][i_c, :, 1] = np.nanstd(self.data.features.gaussian.values, axis=0)
 
         if FeatureType.poisson in sample.feature_type_samples:
             cluster_effect[FeatureType.poisson] = np.empty((sample.n_clusters, sample.poisson.n_features,))
@@ -311,8 +309,7 @@ class ParametersCSVLogger(ResultsLogger):
                             sigma_0=conf_prior.gaussian.mean.sigma_0_array,
                             in_component=is_source_group,
                         )
-                        # print(conf, mu.shape, conf.group_assignment.shape)
-                        sigma = np.nanstd(features.gaussian.values, axis=0, where=is_source_group)
+                        sigma = np.nanstd(features.gaussian.values, axis=0)
 
                         # Write to row dictionary
                         for i_f, f in enumerate(features.gaussian.names):

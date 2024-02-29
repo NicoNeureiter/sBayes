@@ -1,4 +1,6 @@
 from __future__ import annotations
+
+import sys
 from collections import OrderedDict
 from copy import copy
 from contextlib import contextmanager
@@ -7,6 +9,7 @@ from typing import Generic, TypeVar, Type, Iterator
 
 from numpy.typing import NDArray
 import numpy as np
+import ruamel.yaml
 
 from sbayes.load_data import Confounder, FeatureType
 from sbayes.model.model_shapes import ModelShapes
@@ -328,6 +331,29 @@ class CacheNode(Generic[Value]):
         self.cached_version = other.cached_version
         self.cached_group_versions = {k: v for k, v in other.cached_group_versions.items()}
 
+    def get_cache_tree(self) -> dict:
+        """Return the tree representation of the cached values in this CacheNodes and all direct or indirect inputs."""
+        tree = {
+            'value': str(self._value),
+            'version': self.version,
+        }
+        for k, v in self.inputs.items():
+            if isinstance(v, CacheNode):
+                tree[k] = v.cache_tree()
+            elif isinstance(v, Parameter):
+                tree[k] = v.version
+            elif isinstance(v, int) or isinstance(v, float) or isinstance(v, bool):
+                tree[k] = v
+        return tree
+
+    def print_cache_tree(self):
+        """Print the tree representation of the cached values in this CacheNodes and all direct or indirect inouts."""
+        tree_dict = self.get_cache_tree()
+        # yaml = ruamel.yaml.YAML(typ=['rt', 'string'])
+        # yaml.indent(sequence=4, offset=2)
+        # s = yaml.dump_to_string(tree_dict)
+        print(tree_dict)
+
 
 class SufficientStatistics(GroupedParameters):
     """Parameters that describe the observations assigned to a component sufficiently for
@@ -454,11 +480,14 @@ class ModelCache:
         self.geo_prior.add_input('clusters', sample.clusters)
 
         self.feature_type_cache = {
-            "categorical": self.categorical,
-            "gaussian": self.gaussian,
-            "poisson": self.poisson,
-            "logitnormal": self.logitnormal,
+            FeatureType.categorical: self.categorical,
+            FeatureType.gaussian: self.gaussian,
+            FeatureType.poisson: self.poisson,
+            FeatureType.logitnormal: self.logitnormal,
         }
+        for ft in list(self.feature_type_cache.keys()):
+            if ft not in sample.feature_type_samples:
+                self.feature_type_cache.pop(ft)
 
     def clear(self):
         self.geo_prior.clear()
@@ -652,12 +681,6 @@ class Sample:
         self.confounders = confounders
         self.i_step = _i_step
 
-        # Assign or initialize a ModelCache object
-        if _other_cache is None:
-            self.cache = ModelCache(sample=self)
-        else:
-            self.cache = _other_cache.copy(new_sample=self)
-
         # Store last likelihood and prior for logging
         self.last_lh = None
         self.last_prior = None
@@ -677,6 +700,12 @@ class Sample:
             self.feature_type_samples[FeatureType.poisson] = self.poisson
         if self.logitnormal is not None:
             self.feature_type_samples[FeatureType.logitnormal] = self.logitnormal
+
+        # Assign or initialize a ModelCache object
+        if _other_cache is None:
+            self.cache = ModelCache(sample=self)
+        else:
+            self.cache = _other_cache.copy(new_sample=self)
 
     def __getitem__(self, ft: FeatureType | str) -> GenericTypeSample:
         """Getter for more convenient/concise access to feature-type samples."""

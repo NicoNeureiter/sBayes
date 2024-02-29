@@ -485,13 +485,42 @@ class LikelihoodGaussian(LikelihoodGenericType):
 
         return condition_lh
 
+    def pointwise_conditional_likelihood_2(
+        self,
+        sample: Sample,
+        out: NDArray[float],  # shape: (n_objects, n_features)
+        condition_on: NDArray[bool] | None = None,  # shape: (n_objects,)
+        evaluate_on: NDArray[bool] | None = None,  # shape: (n_objects,)
+    ):
+        if condition_on is None:
+            condition_on = np.ones(sample.n_objects, dtype=bool)
+        if evaluate_on is None:
+            evaluate_on = np.ones(sample.n_objects, dtype=bool)
+
+        mu_0 = self.prior.prior_cluster_effect.gaussian.mean.mu_0_array
+        sigma_0 = self.prior.prior_cluster_effect.gaussian.mean.sigma_0_array
+
+        groups = sample.clusters.value
+        features = self.features.gaussian.values
+
+        out[~groups.any(axis=0)[evaluate_on], :] = 0.
+
+        for i_f in range(self.shapes.n_features_gaussian):
+            f = features[:, i_f]
+            sigma_fixed = np.nanstd(f[condition_on])
+            out[:, i_f] = np.exp(gaussian_posterior_predictive_logpdf(
+                x_new=f[evaluate_on], x=f[condition_on],
+                sigma=sigma_fixed, mu_0=mu_0[i_f], sigma_0=sigma_0[i_f],
+                in_component=sample.gaussian.source.value[condition_on, i_f, 0],
+            ))
+
     def pointwise_conditional_cluster_likelihood_2(
         self,
         sample: Sample,
         out: NDArray[float],  # shape: (n_objects, n_features)
-        changed_clusters: list[int] | None,
-        condition_on: NDArray[bool] | None,    # shape: (n_objects,)
-        evaluate_on: NDArray[bool] | None,     # shape: (n_objects,)
+        changed_clusters: list[int] | None = None,
+        condition_on: NDArray[bool] | None = None,    # shape: (n_objects,)
+        evaluate_on: NDArray[bool] | None = None,     # shape: (n_objects,)
     ):
         if changed_clusters is None:
             changed_clusters = range(sample.n_clusters)
@@ -506,19 +535,21 @@ class LikelihoodGaussian(LikelihoodGenericType):
         groups = sample.clusters.value
         features = self.features.gaussian.values
 
-        out[~groups.any(axis=0), :] = 0.
+        out[~groups.any(axis=0)[evaluate_on], :] = 0.
 
         for i_g in changed_clusters:
             g = groups[i_g]
+            if not np.any(g & evaluate_on):
+                continue
 
             for i_f in range(self.shapes.n_features_gaussian):
                 f = features[:, i_f]
                 f_cond = f[g & condition_on]
                 f_eval = f[g & evaluate_on]
                 sigma_fixed = np.nanstd(f_cond)
-                out[g, i_f] = np.exp(gaussian_posterior_predictive_logpdf(
+                out[g[evaluate_on], i_f] = np.exp(gaussian_posterior_predictive_logpdf(
                     x_new=f_eval, x=f_cond, sigma=sigma_fixed, mu_0=mu_0[i_f], sigma_0=sigma_0[i_f],
-                    in_component=sample.gaussian.source.value[g, i_f, 0],
+                    in_component=sample.gaussian.source.value[g & condition_on, i_f, 0],
                 ))
 
     def pointwise_conditional_confounder_likelihood_2(
@@ -526,9 +557,9 @@ class LikelihoodGaussian(LikelihoodGenericType):
         confounder: Confounder,
         sample: Sample,
         out: NDArray[float],
-        changed_groups: list[int] | None,
-        condition_on: NDArray[bool] | None,    # shape: (n_objects,)
-        evaluate_on: NDArray[bool] | None,     # shape: (n_objects,)
+        changed_groups: list[int] | None = None,
+        condition_on: NDArray[bool] | None = None,    # shape: (n_objects,)
+        evaluate_on: NDArray[bool] | None = None,     # shape: (n_objects,)
     ) -> NDArray[float]:
         if changed_groups is None:
             changed_groups = np.arange(confounder.n_groups)
@@ -544,19 +575,22 @@ class LikelihoodGaussian(LikelihoodGenericType):
         groups = confounder.group_assignment
         features = self.features.gaussian.values
 
-        out[~groups.any(axis=0), :] = 0.
+        out[~groups.any(axis=0)[evaluate_on], :] = 0.
 
         for i_g in changed_groups:
             g = groups[i_g]
+            if not np.any(g & evaluate_on):
+                continue
+
             f_cond = features[g & condition_on]
             f_eval = features[g & evaluate_on]
-            out[g, :] = np.exp(gaussian_posterior_predictive_logpdf(
+            out[g[evaluate_on], :] = np.exp(gaussian_posterior_predictive_logpdf(
                 x_new=f_eval,
                 x=f_cond,
                 sigma=np.nanstd(f_cond, axis=0),
                 mu_0=mu_0[i_g, :],
                 sigma_0=sigma_0[i_g, :],
-                in_component=sample.gaussian.source.value[g, :, i_component],
+                in_component=sample.gaussian.source.value[g & condition_on, :, i_component],
             ))
 
         return out
