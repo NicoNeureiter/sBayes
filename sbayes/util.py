@@ -316,7 +316,7 @@ def read_data_csv(csv_path: PathLike) -> pd.DataFrame:
     na_values = ["", " ", "\t", "  "]
     data: pd.DataFrame = pd.read_csv(csv_path, na_values=na_values, keep_default_na=False, dtype=str)
     data.columns = [unidecode(c) for c in data.columns]
-    return data.applymap(normalize_str)
+    return data.map(normalize_str)
 
 
 def read_costs_from_csv(file: str, logger=None):
@@ -1381,10 +1381,8 @@ def gaussian_mu_marginalised_logpdf(
     """
     sigma_fixed = np.maximum(sigma_fixed, EPS)
 
-    # Sufficient statistics
+    # Observation count
     n = np.count_nonzero(in_component, axis=0)
-    x_bar = np.mean(x, axis=0, where=in_component)
-    x_2_bar = np.mean(x ** 2, axis=0, where=in_component)
 
     if isinstance(n, (int, float, np.int64, np.int32)):
         if n == 0:
@@ -1395,6 +1393,10 @@ def gaussian_mu_marginalised_logpdf(
             res = np.zeros_like(n)
             res[n > 0] = gaussian_mu_marginalised_logpdf(x[n > 0], sigma_fixed, mu_0, sigma_0, in_component)
             return res
+
+    # Sufficient statistics
+    x_bar = np.mean(x, axis=0, where=in_component)
+    x_2_bar = np.mean(x ** 2, axis=0, where=in_component)
 
     loga = -log(sigma_0) - 1 / 2 * log(2 * pi) + - n * (log(sigma_fixed) + 1 / 2 * log(2 * pi))
     logb = (-mu_0 ** 2 / (2 * sigma_0 ** 2) - n * x_2_bar / (2 * sigma_fixed ** 2))
@@ -1424,17 +1426,22 @@ def gaussian_mu_posterior(
     Return:
         the marginal (log)-likelihood of the data
     """
+    out_shape = x.shape[1:]
+    observed = np.any(in_component, axis=0)
     if sigma is None:
         # Use empirical estimate for sigma
-        sigma = np.nanstd(x, axis=0, where=in_component)
-        sigma[~np.any(in_component, axis=0)] = EPS
+        sigma = np.empty(out_shape)
+        sigma[observed] = np.nanstd(x[:, observed], axis=0, where=in_component[:, observed])
+        sigma[~observed] = EPS
 
     # Sigma need to be positive (in practice, at least EPS)
     sigma = np.maximum(sigma, EPS)
 
     # Sufficient statistics
     n = np.count_nonzero(in_component, axis=0)
-    sample_mean = np.mean(x, axis=0, where=in_component)
+
+    sample_mean = np.zeros(out_shape)
+    sample_mean[observed] = np.mean(x[:, observed], axis=0, where=in_component[:, observed])
 
     # Derive Posterior parameters
     prec = 1 / sigma ** 2
@@ -1512,13 +1519,16 @@ def gaussian_posterior_predictive_logpdf(
     # Sigma need to be positive (in practice, at least EPS)
     sigma = np.maximum(sigma, EPS)
 
-    # Sufficient statistics
+    # First sufficient statistic: observation counts
     n = np.count_nonzero(in_component, axis=0)
+
     if not np.any(in_component):
         stack = traceback.extract_stack()
         print(stack)
+
     sample_mean = np.mean(x, axis=0, where=in_component)
 
+    # Handle special case of no observations
     if isinstance(n, (int, float, np.int64, np.int32)):
         if n == 0:
             return 0.
@@ -1538,6 +1548,9 @@ def gaussian_posterior_predictive_logpdf(
                 in_component=in_component[:, n > 0],
             )
             return res
+
+    # Second sufficient statistic: sample mean
+    sample_mean = np.mean(x, axis=0, where=in_component)
 
     # Derive Posterior parameters
     prec = 1 / sigma ** 2

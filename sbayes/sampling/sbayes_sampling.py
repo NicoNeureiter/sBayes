@@ -5,7 +5,7 @@ import random as _random
 
 import numpy as np
 
-from sbayes.load_data import Data
+from sbayes.load_data import Data, FeatureType
 from sbayes.model import update_categorical_weights, update_gaussian_weights, \
                          update_poisson_weights, update_logitnormal_weights
 from sbayes.sampling.conditionals import sample_source_from_prior
@@ -353,7 +353,6 @@ class ClusterMCMC(MCMC):
         )
 
         for t in ['categorical', 'gaussian', 'poisson', 'logitnormal']:
-
             if initial_weights[t] is not None:
                 assert ~np.any(np.isnan(initial_weights[t])), initial_weights[t]
 
@@ -372,8 +371,6 @@ class ClusterMCMC(MCMC):
         sample.everything_changed()
         source = sample_source_from_prior(sample)
 
-        feature_types = ["categorical", "gaussian", "poisson", "logitnormal"]
-
         full_source_operator = GibbsSampleSource(
             weight=1,
             model_by_chain=self.posterior_per_chain,
@@ -381,12 +378,12 @@ class ClusterMCMC(MCMC):
             object_selector=ObjectSelector.ALL
         )
 
-        for ft in feature_types:
+        for ft in FeatureType.values():
             if getattr(sample, ft) is not None:
                 source[ft][getattr(self.data.features, ft).na_values] = 0
                 getattr(sample, ft).source.set_value(source[ft])
 
-                if ft == "categorical":
+                if ft is FeatureType.categorical:
                     # Recalculate the counts for categorical features
                     recalculate_feature_counts(self.features.categorical.values, sample)
 
@@ -398,11 +395,11 @@ class ClusterMCMC(MCMC):
         # Propose a new sample
         new_sample = full_source_operator.function(sample)[0]
 
-        for ft in feature_types:
+        for ft in FeatureType.values():
             if getattr(sample, ft) is not None:
                 source[ft] = getattr(new_sample, ft).source.value
                 getattr(sample, ft).source.set_value(source[ft])
-                if ft == "categorical":
+                if ft is FeatureType.categorical:
                     recalculate_feature_counts(self.features.categorical.values, sample)
 
         return source

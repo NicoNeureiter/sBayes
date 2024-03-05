@@ -117,10 +117,19 @@ class MCMC(ABC):
         log_lh = self.posterior_per_chain[chain].likelihood(sample=sample, caching=True)
 
         if self.CHECK_CACHING and (sample.i_step < 1000) and (sample.i_step % 10 == 0):
-
+            lh_cached_str = f"Likelihood cached at step {sample.i_step}".ljust(40, " ") + str({
+                ft.value: {conf: group_lh.get_cache_tree() for conf, group_lh in ft_cache.group_likelihoods.items()}
+                for ft, ft_cache in sample.cache.feature_type_cache.items()
+            })
             log_lh_stable = self.posterior_per_chain[chain].likelihood(sample=sample, caching=False)
-            assert np.allclose(log_lh, log_lh_stable), f'{log_lh} != {log_lh_stable}'
-            # assert log_lh == log_lh_stable, f'{log_lh} != {log_lh_stable}'
+            if not np.allclose(log_lh, log_lh_stable):
+                lh_recalced_str = f"Likelihood uncached".ljust(40, " ") + str({
+                    ft.value: {conf: group_lh.get_cache_tree() for conf, group_lh in ft_cache.group_likelihoods.items()}
+                    for ft, ft_cache in sample.cache.feature_type_cache.items()
+                })
+                print(lh_cached_str)
+                print(lh_recalced_str)
+                raise RuntimeError(f'Cached likelihood did not match the recalculated on ({log_lh} != {log_lh_stable})')
 
         sample.last_lh = log_lh
         return log_lh

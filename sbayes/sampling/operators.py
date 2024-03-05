@@ -263,7 +263,7 @@ class GibbsSampleSource(Operator):
         sample_new = sample.copy()
         model = self.model_by_chain[sample.chain]
 
-        for ft, ft_sample in sample.feature_type_samples.items():
+        for ft, ft_sample in sample_new.feature_type_samples.items():
             features = model.data.features.get_ft_features(ft).values
             na_features = model.data.features.get_ft_features(ft).na_values
 
@@ -625,8 +625,8 @@ class ClusterOperator(Operator):
     ) -> tuple[Sample, float, float]:
         """Resample the observations to mixture components (their source)."""
         model = self.model_by_chain[sample_old.chain]
-        features = getattr(model.data.features, feature_type).values
-        na_features = getattr(model.data.features, feature_type).na_values
+        features = model.data.features.get_ft_features(feature_type).values
+        na_features = model.data.features.get_ft_features(feature_type).na_values
 
         ft_sample_new = sample_new.feature_type_samples[feature_type]
         ft_sample_old = sample_old.feature_type_samples[feature_type]
@@ -645,7 +645,7 @@ class ClusterOperator(Operator):
         else:
             w = update_ft_weights(sample_new)[object_subset]
             p = normalize(w * lh_per_component, axis=-1)
-            p[na_features] = 1.0
+            p[na_features[object_subset]] = 1.0
 
         # Sample the new source assignments
         with ft_sample_new.source.edit() as source:
@@ -733,17 +733,20 @@ def component_likelihood_given_unchanged(
         likelihoods[features.na_values[object_subset]] = 1.
     elif feature_type == FeatureType.gaussian:
         gaussian_lh = model.likelihood.gaussian
-        gaussian_lh.pointwise_conditional_cluster_likelihood_2(
+        gaussian_lh.pointwise_conditional_likelihood_2(
             sample=sample,
             out=likelihoods[..., 0],
-            condition_on=object_subset,
+            condition_on=sample.clusters.value[i_cluster, :],
+            evaluate_on=object_subset,
         )
+
         for i, conf in enumerate(sample.confounders.values(), start=1):
             gaussian_lh.pointwise_conditional_confounder_likelihood_2(
                 confounder=conf,
                 sample=sample,
                 out=likelihoods[..., i],
-                condition_on=object_subset,
+                # condition_on=~object_subset,
+                evaluate_on=object_subset,
             )
 
         # Fix likelihood of NA features to 1
