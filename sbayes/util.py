@@ -22,6 +22,7 @@ from scipy.special import betaln, expit, gammaln, loggamma
 import scipy.stats as stats
 from scipy.sparse import csr_matrix
 from unidecode import unidecode
+import traceback
 
 EPS = np.finfo(float).eps
 RND_SEED = 123
@@ -1513,6 +1514,9 @@ def gaussian_posterior_predictive_logpdf(
 
     # Sufficient statistics
     n = np.count_nonzero(in_component, axis=0)
+    if not np.any(in_component):
+        stack = traceback.extract_stack()
+        print(stack)
     sample_mean = np.mean(x, axis=0, where=in_component)
 
     if isinstance(n, (int, float, np.int64, np.int32)):

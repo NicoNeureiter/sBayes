@@ -83,7 +83,7 @@ Ratio of weight steps (changing weights): {op_cfg.weights}''')
                 n_chains=mcmc_config.warmup.warmup_chains,
                 operators=mcmc_config.operators,
                 p_grow_connected=mcmc_config.grow_to_adjacent,
-                initial_size=3, #mcmc_config.init_objects_per_cluster,
+                initial_size=mcmc_config.init_objects_per_cluster,
                 sample_from_prior=mcmc_config.sample_from_prior,
                 logger=self.logger,
             )

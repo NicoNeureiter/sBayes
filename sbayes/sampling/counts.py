@@ -122,6 +122,7 @@ def update_feature_counts(
         source_is_component=sample_new.categorical.source.value[..., 0],
         object_subset=object_subset
     )
+
     counts['clusters'].add_changes(old=old_cluster_counts, new=new_cluster_counts)
     assert np.all(counts['clusters'].value >= 0)
 
