@@ -1,0 +1,95 @@
+objects:
+  n: 100
+confounders:
+  conf_1:
+    a: 0.3
+    b: 0.4
+    c: 0.3
+  conf_2:
+    d: 0.5
+    e: 0.5
+clusters:
+  cluster_1: 0.1
+  cluster_2: 0.05
+  cluster_3: 0.2
+features:
+  categorical:
+  - - 2
+    - 10
+  - - 3
+    - 4
+  - - 4
+    - 5
+names:
+  categorical:
+    f1:
+    - A
+    - B
+    f2:
+    - A
+    - B
+    f3:
+    - A
+    - B
+    f4:
+    - A
+    - B
+    f5:
+    - A
+    - B
+    f6:
+    - A
+    - B
+    f7:
+    - A
+    - B
+    f8:
+    - A
+    - B
+    f9:
+    - A
+    - B
+    f10:
+    - A
+    - B
+    f11:
+    - A
+    - B
+    - C
+    f12:
+    - A
+    - B
+    - C
+    f13:
+    - A
+    - B
+    - C
+    f14:
+    - A
+    - B
+    - C
+    f15:
+    - A
+    - B
+    - C
+    - D
+    f16:
+    - A
+    - B
+    - C
+    - D
+    f17:
+    - A
+    - B
+    - C
+    - D
+    f18:
+    - A
+    - B
+    - C
+    - D
+    f19:
+    - A
+    - B
+    - C
+    - D

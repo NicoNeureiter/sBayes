@@ -1,0 +1,118 @@
+
+data:
+    # Information on the data for an sBayes analysis.
+    features: "data/sim_1/features_sim.csv"            # Path to the CSV file with features used for the analysis.
+    feature_types: "data/sim_1/feature_types.yaml"     # Path to the yaml file defining the possible states for each feature.
+   
+model:
+    # Configuration of the sBayes model.
+    clusters: 3                         # The number of clusters to be inferred.
+    confounders:                        # The list of confounder names.
+        - conf_1
+        - conf_2
+    sample_source: true                 # Sample the source component for each observation (implicitly activates Gibbs sampling).
+
+    prior:
+        # Configuration of all priors of a sBayes model.
+        
+        confounding_effects:            # The priors for the confounding_effects in each group of each confounder.
+             
+            # The priors for the confounding_effects in each group of each confounder.
+            conf_1:          
+                 <DEFAULT>:
+                    categorical:                    # The universal priors for the categorical features.
+                        type: uniform               # Type of prior distribution (`uniform` or `dirichlet`)
+                    
+                    gaussian:                       # The universal priors for the Gaussian and logit-normal features
+                        mean: 
+                            type: gaussian          # Type of prior distribution for the mean (`gaussian`)
+                            parameters:
+                                mu_0:    0.0
+                                sigma_0: 0.5               
+                        variance: 
+                            type: jeffreys          # Type of prior distribution for the variance (`jeffreys`) 
+                    poisson: 
+                        type: gamma                 # Type of prior distribution for the rate (`gamma`)
+                        parameters: 
+                            alpha_0: 0
+                            beta_0: 10
+            
+            conf_2:          
+                 <DEFAULT>:
+                    categorical:                    # The universal priors for the categorical features.
+                        type: uniform               # Type of prior distribution (`uniform` or `dirichlet`)
+                        
+                    gaussian:                   # The universal priors for the Gaussian and logit-normal features
+                        mean: 
+                            type: gaussian          # Type of prior distribution for the mean (`gaussian`)
+                            parameters:
+                                mu_0:    0.0
+                                sigma_0: 0.5               
+                        variance: 
+                            type: jeffreys          # Type of prior distribution for the variance (`jeffreys`) 
+                    poisson: 
+                        type: gamma                 # Type of prior distribution for the rate (`gamma`)
+                        parameters: 
+                            alpha_0: 0
+                            beta_0: 10
+
+        cluster_effect:
+            # The priors for the cluster-effect.
+        
+            categorical:                            # The cluster-effect priors for the categorical features 
+                type: uniform                       # Type of prior distribution (`uniform` or `dirichlet`)
+            
+            gaussian:                       # The universal priors for the Gaussian and logit-normal features
+                mean: 
+                    type: gaussian          # Type of prior distribution for the mean (`gaussian`)
+                    parameters:
+                        mu_0:    0.0
+                        sigma_0: 0.5               
+                variance: 
+                        type: jeffreys          # Type of prior distribution for the variance (`jeffreys`) 
+            poisson: 
+                type: gamma                 # Type of prior distribution for the rate (`gamma`)
+                parameters: 
+                    alpha_0: 0
+                    beta_0: 10        
+                    
+        geo:
+            # Configuration of the geo-prior.
+            type: uniform               # Type of prior distribution (`uniform`, `cost_based` or `gaussian`).
+           
+        objects_per_cluster:
+            # Configuration of the area size prior.
+            type: uniform_size          # Type of prior distribution (`uniform_area`, `uniform_size` or `quadratic`).
+            min: 2                      # Minimum cluster size.
+            max: 100                    # Maximum cluster size.
+
+        weights:
+            # Configuration of the prior on the weights of the mixture components.
+            type: uniform               # Type of prior distribution (`uniform` or `dirichlet`).
+           
+mcmc:
+    # Configuration of MCMC parameters.
+    steps: 100000                       # The total number of iterations in the MCMC chain.
+    samples: 1000                       # The number of samples to be generated (more samples implies lower sampling interval).
+    runs: 1                             # The number of times the sampling is repeated (with new output files for each run).
+    sample_from_prior: false            # If `true`, the MCMC ignores the data and samples parameters from the prior distribution.
+    init_objects_per_cluster: 5         # The number of objects in the initial clusters at the start of an MCMC run.
+    grow_to_adjacent: 0.8               # The fraction of grow-steps that only propose adjacent languages as candidates to be added to an area.
+
+    operators:
+        # The frequency of each MCMC operator. Will be normalized to 1.0 at runtime.
+        clusters: 45.0                  # Frequency at which the assignment of objects to clusters is changed.
+        weights: 15.0                   # Frequency at which mixture weights are changed.
+        cluster_effect: 5.0             # Frequency at which cluster effect parameters are changed.
+        confounding_effects: 15.0       # Frequency at which confounding effects parameters are changed.
+        source: 10.0                    # Frequency at which the assignments of observations to mixture components are changed.
+
+    warmup:
+        # Configuration of the warm-up phase in the MCMC chain.
+        warmup_steps: 5000              # The number of steps performed in the warm-up phase.
+        warmup_chains: 10               # The number parallel chains used in the warm-up phase.
+
+results:
+    # Information on where and how results are written.
+    path: results                       # Path to the results directory.
+    log_file: true                      # Whether to write log-messages to a file.
