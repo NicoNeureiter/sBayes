@@ -49,7 +49,6 @@ def get_permuted_params(results: Results, permutation: list) -> pd.DataFrame:
         prefix_j = f"areal_{clust_j}_"
         for k in params.columns:
             if k.startswith(prefix_i):
-
                 k_j = prefix_j + k[len(prefix_i):]
                 remap[k] = params[k_j]
 
@@ -81,14 +80,9 @@ def main():
     parameters_path_1 = args.path1 / f'K{K}' / f'stats_K{K}_{args.run1}.txt'
     path2 = args.path2 if args.path2 is not None else args.path1
     clusters_path_2 = path2 / f'K{K}' / f'clusters_K{K}_{args.run2}.txt'
-    # clusters_path_2_out = args.path2 / f'K{K}' / f'clusters_K{K}_{args.run2}.out.txt'
     parameters_path_2 = path2 / f'K{K}' / f'stats_K{K}_{args.run2}.txt'
-
-    # Backup the original files of experiment 2 (which are overwritten by aligned version)
-    clusters_backup_path = path2 / f'K{K}' / f'clusters_K{K}_{args.run2}_backup.txt'
-    parameters_backup_path = path2 / f'K{K}' / f'stats_K{K}_{args.run2}_backup.txt'
-    copyfile(clusters_path_2, clusters_backup_path)
-    copyfile(parameters_path_2, parameters_backup_path)
+    clusters_path_2_out = path2 / f'K{K}' / f'clusters_K{K}_{args.run2}.aligned.txt'
+    parameters_path_2_out = path2 / f'K{K}' / f'clusters_K{K}_{args.run2}.aligned.txt'
 
     # Load results
     results_1 = Results.from_csv_files(clusters_path_1, parameters_path_1, burn_in=0)
@@ -104,8 +98,8 @@ def main():
     clusters_2_aligned = results_2.clusters[perm].transpose((1,0,2))
     params_2_aligned = get_permuted_params(results_2, perm)
 
-    write_clusters(clusters_path_2, clusters_2_aligned)
-    params_2_aligned.to_csv(parameters_path_2, index=False, sep="\t")
+    write_clusters(clusters_path_2_out, clusters_2_aligned)
+    params_2_aligned.to_csv(parameters_path_2_out, index=False, sep="\t")
 
 
 if __name__ == '__main__':

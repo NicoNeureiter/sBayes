@@ -2,14 +2,8 @@ import sys
 from pathlib import Path
 
 
-def main():
-    print(sys.argv)
-
-    paths = sys.argv[1:-1]
-    interval = int(sys.argv[-1])
-
+def main(paths: list[Path], interval: int) -> None:
     for path in paths:
-        # path = Path(path)
         with open(path, "r") as in_file, \
                 open(path[:-4] + "_subsampled.txt", "w") as out_file:
             lines = in_file.readlines()
@@ -21,6 +15,18 @@ def main():
             for i, line in enumerate(lines):
                 if i % interval == 0:
                     out_file.write(line)
+
+
+def cli():
+    """Read the results directory as a command line argument and pass it to the main function."""
+    import argparse
+    parser = argparse.ArgumentParser(description="Subsample sBayes results.")
+    parser.add_argument("-f", "--files", nargs="*", type=Path,
+                        help="The sBayes results files (stats_*.txt or clusters_*.txt).")
+    parser.add_argument("interval", type=int, default=2,
+                        help="Interval at which the results are subsampled.")
+    args = parser.parse_args()
+    return main(args.results, args.interval)
 
 
 if __name__ == '__main__':
