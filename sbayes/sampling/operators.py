@@ -1062,7 +1062,9 @@ class AlterCluster(ClusterOperator):
         cluster_posterior = marginal_lh_z01[1] / (marginal_lh_z01[0] + marginal_lh_z01[1])
 
         if self.consider_geo_prior:
-            cluster_posterior *= np.exp(model.prior.geo_prior.get_costs_per_object(sample, i_cluster)[available] / self.prior_temperature)
+            geo_cost = np.exp(model.prior.geo_prior.get_costs_per_object(sample, i_cluster)[available] / self.prior_temperature)
+            # cluster_posterior *= np.clip(geo_cost, 0, 1)
+            cluster_posterior *= normalize(geo_cost)
 
         if self.additive_smoothing > 0:
             # Add the additive smoothing constant and renormalize
@@ -1220,7 +1222,7 @@ class AlterCluster(ClusterOperator):
 
         # The add probability of an inverse step
         grow_candidates = self.grow_candidates(sample_new, i_cluster)
-        if np.count_nonzero(grow_candidates) == 0:
+        if not np.all(grow_candidates[removed_objects]):
             return sample, self.Q_REJECT, self.Q_BACK_REJECT
 
         cluster_posterior_back = self.compute_cluster_posterior(sample_new, i_cluster, grow_candidates)
@@ -1228,7 +1230,6 @@ class AlterCluster(ClusterOperator):
 
         p_add = np.empty(sample_new.n_objects, dtype=FLOAT_TYPE)
         p_add[grow_candidates] = normalize(cluster_posterior_back)
-
         log_q = np.log(p_remove[removed_objects]).sum() + log_q_s
         log_q_back = np.log(p_add[removed_objects]).sum() + log_q_back_s
 
