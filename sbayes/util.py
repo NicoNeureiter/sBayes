@@ -202,6 +202,19 @@ def gabriel_graph_from_delaunay(delaunay, locations):
     return delaunay_connections[g]
 
 
+def gabriel(distances):
+    """Directly compute the adjacency matrix for the Gabriel graph from a distance matrix."""
+    n = len(distances)
+    adj = np.empty((n, n), dtype=bool)
+    d_squared = distances ** 2
+    for i in range(n):
+        # An edge is included if the squared distance between the node is smaller
+        # than the sum of squared distances of any detour via a third node.
+        detour = np.min(d_squared[i, :] + d_squared[:, :], axis=-1)
+        adj[i, :] = (d_squared[i] <= detour)
+    return adj
+
+
 def n_smallest_distances(a, n, return_idx: bool):
     """ This function finds the n smallest distances in a distance matrix
 
@@ -343,7 +356,10 @@ def read_data_csv(csv_path: PathLike) -> pd.DataFrame:
     na_values = ["", " ", "\t", "  "]
     data: pd.DataFrame = pd.read_csv(csv_path, na_values=na_values, keep_default_na=False, dtype=str)
     data.columns = [unidecode(c) for c in data.columns]
-    return data.applymap(normalize_str)
+    if pd.__version__ >= '2.1.0':
+        return data.map(normalize_str)
+    else:
+        return data.applymap(normalize_str)
 
 
 def read_costs_from_csv(file: str, logger=None):
