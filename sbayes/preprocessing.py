@@ -145,14 +145,14 @@ class ComputeNetwork:
             loc = np.asarray(sites['locations'])
             diff = loc[:, None] - loc
             dist_mat = np.linalg.norm(diff, axis=-1)
+            self.lat_lon = None
         else:
-            transformer = pyproj.transformer.Transformer.from_crs(
-                crs_from=crs, crs_to=pyproj.crs.CRS("epsg:4326"))
-            w_locations = np.vstack(
-                transformer.transform(locations[:, 0], locations[:, 1])
-            ).T
+            transformer = pyproj.transformer.Transformer.from_crs(crs_from=crs, crs_to="epsg:4326")
+            lons, lats = transformer.transform(locations[:, 0], locations[:, 1])
+            w_locations = np.vstack((lons, lats)).T
             geod = Geodesic()
             dist_mat = np.array([geod.inverse(location, w_locations)[:, 0] for location in w_locations])
+            self.lat_lon = w_locations
 
         self.vertices = vertices
         self.edges = edges

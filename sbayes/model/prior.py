@@ -13,13 +13,15 @@ from numpy.typing import NDArray
 import scipy.stats as stats
 from ruamel import yaml
 from scipy.sparse.csgraph import minimum_spanning_tree, csgraph_from_dense
+from scipy.sparse import csr_matrix
+import libpysal as pysal
 
 from sbayes.model.model_shapes import ModelShapes
 from sbayes.model.likelihood import update_weights, normalize_weights
 from sbayes.preprocessing import sample_categorical
 from sbayes.sampling.state import Sample, Clusters
 from sbayes.util import (compute_delaunay, n_smallest_distances, log_multinom,
-                         dirichlet_logpdf, log_expit, PathLike, log_binom, normalize, FLOAT_TYPE)
+                         dirichlet_logpdf, log_expit, PathLike, log_binom, normalize, FLOAT_TYPE, timeit)
 from sbayes.config.config import PriorConfig, DirichletPriorConfig, GeoPriorConfig, ClusterSizePriorConfig, \
     ConfoundingEffectPriorConfig
 from sbayes.load_data import Data, ComputeNetwork, GroupName, ConfounderName, StateName, FeatureName, Confounder
@@ -600,8 +602,11 @@ class SourcePrior:
             if len(changed) > 0:
                 w = update_weights(sample)[changed]
                 s = sample.source.value[changed]
-                observation_weights = np.sum(w * s, axis=-1)
-                source_prior[changed] = np.sum(np.log(observation_weights), axis=-1, where=self.valid_observations[changed])
+
+                valid = self.valid_observations[changed]
+                obs_weights = np.sum(w * s, axis=-1)
+                obs_log_weights = np.log(obs_weights, where=valid)
+                source_prior[changed] = np.sum(obs_log_weights, where=valid, axis=-1)
 
         return cache.value.sum()
 
@@ -784,7 +789,7 @@ class GeoPrior(object):
                 n = np.count_nonzero(c)
 
                 if self.prior_type is self.PriorTypes.COST_BASED:
-                    distances = compute_mst_distances(cost_mat_c)
+                    distances = self.compute_distances_along_skeleton(c)
                     agg_distance = self.aggregator(distances)
                     geo_priors[i_c] = prob_func(agg_distance)
                 elif self.prior_type is self.PriorTypes.DIAMETER_BASED:
@@ -798,6 +803,23 @@ class GeoPrior(object):
 
         # cache.update_value(geo_prior)
         return cache.value.sum()
+
+    def compute_distances_along_skeleton(self, cluster):
+        skeleton = self.config.skeleton
+        skeleton_types = GeoPriorConfig.Skeleton
+
+        cost_mat = self.cost_matrix[cluster][:, cluster]
+        locations = self.network.lat_lon[cluster]
+
+        if skeleton is skeleton_types.MST:
+            return compute_mst_distances(cost_mat)
+        elif skeleton is skeleton_types.DELAUNAY:
+            return compute_delaunay_distances(locations, cost_mat)
+        elif skeleton is skeleton_types.DIAMETER:
+            raise NotImplementedError
+        elif skeleton is skeleton_types.COMPLETE:
+            return cost_mat
+
 
     def get_costs_per_object(
         self,
@@ -849,48 +871,6 @@ class GeoPrior(object):
                 msg += f'\tCost-matrix file: {self.config["costs"]}\n'
 
         return msg
-
-
-def compute_gaussian_geo_prior(
-        cluster: NDArray[bool],
-        network: ComputeNetwork,
-        cov: NDArray[float],
-) -> float:
-    """This function computes the 2D Gaussian geo-prior for all edges in the cluster.
-
-    Args:
-        cluster: boolean array representing the current zone
-        network: network containing the graph, location,...
-        cov: Covariance matrix of the multivariate gaussian (estimated from the data)
-
-    Returns:
-        float: the log geo-prior of the clusters
-    """
-    log_prior = np.ndarray([])
-    for z in cluster:
-        dist_mat = network.dist_mat[z][:, z]
-        locations = network.locations[z]
-
-        if len(locations) > 3:
-
-            delaunay = compute_delaunay(locations)
-            mst = minimum_spanning_tree(delaunay.multiply(dist_mat))
-            i1, i2 = mst.nonzero()
-
-        elif len(locations) == 3:
-            i1, i2 = n_smallest_distances(dist_mat, n=2, return_idx=True)
-
-        elif len(locations) == 2:
-            i1, i2 = n_smallest_distances(dist_mat, n=1, return_idx=True)
-
-        else:
-            raise ValueError("Too few locations to compute distance.")
-
-        diffs = locations[i1] - locations[i2]
-        prior_z = stats.multivariate_normal.logpdf(diffs, mean=[0, 0], cov=cov)
-        log_prior = np.append(log_prior, prior_z)
-
-    return log_prior.mean()
 
 
 def compute_diameter_based_geo_prior(
@@ -967,7 +947,7 @@ def compute_simulation_based_geo_prior(
     return log_prior
 
 
-def compute_mst_distances(cost_mat):
+def compute_mst_distances(cost_mat: NDArray[float]) -> csr_matrix:
     if cost_mat.shape[0] <= 1:
         raise ValueError("Too few locations to compute distance.")
 
@@ -979,6 +959,27 @@ def compute_mst_distances(cost_mat):
         return np.zeros(1)
     else:
         return mst.tocsr()[mst.nonzero()]
+
+
+def compute_delaunay_distances(
+    locations: NDArray[float],
+    cost_mat: NDArray[float],
+) -> csr_matrix:
+    if cost_mat.shape[0] <= 1:
+        raise ValueError("Too few locations to compute distance.")
+
+
+    # graph = csgraph_from_dense(cost_mat, null_value=np.inf)
+    cells = pysal.cg.voronoi_frames(locations, return_input=False, as_gdf=True)
+    delaunay = pysal.weights.Rook.from_dataframe(cells, use_index=False).to_sparse()
+    dists = delaunay.multiply(cost_mat)
+
+    # When there are zero costs between languages the MST might be 0
+    if dists.nnz == 0:
+        return np.zeros(1)
+    else:
+        return dists.tocsr()[dists.nonzero()]
+
 
 
 def compute_group_effect_prior(
