@@ -7,6 +7,7 @@ from __future__ import annotations
 import logging
 import math
 import os
+import pickle
 import random
 import sys
 import time
@@ -27,7 +28,7 @@ from sbayes.sampling.mcmc_chain import MCMCChain
 from sbayes.sampling.state import Sample
 from sbayes.model import Model
 from sbayes.sampling.loggers import ResultsLogger, ParametersCSVLogger, ClustersLogger, LikelihoodLogger, \
-    OperatorStatsLogger
+    OperatorStatsLogger, StateDumper
 from sbayes.experiment_setup import Experiment
 from sbayes.load_data import Data
 from sbayes.util import RNG, process_memory
@@ -134,24 +135,33 @@ Ratio of source steps (changing source component assignment): {op_cfg.source}'''
         )
 
     def get_sample_loggers(self, run: int, resume: bool, chain: int = 0) -> list[ResultsLogger]:
-        if not self.config.results.log_hot_chains and chain > 0:
-            return []
-
         k = self.model.n_clusters
         base_dir = self.path_results
-        chain_str = '' if chain == 0 else f'.chain{chain}'
+        if chain == 0:
+            chain_str = ''
+        else:
+            chain_str = f'.chain{chain}'
+            base_dir = base_dir / 'hot_chains'
+            base_dir.mkdir(exist_ok=True)
+
+        state_path = base_dir / f'state_K{k}_{run}{chain_str}.pickle'
         params_path = base_dir / f'stats_K{k}_{run}{chain_str}.txt'
         clusters_path = base_dir / f'clusters_K{k}_{run}{chain_str}.txt'
         likelihood_path = base_dir / f'likelihood_K{k}_{run}{chain_str}.h5'
         op_stats_path = base_dir / f'operator_stats_K{k}_{run}{chain_str}.txt'
 
-        sample_loggers = [
+        # Always include the StateDumper to make sure we can resume runs later on
+        sample_loggers = [StateDumper(state_path, self.data, self.model, resume=resume)]
+        if not self.config.results.log_hot_chains and chain > 0:
+            return sample_loggers
+
+        sample_loggers += [
             ParametersCSVLogger(params_path, self.data, self.model,
                                 log_source=self.config.results.log_source,
                                 float_format=f"%.{self.config.results.float_precision}g",
                                 resume=resume),
             ClustersLogger(clusters_path, self.data, self.model, resume=resume),
-            OperatorStatsLogger(op_stats_path, self.data, self.model, operators=[], resume=resume)
+            OperatorStatsLogger(op_stats_path, self.data, self.model, operators=[], resume=resume),
         ]
 
         if (not self.config.mcmc.sample_from_prior      # When sampling from prior, the likelihood is not interesting
@@ -162,11 +172,24 @@ Ratio of source steps (changing source component assignment): {op_cfg.source}'''
         return sample_loggers
 
     def read_previous_results(self, run, chain=0) -> Results:
+        if chain == 0:
+            base_dir = self.path_results
+            chain_str = ""
+        else:
+            base_dir = self.path_results / "hot_chains"
+            chain_str = f".chain{chain}"
+
         k = self.model.n_clusters
-        chain_str = "" if chain == 0 else f".chain{chain}"
-        params_path = self.path_results / f'stats_K{k}_{run}{chain_str}.txt'
-        clusters_path = self.path_results / f'clusters_K{k}_{run}{chain_str}.txt'
-        return Results.from_csv_files(clusters_path, params_path)
+        state_path = base_dir / f'state_K{k}_{run}{chain_str}.pickle'
+        if state_path.exists():
+            # New resume, based on pickled Sample objects (preferred if pickle file exists)
+            with open(state_path, 'rb') as pickle_file:
+                return pickle.load(state_path)
+        else:
+            # Old resume, based on results files
+            params_path = base_dir / f'stats_K{k}_{run}{chain_str}.txt'
+            clusters_path = base_dir / f'clusters_K{k}_{run}{chain_str}.txt'
+            return Results.from_csv_files(clusters_path, params_path)
 
     def last_sample(self, results: Results) -> Sample:
         shapes = self.model.shapes

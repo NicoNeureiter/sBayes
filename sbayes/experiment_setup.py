@@ -70,6 +70,8 @@ class Experiment:
     def add_logger_file(self, path_results: Path):
         """Add a file handler to write logging information to a log-file"""
         log_path = path_results / f"experiment_{self.config.model.clusters}_{self.i_run}.log"
+        if os.path.exists(log_path):
+            os.remove(log_path)
         log_file_handler = logging.FileHandler(filename=log_path)
         self.logger.addHandler(log_file_handler)
 

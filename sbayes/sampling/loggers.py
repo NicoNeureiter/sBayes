@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import pickle
 from pathlib import Path
 from typing import TextIO, Optional
 from abc import ABC, abstractmethod
@@ -371,7 +372,7 @@ class OperatorStatsLogger(ResultsLogger):
         "ACCEPT-RATE": 11,
         "STEP-SIZE": 11,
         "STEP-TIME": 11,
-        "NEXT STEP-TIME": 15,
+        # "NEXT STEP-TIME": 15,
         "PARAMETERS": 0,
     }
 
@@ -409,13 +410,33 @@ class OperatorStatsLogger(ResultsLogger):
         step_size_str_raw = f"{np.mean(operator.step_sizes):.2f}" if operator.step_sizes else "-"
         step_size_str = step_size_str_raw.ljust(cls.COLUMNS["STEP-SIZE"])
         step_time_str = f"{1000 * np.mean(operator.step_times):.2f} ms".ljust(cls.COLUMNS["STEP-TIME"])
-        next_step_time_str = f"{1000 * np.mean(operator.next_step_times):.2f} ms".ljust(cls.COLUMNS["NEXT STEP-TIME"])
+        # next_step_time_str = f"{1000 * np.mean(operator.next_step_times):.2f} ms".ljust(cls.COLUMNS["NEXT STEP-TIME"])
         paramters_str = operator.get_parameters_string().ljust(cls.COLUMNS["PARAMETERS"])
 
-        return ' '.join([name_str, acc_str, rej_str, total_str, acc_rate_str, step_size_str, step_time_str, next_step_time_str, paramters_str])
+        return ' '.join([name_str, acc_str, rej_str, total_str, acc_rate_str, step_size_str, step_time_str, paramters_str])
+        # return ' '.join([name_str, acc_str, rej_str, total_str, acc_rate_str, step_size_str, step_time_str, next_step_time_str, paramters_str])
 
     def write_header(self, sample: Sample):
         pass
 
     def _write_sample(self, sample: Sample):
         pass
+
+
+class StateDumper(ResultsLogger):
+
+    def write_header(self, sample: Sample):
+        pass
+
+    def _write_sample(self, sample: Sample):
+        pass
+
+    def open(self):
+        pass
+
+    def close(self):
+        pass
+
+    def write_sample(self, sample: Sample):
+        with open(self.path, "wb") as pickle_file:
+            pickle.dump(sample, pickle_file)
