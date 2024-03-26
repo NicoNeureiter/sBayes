@@ -1063,8 +1063,7 @@ class AlterCluster(ClusterOperator):
 
         if self.consider_geo_prior:
             geo_cost = np.exp(model.prior.geo_prior.get_costs_per_object(sample, i_cluster)[available] / self.prior_temperature)
-            # cluster_posterior *= np.clip(geo_cost, 0, 1)
-            cluster_posterior *= normalize(geo_cost)
+            cluster_posterior *= np.clip(geo_cost, 0, 1)
 
         if self.additive_smoothing > 0:
             # Add the additive smoothing constant and renormalize
