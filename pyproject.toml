@@ -33,6 +33,7 @@ dependencies = [
     "unidecode",
     "psutil",
     "numba",
+    "libpysal",
 ]
 
 [project.optional-dependencies]
