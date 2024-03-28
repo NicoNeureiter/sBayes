@@ -949,7 +949,8 @@ def compute_simulation_based_geo_prior(
 
 def compute_mst_distances(cost_mat: NDArray[float]) -> csr_matrix:
     if cost_mat.shape[0] <= 1:
-        raise ValueError("Too few locations to compute distance.")
+        return np.zeros_like(cost_mat)
+        # raise ValueError("Too few locations to compute distance.")
 
     graph = csgraph_from_dense(cost_mat, null_value=np.inf)
     mst = minimum_spanning_tree(graph)
