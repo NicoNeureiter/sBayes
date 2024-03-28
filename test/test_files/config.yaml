@@ -6,12 +6,11 @@ mcmc:
     operators:
         clusters: 40
         weights: 10
-        cluster_effect: 0
-        confounding_effects: 0
         source: 10
-    init_objects_per_cluster: 1
+    initialization:
+        objects_per_cluster: 1
     warmup:
-        warmup_steps: 50
+        warmup_steps: 300
         warmup_chains: 2
     sample_from_prior: false
 model:
@@ -25,7 +24,9 @@ model:
             min: 1
             max: 100
         geo:
-            type: uniform
+            type: cost_based
+            aggregation: sum
+            rate: 50_000.0
         weights:
             type: uniform
         cluster_effect:

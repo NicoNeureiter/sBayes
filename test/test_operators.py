@@ -12,10 +12,9 @@ from typing import Generic, TypeVar
 import numpy as np
 from numpy.typing import NDArray
 import scipy.stats as stats
-from scipy.stats import kstest, binom_test
-import matplotlib.pyplot as plt
+from sbayes.config.config import GeoPriorConfig
+from scipy.stats import kstest, binomtest
 
-from sbayes.cli import main as sbayes_main
 from sbayes.experiment_setup import Experiment
 from sbayes.mcmc_setup import MCMCSetup
 from sbayes.model import Model
@@ -132,7 +131,7 @@ Value = TypeVar("Value")
 #         #     # plt.show()
 #         #
 #         #     ks_stat, p_value = kstest(mcmc_sample_stats, exact_sample_stats)
-#         #     print(p_value, stats.binom_test(sum(mcmc_sample_stats), n_samples, 0.5))
+#         #     print(p_value, stats.binomtest(sum(mcmc_sample_stats), n_samples, 0.5).pvalue)
 #         #     # print(kstest(mcmc_sample_stats, cdf))
 #         #     # print(kstest(exact_sample_stats, cdf))
 #         #     assert p_value > 0.01
@@ -183,18 +182,18 @@ Value = TypeVar("Value")
 #         mcmc = np.asarray(mcmc)  # shape = (n_samples, 1, n_objects)
 #
 #         for i in range(self.N_OBJECTS):
-#             p_value_i = stats.binom_test(
-#                 x=np.sum(mcmc[:, 0, i]),
+#             p_value_i = stats.binomtest(
+#                 k=np.sum(mcmc[:, 0, i]),
 #                 n=n_samples,
 #                 p=0.5,
-#             )
+#             ).pvalue
 #             assert p_value_i > 0.001
 #
-#         p_value_flat = stats.binom_test(
-#             x=np.sum(mcmc),
+#         p_value_flat = stats.binomtest(
+#             k=np.sum(mcmc),
 #             n=n_samples * self.N_OBJECTS,
 #             p=0.5,
-#         )
+#         ).pvalue
 #         print(p_value_flat)
 #         assert p_value_flat > 0.01, p_value_flat
 #
@@ -243,15 +242,8 @@ class OperatorsTest(unittest.TestCase):
 
     def run_sbayes(self):
         """Run a sbayes analysis which generates the samples to be evaluated."""
-        experiment = Experiment(config_file=self.CONFIG_PATH, experiment_name=self.EXPERIMENT_NAME, log=True)
-        data = Data.from_experiment(experiment)
-        mcmc = MCMCSetup(data=data, experiment=experiment)
+        mcmc = MCMCSetup(data=self.data, experiment=self.experiment)
         mcmc.sample(resume=False)
-
-        self.data = data
-        self.results_path = experiment.path_results
-
-        experiment.close()
 
     def generate_reference_samples(self):
         """Generate reference samples using importance sampling"""
@@ -266,6 +258,12 @@ class OperatorsTest(unittest.TestCase):
         for sample in self.reference_samples:
             recalculate_feature_counts(data.features.values, sample)
             sample.lh = model.likelihood(sample, caching=False)
+            # sample.posterior = model(sample, caching=False)
+
+            geo_prior = model.prior.geo_prior
+            if geo_prior is not GeoPriorConfig.Types.UNIFORM:
+                sample.lh += geo_prior(sample, caching=False)
+
         self.ref_lh = np.array([sample.lh for sample in self.reference_samples])
         self.ref_importance = normalize(np.exp(self.ref_lh))
 
@@ -288,12 +286,17 @@ class OperatorsTest(unittest.TestCase):
         experiment.close()
 
     def setUp(self) -> None:
+        self.experiment = Experiment(config_file=self.CONFIG_PATH, experiment_name=self.EXPERIMENT_NAME, log=True)
+        self.data = Data.from_experiment(self.experiment)
+        self.results_path = self.experiment.path_results
+
         self.run_sbayes()
         self.results = Results.from_csv_files(
             clusters_path=self.results_path / "K1" / "clusters_K1_1.txt",
             parameters_path=self.results_path / "K1" / "stats_K1_1.txt"
         )
         self.generate_reference_samples()
+        self.experiment.close()
 
     def test_everything(self):
         # for conf_name, conf_eff in self.results.confounding_effects.items():
@@ -306,22 +309,21 @@ class OperatorsTest(unittest.TestCase):
         n_samples = self.results.n_samples
         for i_clust, cluster in enumerate(self.results.clusters):
             for i_obj in range(self.results.n_objects):
-                print(np.mean(self.ref_clusters[i_clust][:, i_obj]),
+                print(self.ref_importance.dot(self.ref_clusters[i_clust][:, i_obj]),
                       np.mean(cluster[:, i_obj]))
-                p_value = binom_test(
-                    x=np.sum(cluster[:, i_obj]),
+                p_value = binomtest(
+                    k=np.sum(cluster[:, i_obj]),
                     n=n_samples,
-                    # p=self.ref_clusters[i_clust][:, i_obj].mean()
                     p=self.ref_importance.dot(self.ref_clusters[i_clust][:, i_obj])
-                )
+                ).pvalue
                 print(f'p-value for cluster {i_clust} object {i_obj}:    {p_value:.3f}')
                 assert p_value > 0.01
 
-            p_value_size = binom_test(
-                x=np.sum(cluster),
+            p_value_size = binomtest(
+                k=np.sum(cluster),
                 n=n_samples * self.results.n_objects,
-                p=self.ref_clusters[i_clust].mean()
-            )
+                p=self.ref_importance.dot(self.ref_clusters[i_clust]).mean()
+            ).pvalue
             print(f'p-value for cluster {i_clust} size:    {p_value_size:.3f}')
             assert p_value_size > 0.01
 
