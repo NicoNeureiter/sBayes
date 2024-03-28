@@ -49,7 +49,7 @@ def get_operator_schedule(
 
     operators = {
         'cluster_naive_n1': AlterCluster(
-            weight=0.05 * operators_config.clusters,
+            weight=0.025 * operators_config.clusters,
             adjacency_matrix=data.network.adj_mat,
             model=model,
             features=data.features.values,
@@ -63,7 +63,7 @@ def get_operator_schedule(
             gibbsish=False,
         ),
         'cluster_naive_n1_geo': AlterCluster(
-            weight=0.05 * operators_config.clusters,
+            weight=0.025 * operators_config.clusters,
             adjacency_matrix=data.network.adj_mat,
             model=model,
             features=data.features.values,
@@ -77,7 +77,7 @@ def get_operator_schedule(
             gibbsish=False,
         ),
         'cluster_naive_n2_geo': AlterCluster(
-            weight=0.05 * operators_config.clusters,
+            weight=0.025 * operators_config.clusters,
             adjacency_matrix=data.network.adj_mat,
             model=model,
             features=data.features.values,
@@ -91,7 +91,7 @@ def get_operator_schedule(
             gibbsish=False,
         ),
         'cluster_gibbsish': AlterCluster(
-            weight=0.05 * operators_config.clusters,
+            weight=0.025 * operators_config.clusters,
             adjacency_matrix=data.network.adj_mat,
             model=model,
             features=data.features.values,
@@ -102,7 +102,7 @@ def get_operator_schedule(
             prior_temperature=prior_temperature,
         ),
         'cluster_gibbsish_geo': AlterCluster(
-            weight=0.35 * operators_config.clusters,
+            weight=0.5 * operators_config.clusters,
             adjacency_matrix=data.network.adj_mat,
             model=model,
             features=data.features.values,
@@ -124,7 +124,7 @@ def get_operator_schedule(
         #     n_changes=2,
         # ),
         'gibbsish_sample_cluster_wide_geo': AlterClusterWide(
-            weight=0.1 * operators_config.clusters,
+            weight=0.07 * operators_config.clusters,
             adjacency_matrix=data.network.adj_mat,
             model=model,
             features=data.features.values,
@@ -137,7 +137,7 @@ def get_operator_schedule(
             prior_temperature=prior_temperature,
         ),
         'gibbsish_sample_cluster_wide_residual': AlterClusterWide(
-            weight=0.05 * operators_config.clusters,
+            weight=0.03 * operators_config.clusters,
             adjacency_matrix=data.network.adj_mat,
             model=model,
             features=data.features.values,
@@ -1059,11 +1059,11 @@ class AlterCluster(ClusterOperator):
         weights_z01 = self.compute_feature_weights_with_and_without(sample, available)
         feature_lh_z01 = inner1d(all_lh[np.newaxis, ...], weights_z01)
         marginal_lh_z01 = np.prod(feature_lh_z01, axis=-1) ** (1 / self.temperature)
-        cluster_posterior = marginal_lh_z01[1] / (marginal_lh_z01[0] + marginal_lh_z01[1])
-
         if self.consider_geo_prior:
-            geo_cost = np.exp(model.prior.geo_prior.get_costs_per_object(sample, i_cluster)[available] / self.prior_temperature)
-            cluster_posterior *= np.clip(geo_cost, 0, 1)
+            geo_likelihoods = np.exp(model.prior.geo_prior.get_costs_per_object(sample, i_cluster)[available] / self.prior_temperature)
+            marginal_lh_z01[1] *= geo_likelihoods
+
+        cluster_posterior = marginal_lh_z01[1] / (marginal_lh_z01[0] + marginal_lh_z01[1])
 
         if self.additive_smoothing > 0:
             # Add the additive smoothing constant and renormalize
@@ -1256,7 +1256,6 @@ class ClusterEffectProposals:
         """Compute the posterior counts (concentration parameter) for a Dirichlet
         distribution from prior counts and feature counts, but apply a different
         temperature for prior and likelihood."""
-        # print(unif_counts.shape, prior_counts.shape, feature_counts.shape, temperature, prior_temperature)
         return (unif_counts + (prior_counts - unif_counts) / prior_temperature + feature_counts / temperature)
 
     @staticmethod
@@ -1450,18 +1449,26 @@ class AlterClusterWide(AlterCluster):
         weights_z01 = self.compute_feature_weights_with_and_without(sample, available)
         feature_lh_z01 = inner1d(all_lh[np.newaxis, ...], weights_z01)
         marginal_lh_z01 = np.prod(feature_lh_z01, axis=-1) ** (1 / self.temperature)
-        cluster_posterior = marginal_lh_z01[1] / (marginal_lh_z01[0] + marginal_lh_z01[1] + EPS)
 
         if self.consider_geo_prior:
             if self.cluster_effect_proposal is ClusterEffectProposals.residual_counts:
+                # Select distance matrix between set of available objects
                 distances = model.data.geo_cost_matrix[available][:, available]
-                z = normalize(cluster_posterior)
-                avg_dist_to_cluster = z.dot(distances)
-                geo_likelihoods = np.exp(-avg_dist_to_cluster / model.prior.geo_prior.scale / self.prior_temperature / self.geo_scaler)
-                cluster_posterior = normalize(geo_likelihoods * z)
-            else:
-                cluster_posterior *= np.exp(model.prior.geo_prior.get_costs_per_object(sample, i_cluster)[available] / self.geo_scaler)
 
+                # Take the normalized (non-geographic) posterior to get a continuous approximation of the cluster
+                z = normalize(marginal_lh_z01[1] / (marginal_lh_z01[0] + marginal_lh_z01[1] + EPS))
+
+                # Use the average distance (weighted by posterio) as the basis for the geo-prior cost
+                avg_dist_to_cluster = z.dot(distances)
+                log_geo_prior_ratio = -avg_dist_to_cluster / model.prior.geo_prior.scale
+            else:
+                log_geo_prior_ratio = model.prior.geo_prior.get_costs_per_object(sample, i_cluster)[available]
+
+            # Multiply the probability of having each language in the cluster by the geo_prior_ratio
+            geo_prior_ratio = np.exp(log_geo_prior_ratio / self.prior_temperature / self.geo_scaler)
+            marginal_lh_z01[1] *= geo_prior_ratio
+
+        cluster_posterior = marginal_lh_z01[1] / (marginal_lh_z01[0] + marginal_lh_z01[1] + EPS)
         return cluster_posterior
 
     def ml_step(self, sample: Sample, i_cluster=None) -> Sample:
