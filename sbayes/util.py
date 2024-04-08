@@ -316,7 +316,8 @@ def read_data_csv(csv_path: PathLike) -> pd.DataFrame:
     na_values = ["", " ", "\t", "  "]
     data: pd.DataFrame = pd.read_csv(csv_path, na_values=na_values, keep_default_na=False, dtype=str)
     data.columns = [unidecode(c) for c in data.columns]
-    return data.map(normalize_str)
+
+    return data.applymap(normalize_str)
 
 
 def read_costs_from_csv(file: str, logger=None):
@@ -1525,8 +1526,6 @@ def gaussian_posterior_predictive_logpdf(
     if not np.any(in_component):
         stack = traceback.extract_stack()
         print(stack)
-
-    sample_mean = np.mean(x, axis=0, where=in_component)
 
     # Handle special case of no observations
     if isinstance(n, (int, float, np.int64, np.int32)):

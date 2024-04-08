@@ -185,7 +185,7 @@ class ParametersCSVLogger(ResultsLogger):
                 features=features.categorical.values,
                 is_source_group=is_source_cluster,
                 applicable_states=features.categorical.states,
-                prior_counts=prior.prior_cluster_effect.concentration_array,
+                prior_counts=prior.prior_cluster_effect.categorical.concentration_array,
             )
         if FeatureType.gaussian in sample.feature_type_samples:
             cluster_effect[FeatureType.gaussian] = np.empty((sample.n_clusters, sample.gaussian.n_features, 2))
@@ -289,7 +289,7 @@ class ParametersCSVLogger(ResultsLogger):
                         features=features.categorical.values,
                         is_source_group=conf.group_assignment[..., None] & sample.categorical.source.value[None, ..., i_conf],
                         applicable_states=features.categorical.states,
-                        prior_counts=conf_prior.concentration_array(sample),
+                        prior_counts=conf_prior.categorical.concentration_array(sample),
                     )
                     for i_g, g in enumerate(conf.group_names):
                         for i_f, f in enumerate(features.categorical.names):

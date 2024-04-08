@@ -69,6 +69,7 @@ def ask_confounders(col_names):
 
 
 def collect_feature_states(features_path):
+
     features = read_data_csv(features_path)
 
     metadata_columns = ['id', 'name', 'x', 'y']
@@ -223,8 +224,6 @@ def main(args):
 
             for f in feature_states.keys():
                 feature_states[f].update(new_feature_states[f])
-
-
 
     # Remove NAs and order states alphabetically (if ´ORDER_STATES´ is set)
     for f in feature_states.copy():
