@@ -104,15 +104,15 @@ class ParametersCSVLogger(ResultsLogger):
 
         # Cluster sizes
         for i in range(sample.n_clusters):
-            column_names.append(f"size_a{i}")
+            column_names.append(f"size_cluster_{i}")
 
         # weights
         for ft in sample.feature_type_samples:
 
             for i_f, f in enumerate(feature_names[ft]):
-                # Areal effect
-                column_names += [f"w_areal_{f}"]
-                # index of areal = 0
+                # Cluster effect
+                column_names += [f"w_cluster_{f}"]
+                # index of cluster = 0
                 # todo: use source_index instead of remembering the order
 
                 # Confounding effects
@@ -121,19 +121,19 @@ class ParametersCSVLogger(ResultsLogger):
                     # todo: use source_index instead of remembering the order
                     # index of confounding effect starts with 1
 
-                # Areal effect
+                # Cluster effect
                 for i_c in range(sample.n_clusters):
                     if ft == "categorical":
                         for i_s, s in enumerate(state_names[f]):
-                            column_names += [f"areal_a{i_c}_{f}_{s}"]
+                            column_names += [f"cluster_{i_c}_{f}_{s}"]
                     elif ft == "gaussian":
-                        column_names += [f"areal_a{i_c}_{f}_mu"]
-                        column_names += [f"areal_a{i_c}_{f}_sigma"]
+                        column_names += [f"cluster_{i_c}_{f}_mu"]
+                        column_names += [f"cluster_{i_c}_{f}_sigma"]
                     elif ft == "poisson":
-                        column_names += [f"areal_a{i_c}_{f}_lambda"]
+                        column_names += [f"cluster_{i_c}_{f}_lambda"]
                     elif ft == "logitnormal":
-                        column_names += [f"areal_a{i_c}_{f}_mu_logit"]
-                        column_names += [f"areal_a{i_c}_{f}_sigma_logit"]
+                        column_names += [f"cluster_{i_c}_{f}_mu_logit"]
+                        column_names += [f"cluster_{i_c}_{f}_sigma_logit"]
 
                 # Confounding effects
                 for conf in self.data.confounders.values():
@@ -234,7 +234,7 @@ class ParametersCSVLogger(ResultsLogger):
 
         # Cluster sizes
         for i, cluster in enumerate(clusters):
-            col_name = f"size_a{i}"
+            col_name = f"size_cluster_{i}"
             row[col_name] = np.count_nonzero(cluster)
 
         for ft in sample.feature_type_samples:
@@ -242,11 +242,11 @@ class ParametersCSVLogger(ResultsLogger):
             # Weights
             for i_f, f in enumerate(features[ft].names):
 
-                # Areal effect weights
-                w_areal = f"w_areal_{f}"
-                # index of areal = 0
+                # cluster effect weights
+                w_cluster = f"w_cluster_{f}"
+                # index of cluster = 0
                 # todo: use source_index instead of remembering the order
-                row[w_areal] = getattr(sample, ft).weights.value[i_f, 0]
+                row[w_cluster] = getattr(sample, ft).weights.value[i_f, 0]
 
                 # Confounding effects weights
                 for i_conf, conf in enumerate(self.data.confounders.values(), start=1):
@@ -255,29 +255,29 @@ class ParametersCSVLogger(ResultsLogger):
                     # index of confounding effect starts with 1
                     row[w_conf] = getattr(sample, ft).weights.value[i_f, i_conf]
 
-            # Areal effect
+            # cluster effect
             for i_c in range(sample.n_clusters):
                 for i_f, f in enumerate(features[ft].names):
                     if ft == FeatureType.categorical:
                         for i_s, s in enumerate(features.categorical.names[f]):
-                            col_name = f"areal_a{i_c}_{f}_{s}"
+                            col_name = f"cluster_{i_c}_{f}_{s}"
                             row[col_name] = cluster_effect[ft][i_c, i_f, i_s]
                     if ft == FeatureType.gaussian:
-                        col_name = f"areal_a{i_c}_{f}_mu"
+                        col_name = f"cluster_{i_c}_{f}_mu"
                         row[col_name] = cluster_effect[ft][i_c, i_f, 0]
 
-                        col_name = f"areal_a{i_c}_{f}_sigma"
+                        col_name = f"cluster_{i_c}_{f}_sigma"
                         row[col_name] = cluster_effect[ft][i_c, i_f, 1]
 
                     if ft == FeatureType.poisson:
-                        col_name = f"areal_a{i_c}_{f}_lambda"
+                        col_name = f"cluster_{i_c}_{f}_lambda"
                         row[col_name] = cluster_effect[ft][i_c, i_f]
 
                     if ft == FeatureType.logitnormal:
-                        col_name = f"areal_a{i_c}_{f}_mu_logit"
+                        col_name = f"cluster_{i_c}_{f}_mu_logit"
                         row[col_name] = cluster_effect[ft][i_c, i_f, 0]
 
-                        col_name = f"areal_a{i_c}_{f}_sigma_logit"
+                        col_name = f"cluster_{i_c}_{f}_sigma_logit"
                         row[col_name] = cluster_effect[ft][i_c, i_f, 1]
 
             # Confounding effects

@@ -27,7 +27,6 @@ from sbayes.config.config import OperatorsConfig
 import sbayes.model
 
 
-
 class ClusterMCMC(MCMC):
 
     """sBayes specific subclass of MCMC for sampling clusters (and other parameters)."""
