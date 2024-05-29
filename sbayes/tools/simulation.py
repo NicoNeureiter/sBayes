@@ -9,7 +9,20 @@ from collections import OrderedDict
 from sbayes.model.likelihood import normalize_weights
 from sbayes.preprocessing import sample_categorical
 from scipy.stats import invgamma, gamma
-from sbayes.util import set_experiment_name as set_simulation_name, fix_relative_path, format_cluster_columns
+from sbayes.util import set_experiment_name, fix_relative_path, format_cluster_columns
+
+
+def set_simulation_name(feat_meta: dict):
+    """ Define the name of the simulation
+            Args:
+                feat_meta (dict): meta information about the simulated features
+            Returns:
+                (str): the name of the simulation"""
+    sim_name = set_experiment_name()
+    for ft in ["categorical", "gaussian", "poisson"]:
+        if ft in feat_meta.keys():
+            sim_name = "_".join([sim_name, ft])
+    return sim_name
 
 
 def simulate_objects(obj_meta: dict):
@@ -576,21 +589,21 @@ def write_parameters(params, names, path):
             for i_cl, (_, cl) in enumerate(params['cluster_effects'][ft].items()):
                 if ft == "categorical":
                     for i_s, s in enumerate(names[ft][f]):
-                        name = f"cluster_cl{i_cl}_{f}_{s}"
+                        name = f"cluster_{i_cl}_{f}_{s}"
                         column_names += [name]
                         row[name] = cl[i_f][i_s]
 
                 elif ft == "gaussian":
-                    name = f"cluster_cl{i_cl}_{f}_mu"
+                    name = f"cluster_{i_cl}_{f}_mu"
                     column_names += [name]
                     row[name] = cl['mean'][i_f]
 
-                    name = f"cluster_cl{i_cl}_{f}_sigma"
+                    name = f"cluster_{i_cl}_{f}_sigma"
                     column_names += [name]
                     row[name] = cl['variance'][i_f]
 
                 elif ft == "poisson":
-                    name = f"cluster_cl{i_cl}_{f}_lambda"
+                    name = f"cluster_{i_cl}_{f}_lambda"
                     column_names += [name]
                     row[name] = cl['rate'][i_f]
 
@@ -825,8 +838,8 @@ clusters_meta = dict(
 # Number of simulated features per feature type
 # For categorical features the tuple (2, 3) simulates 3 features with 2 states
 features_meta = dict(
-    categorical=[(2, 10), (3, 4), (4, 5)],
-# gaussian=10,
+    #categorical=[(2, 10), (3, 4), (4, 5)],
+    gaussian=10,
 #    poisson=10,
 )
 
@@ -879,9 +892,8 @@ hyper_parameters = dict(weights=hyper_parameters_weights_prior,
                         confounding_effects=hyper_parameters_confounding_effect_prior,
                         cluster_effect=hyper_parameters_cluster_effect_prior)
 
-
 folder_path = "../../experiments/simulation"
-simulation_name = set_simulation_name()
+simulation_name = set_simulation_name(features_meta)
 
 # Simulate the prior
 path_prior = "/".join([folder_path, simulation_name, "prior"])

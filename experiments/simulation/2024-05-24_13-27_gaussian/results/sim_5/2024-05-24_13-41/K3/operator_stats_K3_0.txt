@@ -1,0 +1,4 @@
+OPERATOR                      	ACCEPTS 	REJECTS 	TOTAL   	ACCEPT-RATE	STEP-TIME  	STEP-SIZE  	PARAMETERS
+AlterCluster                  	143     	356     	499     	28.66%     	5.28 ms    	0.59       	[resample_source_mode=PRIOR]
+GibbsSampleSource             	0       	54      	54      	0.00%      	17.77 ms   	-	[object_selector=RANDOM_SUBSET, max_step_size=4]
+GibbsSampleWeights            	149     	0       	149     	100.00%    	3.45 ms    	0.65       	[]

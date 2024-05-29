@@ -1,0 +1,50 @@
+f1:
+  type: gaussian
+  states:
+    min: -1321.6796629053563
+    max: 504.04899427592363
+f2:
+  type: gaussian
+  states:
+    min: -620.5682814093445
+    max: 1836.407935009535
+f3:
+  type: gaussian
+  states:
+    min: -1544.6025027892217
+    max: 971.149126436473
+f4:
+  type: gaussian
+  states:
+    min: 117.63503220808431
+    max: 1188.4179742783283
+f5:
+  type: gaussian
+  states:
+    min: -556.5585063136664
+    max: 245.8040943043666
+f6:
+  type: gaussian
+  states:
+    min: -444.56838872289353
+    max: 837.5666250233897
+f7:
+  type: gaussian
+  states:
+    min: -330.9030360966191
+    max: 352.17019375488445
+f8:
+  type: gaussian
+  states:
+    min: -230.6044001068118
+    max: 1179.5355029710927
+f9:
+  type: gaussian
+  states:
+    min: 221.8635854957763
+    max: 2665.1475473821124
+f10:
+  type: gaussian
+  states:
+    min: -652.5492551005145
+    max: 552.0474285392014

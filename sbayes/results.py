@@ -37,10 +37,10 @@ class Results:
         self.groups_by_confounders = self.get_groups_by_confounder(parameters.columns)
         self.cluster_names = self.get_cluster_names(parameters.columns)
 
-        # Parse feature, state, family and area names
+        # Parse feature, state, confounder and cluster names
         self.feature_names = extract_feature_names(parameters)
         self.feature_states = [
-            extract_state_names(parameters, prefix=f"areal_{self.cluster_names[0]}_{f}_")
+            extract_state_names(parameters, prefix=f"cluster_{self.cluster_names[0]}_{f}_")
             for f in self.feature_names
         ]
 
@@ -49,7 +49,7 @@ class Results:
 
         # Model parameters
         self.weights = self.parse_weights(self.parameters)
-        self.areal_effect = self.parse_areal_effect(self.parameters)
+        self.cluster_effect = self.parse_cluster_effect(self.parameters)
         self.confounding_effects = self.parse_confounding_effects(self.parameters)
         # self.weights = Results.read_dictionary(self.parameters, "w_")
         # self.areal_effect = Results.read_dictionary(self.parameters, "areal_")
@@ -63,7 +63,7 @@ class Results:
         self.likelihood = self.parameters["likelihood"].to_numpy(dtype=float)
         self.prior = self.parameters["prior"].to_numpy(dtype=float)
 
-        # Posterior, likelihood, prior contribution per area
+        # Posterior, likelihood, prior contribution per cluster
         self.posterior_single_clusters = Results.read_dictionary(
             self.parameters, "post_"
         )
@@ -164,7 +164,7 @@ class Results:
             parsed_sample = parse_cluster_columns(sample)
             # shape: (n_clusters, n_sites)
 
-            # Add each item in parsed_area_columns to the corresponding array in result
+            # Add each item in parsed_cluster_columns to the corresponding array in result
             for j in range(len(parsed_sample)):
                 clusters_list[j].append(parsed_sample[j])
 
@@ -208,9 +208,9 @@ class Results:
                 array has shape (n_samples, 1 + n_confounders).
 
         """
-        # The components include the areal effect and all confounding effects and define
+        # The components include the cluster effect and all confounding effects and define
         # the dimensions of weights for each feature.
-        components = ["areal"] + list(self.groups_by_confounders.keys())
+        components = ["cluster"] + list(self.groups_by_confounders.keys())
 
         # Collect weights by feature
         weights = {}
@@ -247,9 +247,9 @@ class Results:
         assert len(param) == self.n_features
         return param
 
-    def parse_areal_effect(self, parameters: pd.DataFrame) -> dict[str, dict]:
-        """Parse a categorical probabilities for each feature in each cluster. The
-         probabilities are specified in the columns starting with `areal_` in the
+    def parse_cluster_effect(self, parameters: pd.DataFrame) -> dict[str, dict]:
+        """Parse categorical probabilities for each feature in each cluster. The
+         probabilities are specified in the columns starting with `cluster_` in the
          `parameters` data-frame.
 
         Args:
@@ -259,11 +259,11 @@ class Results:
             Nested dictionary of form {cluster_name: {feature_name: probabilities}}.
                 shape for each cluster and each feature f: (n_states_f,)
         """
-        areal_effect = {
-            cluster: self.parse_probs(parameters, f"areal_{cluster}")
+        cluster_effect = {
+            cluster: self.parse_probs(parameters, f"cluster_{cluster}")
             for cluster in self.cluster_names
         }
-        return areal_effect
+        return cluster_effect
 
     def parse_confounding_effects(
         self, parameters: pd.DataFrame
@@ -315,8 +315,8 @@ class Results:
             # Second part of key in weights columns defines the confounder name
             _, conf, _ = key.split("_", maxsplit=2)
 
-            # Skip areal effects
-            if conf == "areal":
+            # Skip cluster effects
+            if conf == "cluster":
                 continue
 
             # Skip already added
@@ -347,14 +347,14 @@ class Results:
 
     @staticmethod
     def get_cluster_names(column_names) -> list[str]:
-        area_names = []
+        cluster_names = []
         for key in column_names:
-            if not key.startswith("areal_"):
+            if not key.startswith("cluster_"):
                 continue
-            _, area, _ = key.split("_", maxsplit=2)
-            if area not in area_names:
-                area_names.append(area)
-        return area_names
+            _, cluster, _ = key.split("_", maxsplit=2)
+            if cluster not in cluster_names:
+                cluster_names.append(cluster)
+        return cluster_names
 
     def get_states_for_feature_name(self, f: str) -> list[str]:
         return self.feature_states[self.feature_names.index(f)]
@@ -399,7 +399,7 @@ def extract_features_and_states(
 
 
 def extract_feature_names(parameters: pd.DataFrame) -> list[str]:
-    prefix = "w_areal_"
+    prefix = "w_cluster_"
     feature_names = []
     for c in parameters.columns:
         if c.startswith(prefix):
