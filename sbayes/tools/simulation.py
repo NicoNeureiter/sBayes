@@ -1,11 +1,19 @@
+from pathlib import Path
+
 import pandas as pd
 import numpy as np
 import os
 import random
 import yaml
+import json
 import string
-from sbayes.load_data import Objects, Confounder
 from collections import OrderedDict
+import argparse
+
+from numpy._typing import NDArray
+
+from sbayes.config.config import SBayesConfig, ModelConfig
+from sbayes.load_data import Objects, Confounder
 from sbayes.model.likelihood import normalize_weights
 from sbayes.preprocessing import sample_categorical
 from scipy.stats import invgamma, gamma
@@ -42,7 +50,7 @@ def simulate_objects(obj_meta: dict):
     return Objects.from_dataframe(df)
 
 
-def simulate_confounder_assignment(ob: Objects, conf_meta: dict):
+def simulate_confounder_assignment(ob: Objects, conf_meta: dict) -> dict:
     """ Randomly assign objects to confounders
         Args:
             ob (Objects): simulated objects with attributes location (x,y) and ID
@@ -64,25 +72,34 @@ def simulate_confounder_assignment(ob: Objects, conf_meta: dict):
     return conf
 
 
-def simulate_cluster_assignment(ob: Objects, clust_meta: dict):
+def simulate_uniform_clusters(n_clusters: int, n_objects: int) -> NDArray[bool]:
+    """Randomly assign each language to one of the areas or no area (equal probability for every option)."""
+    eye = np.eye(n_clusters, dtype=bool)
+    areas_int = np.random.randint(n_clusters, size=n_objects)
+    return eye[areas_int].T
+
+
+def simulate_cluster_assignment(objects: Objects, clust_meta: dict) -> NDArray[bool]:
     """ Randomly assign objects to mutually exclusive clusters
         Args:
-            ob (Objects): simulated objects with attributes location (x,y) and ID
+            objects (Objects): simulated objects with attributes location (x,y) and ID
             clust_meta (dict): clusters and their relative frequencies
         Returns:
             (np.ndarray):  the simulated assignment of objects to clusters"""
+    # TODO in the future implement more options for cluster priors
+    return simulate_uniform_clusters(len(clust_meta), len(objects))
 
-    # Randomly assign the objects to three mutually exclusive clusters
-    c = list(clust_meta.keys())
-    p = list(clust_meta.values())
-
-    df = pd.DataFrame()
-    df['clust'] = np.random.choice(c + ["0"], size=ob.n_objects, p=p + [1 - sum(p)])
-    clust_bin = np.zeros((len(c), ob.n_objects), dtype=bool)
-
-    for i, cl in enumerate(c):
-        clust_bin[i] = df['clust'].apply(lambda x: True if x == cl else False).values
-    return clust_bin
+    # # Randomly assign the objects to three mutually exclusive clusters
+    # c = list(clust_meta.keys())
+    # p = list(clust_meta.values())
+    #
+    # df = pd.DataFrame()
+    # df['clust'] = np.random.choice(c + ["0"], size=ob.n_objects, p=p + [1 - sum(p)])
+    # clust_bin = np.zeros((len(c), ob.n_objects), dtype=bool)
+    #
+    # for i, cl in enumerate(c):
+    #     clust_bin[i] = df['clust'].apply(lambda x: True if x == cl else False).values
+    # return clust_bin
 
 
 def define_names(feat: dict):
@@ -794,6 +811,8 @@ def simulate_parameters(prior_sim, meta, path):
                 cluster_effect=clust_effect_sim)
 
 
+
+
 def simulate_data(param_sim, meta, path):
     """Simulate the parameters and write to file
                 Args:
@@ -820,108 +839,126 @@ def simulate_data(param_sim, meta, path):
     export_data(data=data_sim, path=path)
 
 
-objects_meta = dict(n=100)
+def main():
+    parser = argparse.ArgumentParser(description="sBayes simulation script")
+    parser.add_argument("name", type=str, help="Name for the simulation run")
+    parser.add_argument("config", type=Path, help="Path to a sBayes config file used to extract the prior settings for the simulation")
+    parser.add_argument("n_sim", type=int, default=10, help="Number of simulations to run")
+    args = parser.parse_args()
 
-# Names of simulated confounders and simulated groups per confounder and their relative frequency (must sum to 1).
-confounders_meta = dict(
-    conf_1=dict(a=0.3, b=0.4, c=0.3),
-    conf_2=dict(d=0.5, e=0.5)
-)
+    if args.config.suffix.lower() in (".yaml", ".yml"):
+        with open(args.config, "r") as f:
+            config_dict = yaml.safe_load(f)
+    else:
+        config_dict = json.load(args.config)
 
-# Names of simulated clusters and their relative frequency (can but should not sum to 1).
-clusters_meta = dict(
-    cluster_1=0.1,
-    cluster_2=0.05,
-    cluster_3=0.2
-)
+    model_config = ModelConfig(**config_dict['model'])
+    # TODO Use the config file (avoids having the same config in two places and need to make sure they match)
 
-# Number of simulated features per feature type
-# For categorical features the tuple (2, 3) simulates 3 features with 2 states
-features_meta = dict(
-    #categorical=[(2, 10), (3, 4), (4, 5)],
-    gaussian=10,
-#    poisson=10,
-)
+    objects_meta = dict(n=100)
 
-# features_meta = dict(gaussian=20)
+    # Names of simulated confounders and simulated groups per confounder and their relative frequency (must sum to 1).
+    confounders_meta = dict(
+        conf_1=dict(a=0.3, b=0.4, c=0.3),
+        conf_2=dict(d=0.5, e=0.5)
+    )
+
+    # Names of simulated clusters and their relative frequency (can but should not sum to 1).
+    clusters_meta = dict(
+        cluster_1=0.1,
+        cluster_2=0.05,
+        cluster_3=0.2
+    )
+
+    # Number of simulated features per feature type
+    # For categorical features the tuple (2, 3) simulates 3 features with 2 states
+    features_meta = dict(
+        # categorical=[(2, 10), (3, 4), (4, 5)],
+        gaussian=10,
+        # poisson=10,
+    )
+
+    # features_meta = dict(gaussian=20)
+
+    # Range of the concentration values for simulating the weights prior
+    # A higher concentration yields a pointier prior
+    hyper_parameters_weights_prior = dict(concentration=(1, 1))
+
+    # Range of the hyperparameter values for simulating the confounding effect prior
+    hyper_parameters_confounding_effect_prior = dict(
+        categorical=dict(
+            concentration=(1, 1)),
+        gaussian=dict(
+            mean=dict(
+                mu_0=(0, 0),
+                sigma_0=(1000, 1000)),
+            variance=dict(
+                alpha_0=(1, 1),
+                beta_0=(1, 1))),
+        poisson=dict(
+            rate=dict(
+                alpha_0=(0, 0),
+                beta_0=(10, 10))))
+
+    # Range of the hyperparameter values for simulating the cluster effect prior
+    hyper_parameters_cluster_effect_prior = dict(
+        categorical=dict(
+            concentration=(1, 1)),
+        gaussian=dict(
+            mean=dict(
+                mu_0=(0, 0),
+                sigma_0=(1000, 1000)),
+            variance=dict(
+                alpha_0=(1, 1),
+                beta_0=(1, 1))),
+        poisson=dict(
+            rate=dict(
+                alpha_0=(0, 0),
+                beta_0=(10, 10))))
+
+    meta_parameters = dict(objects=objects_meta,
+                           confounders=confounders_meta,
+                           clusters=clusters_meta,
+                           features=features_meta,
+                           names=define_names(features_meta))
+
+    hyper_parameters = dict(weights=hyper_parameters_weights_prior,
+                            confounding_effects=hyper_parameters_confounding_effect_prior,
+                            cluster_effect=hyper_parameters_cluster_effect_prior)
+
+    folder_path = "experiments/simulation"
+    simulation_name = args.name or set_simulation_name(features_meta)
+
+    # Simulate the prior
+    path_prior = "/".join([folder_path, simulation_name, "prior"])
+    prior_probability_sim = simulate_prior(meta_parameters, hyper_parameters, path_prior)
+
+    path_meta = "/".join([folder_path, simulation_name, "meta"])
+    export_meta(meta=meta_parameters, path=path_meta)
+
+    for i in range(args.n_sim):
+        # Simulate the parameters
+        path_parameters = "/".join([folder_path, simulation_name, "parameters",  "sim_"+str(i+1)])
+        parameters_sim = simulate_parameters(prior_probability_sim, meta_parameters, path_parameters)
+
+        # Simulate the data
+        path_data = "/".join([folder_path, simulation_name, "data", "sim_"+str(i+1)])
+
+        print(path_parameters, path_data)
+        simulate_data(parameters_sim, meta_parameters, path_data)
 
 
-# Range of the concentration values for simulating the weights prior
-# A higher concentration yields a pointier prior
-hyper_parameters_weights_prior = dict(concentration=(1, 1))
-
-# Range of the hyperparameter values for simulating the confounding effect prior
-hyper_parameters_confounding_effect_prior = dict(
-    categorical=dict(
-        concentration=(1, 1)),
-    gaussian=dict(
-        mean=dict(
-            mu_0=(0, 0),
-            sigma_0=(1000, 1000)),
-        variance=dict(
-            alpha_0=(1, 1),
-            beta_0=(1, 1))),
-    poisson=dict(
-        rate=dict(
-            alpha_0=(0, 0),
-            beta_0=(10, 10))))
-
-# Range of the hyperparameter values for simulating the cluster effect prior
-hyper_parameters_cluster_effect_prior = dict(
-    categorical=dict(
-        concentration=(1, 1)),
-    gaussian=dict(
-        mean=dict(
-            mu_0=(0, 0),
-            sigma_0=(1000, 1000)),
-        variance=dict(
-            alpha_0=(1, 1),
-            beta_0=(1, 1))),
-    poisson=dict(
-        rate=dict(
-            alpha_0=(0, 0),
-            beta_0=(10, 10))))
-
-meta_parameters = dict(objects=objects_meta,
-                       confounders=confounders_meta,
-                       clusters=clusters_meta,
-                       features=features_meta,
-                       names=define_names(features_meta))
-
-hyper_parameters = dict(weights=hyper_parameters_weights_prior,
-                        confounding_effects=hyper_parameters_confounding_effect_prior,
-                        cluster_effect=hyper_parameters_cluster_effect_prior)
-
-folder_path = "../../experiments/simulation"
-simulation_name = set_simulation_name(features_meta)
-
-# Simulate the prior
-path_prior = "/".join([folder_path, simulation_name, "prior"])
-prior_probability_sim = simulate_prior(meta_parameters, hyper_parameters, path_prior)
-
-path_meta = "/".join([folder_path, simulation_name, "meta"])
-export_meta(meta=meta_parameters, path=path_meta)
-
-n_simulation = 10
-
-for i in range(n_simulation):
-    # Simulate the parameters
-    path_parameters = "/".join([folder_path, simulation_name, "parameters",  "sim_"+str(i+1)])
-    parameters_sim = simulate_parameters(prior_probability_sim, meta_parameters, path_parameters)
-
-    # Simulate the data
-    path_data = "/".join([folder_path, simulation_name, "data", "sim_"+str(i+1)])
-    simulate_data(parameters_sim, meta_parameters, path_data)
+    # Export the priors in a format sBayes can interpret
+    # Priors: Numbers not strings
 
 
-# Export the priors in a format sBayes can interpret
-# Priors: Numbers not strings
+    # Run sBayes on time use plus
+    # Read prior and test
+    # Concentration for prior in sBayes?
+    # initial_counts to 0
+    # Variance for Gaussian prior: simulate from Jeffrey's prior? use a constant? How to handle inference?
+    # Fix poisson
+    # Fix export meta categorical
 
-
-# Run sBayes on time use plus 
-# Read prior and test
-# Concentration for prior in sBayes?
-# initial_counts to 0
-# Variance for Gaussian prior: simulate from Jeffrey's prior? use a constant? How to handle inference?
-# Fix poisson
-# Fix export meta categorical
+if __name__ == '__main__':
+    main()
