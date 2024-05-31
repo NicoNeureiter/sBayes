@@ -9,7 +9,7 @@ except ImportError:
     import ruamel_yaml as yaml
 
 from pathlib import Path
-from tkinter import filedialog, messagebox, simpledialog
+from tkinter import filedialog, messagebox, LabelFrame, Scrollbar, Canvas
 
 from sbayes.util import normalize_str, read_data_csv
 
@@ -52,8 +52,26 @@ def ask_confounders(col_names):
 
     root = tk.Tk()
     root.geometry("400x800")
-    frame = tk.LabelFrame(root, text="Select all confounder columns")
-    frame.pack()
+
+    # Create a frame to hold the canvas and submit button
+    main_frame = tk.Frame(root)
+    main_frame.pack(fill=tk.BOTH, expand=1)
+
+    # Create a canvas
+    canvas = Canvas(main_frame)
+    canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=1)
+
+    # Add a scrollbar to the canvas
+    scrollbar = Scrollbar(main_frame, orient=tk.VERTICAL, command=canvas.yview)
+    scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+
+    # Configure the canvas
+    canvas.configure(yscrollcommand=scrollbar.set)
+    canvas.bind('<Configure>', lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
+
+    # Create a frame inside the canvas
+    frame = LabelFrame(canvas, text="Select all confounder columns")
+    canvas.create_window((0, 0), window=frame, anchor="nw")
 
     confounders_vars = {}
 
@@ -61,8 +79,13 @@ def ask_confounders(col_names):
         confounders_vars[c] = tk.IntVar(root)
         tk.Checkbutton(frame, text=c, width=200, variable=confounders_vars[c], onvalue=1, offvalue=0, anchor="w").pack()
 
-    submit_button = tk.Button(root, text="Submit", command=submit)
-    submit_button.pack()
+    # Create a frame to hold the submit button and pack it at the bottom of the main_frame
+    button_frame = tk.Frame(root)
+    button_frame.pack(fill=tk.X)
+
+    submit_button = tk.Button(button_frame, text="Submit", command=submit)
+    submit_button.pack(pady=10)
+
     root.mainloop()
 
     return selected_confounders
