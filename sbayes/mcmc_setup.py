@@ -184,7 +184,7 @@ Ratio of source steps (changing source component assignment): {op_cfg.source}'''
         if state_path.exists():
             # New resume, based on pickled Sample objects (preferred if pickle file exists)
             with open(state_path, 'rb') as pickle_file:
-                return pickle.load(state_path)
+                return pickle.load(pickle_file)
         else:
             # Old resume, based on results files
             params_path = base_dir / f'stats_K{k}_{run}{chain_str}.txt'
