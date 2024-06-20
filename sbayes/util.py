@@ -356,7 +356,8 @@ def read_data_csv(csv_path: PathLike) -> pd.DataFrame:
     na_values = ["", " ", "\t", "  "]
     data: pd.DataFrame = pd.read_csv(csv_path, na_values=na_values, keep_default_na=False, dtype=str)
     data.columns = [unidecode(c) for c in data.columns]
-    if pd.__version__ >= '2.1.0':
+
+    if pd.__version__ >= '2.1.0':  # Handle Pandas deprecation warning
         return data.map(normalize_str)
     else:
         return data.applymap(normalize_str)

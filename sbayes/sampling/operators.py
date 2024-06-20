@@ -1721,6 +1721,9 @@ class ClusterJump(ClusterOperator):
 
         return lh_jump / (lh_jump + lh_stay)
 
+    def choose_source_cluster(self, sample):
+        return RNG.choice(sample.model_shapes.n_clusters)
+
     def _propose(self, sample: Sample, **kwargs) -> tuple[Sample, float, float]:
         """Reassign an object from one cluster to another."""
         sample_new = sample.copy()

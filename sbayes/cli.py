@@ -82,8 +82,6 @@ def main(
     if i_run is None:
         i_run_range = list(range(n_runs))
     else:
-        if experiment.config.mcmc.runs > 1:
-            raise ValueError(f"Fixing the runID (runID={i_run}) in the CLI and setting the number of runs > 1 (runs={n_runs})in the config file is incompatible.")
         i_run_range = [i_run]
 
     # Use n_clusters from CLI args or from config.
@@ -132,35 +130,28 @@ def cli():
     # Optional named CLI arguments:
     parser.add_argument(
         "-n", "--name",
-        nargs="?",
-        type=str,
-        help="The experiment name used for logging and as the name of the results directory.",
+        nargs="?", type=str,
+        help="The experiment name used for logging and as the name of the results directory (default: the current date/time).",
     )
     parser.add_argument(
         "-t", "--threads",
-        nargs="?",
-        type=int,
-        default=1,
-        help="The number of parallel processes.",
+        nargs="?", type=PositiveInt, default=1,
+        help="The number of parallel runs. Defaults to 1 which means that all runs will be executed sequentially.",
     )
     parser.add_argument(
         "-r", "--resume",
-        nargs="?",
-        type=bool,
-        default=False,
+        nargs="?", type=bool, default=False,
         help="Whether to resume a previous run (requires experiment name, runID and number of clusters to match).",
     )
     parser.add_argument(
         "-K", "--numClusters",
-        nargs="*",
-        type=PositiveInt,
-        help="The number of clusters (overrides value in config file). Multiple values will result in multiple runs.",
+        nargs="*", type=PositiveInt,
+        help="[DEVELOPER OPTION] Number of clusters (overrides value in config file). Multiple values will result in multiple runs.",
     )
     parser.add_argument(
         "-i", "--runID",
-        nargs="?",
-        type=PositiveInt,
-        help="The index of this sBayes run. Used for distinguishing multiple runs in the same experiment directory.",
+        nargs="?", type=PositiveInt,
+        help="[DEVELOPER OPTION] Index of this sBayes run to distinguish it from different runs with the same K and experiment name.",
     )
 
     args = parser.parse_args()
