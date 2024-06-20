@@ -13,6 +13,7 @@ import sys
 import time
 from datetime import timedelta
 from multiprocessing import Process, Pipe
+from pathlib import Path
 from time import sleep
 
 import numpy as np
@@ -90,9 +91,15 @@ Ratio of source steps (changing source component assignment): {op_cfg.source}'''
         if initial_sample is not None:
             pass
         elif resume:
-            # Load results
-            results = self.read_previous_results(run)
-            initial_sample = self.last_sample(results)
+            state_path = self.get_results_file_path('state', run, 0, 'pickle')
+            if state_path.exists():
+                # New resume, based on pickled Sample objects (preferred if pickle file exists)
+                with open(state_path, 'rb') as pickle_file:
+                    initial_sample = pickle.load(pickle_file)
+            else:
+                # Old resume, based on results files
+                results = self.read_previous_results(run)
+                initial_sample = self.last_sample(results)
 
         else:
             warmup = MCMC(
@@ -171,7 +178,13 @@ Ratio of source steps (changing source component assignment): {op_cfg.source}'''
 
         return sample_loggers
 
-    def read_previous_results(self, run, chain=0) -> Results:
+    def get_results_file_path(
+        self,
+        prefix: str,
+        run: int,
+        chain: int = 0,
+        suffix: str = 'txt'
+    ) -> Path:
         if chain == 0:
             base_dir = self.path_results
             chain_str = ""
@@ -180,16 +193,12 @@ Ratio of source steps (changing source component assignment): {op_cfg.source}'''
             chain_str = f".chain{chain}"
 
         k = self.model.n_clusters
-        state_path = base_dir / f'state_K{k}_{run}{chain_str}.pickle'
-        if state_path.exists():
-            # New resume, based on pickled Sample objects (preferred if pickle file exists)
-            with open(state_path, 'rb') as pickle_file:
-                return pickle.load(pickle_file)
-        else:
-            # Old resume, based on results files
-            params_path = base_dir / f'stats_K{k}_{run}{chain_str}.txt'
-            clusters_path = base_dir / f'clusters_K{k}_{run}{chain_str}.txt'
-            return Results.from_csv_files(clusters_path, params_path)
+        return base_dir / f'{prefix}_K{k}_{run}{chain_str}.{suffix}'
+
+    def read_previous_results(self, run, chain=0) -> Results:
+        params_path = self.get_results_file_path('stats', run, chain)
+        clusters_path = self.get_results_file_path('clusters', run, chain)
+        return Results.from_csv_files(clusters_path, params_path)
 
     def last_sample(self, results: Results) -> Sample:
         shapes = self.model.shapes
@@ -273,9 +282,15 @@ Ratio of source steps (changing source component assignment): {op_cfg.source}'''
             processes.append(proc)
 
             if resume:
-                # Load results
-                results = self.read_previous_results(run, chain=c)
-                initial_sample = self.last_sample(results)
+                state_path = self.get_results_file_path('state', run, c, 'pickle')
+                if state_path.exists():
+                    # New resume, based on pickled Sample objects (preferred if pickle file exists)
+                    with open(state_path, 'rb') as pickle_file:
+                        initial_sample = pickle.load(pickle_file)
+                else:
+                    # Old resume, based on results files
+                    results = self.read_previous_results(run, chain=c)
+                    initial_sample = self.last_sample(results)
             else:
                 initial_sample = None
 
