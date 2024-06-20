@@ -18,7 +18,7 @@ dependencies = [
     "descartes",
     "geopandas",
     "matplotlib",
-    "numpy>=1.21",
+    "numpy~1",
     "pygeos",
     "pandas",
     "pyproj",
