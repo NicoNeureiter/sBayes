@@ -38,7 +38,8 @@ setup(
     entry_points={
         'console_scripts': [
             'sbayes = sbayes.cli:main',
-            'sbayesPlot = sbayes.plot:main'
+            'sbayesPlot = sbayes.plot:main',
+            'sbayesGuessFT = sbayes.tools.guess_feature_types:main',
         ]
     }
 )
