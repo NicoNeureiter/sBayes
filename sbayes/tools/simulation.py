@@ -1,4 +1,6 @@
+from dataclasses import dataclass
 from pathlib import Path
+from string import ascii_uppercase as ABC
 
 import pandas as pd
 import numpy as np
@@ -79,15 +81,15 @@ def simulate_uniform_clusters(n_clusters: int, n_objects: int) -> NDArray[bool]:
     return eye[areas_int].T
 
 
-def simulate_cluster_assignment(objects: Objects, clust_meta: dict) -> NDArray[bool]:
+def simulate_cluster_assignment(objects: Objects, n_clusters: int) -> NDArray[bool]:
     """ Randomly assign objects to mutually exclusive clusters
         Args:
             objects (Objects): simulated objects with attributes location (x,y) and ID
-            clust_meta (dict): clusters and their relative frequencies
+            n_clusters (int): clusters and their relative frequencies
         Returns:
             (np.ndarray):  the simulated assignment of objects to clusters"""
     # TODO in the future implement more options for cluster priors
-    return simulate_uniform_clusters(len(clust_meta), len(objects))
+    return simulate_uniform_clusters(n_clusters, len(objects))
 
     # # Randomly assign the objects to three mutually exclusive clusters
     # c = list(clust_meta.keys())
@@ -214,7 +216,7 @@ def simulate_confounding_effect_prior(feat: dict, conf: dict, p_hyper: dict):
     return prior
 
 
-def simulate_cluster_effect_prior(feat: dict,  clust: dict, p_hyper: dict):
+def simulate_cluster_effect_prior(feat: dict,  n_clusters: int, p_hyper: dict):
     """ Simulate the prior distributions for the cluster effect, explicitly writing it out for each feature
         Args:
             feat (dict): number of features per feature type
@@ -226,7 +228,8 @@ def simulate_cluster_effect_prior(feat: dict,  clust: dict, p_hyper: dict):
     prior = {}
     for ft, fs in feat.items():
         prior[ft] = {}
-        for cl in clust.keys():
+        for i_clust in range(n_clusters):
+            cl = f'cluster_{i_clust}'
             if ft == 'categorical':
                 n_states_per_categorical_feat = [i for i, c in feat['categorical'] for _ in range(c)]
                 concentration = []
@@ -247,8 +250,7 @@ def simulate_cluster_effect_prior(feat: dict,  clust: dict, p_hyper: dict):
                                                           p_hyper[ft]['variance']['alpha_0'][1], size=fs),
                                 beta_0=np.random.uniform(p_hyper[ft]['variance']['beta_0'][0],
                                                          p_hyper[ft]['variance']['beta_0'][1], size=fs))
-                prior[ft][cl] = dict(mean=mean,
-                                     variance=variance)
+                prior[ft][cl] = dict(mean=mean, variance=variance)
             elif ft == 'poisson':
                 rate = dict(alpha_0=np.random.uniform(p_hyper[ft]['rate']['alpha_0'][0],
                                                       p_hyper[ft]['rate']['alpha_0'][1], size=fs),
@@ -510,7 +512,7 @@ def export_priors(priors=None, sim_name=None, names=None, path=None):
                 priors (dict): the simulated prior
                 sim_name (str): (folder) name of the simulation
                 names (dict): simulated names of the features and states
-                path (str): path for storing the simulation
+                path (Path): path for storing the simulation
             Returns:
                 (str: the simulation name): """
 
@@ -526,19 +528,17 @@ def export_parameters(params=None, names=None, path=None):
         Args:
             params (dict): the parameters to simulate the data
             names (dict): simulated names of the features and states
-            path (str): folder path for storing the simulation
+            path (Path): folder path for storing the simulation
             """
-
-    folder = fix_relative_path(path, os.getcwd()) or os.getcwd()
-    os.makedirs(folder, exist_ok=True)
+    os.makedirs(str(path), exist_ok=True)
 
     # Export the parameters as stats_sim.txt
     write_parameters(params=params,
                      names=names,
-                     path=folder / 'stats_sim.txt')
+                     path=path / 'stats_sim.txt')
 
     # Export the clusters as cluster_sim.txt
-    with open(folder / 'clusters_sim.txt', "w") as file:
+    with open(path / 'clusters_sim.txt', "w") as file:
         file.write(format_cluster_columns(params['clusters']))
         file.close()
 
@@ -575,7 +575,7 @@ def write_parameters(params, names, path):
             Args:
                 params (dict): the parameters to simulate the data
                 names (dict): simulated names of the features and states
-                path (str): path for saving the text file
+                path (Path): path for saving the text file
             Returns:
                 """
 
@@ -660,7 +660,7 @@ def write_priors(priors, names, folder):
                Args:
                    priors (dict): the simulated priors
                    names (dict): simulated names of the features and states
-                   folder (path): path for saving the priors
+                   folder (Path): path for saving the priors
                Returns:
                    """
     float_style = '%.3f'
@@ -744,7 +744,7 @@ def simulate_prior(meta, hyper, path):
             Args:
                 meta (dict): meta information about the objects, clusters, features and confounding effects
                 hyper(dict): hyperparameters for defining the priors
-                path(str): file path to store the results
+                path(Path): file path to store the results
 
             Returns:
                 (dict): the simulated prior"""
@@ -757,7 +757,7 @@ def simulate_prior(meta, hyper, path):
                                                        hyper['confounding_effects'])
 
     # Simulate hyperparameters to define the cluster effect prior
-    clust_prior_sim = simulate_cluster_effect_prior(meta['features'], meta['clusters'],
+    clust_prior_sim = simulate_cluster_effect_prior(meta['features'], meta['n_clusters'],
                                                     hyper['cluster_effect'])
 
     export_priors(priors=dict(weights_prior=weights_prior_sim,
@@ -775,7 +775,7 @@ def simulate_parameters(prior_sim, meta, path):
             Args:
                 prior_sim (dict): simulated prior
                 meta(dict): meta information about the objects, clusters, features and confounding effects
-                path(str): file path to store the results
+                path(Path): file path to store the results
             Returns:
                 (dict): the simulated parameters"""
 
@@ -786,7 +786,7 @@ def simulate_parameters(prior_sim, meta, path):
     conf_sim = simulate_confounder_assignment(obj_sim, meta['confounders'])
 
     # Set the assignment to clusters
-    clust_sim = simulate_cluster_assignment(obj_sim, meta['clusters'])
+    clust_sim = simulate_cluster_assignment(obj_sim, meta['n_clusters'])
 
     # Simulate the weights
     weights_sim = simulate_weights(prior_sim['weights'])
@@ -839,6 +839,19 @@ def simulate_data(param_sim, meta, path):
     export_data(data=data_sim, path=path)
 
 
+def write_feature_types(feature_names: dict, path: Path):
+    feature_types = {}
+    for ft, features_ft in feature_names.items():
+        if ft == 'categorical':
+            for name_f, states in features_ft.items():
+                feature_types[name_f] = {'type': ft, 'states': states}
+        else:
+            for name_f in features_ft:
+                feature_types[name_f] = {'type': ft, 'states': []}
+    with open(path, 'w') as f:
+        yaml.safe_dump(feature_types, f, sort_keys=False)
+
+
 def main():
     parser = argparse.ArgumentParser(description="sBayes simulation script")
     parser.add_argument("name", type=str, help="Name for the simulation run")
@@ -854,6 +867,7 @@ def main():
 
     model_config = ModelConfig(**config_dict['model'])
     # TODO Use the config file (avoids having the same config in two places and need to make sure they match)
+    # print(model_config)
 
     objects_meta = dict(n=100)
 
@@ -863,18 +877,11 @@ def main():
         conf_2=dict(d=0.5, e=0.5)
     )
 
-    # Names of simulated clusters and their relative frequency (can but should not sum to 1).
-    clusters_meta = dict(
-        cluster_1=0.1,
-        cluster_2=0.05,
-        cluster_3=0.2
-    )
-
     # Number of simulated features per feature type
     # For categorical features the tuple (2, 3) simulates 3 features with 2 states
     features_meta = dict(
-        # categorical=[(2, 10), (3, 4), (4, 5)],
-        gaussian=10,
+        categorical=[(2, 20), (3, 20), (4, 20)],
+        # gaussian=10,
         # poisson=10,
     )
 
@@ -918,7 +925,7 @@ def main():
 
     meta_parameters = dict(objects=objects_meta,
                            confounders=confounders_meta,
-                           clusters=clusters_meta,
+                           n_clusters=model_config.clusters,
                            features=features_meta,
                            names=define_names(features_meta))
 
@@ -926,23 +933,24 @@ def main():
                             confounding_effects=hyper_parameters_confounding_effect_prior,
                             cluster_effect=hyper_parameters_cluster_effect_prior)
 
-    folder_path = "experiments/simulation"
+    folder_path = Path("experiments/simulation")
     simulation_name = args.name or set_simulation_name(features_meta)
 
     # Simulate the prior
-    path_prior = "/".join([folder_path, simulation_name, "prior"])
+    path_prior = folder_path / simulation_name / "prior"
     prior_probability_sim = simulate_prior(meta_parameters, hyper_parameters, path_prior)
 
-    path_meta = "/".join([folder_path, simulation_name, "meta"])
+    path_meta = folder_path / simulation_name / "meta"
     export_meta(meta=meta_parameters, path=path_meta)
+    write_feature_types(meta_parameters['names'], path_meta / 'feature_types.yaml')
 
     for i in range(args.n_sim):
         # Simulate the parameters
-        path_parameters = "/".join([folder_path, simulation_name, "parameters",  "sim_"+str(i+1)])
+        path_parameters = folder_path / simulation_name / "parameters" / f"sim_{i+1}"
         parameters_sim = simulate_parameters(prior_probability_sim, meta_parameters, path_parameters)
 
         # Simulate the data
-        path_data = "/".join([folder_path, simulation_name, "data", "sim_"+str(i+1)])
+        path_data = folder_path / simulation_name / "data" / f"sim_{i+1}"
 
         print(path_parameters, path_data)
         simulate_data(parameters_sim, meta_parameters, path_data)

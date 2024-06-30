@@ -3,15 +3,17 @@
 # Plot diagonal line
 # 100 times, out of which 91–99 should yield a credible interval (grey/red bars)
 # covering the simulated value (diagonal) in a well-calibrated mode
+import dataclasses
+
 import numpy as np
 import yaml
 import pandas as pd
 import os
-import matplotlib.pyplot as plt
-from sbayes.load_data import Objects, Confounder
-from typing import Union, Sequence
+import argparse
 from pathlib import Path
-PathLike = Union[str, Path]
+
+import matplotlib.pyplot as plt
+from numpy._typing import NDArray
 
 
 def get_relevant_parameter(d, keys):
@@ -24,18 +26,17 @@ def sort_by_number(name):
     return int(name.split('_')[-1])
 
 
-def get_folders(sim_path: str, results_path: str, model_n: str):
+def get_folders(sim_path: Path, model_n: str):
     """Get all folders with simulated and inferred parameters
 
      Args:
          sim_path: The folder name with the simulated parameters
-         results_path: The results folder name with the inferred parameters
          model_n: relevant folder in the results folder
      Returns:
          dictionary mapping feature names to corresponding weights arrays
      """
 
-    param_path = "/".join([sim_path, "parameters"])
+    param_path = sim_path / "parameters"
     stats_files = dict(simulated=[],
                        inferred=[])
     # Iterate over all items in the sims folder
@@ -44,18 +45,18 @@ def get_folders(sim_path: str, results_path: str, model_n: str):
     # Open the items in the sims folder and the results in the results folder
     for i in sorted(sims, key=sort_by_number):
 
-        sim_path_folder = os.path.join(param_path, i)
-        results_path_folder = os.path.join(sim_path, "results", i, results_path, model_n)
-        print(results_path_folder, "res")
+        sim_path_folder = param_path / i
+        results_path_folder = sim_path / "results" / i / model_n
+
         # Check if it's a directory
         if os.path.isdir(sim_path_folder):
-            sim_path_file = os.path.join(sim_path_folder, "stats_sim.txt")
+            sim_path_file = sim_path_folder / "stats_sim.txt"
             if os.path.exists(sim_path_file):
                 stats_files['simulated'].append(sim_path_file)
 
         if os.path.isdir(results_path_folder):
 
-            results_path_file = os.path.join(results_path_folder, "_".join(["stats", model_n, "0.txt"]))
+            results_path_file = results_path_folder / f"stats_{model_n}_0.txt"
 
             if os.path.exists(results_path_file):
                 stats_files['inferred'].append(results_path_file)
@@ -255,7 +256,7 @@ def plot_simulated_against_inferred(sim, inf, title):
         color = 'grey' if in_perc[i] else 'red'
         plt.plot([sim[i]] * inf.shape[1], inf[i], 'o', markersize=3, color=color)
 
-    success_text = " / ".join([str(sum(in_perc)), str(len(in_perc))])
+    success_text = f"{sum(in_perc)} / {len(in_perc)}"
 
     plt.axline((0, 0), slope=1, color='black')
     plt.text(0.92, 0.05, success_text,
@@ -271,29 +272,45 @@ def plot_simulated_against_inferred(sim, inf, title):
     plt.title(title)
     plt.show()
 
+def plot_area_match():
+    ...
 
-sim_path = "../../experiments/simulation/2024-05-24_13-27_gaussian"
-results_path = "2024-05-24_13-41"
-meta = read_meta("/".join([sim_path, "meta/meta_sim.yaml"]))
-n_clusters = len(meta['clusters'].keys())
+def main():
+    parser = argparse.ArgumentParser(description="Plot sBayes simulation results")
+    parser.add_argument("input", type=Path,
+                        help="Path to the simulation directory (containing config, data and results). ")
+    args = parser.parse_args()
+    sim_path = args.input
+    meta = read_meta(sim_path / "meta" / "meta_sim.yaml")
+    n_clusters = meta['n_clusters']
+
+    parameter_files = get_folders(sim_path=sim_path, model_n=f"K{n_clusters}")
+
+    parameters_raw = dict(simulated=[pd.read_csv(f, delimiter="\t") for f in parameter_files['simulated']],
+                          inferred=[pd.read_csv(f, delimiter="\t") for f in parameter_files['inferred']])
+
+    clusters = [str(i) for i in range(n_clusters)]
+
+    confounders = {conf: list(groups.keys()) for conf, groups in meta['confounders'].items()}
+    features = meta['names']
+
+    parameters = parse_parameters(parameters_raw, features, clusters, confounders)
+
+    # parameter_keys = ['cluster_effect', 'gaussian', '0', 'f1', 'mu']
+    # parameter_keys = ['cluster_effect', 'categorical', '0', 'f1', 'A']
+    parameter_keys = ['weights', 'categorical', 'f8', 'cluster']
+
+    plot_simulated_against_inferred(get_relevant_parameter(parameters['simulated'], parameter_keys),
+                                    get_relevant_parameter(parameters['inferred'], parameter_keys),
+                                    "Mean of Gaussian feature f1 in cluster 0")
 
 
-parameter_files = get_folders(sim_path=sim_path,
-                              results_path=results_path,
-                              model_n="".join(["K", str(n_clusters)]))
+# @dataclasses.dataclass
+# class Parameters:
+#     weights: dict
+#     cluster_effect: dict
+#     confounding_effects: dict
 
-parameters_raw = dict(simulated=[pd.read_csv(f, **{"delimiter": "\t"}) for f in parameter_files['simulated']],
-                      inferred=[pd.read_csv(f, **{"delimiter": "\t"}) for f in parameter_files['inferred']])
 
-clusters = [str(i) for i in range(len(list(meta['clusters'].keys())))]
-
-confounders = {conf: list(groups.keys()) for conf, groups in meta['confounders'].items()}
-features = meta['names']
-
-parameters = parse_parameters(parameters_raw, features, clusters, confounders)
-
-parameter_keys = ['cluster_effect', 'gaussian', '0', 'f1', 'mu']
-
-plot_simulated_against_inferred(get_relevant_parameter(parameters['simulated'], parameter_keys),
-                                get_relevant_parameter(parameters['inferred'], parameter_keys),
-                                "Mean of Gaussian feature f1 in cluster 0")
+if __name__ == '__main__':
+    main()
