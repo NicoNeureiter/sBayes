@@ -88,26 +88,13 @@ class Prior:
         log_prior += self.geo_prior(sample, caching=caching)
         log_prior += self.prior_weights(sample, caching=caching)
 
-        # AFTER THE DIRI-MULT MODEL CHANGES, THE FOLLOWING PRIORS ARE NOT NEEDED:
-        # log_prior += self.prior_cluster_effect(sample, caching=caching)
-        # for k, v in self.prior_confounding_effects.items():
-        #     log_prior += v(sample, caching=caching)
-
         if sample.categorical is not None:
-            if self.sample_source:
-                assert sample.categorical.source is not None
-                log_prior += self.source_prior(sample, feature_type="categorical", caching=caching)
-            else:
-                assert sample.categorical.source is None
-                pass
+            assert sample.categorical.source is not None
+            log_prior += self.source_prior(sample, feature_type="categorical", caching=caching)
 
         if sample.gaussian is not None:
-            if self.sample_source:
-                assert sample.gaussian.source is not None
-                log_prior += self.source_prior(sample, feature_type="gaussian", caching=caching)
-            else:
-                assert sample.gaussian.source is None
-                pass
+            assert sample.gaussian.source is not None
+            log_prior += self.source_prior(sample, feature_type="gaussian", caching=caching)
 
         return log_prior
 
@@ -1149,8 +1136,7 @@ class SourcePrior:
                 w = update_weights(sample)[changed]
                 s = getattr(sample, feature_type).source.value[changed]
                 observation_weights = np.sum(w * s, axis=-1)
-                source_prior[changed] = np.sum(np.log(observation_weights)[valid[changed]], axis=-1)
-
+                source_prior[changed] = np.sum(np.log(observation_weights), axis=-1, where=valid[changed])
         return cache.value.sum()
 
     @staticmethod

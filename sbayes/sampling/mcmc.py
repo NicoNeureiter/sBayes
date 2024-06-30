@@ -20,6 +20,7 @@ from sbayes.sampling.operators import Operator
 from sbayes.config.config import OperatorsConfig
 
 from sbayes.sampling.state import Sample
+from sbayes.util import DEBUG_PRINTS
 
 
 class MCMC(ABC):
@@ -303,6 +304,9 @@ class MCMC(ABC):
 
         step_time = _time.time() - step_time_start
 
+        if DEBUG_PRINTS:
+            print(f'{accept=}\n')
+
         if accept:
             operator.register_accept(step_time=step_time, sample_old=sample, sample_new=candidate)
             sample = candidate
@@ -333,6 +337,11 @@ class MCMC(ABC):
         prior_ratio = prior_new - prior_prev
         mh_ratio = (ll_ratio * temperature) - log_q_ratio + prior_ratio
 
+        if DEBUG_PRINTS:
+            print(f'{ll_ratio=:.4f}')
+            print(f'{log_q_ratio=:.4f}')
+            print(f'{prior_ratio=:.4f}')
+            print(f'{mh_ratio=:.4f}')
         return mh_ratio
 
     def print_screen_log(self, i_step, sample):

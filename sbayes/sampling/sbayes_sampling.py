@@ -418,7 +418,7 @@ class ClusterMCMC(MCMC):
                 p_grow_connected=self.p_grow_connected,
                 model_by_chain=self.posterior_per_chain,
                 resample_source=self.model.sample_source,
-                resample_source_mode=ResampleSourceMode.PRIOR,
+                resample_source_mode=ResampleSourceMode.GIBBS,
                 sample_from_prior=self.sample_from_prior,
             ),
             # 'gibbsish_sample_cluster': AlterClusterGibbsish(
@@ -494,13 +494,13 @@ class ClusterMCMC(MCMC):
             #     gibbsish=True
             # ),
 
-            # 'gibbs_sample_sources': GibbsSampleSource(
-            #     weight=0.5*operators_config.source,
-            #     model_by_chain=self.posterior_per_chain,
-            #     sample_from_prior=self.sample_from_prior,
-            #     object_selector=ObjectSelector.RANDOM_SUBSET,
-            #     max_size=4,
-            # ),
+            'gibbs_sample_sources': GibbsSampleSource(
+                weight=0.5*operators_config.source,
+                model_by_chain=self.posterior_per_chain,
+                sample_from_prior=self.sample_from_prior,
+                object_selector=ObjectSelector.RANDOM_SUBSET,
+                max_size=6,
+            ),
             # # 'gibbs_sample_sources_groups': GibbsSampleSource(
             # #     weight=0.5*operators_config.source,
             # #     model_by_chain=self.posterior_per_chain,
@@ -508,11 +508,11 @@ class ClusterMCMC(MCMC):
             # #     object_selector=ObjectSelector.GROUPS,
             # # ),
             #
-            # 'gibbs_sample_weights': GibbsSampleWeights(
-            #     weight=operators_config.weights,
-            #     model_by_chain=self.posterior_per_chain,
-            #     sample_from_prior=self.sample_from_prior,
-            # ),
+            'gibbs_sample_weights': GibbsSampleWeights(
+                weight=operators_config.weights,
+                model_by_chain=self.posterior_per_chain,
+                sample_from_prior=self.sample_from_prior,
+            ),
         }
 
         normalize_operator_weights(operators)

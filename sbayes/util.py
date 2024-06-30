@@ -22,10 +22,11 @@ from scipy.special import betaln, expit, gammaln, loggamma
 import scipy.stats as stats
 from scipy.sparse import csr_matrix
 from unidecode import unidecode
-import traceback
 
 EPS = np.finfo(float).eps
 RND_SEED = 123
+
+DEBUG_PRINTS = False
 
 FAST_DIRICHLET = True
 dirichlet_logpdf = stats.dirichlet._logpdf if FAST_DIRICHLET else stats.dirichlet.logpdf
@@ -317,7 +318,10 @@ def read_data_csv(csv_path: PathLike) -> pd.DataFrame:
     data: pd.DataFrame = pd.read_csv(csv_path, na_values=na_values, keep_default_na=False, dtype=str)
     data.columns = [unidecode(c) for c in data.columns]
 
-    return data.applymap(normalize_str)
+    if pd.__version__ >= '2.1.0':  # Handle Pandas deprecation warning
+        return data.map(normalize_str)
+    else:
+        return data.applymap(normalize_str)
 
 
 def read_costs_from_csv(file: str, logger=None):
@@ -1501,6 +1505,7 @@ def gaussian_mu_posterior_sample(
     Return:
         the marginal (log)-likelihood of the data
     """
+    # return gaussian_mu_posterior(x=x, sigma=sigma, mu_0=mu_0, sigma_0=sigma_0, in_component=in_component).mean()
     return gaussian_mu_posterior(x=x, sigma=sigma, mu_0=mu_0, sigma_0=sigma_0, in_component=in_component).rvs()
 
 
@@ -1522,10 +1527,6 @@ def gaussian_posterior_predictive_logpdf(
 
     # First sufficient statistic: observation counts
     n = np.count_nonzero(in_component, axis=0)
-
-    if not np.any(in_component):
-        stack = traceback.extract_stack()
-        print(stack)
 
     # Handle special case of no observations
     if isinstance(n, (int, float, np.int64, np.int32)):
