@@ -318,10 +318,6 @@ class DirichletPrior:
         self.initial_counts = initial_counts
         self.feature_names = feature_names
         self.prior_type = None
-        self.categorical_concentration = None
-        self.gaussian_concentration = None
-        self.poisson_concentration = None
-        self.logitnormal_concentration = None
 
         self.parse_attributes()
 
@@ -690,12 +686,11 @@ class CategoricalConfoundingEffectsPrior(DirichletPrior, ABC):
             elif group_prior_type is self.PriorType.JEFFREYS:
                 self.concentration[group] = self.get_symmetric_concentration(0.5)
             elif group_prior_type is self.PriorType.BBS:
-                self.concentration = self.get_oneovern_concentration()
+                self.concentration[group] = self.get_oneovern_concentration()
             elif group_prior_type is self.PriorType.DIRICHLET:
                 self.concentration[group] = self.load_concentration(config_g)
-            elif self.prior_type is self.PriorType.SYMMETRIC_DIRICHLET:
+            elif group_prior_type is self.PriorType.SYMMETRIC_DIRICHLET:
                 self.concentration[group] = self.get_symmetric_concentration(config_g.prior_concentration)
-
             else:
                 raise ValueError(self.invalid_prior_message(group_prior_type))
 
@@ -722,6 +717,8 @@ class CategoricalConfoundingEffectsPrior(DirichletPrior, ABC):
                 msg += f'\t\tUniform prior for {group}.\n'
             elif self.config[group].type is self.PriorType.DIRICHLET:
                 msg += f'\t\tDirichlet prior for {group}.\n'
+            elif self.config[group].type in [self.PriorType.SYMMETRIC_DIRICHLET, self.PriorType.BBS, self.PriorType.JEFFREYS]:
+                msg += f'\t\tDirichlet with concentration {self.concentration[group]} prior for {group}.\n'
             else:
                 raise ValueError(self.invalid_prior_message(self.config.type))
         return msg
@@ -915,6 +912,8 @@ class CategoricalClusterEffectPrior(DirichletPrior, ABC):
             self.concentration = self.get_symmetric_concentration(0.5)
         elif self.prior_type is self.PriorType.BBS:
             self.concentration = self.get_oneovern_concentration()
+        elif self.prior_type is self.PriorType.SYMMETRIC_DIRICHLET:
+            self.concentration = self.get_symmetric_concentration(self.config.prior_concentration)
         else:
             raise ValueError(self.invalid_prior_message(self.prior_type))
 
