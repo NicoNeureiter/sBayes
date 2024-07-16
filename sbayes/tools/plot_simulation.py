@@ -15,6 +15,8 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 from numpy._typing import NDArray
 
+from sbayes.results import Results
+
 
 def get_relevant_parameter(d, keys):
     for key in keys:
@@ -231,18 +233,22 @@ def parse_parameters(params_raw: dict, feat: dict, clust: list, conf: dict) -> d
     return params
 
 
-def plot_simulated_against_inferred(sim, inf, title):
+def plot_simulated_against_inferred(
+    sim: NDArray,
+    inf: NDArray,
+    title: str | None = None,
+    ax = None):
     """
     Plots elements of sim on the x-axis against all elements of the inf on the y-axis.
 
     Parameters:
-        sim (numpy.ndarray): Array with shape (n,)
-        inf (numpy.ndarray): Array with shape (n, m)
-        title (str): Plot title
+        sim: Array with shape (n,)
+        inf: Array with shape (n, m)
+        title: Plot title
     Returns:
         None
     """
-    plt.figure(figsize=(8, 6))
+    ax = ax or plt.gca()
 
     low_perc = [np.percentile(i, 5) for i in inf]
     high_perc = [np.percentile(i, 95) for i in inf]
@@ -254,23 +260,121 @@ def plot_simulated_against_inferred(sim, inf, title):
 
     for i in range(len(sim)):
         color = 'grey' if in_perc[i] else 'red'
-        plt.plot([sim[i]] * inf.shape[1], inf[i], 'o', markersize=3, color=color)
+        ax.plot([sim[i]] * inf.shape[1], inf[i], 'o', markersize=2, alpha=0.3, color=color)
 
     success_text = f"{sum(in_perc)} / {len(in_perc)}"
 
-    plt.axline((0, 0), slope=1, color='black')
-    plt.text(0.92, 0.05, success_text,
-             horizontalalignment='center',
-             verticalalignment='center',
-             transform=plt.gca().transAxes)
+    ax.axline((0, 0), slope=1, color='black')
+    ax.text(0.99, 0.01, success_text,
+             horizontalalignment='right',
+             verticalalignment='bottom',
+             transform=ax.transAxes)
 
-    plt.xlabel('simulated')
-    plt.ylabel('estimated')
-    plt.xlim(min_val, max_val)
-    plt.ylim(min_val, max_val)
-    plt.grid(False)
-    plt.title(title)
-    plt.show()
+    ax.set_xlabel('simulated')
+    ax.set_ylabel('estimated')
+    ax.set_xlim(min_val, max_val)
+    ax.set_ylim(min_val, max_val)
+    ax.grid(False)
+    if title:
+        ax.set_title(title)
+
+def my_tight_layout(fig, axes):
+    bottom = 0.2 / axes.shape[0]
+    left = 0.2 / axes.shape[1]
+    fig.subplots_adjust(
+        left=left,
+        bottom=bottom,
+        right=1 - left,
+        top=1 - bottom,
+        wspace=0.25,
+        hspace=0.4
+    )
+
+def plot_simulated_against_inferred_grid(
+    simulated: list[Results],
+    inferred: list[Results],
+    parameter: str,
+    save_to_path: Path | None = None,
+):
+    """
+    Plots elements of sim on the x-axis against all elements of the inf on the y-axis.
+
+    Parameters:
+        simulated: List of `n` Results objects for the simulated areas and parameters
+        inferred: List of `n` Results objects for `m` samples of inferred areas and parameters
+        parameter: Which parameter to plot (weights, confounding_effects, cluster_effects)
+        save_to_path: Optional path to save the figure (otherwise it will be shown on the screen immediately)
+    """
+    n_features = simulated[0].n_features
+    n_components = simulated[0].n_confounders + 1
+    if parameter == 'weights':
+        fig, axes = plt.subplots(nrows=n_features, ncols=n_components,
+                                 figsize=(6 * n_components, 5 * n_features))
+        for i, f in enumerate(simulated[0].weights.keys()):
+            for j, component in enumerate(simulated[0].component_names):
+                sim = np.array([r.weights[f][0, j] for r in simulated])
+                inf = np.array([r.weights[f][:, j] for r in inferred])
+                plot_simulated_against_inferred(sim, inf, ax=axes[i, j],
+                                                  title=f'Mixture weight of `{component}` for feature `{f}`')
+
+        my_tight_layout(fig, axes)
+        plt.savefig(save_to_path)
+
+    elif parameter == 'cluster_effects':
+        structure = simulated[0].cluster_effect
+        feature_names = simulated[0].feature_names
+        feature_states = simulated[0].feature_states
+
+        cluster_names = list(structure.keys())
+        n_clusters = len(cluster_names)
+
+        fig, axes = plt.subplots(nrows=n_features, ncols=n_clusters,
+                                 figsize=(6 * n_clusters, 5 * n_features))
+
+        for i_g, g in enumerate(cluster_names):
+            for i_f, f in enumerate(feature_names):
+                # For now we just always plot the distribution of the first state
+                # TODO Include state as a dimension in the grid?
+                s = feature_states[i_f][0]
+                sim = np.array([r.cluster_effect[g][f][0, 0] for r in simulated])
+                inf = np.array([r.cluster_effect[g][f][:, 0] for r in inferred])
+                plot_simulated_against_inferred(
+                    sim, inf, ax=axes[i_f, i_g],
+                    title=f'Cluster effect of cluster {g}, feature {f}, state {s}'
+                )
+
+        my_tight_layout(fig, axes)
+        plt.savefig(save_to_path)
+
+    elif parameter == 'confounding_effects':
+        structure = simulated[0].confounding_effects
+        feature_names = simulated[0].feature_names
+        feature_states = simulated[0].feature_states
+        confounder_names = list(structure.keys())
+        for c in confounder_names:
+            group_names = structure[c].keys()
+            n_groups = len(group_names)
+
+            # n_states_max = max(len(states) for states in feature_states)
+            fig, axes = plt.subplots(nrows=n_features, ncols=n_groups,
+                                     figsize=(6 * n_groups, 5 * n_features))
+
+            for i_g, g in enumerate(group_names):
+                for i_f, f in enumerate(feature_names):
+                    # For now we just always plot the distribution of the first state
+                    # TODO Include state as a dimension in the grid?
+                    s = feature_states[i_f][0]
+                    sim = np.array([r.confounding_effects[c][g][f][0, 0] for r in simulated])
+                    inf = np.array([r.confounding_effects[c][g][f][:, 0] for r in inferred])
+                    plot_simulated_against_inferred(
+                        sim, inf, ax=axes[i_f, i_g],
+                        title=f'Confounding effect of group {g}, feature {f}, state {s}'
+                    )
+
+            my_tight_layout(fig, axes)
+            plt.savefig(save_to_path.with_suffix(f'.{c}.pdf'))
+    else:
+        raise ValueError(f'Parameter `{parameter}` not recognized')
 
 def plot_area_match():
     ...
@@ -280,29 +384,67 @@ def main():
     parser.add_argument("input", type=Path,
                         help="Path to the simulation directory (containing config, data and results). ")
     args = parser.parse_args()
-    sim_path = args.input
-    meta = read_meta(sim_path / "meta" / "meta_sim.yaml")
+    base_path = args.input
+    sim_names = [f.name for f in (base_path / 'parameters').iterdir()]
+    meta = read_meta(base_path / "meta" / "meta_sim.yaml")
     n_clusters = meta['n_clusters']
 
-    parameter_files = get_folders(sim_path=sim_path, model_n=f"K{n_clusters}")
+    results_simulated = []
+    results_inferred = []
+    for s in sim_names:
+        simulated_path = base_path / 'parameters' / s
+        inferred_path = base_path / 'results' / s / f'K{n_clusters}'
 
-    parameters_raw = dict(simulated=[pd.read_csv(f, delimiter="\t") for f in parameter_files['simulated']],
-                          inferred=[pd.read_csv(f, delimiter="\t") for f in parameter_files['inferred']])
+        # Load simulated clusters and parameters into Results object
+        results_simulated.append(
+            Results.from_csv_files(clusters_path=simulated_path / 'clusters_sim.txt',
+                                   parameters_path=simulated_path / 'stats_sim.txt',
+                                   burn_in=0, sampling_info_missing=True)
+        )
 
-    clusters = [str(i) for i in range(n_clusters)]
+        # Load inferred clusters and parameters samples into Results object
+        results_inferred.append(
+            Results.from_csv_files(clusters_path=inferred_path / f'clusters_K{n_clusters}_0.txt',
+                                   parameters_path=inferred_path / f'stats_K{n_clusters}_0.txt',
+                                   burn_in=0)
+        )
 
-    confounders = {conf: list(groups.keys()) for conf, groups in meta['confounders'].items()}
-    features = meta['names']
+    plots_path = base_path / 'plots'
+    plots_path.mkdir(exist_ok=True)
+    plot_simulated_against_inferred_grid(results_simulated, results_inferred, parameter='weights',
+                                    save_to_path=plots_path / 'weights.pdf')
+    plot_simulated_against_inferred_grid(results_simulated, results_inferred, parameter='confounding_effects',
+                                    save_to_path=plots_path / 'confounding_effects.pdf')
+    plot_simulated_against_inferred_grid(results_simulated, results_inferred, parameter='cluster_effects',
+                                         save_to_path=plots_path / 'cluster_effects.pdf')
 
-    parameters = parse_parameters(parameters_raw, features, clusters, confounders)
-
-    # parameter_keys = ['cluster_effect', 'gaussian', '0', 'f1', 'mu']
-    # parameter_keys = ['cluster_effect', 'categorical', '0', 'f1', 'A']
-    parameter_keys = ['weights', 'categorical', 'f8', 'cluster']
-
-    plot_simulated_against_inferred(get_relevant_parameter(parameters['simulated'], parameter_keys),
-                                    get_relevant_parameter(parameters['inferred'], parameter_keys),
-                                    "Mean of Gaussian feature f1 in cluster 0")
+    # parameter_files = get_folders(sim_path=base_path, model_n=f"K{n_clusters}")
+    # parameters_raw = dict(simulated=[pd.read_csv(f, delimiter="\t") for f in parameter_files['simulated']],
+    #                       inferred=[pd.read_csv(f, delimiter="\t") for f in parameter_files['inferred']])
+    #
+    # clusters_names = [str(i) for i in range(n_clusters)]
+    #
+    # confounders = {conf: list(groups.keys()) for conf, groups in meta['confounders'].items()}
+    # features = meta['names']
+    #
+    #
+    # parameters = parse_parameters(parameters_raw, features, clusters_names, confounders)
+    #
+    # param = 'weights'
+    # # param = 'cluster_effect'
+    # ft = 'categorical'
+    # c = '2'
+    # f = 'f4'
+    # s = 'A'
+    #
+    # if param == 'cluster_effect':
+    #     parameter_keys = ['cluster_effect', ft, c, f, s]
+    # if param == 'weights':
+    #     parameter_keys = ['weights', ft, f, 'cluster']
+    #
+    # plot_simulated_against_inferred(get_relevant_parameter(parameters['simulated'], parameter_keys),
+    #                                 get_relevant_parameter(parameters['inferred'], parameter_keys),
+    #                                 f'{param} of {ft} feature {f} in cluster {c}')
 
 
 # @dataclasses.dataclass

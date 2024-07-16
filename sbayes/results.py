@@ -29,6 +29,7 @@ class Results:
         clusters: NDArray[bool],
         parameters: pd.DataFrame,
         burn_in: float = 0.1,
+        sampling_info_missing: bool = False,
     ):
         clusters, parameters = self.drop_burnin(clusters, parameters, burn_in)
         self.clusters = clusters
@@ -45,7 +46,10 @@ class Results:
         ]
 
         # The sample index
-        self.sample_id = self.parameters["Sample"].to_numpy(dtype=int)
+        if "Sample" in self.parameters:
+            self.sample_id = self.parameters["Sample"].to_numpy(dtype=int)
+        else:
+            self.sample_id = np.arange(self.parameters.shape[0])
 
         # Model parameters
         self.weights = self.parse_weights(self.parameters)
@@ -59,18 +63,28 @@ class Results:
         # }
 
         # Posterior, likelihood, prior
-        self.posterior = self.parameters["posterior"].to_numpy(dtype=float)
-        self.likelihood = self.parameters["likelihood"].to_numpy(dtype=float)
-        self.prior = self.parameters["prior"].to_numpy(dtype=float)
+        if sampling_info_missing:
+            self.posterior = None
+            self.likelihood = None
+            self.prior = None
+            self.posterior_single_clusters = None
+            self.likelihood_single_clusters = None
+            self.prior_single_clusters = None
+        else:
+            self.posterior = self.parameters["posterior"].to_numpy(dtype=float)
+            self.likelihood = self.parameters["likelihood"].to_numpy(dtype=float)
+            self.prior = self.parameters["prior"].to_numpy(dtype=float)
 
         # Posterior, likelihood, prior contribution per cluster
-        self.posterior_single_clusters = Results.read_dictionary(
+            self.posterior_single_clusters = Results.read_dictionary(
             self.parameters, "post_"
         )
-        self.likelihood_single_clusters = Results.read_dictionary(
+            self.likelihood_single_clusters = Results.read_dictionary(
             self.parameters, "lh_"
         )
-        self.prior_single_clusters = Results.read_dictionary(self.parameters, "prior_")
+            self.prior_single_clusters = Results.read_dictionary(self.parameters, "prior_")
+
+        self.component_names = ['clusters'] + list(self.confounding_effects.keys())
 
     @property
     def n_features(self) -> int:
@@ -121,11 +135,12 @@ class Results:
         cls: type[TResults],
         clusters_path: PathLike,
         parameters_path: PathLike,
-        burn_in: float = 0.1
+        burn_in: float = 0.1,
+        sampling_info_missing: bool = False,
     ) -> TResults:
         clusters = cls.read_clusters(clusters_path)
         parameters = cls.read_stats(parameters_path)
-        return cls(clusters, parameters, burn_in=burn_in)
+        return cls(clusters, parameters, burn_in=burn_in, sampling_info_missing=sampling_info_missing)
 
     @staticmethod
     def drop_burnin(clusters, parameters, burn_in):
