@@ -17,6 +17,7 @@ from numpy._typing import NDArray
 from sbayes.config.config import SBayesConfig, ModelConfig
 from sbayes.load_data import Objects, Confounder
 from sbayes.model.likelihood import normalize_weights
+from sbayes.model.prior import ConfoundingEffectsPrior
 from sbayes.preprocessing import sample_categorical
 from scipy.stats import invgamma, gamma
 from sbayes.util import set_experiment_name, fix_relative_path, format_cluster_columns
@@ -35,13 +36,13 @@ def set_simulation_name(feat_meta: dict):
     return sim_name
 
 
-def simulate_objects(obj_meta: dict):
+def simulate_objects(n: int):
     """ Simulate objects with attributes location (x,y) and ID
         Args:
-            obj_meta (dict): meta information about the simulated objects
+            n (int): the number of simulated objects
         Returns:
             (Objects): the simulated objects"""
-    n = obj_meta['n']
+
     # Simulate n objects with random locations
     df = pd.DataFrame().assign(
         x=np.random.rand(n),
@@ -271,6 +272,7 @@ def simulate_weights(prior: dict):
         (dict): simulated weights for each effect and each feature, structured per feature type"""
 
     weights = {}
+
     for ft, fs in prior.items():
         w = []
         for f in fs['concentration']:
@@ -307,7 +309,8 @@ def simulate_confounding_effect(prior: dict):
                     conf_effect[ft][c][g] = np.vstack(p)
                 elif ft == 'gaussian':
                     mean = np.random.normal(params['mean']['mu_0'], params['mean']['sigma_0'])
-                    variance = invgamma.rvs(params['variance']['alpha_0'], params['variance']['beta_0'])
+                    # variance = invgamma.rvs(params['variance']['alpha_0'], params['variance']['beta_0'])
+                    variance = invgamma.mean(params['variance']['alpha_0'], params['variance']['beta_0'])
                     conf_effect[ft][c][g] = dict(mean=mean,
                                                  variance=variance)
                 elif ft == 'poisson':
@@ -344,6 +347,7 @@ def simulate_cluster_effect(prior: dict):
             elif ft == 'gaussian':
                 mean = np.random.normal(params['mean']['mu_0'], params['mean']['sigma_0'])
                 variance = invgamma.rvs(params['variance']['alpha_0'], params['variance']['beta_0'])
+                variance = invgamma.mean(params['variance']['alpha_0'], params['variance']['beta_0'])
                 clust_effect[ft][cl] = dict(mean=mean,
                                             variance=variance)
 
@@ -515,11 +519,8 @@ def export_priors(priors=None, sim_name=None, names=None, path=None):
                 path (Path): path for storing the simulation
             Returns:
                 (str: the simulation name): """
-
-    folder = fix_relative_path(path, os.getcwd()) or os.getcwd()
-    os.makedirs(folder, exist_ok=True)
-    write_priors(priors, names, folder)
-
+    os.makedirs(path, exist_ok=True)
+    write_priors(priors, names, path)
     return sim_name
 
 
@@ -712,7 +713,7 @@ def write_priors(priors, names, folder):
                     prior_yaml[f] = dict(rate=dict(alpha_0=float_style % cl_eff['rate']['alpha_0'][i_f],
                                                    beta_0=float_style % cl_eff['rate']['beta_0'][i_f]))
 
-            path = folder / "_".join(['cluster_effect/cluster_effect', cl, ft, ext])
+            path = folder / 'cluster_effect' / "_".join(['cluster_effect', cl, ft, ext])
             with open(path, 'w') as file:
                 yaml.safe_dump(prior_yaml, file, sort_keys=False)
 
@@ -734,7 +735,7 @@ def write_priors(priors, names, folder):
                         prior_yaml[f] = dict(rate=dict(alpha_0=float_style % g_eff['rate']['alpha_0'][i_f],
                                                        beta_0=float_style % g_eff['rate']['beta_0'][i_f]))
 
-                path = folder / "_".join(["confounding_effects/", conf, g, ft, ext])
+                path = folder / 'confounding_effects' / '_'.join([conf, g, ft, ext])
                 with open(path, 'w') as file:
                     yaml.safe_dump(prior_yaml, file, sort_keys=False)
 
@@ -770,7 +771,7 @@ def simulate_prior(meta, hyper, path):
                 cluster_effect=clust_prior_sim)
 
 
-def simulate_parameters(prior_sim, meta, path):
+def simulate_parameters(model_config: ModelConfig, prior_sim: dict, meta: dict, path: dict):
     """Simulate the parameters and write to file
             Args:
                 prior_sim (dict): simulated prior
@@ -780,13 +781,13 @@ def simulate_parameters(prior_sim, meta, path):
                 (dict): the simulated parameters"""
 
     # Define the objects
-    obj_sim = simulate_objects(meta['objects'])
+    obj_sim = simulate_objects(meta['objects']['n'])
 
     # Set the assignment to confounders
     conf_sim = simulate_confounder_assignment(obj_sim, meta['confounders'])
 
     # Set the assignment to clusters
-    clust_sim = simulate_cluster_assignment(obj_sim, meta['n_clusters'])
+    clust_sim = simulate_cluster_assignment(obj_sim, model_config.clusters)
 
     # Simulate the weights
     weights_sim = simulate_weights(prior_sim['weights'])
@@ -846,8 +847,12 @@ def write_feature_types(feature_names: dict, path: Path):
             for name_f, states in features_ft.items():
                 feature_types[name_f] = {'type': ft, 'states': states}
         else:
+            # cfg = model_config.prior.cluster_effect.gaussian.mean.parameters
             for name_f in features_ft:
-                feature_types[name_f] = {'type': ft, 'states': []}
+                feature_types[name_f] = {'type': ft, 'states': {'min': -10_000.0, 'max': 10_000.0}}
+
+    print('Write features types:', feature_types)
+    print('To path', path)
     with open(path, 'w') as f:
         yaml.safe_dump(feature_types, f, sort_keys=False)
 
@@ -869,19 +874,19 @@ def main():
     # TODO Use the config file (avoids having the same config in two places and need to make sure they match)
     # print(model_config)
 
-    objects_meta = dict(n=100)
+    objects_meta = dict(n=50)
 
     # Names of simulated confounders and simulated groups per confounder and their relative frequency (must sum to 1).
     confounders_meta = dict(
-        conf_1=dict(a=0.3, b=0.4, c=0.3),
-        conf_2=dict(d=0.5, e=0.5)
+        conf1=dict(a=0.3, b=0.4, c=0.3),
+        conf2=dict(d=0.5, e=0.5)
     )
 
     # Number of simulated features per feature type
     # For categorical features the tuple (2, 3) simulates 3 features with 2 states
     features_meta = dict(
-        categorical=[(2, 20), (3, 20), (4, 20)],
-        # gaussian=10,
+        # categorical=[(2, 10), (3, 10), (4, 5)],
+        gaussian=10,
         # poisson=10,
     )
 
@@ -894,13 +899,13 @@ def main():
     # Range of the hyperparameter values for simulating the confounding effect prior
     hyper_parameters_confounding_effect_prior = dict(
         categorical=dict(
-            concentration=(1, 1)),
+            concentration=(0.6, 0.6)),
         gaussian=dict(
             mean=dict(
                 mu_0=(0, 0),
-                sigma_0=(1000, 1000)),
+                sigma_0=(100, 100)),
             variance=dict(
-                alpha_0=(1, 1),
+                alpha_0=(2, 2),
                 beta_0=(1, 1))),
         poisson=dict(
             rate=dict(
@@ -910,13 +915,13 @@ def main():
     # Range of the hyperparameter values for simulating the cluster effect prior
     hyper_parameters_cluster_effect_prior = dict(
         categorical=dict(
-            concentration=(1, 1)),
+            concentration=(0.2, 0.2)),
         gaussian=dict(
             mean=dict(
                 mu_0=(0, 0),
-                sigma_0=(1000, 1000)),
+                sigma_0=(100, 100)),
             variance=dict(
-                alpha_0=(1, 1),
+                alpha_0=(2, 2),
                 beta_0=(1, 1))),
         poisson=dict(
             rate=dict(
@@ -947,7 +952,7 @@ def main():
     for i in range(args.n_sim):
         # Simulate the parameters
         path_parameters = folder_path / simulation_name / "parameters" / f"sim_{i+1}"
-        parameters_sim = simulate_parameters(prior_probability_sim, meta_parameters, path_parameters)
+        parameters_sim = simulate_parameters(model_config, prior_probability_sim, meta_parameters, path_parameters)
 
         # Simulate the data
         path_data = folder_path / simulation_name / "data" / f"sim_{i+1}"

@@ -342,6 +342,16 @@ class LikelihoodCategorical(LikelihoodGenericType):
         return self.features.categorical.na_values
 
 
+def get_fixed_sigma(observations: NDArray[float], axis=None) -> NDArray[float]:
+    if axis is None:
+        return 2.0
+    else:
+        return 2.0 * np.ones_like(observations).mean(axis=axis)
+
+    # s = 0.001 + np.nanstd(observations, axis=axis)
+    # return s
+
+
 class LikelihoodGaussian(LikelihoodGenericType):
 
     feature_type = FeatureType.gaussian
@@ -370,7 +380,7 @@ class LikelihoodGaussian(LikelihoodGenericType):
                     sigma_0 = self.prior.prior_cluster_effect.gaussian.mean.sigma_0_array[f]
 
                     # use the maximum likelihood value for sigma_fixed
-                    sigma_fixed = np.nanstd(x)
+                    sigma_fixed = get_fixed_sigma(x)
                     lh[i_cluster] += gaussian_mu_marginalised_logpdf(
                         x=x, mu_0=mu_0, sigma_0=sigma_0, sigma_fixed=sigma_fixed,
                         in_component=sample.gaussian.source.value[cluster, f, 0],
@@ -399,7 +409,7 @@ class LikelihoodGaussian(LikelihoodGenericType):
                     x = self.features.gaussian.values[g, i_f]
 
                     # use the maximum likelihood value for sigma_fixed
-                    sigma_fixed = np.nanstd(x)
+                    sigma_fixed = get_fixed_sigma(x)
                     lh[i_g] += gaussian_mu_marginalised_logpdf(
                         x=x, mu_0=mu_0[i_g, i_f], sigma_0=sigma_0[i_g, i_f], sigma_fixed=sigma_fixed,
                         in_component=sample.gaussian.source.value[g, i_f, i_component],
@@ -426,7 +436,7 @@ class LikelihoodGaussian(LikelihoodGenericType):
 
             for i_f in range(self.shapes.n_features_gaussian):
                 f = features[g, i_f]
-                sigma_fixed = np.nanstd(f)
+                sigma_fixed = get_fixed_sigma(f)
                 out[g, i_f] = np.exp(gaussian_posterior_predictive_logpdf(
                     x_new=f, x=f, sigma=sigma_fixed, mu_0=mu_0[i_f], sigma_0=sigma_0[i_f],
                     in_component=sample.gaussian.source.value[g, i_f, 0],
@@ -454,7 +464,7 @@ class LikelihoodGaussian(LikelihoodGenericType):
             out[g, :] = np.exp(gaussian_posterior_predictive_logpdf(
                     x_new=features[g],
                     x=features[g],
-                    sigma=np.nanstd(features[g], axis=0),
+                    sigma=get_fixed_sigma(features[g], axis=0),
                     mu_0=mu_0[i_g, :],
                     sigma_0=sigma_0[i_g, :],
                     in_component=sample.gaussian.source.value[g, :, i_component],
@@ -476,7 +486,7 @@ class LikelihoodGaussian(LikelihoodGenericType):
         features_cluster = self.features.gaussian.values[cluster]
         source_cluster = sample.gaussian.source.value[cluster, :, 0]
 
-        sigma_fixed = np.nanstd(features_cluster, axis=0)
+        sigma_fixed = get_fixed_sigma(features_cluster, axis=0)
         condition_lh = np.exp(gaussian_posterior_predictive_logpdf(
             x_new=features_candidates, x=features_cluster, sigma=sigma_fixed,
             mu_0=mu_0, sigma_0=sigma_0, in_component=source_cluster,
@@ -507,7 +517,7 @@ class LikelihoodGaussian(LikelihoodGenericType):
 
         for i_f in range(self.shapes.n_features_gaussian):
             f = features[:, i_f]
-            sigma_fixed = np.nanstd(f[condition_on])
+            sigma_fixed = get_fixed_sigma(f[condition_on])
             out[:, i_f] = np.exp(gaussian_posterior_predictive_logpdf(
                 x_new=f[evaluate_on], x=f[condition_on],
                 sigma=sigma_fixed, mu_0=mu_0[i_f], sigma_0=sigma_0[i_f],
@@ -546,7 +556,7 @@ class LikelihoodGaussian(LikelihoodGenericType):
                 f = features[:, i_f]
                 f_cond = f[g & condition_on]
                 f_eval = f[g & evaluate_on]
-                sigma_fixed = np.nanstd(f_cond)
+                sigma_fixed = get_fixed_sigma(f_cond)
                 out[g[evaluate_on], i_f] = np.exp(gaussian_posterior_predictive_logpdf(
                     x_new=f_eval, x=f_cond, sigma=sigma_fixed, mu_0=mu_0[i_f], sigma_0=sigma_0[i_f],
                     in_component=sample.gaussian.source.value[g & condition_on, i_f, 0],
@@ -587,7 +597,7 @@ class LikelihoodGaussian(LikelihoodGenericType):
             out[g[evaluate_on], :] = np.exp(gaussian_posterior_predictive_logpdf(
                 x_new=f_eval,
                 x=f_cond,
-                sigma=np.nanstd(f_cond, axis=0),
+                sigma=get_fixed_sigma(f_cond, axis=0),
                 mu_0=mu_0[i_g, :],
                 sigma_0=sigma_0[i_g, :],
                 in_component=sample.gaussian.source.value[g & condition_on, :, i_component],
@@ -767,7 +777,7 @@ class LikelihoodLogitNormal(LikelihoodGenericType):
                     mu_0 = self.prior.prior_cluster_effect.logitnormal.mean.mu_0_array[f]
                     sigma_0 = self.prior.prior_cluster_effect.logitnormal.mean.sigma_0_array[f]
                     # use the maximum likelihood value for sigma_fixed
-                    sigma_fixed = np.nanstd(x)
+                    sigma_fixed = get_fixed_sigma(x)
                     lh[i_cluster] += gaussian_mu_marginalised_logpdf(
                         x=x, mu_0=mu_0, sigma_0=sigma_0, sigma_fixed=sigma_fixed,
                         in_component=sample.logitnormal.source.value[cluster, f, 0],
@@ -794,7 +804,7 @@ class LikelihoodLogitNormal(LikelihoodGenericType):
                     sigma_0 = self.prior.prior_confounding_effects[conf].logitnormal.mean.sigma_0_array[i_g][f]
 
                     # use the maximum likelihood value for sigma_fixed
-                    sigma_fixed = np.nanstd(x)
+                    sigma_fixed = get_fixed_sigma(x)
                     lh[i_g] += gaussian_mu_marginalised_logpdf(
                         x=x, mu_0=mu_0, sigma_0=sigma_0, sigma_fixed=sigma_fixed,
                         in_component=sample.logitnormal.source.value[group, f, i_component],
