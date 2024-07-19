@@ -178,7 +178,7 @@ class LikelihoodGenericType(object):
                     out=component_likelihood[..., i],
                 )
 
-            component_likelihood[self.na_values()] = 1.
+            component_likelihood[self.na_values()] = 0.
 
         if caching and CHECK_CACHING:
             cached = np.copy(lh_cache.value)
@@ -294,13 +294,13 @@ class LikelihoodCategorical(LikelihoodGenericType):
 
         cluster_effect = normalize(cluster_effect_counts, axis=-1)
 
-        return compute_component_likelihood(
+        return np.log(compute_component_likelihood(
             features=self.features.categorical.values,
             probs=cluster_effect,
             groups=sample.clusters.value,
             changed_groups=changed_clusters,
             out=out,
-        )
+        ))
 
     def compute_pointwise_confounder_likelihood(
         self,
@@ -319,13 +319,13 @@ class LikelihoodCategorical(LikelihoodGenericType):
         )
         conf_effect = normalize(conf_effect_counts, axis=-1)
 
-        return compute_component_likelihood(
+        return np.log(compute_component_likelihood(
             features=self.features.categorical.values,
             probs=conf_effect,
             groups=groups,
             changed_groups=changed_groups,
             out=out,
-        )
+        ))
 
     def pointwise_conditional_cluster_lh(
         self,
@@ -437,10 +437,10 @@ class LikelihoodGaussian(LikelihoodGenericType):
             for i_f in range(self.shapes.n_features_gaussian):
                 f = features[g, i_f]
                 sigma_fixed = get_fixed_sigma(f)
-                out[g, i_f] = np.exp(gaussian_posterior_predictive_logpdf(
+                out[g, i_f] = gaussian_posterior_predictive_logpdf(
                     x_new=f, x=f, sigma=sigma_fixed, mu_0=mu_0[i_f], sigma_0=sigma_0[i_f],
                     in_component=sample.gaussian.source.value[g, i_f, 0],
-                ))
+                )
 
     def compute_pointwise_confounder_likelihood(
         self,
@@ -461,14 +461,14 @@ class LikelihoodGaussian(LikelihoodGenericType):
 
         for i_g in changed_groups:
             g = groups[i_g]
-            out[g, :] = np.exp(gaussian_posterior_predictive_logpdf(
+            out[g, :] = gaussian_posterior_predictive_logpdf(
                     x_new=features[g],
                     x=features[g],
                     sigma=get_fixed_sigma(features[g], axis=0),
                     mu_0=mu_0[i_g, :],
                     sigma_0=sigma_0[i_g, :],
                     in_component=sample.gaussian.source.value[g, :, i_component],
-            ))
+            )
         return out
 
     def pointwise_conditional_cluster_lh(
@@ -491,8 +491,6 @@ class LikelihoodGaussian(LikelihoodGenericType):
             x_new=features_candidates, x=features_cluster, sigma=sigma_fixed,
             mu_0=mu_0, sigma_0=sigma_0, in_component=source_cluster,
         ))
-        # assert np.allclose(_condition_lh, condition_lh)
-
         return condition_lh
 
     def pointwise_conditional_likelihood_2(
@@ -692,7 +690,7 @@ class LikelihoodPoisson(LikelihoodGenericType):
                 n = len(f) - 1
                 alpha_1 = alpha_0[j] + f.sum() - f
                 beta_1 = beta_0[j] + n
-                out[g, j] = nbinom.pmf(f, alpha_1, beta_1 / (1 + beta_1))
+                out[g, j] = nbinom.logpmf(f, alpha_1, beta_1 / (1 + beta_1))
 
     def compute_pointwise_confounder_likelihood(
             self,
@@ -719,7 +717,7 @@ class LikelihoodPoisson(LikelihoodGenericType):
                 alpha_1 = alpha_0[i, j] + f.sum() - f
                 beta_1 = beta_0[i, j] + n
 
-                out[g, j] = nbinom.pmf(f, alpha_1, beta_1 / (1 + beta_1))
+                out[g, j] = nbinom.logpmf(f, alpha_1, beta_1 / (1 + beta_1))
 
         return out
 
@@ -835,7 +833,7 @@ class LikelihoodLogitNormal(LikelihoodGenericType):
             for j in range(f_g.shape[1]):
                 f = f_g[:, j]
                 # todo: implement likelihood
-                out[g, j] = np.repeat(0.5, len(f))
+                out[g, j] = np.repeat(-1.0, len(f))
 
         return out
 
@@ -862,7 +860,7 @@ class LikelihoodLogitNormal(LikelihoodGenericType):
             for j in range(f_g.shape[1]):
                 f = f_g[:, j]
                 # todo: implement likelihood
-                out[g, j] = np.repeat(0.5, len(f))
+                out[g, j] = np.repeat(-1.0, len(f))
 
     def pointwise_conditional_cluster_lh(
         self,
@@ -996,9 +994,9 @@ update_weights = {
 
 
 def normalize_weights(
-    weights: NDArray[float],  # shape: (n_features, 1 + n_confounders)
+    weights: NDArray[float],       # shape: (n_features, 1 + n_confounders)
     has_components: NDArray[bool]  # shape: (n_objects, 1 + n_confounders)
-) -> NDArray[float]:  # shape: (n_objects, n_features, 1 + n_confounders)
+) -> NDArray[float]:               # shape: (n_objects, n_features, 1 + n_confounders)
     """This function assigns each site a weight if it has a likelihood and zero otherwise
     Args:
         weights: the weights to normalize

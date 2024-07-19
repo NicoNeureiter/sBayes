@@ -15,7 +15,7 @@ from sbayes.load_data import Features, CategoricalFeatures, FeatureType
 from sbayes.sampling.conditionals import conditional_effect_mean
 from sbayes.sampling.counts import recalculate_feature_counts, update_feature_counts, update_sufficient_statistics
 from sbayes.sampling.state import Sample
-from sbayes.util import dirichlet_logpdf, normalize, get_neighbours, RND_SEED, inner1d
+from sbayes.util import dirichlet_logpdf, normalize, get_neighbours, RND_SEED, inner1d, DEBUG_PRINTS, normalize_logspace
 from sbayes.model import Model, normalize_weights
 from sbayes.preprocessing import sample_categorical
 from sbayes.config.config import OperatorsConfig
@@ -275,7 +275,7 @@ class GibbsSampleSource(Operator):
                 update_ft_weights = update_weights[ft]
                 p = update_ft_weights(sample)[object_subset]
             else:
-                p = self.calculate_source_posterior(sample=sample, feature_type=ft, object_subset=object_subset)
+                p = np.exp(self.calculate_source_posterior(sample=sample, feature_type=ft, object_subset=object_subset))
 
             # Sample the new source assignments
             with ft_sample.source.edit() as source:
@@ -300,7 +300,7 @@ class GibbsSampleSource(Operator):
             if self.sample_from_prior:
                 p_back = p
             else:
-                p_back = self.calculate_source_posterior(sample=sample_new, feature_type=ft, object_subset=object_subset)
+                p_back = np.exp(self.calculate_source_posterior(sample=sample_new, feature_type=ft, object_subset=object_subset))
 
             log_q_back += np.log(p_back[getattr(sample, ft).source.value[object_subset]]).sum()
 
@@ -363,6 +363,7 @@ class GibbsSampleSource(Operator):
         # 1. compute pointwise likelihood for each component
         model: Model = self.model_by_chain[sample.chain]
         lh_per_component = model.likelihood.feature_type_likelihoods[feature_type].pointwise_likelihood(model=model, sample=sample)
+        assert np.all(lh_per_component.max(axis=0) > -np.inf)
 
         # 2. multiply by weights and normalize over components to get the source posterior
         update_ft_weights = update_weights[feature_type]
@@ -370,7 +371,8 @@ class GibbsSampleSource(Operator):
 
         # 3. The posterior of the source for each observation is likelihood times prior
         # (normalized to sum up to one across source components):
-        return normalize(lh_per_component[object_subset] * weights[object_subset], axis=-1)
+        source_posterior = lh_per_component[object_subset] + np.log(weights[object_subset])
+        return normalize_logspace(source_posterior, axis=-1)
 
     def get_step_size(self, sample_old: Sample, sample_new: Sample) -> float:
         count = 0
@@ -839,7 +841,7 @@ class AlterClusterGibbsish(ClusterOperator):
             )
 
             all_lh = deepcopy(
-                ft_likelihood.pointwise_likelihood(model=model, sample=sample)[candidates, :]
+                np.exp(ft_likelihood.pointwise_likelihood(model=model, sample=sample)[candidates, :])
             )
             all_lh[..., 0] = cluster_lh_z
 
@@ -1132,7 +1134,7 @@ class AlterClusterGibbsishWide(AlterClusterGibbsish):
                 sample=sample, i_cluster=i_cluster, available=available
             )
             all_lh = deepcopy(
-                ft_likelihood.pointwise_likelihood(model=model, sample=sample)[available, :]
+                np.exp(ft_likelihood.pointwise_likelihood(model=model, sample=sample)[available, :])
             )
             all_lh[..., 0] = cluster_lh_z
 
@@ -1294,6 +1296,10 @@ class AlterCluster(ClusterOperator):
         log_q = np.log(q)
         log_q_back = np.log(q_back)
 
+        if DEBUG_PRINTS:
+            print('grow_cluster')
+            print(f'\t\t\t{"":<15} log_q: {log_q:<25.4f}     log_q_back {log_q_back:<25.4f}')
+
         for ft in sample.feature_type_samples:
             if self.resample_source and sample[ft].source is not None:
                 sample_new, log_q_s, log_q_back_s = self.propose_new_sources(
@@ -1303,8 +1309,16 @@ class AlterCluster(ClusterOperator):
                     object_subset=[object_add],
                     feature_type=ft,
                 )
+
+                if DEBUG_PRINTS:
+                    print(f'\t\t\t{ft.value:<15} log_q_s: {log_q_s:<25.4f}   log_q_s_back {log_q_back_s:<25.4f}')
+
                 log_q += log_q_s
                 log_q_back += log_q_back_s
+
+        if DEBUG_PRINTS:
+            print(f'\t\t\t{"COMBINED":<15} log_q: {log_q:<25.4f}     log_q_back {log_q_back:<25.4f}')
+            print(f'DIFF = {log_q_back - log_q:.4f}')
 
         return sample_new, log_q, log_q_back
 

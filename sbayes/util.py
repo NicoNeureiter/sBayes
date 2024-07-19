@@ -18,7 +18,7 @@ from scipy.optimize import linear_sum_assignment
 import pandas as pd
 import scipy
 import scipy.spatial as spatial
-from scipy.special import betaln, expit, gammaln, loggamma
+from scipy.special import betaln, expit, gammaln, loggamma, logsumexp
 import scipy.stats as stats
 from scipy.sparse import csr_matrix
 from unidecode import unidecode
@@ -966,9 +966,32 @@ def normalize(x, axis=-1):
     array([[0.5, 0.5, 0.5, 0.5],
            [0.5, 0.5, 0.5, 0.5]])
     """
-    assert np.all(np.sum(x, axis=axis) > 0)
+    assert np.all(np.sum(x, axis=axis) > 0), (x.max(axis=axis), x.shape)
     return x / np.sum(x, axis=axis, keepdims=True)
 
+
+def normalize_logspace(x, axis=-1):
+    """Normalize ´x´ s.t. exp(x) sums up to 1 along axis.
+
+    Args:
+        x (np.array): Array to be normalized.
+        axis (int): The axis to be normalized (will sum up to 1).
+
+    Returns:
+         np.array: x with normalized s.t. the last axis sums to 1.
+
+    == Usage ===
+    >>> np.allclose(
+    ...     normalize_logspace(-np.arange(1, 10)),
+    ...     np.log(normalize(np.exp(-np.arange(1, 10))))
+    ... )
+    True
+    >>> normalize_logspace(np.ones((2, 4)), axis=0) / np.log(2)  # Transform to log2 for tidier results
+    array([[-1., -1., -1., -1.],
+           [-1., -1., -1., -1.]])
+    """
+    assert np.all(logsumexp(x, axis=axis) > -np.inf), (x.max(axis=axis), x.shape)
+    return x - logsumexp(x, axis=axis, keepdims=True)
 
 def mle_weights(samples):
     """Compute the maximum likelihood estimate for categorical samples.
@@ -1324,7 +1347,7 @@ def dirichlet_multinomial_logpdf(
 
     == Usage ===
     >>> dirichlet_multinomial_logpdf(counts=np.array([2, 1, 0, 0]), a=np.array([1., 1., 0., 0.]))
-    -1.386294361303224
+    -1.3862943611217238
     """
     # Only apply to
     # valid = a > 0
@@ -1353,7 +1376,7 @@ def dirichlet_categorical_logpdf(
 
     == Usage ===
     >>> dirichlet_multinomial_logpdf(counts=np.array([2, 1, 0, 0]), a=np.array([1., 1., 0., 0.]))
-    -1.386294361303224
+    -1.3862943611217238
     """
     a = a + 1e-12  # TODO Find a better way to fix 0s in a (and still use broadcasting)
 

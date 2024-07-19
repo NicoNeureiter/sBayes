@@ -8,6 +8,7 @@ import numpy as np
 from sbayes.load_data import Data, FeatureType
 from sbayes.model import update_categorical_weights, update_gaussian_weights, \
                          update_poisson_weights, update_logitnormal_weights
+from sbayes.model.likelihood import update_weights, normalize_weights
 from sbayes.sampling.conditionals import sample_source_from_prior
 from sbayes.sampling.counts import recalculate_feature_counts
 from sbayes.sampling.mcmc import MCMC
@@ -325,10 +326,7 @@ class ClusterMCMC(MCMC):
             initial_confounding_effects[conf_name] = self.generate_initial_confounding_effect(conf_name)
 
         # Source arrays
-        if self.model.sample_source:
-            initial_source = self.generate_initial_source()
-        else:
-            initial_source = None
+        initial_source = self.generate_initial_source()
 
         if self.features.categorical is not None:
             feature_counts = {'clusters': np.zeros((self.shapes.n_clusters,
@@ -351,13 +349,16 @@ class ClusterMCMC(MCMC):
             model_shapes=self.model.shapes,
         )
 
-        for t in ['categorical', 'gaussian', 'poisson', 'logitnormal']:
+        for t in FeatureType.values():
             if initial_weights[t] is not None:
                 assert ~np.any(np.isnan(initial_weights[t])), initial_weights[t]
 
         self.generate_inital_source_with_gibbs(sample)
 
         sample.everything_changed()
+
+
+        sample.check_sources_valid()
 
         return sample
 
@@ -377,29 +378,24 @@ class ClusterMCMC(MCMC):
             object_selector=ObjectSelector.ALL
         )
 
-        for ft in FeatureType.values():
-            if getattr(sample, ft) is not None:
-                source[ft][getattr(self.data.features, ft).na_values] = 0
-                getattr(sample, ft).source.set_value(source[ft])
+        for ft, ft_sample in sample.feature_type_samples.items():
+            na_ft = self.data.features.get_ft_features(ft).na_values
+            source[ft][na_ft] = 0
+            ft_sample.source.set_value(source[ft])
 
-                if ft is FeatureType.categorical:
-                    # Recalculate the counts for categorical features
-                    recalculate_feature_counts(self.features.categorical.values, sample)
-
-                update_weights = getattr(sbayes.model, "update_" + ft + "_weights")
-                w = update_weights(sample, caching=False)
-                s = getattr(sample, ft).source.value
-                assert np.all(s <= (w > 0)), np.max(w)
+            if ft is FeatureType.categorical:
+                # Recalculate the counts for categorical features
+                recalculate_feature_counts(self.features.categorical.values, sample)
 
         # Propose a new sample
         new_sample = full_source_operator.function(sample)[0]
 
-        for ft in FeatureType.values():
-            if getattr(sample, ft) is not None:
-                source[ft] = getattr(new_sample, ft).source.value
-                getattr(sample, ft).source.set_value(source[ft])
-                if ft is FeatureType.categorical:
-                    recalculate_feature_counts(self.features.categorical.values, sample)
+        for ft, ft_sample in sample.feature_type_samples.items():
+            source[ft] = new_sample.feature_type_samples[ft].source.value
+            ft_sample.source.set_value(source[ft])
+            if ft is FeatureType.categorical:
+                recalculate_feature_counts(self.features.categorical.values, sample)
+
 
         return source
 
@@ -508,6 +504,7 @@ class ClusterMCMC(MCMC):
             # #     object_selector=ObjectSelector.GROUPS,
             # # ),
             #
+
             'gibbs_sample_weights': GibbsSampleWeights(
                 weight=operators_config.weights,
                 model_by_chain=self.posterior_per_chain,

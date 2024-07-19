@@ -839,6 +839,14 @@ class Sample:
 
         return self._groups_and_clusters
 
+    """Validity checks"""
+
+    def check_sources_valid(self):
+        for ft, ft_sample in self.feature_type_samples.items():
+            s = ft_sample.source.value
+            has_components = self.cache.feature_type_cache[ft].has_components.value
+            assert np.all(np.max(s, axis=1) <= has_components), ft
+
 
 class GenericTypeSample:
 

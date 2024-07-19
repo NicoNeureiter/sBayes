@@ -196,27 +196,16 @@ def sample_source_from_prior(
     if sample.categorical is not None:
         p = update_categorical_weights(sample)
         source['categorical'] = sample_categorical(p, binary_encoding=True)
-
     if sample.gaussian is not None:
         p = update_gaussian_weights(sample)
         source['gaussian'] = sample_categorical(p, binary_encoding=True)
-
     if sample.poisson is not None:
         p = update_poisson_weights(sample)
         source['poisson'] = sample_categorical(p, binary_encoding=True)
-
     if sample.logitnormal is not None:
         p = update_logitnormal_weights(sample)
         source['logitnormal'] = sample_categorical(p, binary_encoding=True)
-
     return source
-
-
-def logprob_source_from_prior(
-    sample: Sample,
-) -> float:
-    p = update_weights(sample)
-    return np.log(p[sample.source]).sum()
 
 
 def impute_source(sample: Sample, model: Model):
