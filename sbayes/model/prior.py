@@ -13,8 +13,7 @@ from numpy.typing import NDArray
 import scipy.stats as stats
 from scipy.sparse.csgraph import minimum_spanning_tree, csgraph_from_dense
 
-from sbayes.model.likelihood import update_categorical_weights, update_gaussian_weights, update_poisson_weights,\
-    update_logitnormal_weights, ModelShapes, normalize_weights
+from sbayes.model.likelihood import update_weights, ModelShapes, normalize_weights
 from sbayes.preprocessing import sample_categorical
 from sbayes.sampling.state import Sample, Clusters
 from sbayes.util import (compute_delaunay, n_smallest_distances, log_multinom,
@@ -1108,6 +1107,12 @@ class SourcePrior:
         self.valid_gaussian = ~gaussian_na if gaussian_na is not None else None
         self.valid_poisson = ~poisson_na if poisson_na is not None else None
         self.valid_logitnormal = ~logitnormal_na if logitnormal_na is not None else None
+        self.valid = {
+            'categorical': self.valid_categorical,
+            'gaussian': self.valid_gaussian,
+            'poisson': self.valid_poisson,
+            'logitnormal': self.valid_logitnormal,
+        }
 
     def __call__(self, sample: Sample, feature_type, caching=True) -> float:
         """Compute the prior for weights (or load from cache).
@@ -1130,12 +1135,12 @@ class SourcePrior:
                 changed = cache.what_changed(input_key=["source"], caching=caching)
 
             if changed:
-                update_weights = getattr(sbayes.model, "update_" + feature_type + "_weights")
-                valid = getattr(self, "valid_" + feature_type)
-                w = update_weights(sample)[changed]
-                s = getattr(sample, feature_type).source.value[changed]
+                valid = self.valid[feature_type]
+                w = update_weights[feature_type](sample)[changed]
+                s = sample.feature_type_samples[feature_type].source.value[changed]
                 observation_weights = np.sum(w * s, axis=-1)
                 source_prior[changed] = np.sum(np.log(observation_weights), axis=-1, where=valid[changed])
+
         return cache.value.sum()
 
     @staticmethod

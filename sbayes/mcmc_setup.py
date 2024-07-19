@@ -6,7 +6,7 @@ from __future__ import annotations
 import numpy as np
 
 from sbayes.results import Results
-from sbayes.sampling.conditionals import sample_source_from_prior, impute_source
+from sbayes.sampling.conditionals import impute_source
 from sbayes.sampling.counts import recalculate_feature_counts
 from sbayes.sampling.sbayes_sampling import ClusterMCMC
 from sbayes.sampling.state import Sample, Source
