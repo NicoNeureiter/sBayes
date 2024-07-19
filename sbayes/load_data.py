@@ -192,7 +192,7 @@ class PoissonFeatures(GenericTypeFeatures):
     na_values: NDArray[bool] = field(init=False)    # shape: (n_objects, n_features)
 
     def __post_init__(self):
-        object.__setattr__(self, 'na_values', np.sum(self.values, axis=-1) == 0)
+        object.__setattr__(self, 'na_values', (self.values == np.nan))
 
     @classmethod
     def from_dataframes(
@@ -224,7 +224,7 @@ class LogitNormalFeatures(GenericTypeFeatures):
     na_values: NDArray[bool] = field(init=False)    # shape: (n_objects, n_features)
 
     def __post_init__(self):
-        object.__setattr__(self, 'na_values', np.sum(self.values, axis=-1) == 0)
+        object.__setattr__(self, 'na_values', (self.values == np.nan))
 
     @classmethod
     def from_dataframes(
