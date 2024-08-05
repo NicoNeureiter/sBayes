@@ -278,6 +278,9 @@ class MCMC(ABC):
         operator = self.choose_operator()
         step_function = operator['function']
 
+        if DEBUG_PRINTS:
+            print(f'Operator: {operator["name"]} [{operator.__class__.__name__}]')
+
         step_time_start = _time.time()
 
         candidate, log_q, log_q_back = step_function(sample, c=c)

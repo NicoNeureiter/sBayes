@@ -579,8 +579,8 @@ class ClusterOperator(Operator):
 
                 log_q = np.log(p[source[object_subset]]).sum()
 
-            log_q_back = np.log(p_back[getattr(sample_old, feature_type).source.value[object_subset]]).sum()
 
+            log_q_back = np.log(p_back[sample_old.feature_type_samples[feature_type].source.value[object_subset]]).sum()
             if feature_type == FeatureType.categorical:
                 update_feature_counts(sample_old, sample_new, features, object_subset)
                 if DEBUG:
@@ -637,7 +637,7 @@ class ClusterOperator(Operator):
         object_subset = np.isin(np.arange(sample_new.n_objects), object_subset)
 
         # todo: activate for other feature types (gaussian, poisson, logitnormal)
-        lh_per_component = component_likelihood_given_unchanged(
+        log_lh_per_component = component_likelihood_given_unchanged(
             model, sample_new, object_subset, i_cluster, feature_type
         )
 
@@ -646,7 +646,7 @@ class ClusterOperator(Operator):
             p = update_ft_weights(sample_new)[object_subset]
         else:
             w = update_ft_weights(sample_new)[object_subset]
-            p = normalize(w * lh_per_component, axis=-1)
+            p = np.exp(normalize_logspace(np.log(w) + log_lh_per_component, axis=-1))
             p[na_features[object_subset]] = 1.0
 
         # Sample the new source assignments
@@ -668,14 +668,14 @@ class ClusterOperator(Operator):
 
         # Transition probability backward:
         if self.sample_from_prior:
-            p_back = update_ft_weights(sample_old)[object_subset]
+            log_q_back_per_obs = np.log(update_ft_weights(sample_old)[object_subset])
         else:
             w = update_ft_weights(sample_old)[object_subset]
-            p_back = normalize(w * lh_per_component, axis=-1)
+            log_q_back_per_obs = normalize_logspace(np.log(w) + log_lh_per_component, axis=-1)
             # p_back = self.calculate_source_posterior(sample_old, object_subset)
 
         source_old = ft_sample_old.source.value[object_subset]
-        log_q_back = np.log(p_back[source_old]).sum()
+        log_q_back = log_q_back_per_obs[source_old].sum()
 
         return sample_new, log_q, log_q_back
 
@@ -704,11 +704,11 @@ def component_likelihood_given_unchanged(
     source = ft_sample.source.value
     subset_size = np.count_nonzero(object_subset)
 
-    likelihoods = np.zeros((subset_size, ft_sample.n_features, sample.n_components))
+    log_likelihoods = np.zeros((subset_size, ft_sample.n_features, sample.n_components))
 
-    # todo: cluster likelihood given unchanged for poisson, gaussian and logitnormal
+    # todo: cluster likelihood given unchanged for poisson and logitnormal
     if feature_type == FeatureType.categorical:
-        likelihoods[..., 0] = cluster_likelihood_categorical_given_unchanged(cluster, features, object_subset, source)
+        log_likelihoods[..., 0] = np.log(cluster_likelihood_categorical_given_unchanged(cluster, features, object_subset, source))
 
         for i_conf, conf in enumerate(confounders, start=1):
             groups = confounders[conf].group_assignment
@@ -729,15 +729,15 @@ def component_likelihood_given_unchanged(
             features_subset = features.values[object_subset]
             for g, p_g in zip(subset_groups[group_in_subset], conf_effect[group_in_subset]):
                 f_g = features_subset[g, :, :]
-                likelihoods[g, :, i_conf] = np.einsum('ijk,jk->ij', f_g, p_g)
+                log_likelihoods[g, :, i_conf] = np.log(np.einsum('ijk,jk->ij', f_g, p_g))
 
         # Fix likelihood of NA features to 1
-        likelihoods[features.na_values[object_subset]] = 1.
+        log_likelihoods[features.na_values[object_subset]] = 0.
     elif feature_type == FeatureType.gaussian:
         gaussian_lh = model.likelihood.gaussian
         gaussian_lh.pointwise_conditional_likelihood_2(
             sample=sample,
-            out=likelihoods[..., 0],
+            out=log_likelihoods[..., 0],
             condition_on=sample.clusters.value[i_cluster, :],
             evaluate_on=object_subset,
         )
@@ -746,22 +746,21 @@ def component_likelihood_given_unchanged(
             gaussian_lh.pointwise_conditional_confounder_likelihood_2(
                 confounder=conf,
                 sample=sample,
-                out=likelihoods[..., i],
+                out=log_likelihoods[..., i],
                 # condition_on=~object_subset,
                 evaluate_on=object_subset,
             )
 
         # Fix likelihood of NA features to 1
-        likelihoods[features.na_values[object_subset]] = 1.
+        log_likelihoods[features.na_values[object_subset]] = 0
     else:
         raise NotImplementedError
-        # likelihoods[:, :] = 1/likelihoods.shape[2]
+        # log_likelihoods[:, :] = np.log(1/log_likelihoods.shape[2])
 
         # Fix likelihood of NA features to 1
-        likelihoods[features.na_values[object_subset]] = 1.
+        log_likelihoods[features.na_values[object_subset]] = 0
 
-    assert np.all(likelihoods >= 0)
-    return likelihoods
+    return log_likelihoods
 
 
 def cluster_likelihood_categorical_given_unchanged(
@@ -1297,28 +1296,26 @@ class AlterCluster(ClusterOperator):
         log_q_back = np.log(q_back)
 
         if DEBUG_PRINTS:
-            print('grow_cluster')
-            print(f'\t\t\t{"":<15} log_q: {log_q:<25.4f}     log_q_back {log_q_back:<25.4f}')
+            print(f'\t\t\t{"grow_cluster":<15} log_q: {log_q:<25.4f}     log_q_back {log_q_back:<25.4f}')
 
         for ft in sample.feature_type_samples:
-            if self.resample_source and sample[ft].source is not None:
-                sample_new, log_q_s, log_q_back_s = self.propose_new_sources(
-                    sample_old=sample,
-                    sample_new=sample_new,
-                    i_cluster=i_cluster,
-                    object_subset=[object_add],
-                    feature_type=ft,
-                )
+            sample_new, log_q_s, log_q_back_s = self.propose_new_sources(
+                sample_old=sample,
+                sample_new=sample_new,
+                i_cluster=i_cluster,
+                object_subset=[object_add],
+                feature_type=ft,
+            )
 
-                if DEBUG_PRINTS:
-                    print(f'\t\t\t{ft.value:<15} log_q_s: {log_q_s:<25.4f}   log_q_s_back {log_q_back_s:<25.4f}')
+            if DEBUG_PRINTS:
+                print(f'\t\t\t{ft.value:<15} log_q_s: {log_q_s:<25.6f}   log_q_s_back {log_q_back_s:<25.6f}')
 
-                log_q += log_q_s
-                log_q_back += log_q_back_s
+            log_q += log_q_s
+            log_q_back += log_q_back_s
 
-        if DEBUG_PRINTS:
-            print(f'\t\t\t{"COMBINED":<15} log_q: {log_q:<25.4f}     log_q_back {log_q_back:<25.4f}')
-            print(f'DIFF = {log_q_back - log_q:.4f}')
+        # if DEBUG_PRINTS:
+        #     print(f'\t\t\t{"COMBINED":<15} log_q: {log_q:<25.4f}     log_q_back {log_q_back:<25.4f}')
+        #     print(f'DIFF = {log_q_back - log_q:.4f}')
 
         return sample_new, log_q, log_q_back
 
@@ -1360,17 +1357,23 @@ class AlterCluster(ClusterOperator):
         log_q = np.log(q)
         log_q_back = np.log(q_back)
 
+        if DEBUG_PRINTS:
+            print(f'\t\t\t{"shrink_cluster":<15} log_q: {log_q:<25.4f}     log_q_back {log_q_back:<25.4f}')
+
         for ft in sample.feature_type_samples:
-            if self.resample_source and sample[ft].source is not None:
-                sample_new, log_q_s, log_q_back_s = self.propose_new_sources(
-                    sample_old=sample,
-                    sample_new=sample_new,
-                    i_cluster=i_cluster,
-                    object_subset=[object_remove],
-                    feature_type=ft,
-                )
-                log_q += log_q_s
-                log_q_back += log_q_back_s
+            sample_new, log_q_s, log_q_back_s = self.propose_new_sources(
+                sample_old=sample,
+                sample_new=sample_new,
+                i_cluster=i_cluster,
+                object_subset=[object_remove],
+                feature_type=ft,
+            )
+
+            if DEBUG_PRINTS:
+                print(f'\t\t\t{ft.value:<15} log_q_s: {log_q_s:<25.6f}   log_q_s_back {log_q_back_s:<25.6f}')
+
+            log_q += log_q_s
+            log_q_back += log_q_back_s
 
         return sample_new, log_q, log_q_back
 
@@ -1489,7 +1492,7 @@ class ClusterJump(ClusterOperator):
         if self.sample_from_prior:
             p = w
         else:
-            lh_per_component_new = component_likelihood_given_unchanged(
+            log_lh_per_component_new = component_likelihood_given_unchanged(
                 model, sample_new, object_subset, i_cluster=i_cluster_new
             )
             p = normalize(w * lh_per_component_new, axis=-1)
@@ -1512,7 +1515,7 @@ class ClusterJump(ClusterOperator):
         if self.sample_from_prior:
             p_back = w
         else:
-            lh_per_component_old = component_likelihood_given_unchanged(
+            log_lh_per_component = component_likelihood_given_unchanged(
                 model, sample_old, object_subset, i_cluster=i_cluster_old
             )
             p_back = normalize(w * lh_per_component_old, axis=-1)

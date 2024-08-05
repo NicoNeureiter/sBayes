@@ -30,7 +30,10 @@ class Results:
         parameters: pd.DataFrame,
         burn_in: float = 0.1,
         sampling_info_missing: bool = False,
+        run_name: str = '',
     ):
+        self.run_name = run_name
+
         clusters, parameters = self.drop_burnin(clusters, parameters, burn_in)
         self.clusters = clusters
         self.parameters = parameters
@@ -137,10 +140,12 @@ class Results:
         parameters_path: PathLike,
         burn_in: float = 0.1,
         sampling_info_missing: bool = False,
+        run_name: str = '',
     ) -> TResults:
         clusters = cls.read_clusters(clusters_path)
         parameters = cls.read_stats(parameters_path)
-        return cls(clusters, parameters, burn_in=burn_in, sampling_info_missing=sampling_info_missing)
+        return cls(clusters, parameters, burn_in=burn_in,
+                   sampling_info_missing=sampling_info_missing, run_name=run_name)
 
     @staticmethod
     def drop_burnin(clusters, parameters, burn_in):
@@ -373,6 +378,9 @@ class Results:
 
     def get_states_for_feature_name(self, f: str) -> list[str]:
         return self.feature_states[self.feature_names.index(f)]
+
+    def cluster_posterior(self):
+        return self.clusters.mean(axis=1)
 
 
 def extract_features_and_states(

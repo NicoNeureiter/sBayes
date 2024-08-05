@@ -516,11 +516,11 @@ class LikelihoodGaussian(LikelihoodGenericType):
         for i_f in range(self.shapes.n_features_gaussian):
             f = features[:, i_f]
             sigma_fixed = get_fixed_sigma(f[condition_on])
-            out[:, i_f] = np.exp(gaussian_posterior_predictive_logpdf(
+            out[:, i_f] = gaussian_posterior_predictive_logpdf(
                 x_new=f[evaluate_on], x=f[condition_on],
                 sigma=sigma_fixed, mu_0=mu_0[i_f], sigma_0=sigma_0[i_f],
                 in_component=sample.gaussian.source.value[condition_on, i_f, 0],
-            ))
+            )
 
     def pointwise_conditional_cluster_likelihood_2(
         self,
@@ -555,10 +555,10 @@ class LikelihoodGaussian(LikelihoodGenericType):
                 f_cond = f[g & condition_on]
                 f_eval = f[g & evaluate_on]
                 sigma_fixed = get_fixed_sigma(f_cond)
-                out[g[evaluate_on], i_f] = np.exp(gaussian_posterior_predictive_logpdf(
+                out[g[evaluate_on], i_f] = gaussian_posterior_predictive_logpdf(
                     x_new=f_eval, x=f_cond, sigma=sigma_fixed, mu_0=mu_0[i_f], sigma_0=sigma_0[i_f],
                     in_component=sample.gaussian.source.value[g & condition_on, i_f, 0],
-                ))
+                )
 
     def pointwise_conditional_confounder_likelihood_2(
         self,
@@ -592,14 +592,14 @@ class LikelihoodGaussian(LikelihoodGenericType):
 
             f_cond = features[g & condition_on]
             f_eval = features[g & evaluate_on]
-            out[g[evaluate_on], :] = np.exp(gaussian_posterior_predictive_logpdf(
+            out[g[evaluate_on], :] = gaussian_posterior_predictive_logpdf(
                 x_new=f_eval,
                 x=f_cond,
                 sigma=get_fixed_sigma(f_cond, axis=0),
                 mu_0=mu_0[i_g, :],
                 sigma_0=sigma_0[i_g, :],
                 in_component=sample.gaussian.source.value[g & condition_on, :, i_component],
-            ))
+            )
 
         return out
 

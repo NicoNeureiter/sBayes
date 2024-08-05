@@ -23,7 +23,7 @@ from sbayes.config.config import PriorConfig, DirichletPriorConfig, PoissonPrior
     GeoPriorConfig, ClusterSizePriorConfig, ClusterEffectPriorConfig, \
     ConfoundingEffectsPriorConfig, WeightsPriorConfig
 from sbayes.load_data import Data, ComputeNetwork, GroupName, ConfounderName, StateName, Features, \
-    FeatureName, Confounder, CategoricalFeatures
+    FeatureName, Confounder, CategoricalFeatures, FeatureType
 import sbayes.model
 
 
@@ -87,13 +87,8 @@ class Prior:
         log_prior += self.geo_prior(sample, caching=caching)
         log_prior += self.prior_weights(sample, caching=caching)
 
-        if sample.categorical is not None:
-            assert sample.categorical.source is not None
-            log_prior += self.source_prior(sample, feature_type="categorical", caching=caching)
-
-        if sample.gaussian is not None:
-            assert sample.gaussian.source is not None
-            log_prior += self.source_prior(sample, feature_type="gaussian", caching=caching)
+        for ft, ft_sample in sample.feature_type_samples.items():
+            log_prior += self.source_prior(sample, feature_type=ft, caching=caching)
 
         return log_prior
 
@@ -1114,7 +1109,7 @@ class SourcePrior:
             'logitnormal': self.valid_logitnormal,
         }
 
-    def __call__(self, sample: Sample, feature_type, caching=True) -> float:
+    def __call__(self, sample: Sample, feature_type: FeatureType, caching=True) -> float:
         """Compute the prior for weights (or load from cache).
         Args:
             sample: Current MCMC sample.
@@ -1123,7 +1118,7 @@ class SourcePrior:
             Logarithm of the prior probability density.
         """
 
-        cache = getattr(sample.cache, feature_type).source_prior
+        cache = sample.cache.feature_type_cache[feature_type].source_prior
 
         if caching and not cache.is_outdated():
             return cache.value.sum()
