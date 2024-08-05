@@ -77,8 +77,8 @@ def simulate_confounder_assignment(ob: Objects, conf_meta: dict) -> dict:
 
 def simulate_uniform_clusters(n_clusters: int, n_objects: int) -> NDArray[bool]:
     """Randomly assign each language to one of the areas or no area (equal probability for every option)."""
-    eye = np.eye(n_clusters, dtype=bool)
-    areas_int = np.random.randint(n_clusters, size=n_objects)
+    eye = np.eye(n_clusters+1, dtype=bool)[:, :-1]
+    areas_int = np.random.randint(n_clusters+1, size=n_objects)
     return eye[areas_int].T
 
 
@@ -857,29 +857,24 @@ def write_feature_types(feature_names: dict, path: Path):
         yaml.safe_dump(feature_types, f, sort_keys=False)
 
 
-def main():
-    parser = argparse.ArgumentParser(description="sBayes simulation script")
-    parser.add_argument("name", type=str, help="Name for the simulation run")
-    parser.add_argument("config", type=Path, help="Path to a sBayes config file used to extract the prior settings for the simulation")
-    parser.add_argument("n_sim", type=int, default=10, help="Number of simulations to run")
-    args = parser.parse_args()
-
-    if args.config.suffix.lower() in (".yaml", ".yml"):
-        with open(args.config, "r") as f:
+def main(name: str, config: Path, n_sim: int):
+    if config.suffix.lower() in (".yaml", ".yml"):
+        with open(config, "r") as f:
             config_dict = yaml.safe_load(f)
     else:
-        config_dict = json.load(args.config)
+        config_dict = json.load(config)
 
     model_config = ModelConfig(**config_dict['model'])
     # TODO Use the config file (avoids having the same config in two places and need to make sure they match)
     # print(model_config)
 
-    objects_meta = dict(n=50)
+    objects_meta = dict(n=20)
 
     # Names of simulated confounders and simulated groups per confounder and their relative frequency (must sum to 1).
     confounders_meta = dict(
-        conf1=dict(a=0.3, b=0.4, c=0.3),
-        conf2=dict(d=0.5, e=0.5)
+        # conf1=dict(a=0.3, b=0.4, c=0.3),
+        # conf2=dict(d=0.5, e=0.5)
+        conf2=dict(d=1.0)
     )
 
     # Number of simulated features per feature type
@@ -903,14 +898,14 @@ def main():
         gaussian=dict(
             mean=dict(
                 mu_0=(0, 0),
-                sigma_0=(100, 100)),
+                sigma_0=(10, 10)),
             variance=dict(
                 alpha_0=(2, 2),
                 beta_0=(1, 1))),
         poisson=dict(
             rate=dict(
                 alpha_0=(0, 0),
-                beta_0=(10, 10))))
+                beta_0=(5, 5))))
 
     # Range of the hyperparameter values for simulating the cluster effect prior
     hyper_parameters_cluster_effect_prior = dict(
@@ -919,7 +914,7 @@ def main():
         gaussian=dict(
             mean=dict(
                 mu_0=(0, 0),
-                sigma_0=(100, 100)),
+                sigma_0=(10, 10)),
             variance=dict(
                 alpha_0=(2, 2),
                 beta_0=(1, 1))),
@@ -939,7 +934,7 @@ def main():
                             cluster_effect=hyper_parameters_cluster_effect_prior)
 
     folder_path = Path("experiments/simulation")
-    simulation_name = args.name or set_simulation_name(features_meta)
+    simulation_name = name or set_simulation_name(features_meta)
 
     # Simulate the prior
     path_prior = folder_path / simulation_name / "prior"
@@ -949,7 +944,7 @@ def main():
     export_meta(meta=meta_parameters, path=path_meta)
     write_feature_types(meta_parameters['names'], path_meta / 'feature_types.yaml')
 
-    for i in range(args.n_sim):
+    for i in range(n_sim):
         # Simulate the parameters
         path_parameters = folder_path / simulation_name / "parameters" / f"sim_{i+1}"
         parameters_sim = simulate_parameters(model_config, prior_probability_sim, meta_parameters, path_parameters)
@@ -973,5 +968,18 @@ def main():
     # Fix poisson
     # Fix export meta categorical
 
+def cli():
+    parser = argparse.ArgumentParser(description="sBayes simulation script")
+    parser.add_argument("name", type=str, help="Name for the simulation run")
+    parser.add_argument("config", type=Path, help="Path to a sBayes config file used to extract the prior settings for the simulation")
+    parser.add_argument("n_sim", type=int, default=10, help="Number of simulations to run")
+    args = parser.parse_args()
+    main(
+        name=args.name,
+        config=args.config,
+        n_sim=args.n_sim,
+    )
+
+
 if __name__ == '__main__':
-    main()
+    main('test_gaussian', Path('experiments/simulation/test_gaussian/config.yaml'), 10)
