@@ -16,7 +16,7 @@ from sbayes.sampling.operators import Operator
 from sbayes.util import format_cluster_columns, get_best_permutation, gaussian_mu_posterior_sample, \
     poisson_lambda_posterior_sample, EPS
 from sbayes.model import Model
-from sbayes.model.likelihood import update_categorical_weights, Likelihood
+from sbayes.model.likelihood import update_categorical_weights, Likelihood, get_fixed_sigma
 from sbayes.sampling.state import Sample, ModelCache
 
 
@@ -190,17 +190,18 @@ class ParametersCSVLogger(ResultsLogger):
         if FeatureType.gaussian in sample.feature_type_samples:
             cluster_effect[FeatureType.gaussian] = np.empty((sample.n_clusters, sample.gaussian.n_features, 2))
             for i_c, cluster in enumerate(sample.clusters.value):
+                sigma = get_fixed_sigma(self.data.features.gaussian.values, axis=0)
+
                 is_source_cluster = cluster[:, np.newaxis] & sample.gaussian.source.value[..., 0]
                 cluster_effect[FeatureType.gaussian][i_c, :, 0] = gaussian_mu_posterior_sample(
                     x=self.data.features.gaussian.values,
-                    sigma=None,
+                    sigma=sigma,
                     mu_0=prior.prior_cluster_effect.gaussian.mean.mu_0_array,
                     sigma_0=prior.prior_cluster_effect.gaussian.mean.sigma_0_array,
                     in_component=is_source_cluster,
                 )
 
-                # TODO properly sample sigma from posterior too
-                cluster_effect[FeatureType.gaussian][i_c, :, 1] = np.nanstd(self.data.features.gaussian.values, axis=0)
+                cluster_effect[FeatureType.gaussian][i_c, :, 1] = sigma
 
         if FeatureType.poisson in sample.feature_type_samples:
             cluster_effect[FeatureType.poisson] = np.empty((sample.n_clusters, sample.poisson.n_features,))
@@ -302,19 +303,19 @@ class ParametersCSVLogger(ResultsLogger):
                     for i_g, g in enumerate(conf.group_names):
                         # Sample gaussian parameters (mu and sigma) from conditional posterior
                         is_source_group = conf.group_assignment[i_g, :, np.newaxis] & sample.gaussian.source.value[..., 0]
+                        sigma = get_fixed_sigma(features.gaussian.values, axis=0)
                         mu = gaussian_mu_posterior_sample(
                             x=features.gaussian.values,
-                            sigma=None,
-                            mu_0=conf_prior.gaussian.mean.mu_0_array,
-                            sigma_0=conf_prior.gaussian.mean.sigma_0_array,
+                            sigma=sigma,
+                            mu_0=conf_prior.gaussian.mean.mu_0_array[i_g],
+                            sigma_0=conf_prior.gaussian.mean.sigma_0_array[i_g],
                             in_component=is_source_group,
                         )
-                        sigma = np.nanstd(features.gaussian.values, axis=0)
 
                         # Write to row dictionary
                         for i_f, f in enumerate(features.gaussian.names):
                             col_name = f"{conf.name}_{g}_{f}_mu"
-                            row[col_name] = mu[i_g, i_f]
+                            row[col_name] = mu[i_f]
 
                             col_name = f"{conf.name}_{g}_{f}_sigma"
                             row[col_name] = sigma[i_f]
