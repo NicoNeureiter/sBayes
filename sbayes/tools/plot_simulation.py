@@ -290,6 +290,7 @@ def my_tight_layout(fig, axes):
         hspace=0.4
     )
 
+
 def plot_simulated_against_inferred_grid(
     simulated: list[Results],
     inferred: list[Results],
@@ -329,7 +330,7 @@ def plot_simulated_against_inferred_grid(
         n_clusters = len(cluster_names)
 
         fig, axes = plt.subplots(nrows=n_features, ncols=n_clusters,
-                                 figsize=(6 * n_clusters, 5 * n_features))
+                                 figsize=(6 * n_clusters, 5 * n_features), squeeze=False)
 
         for i_g, g in enumerate(cluster_names):
             for i_f, f in enumerate(feature_names):
@@ -357,7 +358,7 @@ def plot_simulated_against_inferred_grid(
 
             # n_states_max = max(len(states) for states in feature_states)
             fig, axes = plt.subplots(nrows=n_features, ncols=n_groups,
-                                     figsize=(6 * n_groups, 5 * n_features))
+                                     figsize=(6 * n_groups, 5 * n_features), squeeze=False)
 
             for i_g, g in enumerate(group_names):
                 for i_f, f in enumerate(feature_names):
@@ -373,6 +374,65 @@ def plot_simulated_against_inferred_grid(
 
             my_tight_layout(fig, axes)
             plt.savefig(save_to_path.with_suffix(f'.{c}.pdf'))
+
+    elif parameter == 'clusters':
+        n_sims = len(simulated)
+        n_clusters = simulated[0].n_clusters
+        cluster_posterior = np.array([
+            r.cluster_posterior() for r in simulated
+        ])  # shape: (n_sims, n_clusters, n_objects)
+        cluster_truth = np.array([
+            r.clusters[:, 0, :] for r in inferred
+        ])  # shape: (n_sims, n_clusters, n_objects)
+        TP = (cluster_posterior * cluster_truth).sum(axis=2)
+        FP = (cluster_posterior * ~cluster_truth).sum(axis=2)
+        FN = ((1 - cluster_posterior) * cluster_truth).sum(axis=2)
+        precision = TP / (TP + FP)
+        recall = TP / (TP + FN)
+        fig, axes = plt.subplots(nrows=n_clusters, figsize=(6, 5 * n_clusters), squeeze=False)
+        for i_clust, ax in enumerate(axes):
+            t = np.linspace(0, 1, n_sims)
+            # p = cluster_posterior[:, i_clust, :][cluster_truth[:, i_clust]]
+            # ax[0].hist(p, bins=30)
+            ax[0].scatter(precision[:, i_clust], recall[:, i_clust])
+            for i in range(n_sims):
+                ax[0].annotate(inferred[i].run_name, (precision[i], recall[i]),
+                               xytext=(0.3, 0.3), textcoords='offset fontsize')
+            ax[0].set_xlabel('Precision')
+            ax[0].set_ylabel('Recall')
+            ax[0].set_xlim(0, 1)
+            ax[0].set_ylim(0, 1)
+
+    elif parameter == 'cluster_precision_recall':
+        n_sims = len(simulated)
+        n_clusters = simulated[0].n_clusters
+        cluster_posterior = np.array([
+            r.cluster_posterior() for r in simulated
+        ])  # shape: (n_sims, n_clusters, n_objects)
+        cluster_truth = np.array([
+            r.clusters[:, 0, :] for r in inferred
+        ])  # shape: (n_sims, n_clusters, n_objects)
+        TP = (cluster_posterior * cluster_truth).sum(axis=2)
+        FP = (cluster_posterior * ~cluster_truth).sum(axis=2)
+        FN = ((1-cluster_posterior) * cluster_truth).sum(axis=2)
+        precision = TP / (TP + FP)
+        recall = TP / (TP + FN)
+        fig, axes = plt.subplots(nrows=n_clusters, figsize=(6, 5 * n_clusters), squeeze=False)
+        for i_clust, ax in enumerate(axes):
+            t = np.linspace(0, 1, n_sims)
+            # p = cluster_posterior[:, i_clust, :][cluster_truth[:, i_clust]]
+            # ax[0].hist(p, bins=30)
+            ax[0].scatter(precision[:, i_clust], recall[:, i_clust])
+            for i in range(n_sims):
+                ax[0].annotate(inferred[i].run_name, (precision[i], recall[i]),
+                               xytext=(0.3, 0.3), textcoords='offset fontsize')
+            ax[0].set_xlabel('Precision')
+            ax[0].set_ylabel('Recall')
+            ax[0].set_xlim(0, 1)
+            ax[0].set_ylim(0, 1)
+
+        my_tight_layout(fig, axes)
+        plt.savefig(save_to_path)
     else:
         raise ValueError(f'Parameter `{parameter}` not recognized')
 
@@ -399,14 +459,14 @@ def main():
         results_simulated.append(
             Results.from_csv_files(clusters_path=simulated_path / 'clusters_sim.txt',
                                    parameters_path=simulated_path / 'stats_sim.txt',
-                                   burn_in=0, sampling_info_missing=True)
+                                   burn_in=0, sampling_info_missing=True, run_name=s)
         )
 
         # Load inferred clusters and parameters samples into Results object
         results_inferred.append(
             Results.from_csv_files(clusters_path=inferred_path / f'clusters_K{n_clusters}_0.txt',
                                    parameters_path=inferred_path / f'stats_K{n_clusters}_0.txt',
-                                   burn_in=0)
+                                   burn_in=0, run_name=s)
         )
 
     plots_path = base_path / 'plots'
@@ -417,6 +477,10 @@ def main():
                                     save_to_path=plots_path / 'confounding_effects.pdf')
     plot_simulated_against_inferred_grid(results_simulated, results_inferred, parameter='cluster_effects',
                                          save_to_path=plots_path / 'cluster_effects.pdf')
+    # plot_simulated_against_inferred_grid(results_simulated, results_inferred, parameter='clusters',
+    #                                      save_to_path=plots_path / 'clusters.pdf')
+    plot_simulated_against_inferred_grid(results_simulated, results_inferred, parameter='cluster_precision_recall',
+                                         save_to_path=plots_path / 'precision_recall.pdf')
 
     # parameter_files = get_folders(sim_path=base_path, model_n=f"K{n_clusters}")
     # parameters_raw = dict(simulated=[pd.read_csv(f, delimiter="\t") for f in parameter_files['simulated']],
