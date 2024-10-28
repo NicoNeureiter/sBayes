@@ -1,16 +1,23 @@
 mcmc:
-    steps: 10_000_000
-    samples: 10_000
-    runs: 4
+    steps: 5_000_000
+    samples: 1_000
+    runs: 2
     operators:
         clusters: 70
         weights: 10
         source: 20
-    init_objects_per_cluster: 10
+    initialization:
+        objects_per_cluster: 10
+        attempts: 5
     warmup:
-        warmup_steps: 100_000
-        warmup_chains: 30
+        warmup_steps: 10_000
+        warmup_chains: 4
     sample_from_prior: false
+    mc3:
+        activate: false
+        chains: 2
+        temperature_diff: 0.02
+        swap_interval: 1000
 model:
     clusters: 3
     confounders:
@@ -59,3 +66,5 @@ data:
     feature_states: data/feature_states.csv
     projection: "+proj=eqdc +lat_0=-32 +lon_0=-60 +lat_1=-5 +lat_2=-42 +x_0=0 +y_0=0
         +ellps=aust_SA +units=m +no_defs"
+results:
+    log_source: true
