@@ -82,7 +82,7 @@ def main():
     clusters_path_2 = path2 / f'K{K}' / f'clusters_K{K}_{args.run2}.txt'
     parameters_path_2 = path2 / f'K{K}' / f'stats_K{K}_{args.run2}.txt'
     clusters_path_2_out = path2 / f'K{K}' / f'clusters_K{K}_{args.run2}.aligned.txt'
-    parameters_path_2_out = path2 / f'K{K}' / f'clusters_K{K}_{args.run2}.aligned.txt'
+    parameters_path_2_out = path2 / f'K{K}' / f'stats_K{K}_{args.run2}.aligned.txt'
 
     # Load results
     results_1 = Results.from_csv_files(clusters_path_1, parameters_path_1, burn_in=0)
