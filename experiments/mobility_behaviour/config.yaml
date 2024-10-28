@@ -33,7 +33,8 @@ mcmc:
     clusters: 5
     weights: 40
     source: 10
-  init_objects_per_cluster: 5
+  initialization:
+    objects_per_cluster: 5
   warmup:
     warmup_steps: 1000
     warmup_chains: 3

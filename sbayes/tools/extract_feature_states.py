@@ -18,7 +18,12 @@ def collect_feature_states(features_path):
         if column not in features.columns:
             raise ValueError(f'Required column \'{column}\' missing in file {features_path}.')
     features = features.drop(METADATA_COLUMNS, axis=1)
-    features = features.applymap(normalize_str)
+
+    if pd.__version__ >= '2.1.0':  # Handle Pandas deprecation warning
+        features = features.map(normalize_str)
+    else:
+        features = features.applymap(normalize_str)
+
     return {f: set(features[f].dropna().unique()) for f in features.columns}
 
 

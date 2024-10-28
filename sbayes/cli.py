@@ -1,3 +1,4 @@
+from __future__ import annotations
 import multiprocessing
 import warnings
 from copy import deepcopy
