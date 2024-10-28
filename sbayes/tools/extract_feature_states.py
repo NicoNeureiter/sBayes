@@ -128,7 +128,7 @@ def main(args):
         output_path = select_save_file(default_dir=current_directory)
 
     # Store the feature_states in a csv file
-    feature_states_df.to_csv(output_path, index=False, lineterminator='\n')
+    feature_states_df.to_csv(output_path, index=False)
 
 
 if __name__ == '__main__':
