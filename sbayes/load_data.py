@@ -123,6 +123,17 @@ class Features:
     def n_states_per_feature(self) -> list[int]:
         return [sum(applicable) for applicable in self.states]
 
+    def group_features_by_num_states(self) -> dict[int, list[FeatureName]]:
+        """Group features by the number of states they have and return as a dictionary, mapping the number of states to
+         the corresponding features."""
+        features_by_states = {}
+        for i_f, n_states_f in enumerate(self.n_states_per_feature):
+            if n_states_f not in features_by_states:
+                features_by_states[n_states_f] = []
+            features_by_states[n_states_f].append(self.values[:, i_f, :n_states_f])
+        return {m: np.stack(features_m, axis=2) for m, features_m in features_by_states.items()}
+
+
     @classmethod
     def from_dataframes(
         cls: Type[S],

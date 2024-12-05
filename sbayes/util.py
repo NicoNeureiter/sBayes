@@ -27,6 +27,7 @@ from scipy.special import betaln, expit
 import scipy.stats as stats
 from scipy.sparse import csr_matrix
 from numba import jit, njit, float32, float64, int64, boolean, vectorize
+import jax.numpy as jnp
 
 
 FLOAT_TYPE = np.float32
@@ -1468,6 +1469,16 @@ def heat_binary_probability(p: float, temperature: float) -> float:
     p_pow = p ** pow
     return p_pow / (p_pow + (1 - p)**pow)
 
+
+def onehot_to_integer_encoding(onehot: NDArray[bool], none_index: int = -1, axis: int = -1) -> NDArray[int]:
+    """Convert one-hot encoding to integer encoding.
+
+    == Usage ===
+    >>> onehot_to_integer_encoding(jnp.array([[1, 0, 0], [0, 1, 0], [0, 0, 1], [0, 0, 0]]))
+    Array([ 0,  1,  2, -1], dtype=int32)
+    """
+    int_encoding = jnp.where(onehot.any(axis=axis), jnp.argmax(onehot, axis=axis), none_index)
+    return int_encoding
 
 if __name__ == "__main__":
     import doctest
