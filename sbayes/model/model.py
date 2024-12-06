@@ -59,11 +59,7 @@ class Model:
         self.prior = Prior(shapes=self.shapes, config=self.config.prior, data=data)
 
         # Set geo-prior flag (todo: get from config)
-        self.consider_geo_prior = True
-
-        self.alpha_masked = jnp.ones((self.shapes.n_features, self.shapes.n_states))
-        for i_f, n_states_f in enumerate(self.shapes.n_states_per_feature):
-            self.alpha_masked = self.alpha_masked.at[i_f, n_states_f:].set(1e-8)
+        self.activate_geo_prior = 0
 
         # Extract prior concentrations for the cluster and confounder effects
         self.clust_eff_prior_conc = self.prior.prior_cluster_effect.concentration_array
@@ -71,13 +67,6 @@ class Model:
             self.prior.prior_confounding_effects[conf]._concentration_array
             for conf in self.confounders
         ]
-        # for conf in self.confounders.values():
-        #     print(conf.name)
-        #     c_conc = self.prior.prior_confounding_effects[conf.name]._concentration_array
-        #     for g_name, g_conc in zip(conf.group_names, c_conc):
-        #         print('\t', g_name)
-        #         print(indent(str(g_conc), 4))
-        #     print()
 
         # Adapt concentration arrays some practical issues in the numpyro model
         for i_c, conc in enumerate(self.conf_eff_prior_conc):
@@ -90,9 +79,11 @@ class Model:
 
             # print(i_c, conc)
 
+        # self.cluster_prior_probs = jnp.ones(self.n_clusters + 1) / (self.n_clusters + 1)  # +1 for "non-assigned"
+        self.cluster_prior_probs = jnp.ones(self.n_clusters + 1)  # +1 for "non-assigned"
 
         self.clust_eff_prior_conc.setflags(write=True)
-        self.clust_eff_prior_conc[self.clust_eff_prior_conc == 0.0] = 1e-8
+        self.clust_eff_prior_conc[self.clust_eff_prior_conc == 0.0] = 1e-10
 
         # Create a list of group names and group assignments for the cluster and confounder effects
         self.group_names = [[f"cluster_{i_c}" for i_c in range(self.n_clusters)]]
@@ -104,36 +95,46 @@ class Model:
             group_indexes = onehot_to_integer_encoding(confounder.group_assignment, none_index=-1, axis=0)
             self.group_assignments = self.group_assignments.at[i_c].set(group_indexes)
 
-        self.prob_by_comp = jnp.empty((self.shapes.n_components, self.shapes.n_sites, self.shapes.n_features, self.shapes.n_states))
+        self.p_data_by_comp = jnp.empty((self.shapes.n_components, self.shapes.n_sites, self.shapes.n_features, self.shapes.n_states))
+
+        self.w_prior_conc = jnp.ones(self.shapes.n_components)
 
         self.features_int = onehot_to_integer_encoding(self.data.features.values, none_index=-1, axis=-1)
         self.not_missing = (self.features_int != -1)
 
+        self.has_component = jnp.astype(self.group_assignments == -1, jnp.float32)
+
     def get_model(self):
-        # print(1, self.group_assignments.shape, self.shapes.n_sites, self.n_clusters + 1)
 
-        # cluster_prior_probs = jnp.ones(self.n_clusters + 1) / (self.n_clusters + 1)  # +1 for "non-assigned"
-        cluster_prior_probs = jnp.ones(self.n_clusters + 1)  # +1 for "non-assigned"
+        # Sample continuous area assignment from a Dirichlet distribution
         with numpyro.plate("plate_objects", self.shapes.n_sites, dim=-1):
-            z = numpyro.sample("z", dist.Dirichlet(1 * cluster_prior_probs.at[-1].set(2)))
+            # z = numpyro.sample("z", dist.Dirichlet(0.05 * self.cluster_prior_probs.at[-1].set(20)))
+            z = numpyro.sample("z", dist.Dirichlet(self.cluster_prior_probs))
 
-        if self.consider_geo_prior:
+        has_component = self.has_component.at[0, :].set(1 - z[..., -1])
+
+        clusters = z[..., :-1]
+        cluster_size = jnp.sum(clusters, axis=-2)
+        # numpyro.factor('size_prior', -10 * np.sum(cluster_size**2))
+
+        # Add geo-prior as a factor to the model
+        if self.activate_geo_prior:
             dist_mat = self.prior.geo_prior.cost_matrix
-            z_peaky = softmax(self.shapes.n_sites * z.T, axis=1)**2
-            avg_dist_to_cluster = z_peaky.dot(dist_mat)
+            # z_peaky = softmax(self.shapes.n_sites * z.T, axis=1)**2
+            # z_peaky = z.T**2
+            # avg_dist_to_cluster = z_peaky.dot(dist_mat)
             # log_geo_priors = -avg_dist_to_cluster / geo_prior.scale / 2
-            log_geo_priors = -np.sum(avg_dist_to_cluster / 100_000)
+
+            clusters_normed = clusters / cluster_size[None, :]
+            same_cluster_prob = (clusters_normed) @ clusters_normed.T
+            expected_distance_in_clusters = np.sum(same_cluster_prob * dist_mat)
+            log_geo_priors = -expected_distance_in_clusters / 100_000
 
             # Add geo-prior as a factor to the model
             numpyro.factor('geo_prior', log_geo_priors)
 
-        # group_assignments = self.group_assignments.at[0].set(z - 1)  # -1 for to turn area 0 to "non-assigned"
-        has_component = jnp.astype(self.group_assignments == -1, jnp.float32)
-        has_component = has_component.at[0, :].set(1 - z[..., -1])
-
-        w_prior_conc = jnp.ones(self.shapes.n_components)
         with numpyro.plate("plate_features", self.shapes.n_features, dim=-1):
-            w = numpyro.sample("w", dist.Dirichlet(w_prior_conc))
+            w = numpyro.sample("w", dist.Dirichlet(self.w_prior_conc))
             # shape: (n_features, n_components)
 
         # Multiply weights with `has_component` to mask out components that are not present in the group and normalize
@@ -141,8 +142,8 @@ class Model:
         w_per_object = w_per_object / w_per_object.sum(axis=-3, keepdims=True)
         # shape: (n_components, n_objects, n_features)
 
-        # Take the cashed "prob_by_comp" and update it with the new component effects
-        prob_by_comp = self.prob_by_comp
+        # Take the cashed "p_data_by_comp" and update it with the new component effects
+        p_data_by_comp = self.p_data_by_comp
 
         # Sample and assign cluster effects
         with numpyro.plate(f"plate_clusters", self.n_clusters, dim=-2):
@@ -150,7 +151,7 @@ class Model:
                 cluster_effect = numpyro.sample(f"cluster_effect", dist.Dirichlet(self.clust_eff_prior_conc))
                 # shape: (n_clusters, n_features, n_states)
 
-        prob_by_comp = prob_by_comp.at[0].set(
+        p_data_by_comp = p_data_by_comp.at[0].set(
             jnp.einsum('nk,kfs->nfs', z[..., :-1], cluster_effect)
         )
 
@@ -161,19 +162,19 @@ class Model:
                 with numpyro.plate(f"plate_features_{i_c}", self.shapes.n_features, dim=-1):
                     conf_effect = numpyro.sample(f"conf_eff_{i_c}", dist.Dirichlet(self.conf_eff_prior_conc[i_c - 1]))
                     # shape: (n_groups + 1, n_features, n_states)
-            prob_by_comp = prob_by_comp.at[i_c].set(
+            p_data_by_comp = p_data_by_comp.at[i_c].set(
                 conf_effect[self.group_assignments[i_c], :, :]
             )
             # shape: (n_objects, n_features, n_states) for each component
 
         # Define mixture likelihood
-        p_mixture = jnp.einsum('kif,kifs->ifs', w_per_object, prob_by_comp)
+        p_data_mixed = jnp.einsum('kif,kifs->ifs', w_per_object, p_data_by_comp)
         # shape: (n_objects, n_features, n_states)
 
         with numpyro.plate("plate_objects", self.shapes.n_sites, dim=-2):
             with numpyro.plate("plate_features", self.shapes.n_features, dim=-1):
                 with numpyro.handlers.mask(mask=self.not_missing):
-                    numpyro.sample("x", dist.Categorical(probs=p_mixture), obs=self.features_int)
+                    numpyro.sample("x", dist.Categorical(probs=p_data_mixed), obs=self.features_int)
 
     def __copy__(self):
         return Model(self.data, self.config)

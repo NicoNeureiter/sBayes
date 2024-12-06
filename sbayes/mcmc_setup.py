@@ -15,6 +15,7 @@ import numpy as np
 from numpy.typing import NDArray
 import numpyro
 from numpyro.infer import MCMC, NUTS
+from sbayes.preprocessing import sample_categorical
 
 from sbayes.results import Results
 from sbayes.model import Model
@@ -74,13 +75,14 @@ Ratio of source steps (changing source component assignment): {op_cfg.source}'''
         run: int = 1
     ):
         mcmc_config = self.config.mcmc
+
         # Sample the model parameters and latent variables using MCMC
         mcmc = MCMC(
             sampler=NUTS(self.model.get_model),
-            num_warmup=200,
-            num_samples=1000,
+            num_warmup=50,
+            num_samples=200,
             num_chains=1,
-            thinning=10,
+            thinning=1,
         )
         mcmc.run(random.PRNGKey(3))
         samples = mcmc.get_samples()
@@ -90,12 +92,14 @@ Ratio of source steps (changing source component assignment): {op_cfg.source}'''
 
         clusters_path = self.path_results / f'clusters_K{self.model.n_clusters}_{run}.txt'
         with open(clusters_path, "w", buffering=1) as clusters_file:
-            for clusters in np.array(samples['z']).transpose((0, 2, 1)):
-                clusters_binary = np.random.random(clusters.shape) < (clusters ** 2)
-                clusters_string = format_cluster_columns(clusters_binary[:-1, :])
+            for clusters in np.array(samples['z']):
+                clusters_binary = sample_categorical(clusters, binary_encoding=True)[:, :-1]
+                clusters_string = format_cluster_columns(clusters_binary.T)
                 clusters_file.write(clusters_string + '\n')
 
-
+        show_inference_summary = True
+        if show_inference_summary:
+            mcmc.print_summary()
 
     def get_sample_loggers(self, run: int, resume: bool, chain: int = 0) -> list[ResultsLogger]:
         k = self.model.n_clusters
