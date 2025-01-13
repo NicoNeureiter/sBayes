@@ -1,6 +1,6 @@
 mcmc:
-    steps: 5_000_000
-    samples: 1_000
+    steps: 400
+    samples: 200
     runs: 2
     operators:
         clusters: 70
@@ -10,7 +10,7 @@ mcmc:
         objects_per_cluster: 10
         attempts: 5
     warmup:
-        warmup_steps: 10_000
+        warmup_steps: 100
         warmup_chains: 4
     sample_from_prior: false
     mc3:
