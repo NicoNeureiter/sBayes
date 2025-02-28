@@ -1,23 +1,9 @@
 mcmc:
-    steps: 400
+    steps: 10000
     samples: 200
     runs: 2
-    operators:
-        clusters: 70
-        weights: 10
-        source: 20
-    initialization:
-        objects_per_cluster: 10
-        attempts: 5
     warmup:
-        warmup_steps: 100
-        warmup_chains: 4
-    sample_from_prior: false
-    mc3:
-        activate: false
-        chains: 2
-        temperature_diff: 0.02
-        swap_interval: 1000
+        warmup_steps: 500
 model:
     clusters: 3
     confounders:
@@ -30,10 +16,13 @@ model:
             max: 100
         geo:
             type: uniform
+            rate: 200_000                # meters
+            inflection_point: 1_000_000  # meters
         weights:
             type: uniform
         cluster_effect:
-            type: uniform
+            type: symmetric_dirichlet
+            prior_concentration: 1.0
         confounding_effects:
             universal:
                 <ALL>:
