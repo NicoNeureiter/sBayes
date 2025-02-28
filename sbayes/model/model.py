@@ -63,11 +63,11 @@ class Model:
         self.n_clusters = config.clusters
         self.min_size = config.prior.objects_per_cluster.min
         self.max_size = config.prior.objects_per_cluster.max
-        n_sites, n_features, n_states_f = self.data.features.values.shape
+        n_objects, n_features, n_states_f = self.data.features.values.shape
 
         self.shapes = ModelShapes(
             n_clusters=self.n_clusters,
-            n_sites=n_sites,
+            n_objects=n_objects,
             n_features=n_features,
             n_states=n_states_f,
             states_per_feature=self.data.features.states,
@@ -118,7 +118,7 @@ class Model:
 
         # Create a list of group names and group assignments for the cluster and confounder effects
         self.group_names = [[f"cluster_{i_c}" for i_c in range(self.n_clusters)]]
-        self.group_assignments = -jnp.ones((self.shapes.n_components, self.shapes.n_sites), dtype=int)
+        self.group_assignments = -jnp.ones((self.shapes.n_components, self.shapes.n_objects), dtype=int)
         for i_c, confounder in enumerate(self.confounders.values(), start=1):
             self.group_names.append(confounder.group_names)
 
@@ -178,7 +178,7 @@ class Model:
         p_name = partition.name
 
         # p_data_by_comp = self.p_data_by_comp
-        p_data_by_comp = jnp.zeros((self.shapes.n_components, self.shapes.n_sites, partition.n_features, partition.n_states))
+        p_data_by_comp = jnp.zeros((self.shapes.n_components, self.shapes.n_objects, partition.n_features, partition.n_states))
 
         # Sample and assign cluster effects
         with numpyro.plate(f"plate_clusters_{p_name}", self.n_clusters, dim=-2):
@@ -208,7 +208,7 @@ class Model:
         partition_weights = all_weights[:, :, partition.feature_indices]
         p_data_mixed = jnp.einsum('kif,kifs->ifs', partition_weights, p_data_by_comp)  # shape: (n_objects, n_features, n_states)
 
-        with numpyro.plate(f"plate_objects_lh_{p_name}", self.shapes.n_sites, dim=-2):
+        with numpyro.plate(f"plate_objects_lh_{p_name}", self.shapes.n_objects, dim=-2):
             with numpyro.plate(f"plate_features_lh_{p_name}", partition.n_features, dim=-1):
                 with numpyro.handlers.mask(mask=self.not_missing[:, partition.feature_indices]):
                     numpyro.sample(f"x_{p_name}", dist.Categorical(probs=p_data_mixed), obs=partition.features)
@@ -217,7 +217,7 @@ class Model:
     def add_cluster_prior(self):
 
         # LOGISTIC NORMAL MODEL
-        with numpyro.plate("plate_objects_1", self.shapes.n_sites, dim=-2):
+        with numpyro.plate("plate_objects_1", self.shapes.n_objects, dim=-2):
             with numpyro.plate("plate_clusters_1", self.shapes.n_clusters + 1, dim=-1):
                 z_logit = numpyro.sample("z_logit", dist.Normal(
                     loc=jnp.log(self.cluster_prior_probs),
@@ -225,10 +225,10 @@ class Model:
                 ))
                 z = numpyro.deterministic("z", softmax(z_logit, axis=-1))
 
-        # with numpyro.plate("plate_objects_1", self.shapes.n_sites, dim=-1):
+        # with numpyro.plate("plate_objects_1", self.shapes.n_objects, dim=-1):
         #     z = numpyro.sample("z", dist.Dirichlet(1.0 * self.cluster_prior_probs))
 
-        # with numpyro.plate("plate_objects_1", self.shapes.n_sites, dim=-1):
+        # with numpyro.plate("plate_objects_1", self.shapes.n_objects, dim=-1):
         #     k1 = self.n_clusters + 1
         #     z_int = numpyro.sample("z_int", dist.Categorical(jnp.ones(k1) / k1))
         #     z = numpyro.deterministic("z", jax.nn.one_hot(z_int, k1))

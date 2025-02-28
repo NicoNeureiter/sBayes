@@ -95,7 +95,7 @@ def get_manual_guide(model: Model):
     Create a manual guide (variational approximation) for the sBayes model.
     """
     n_clusters = model.n_clusters
-    n_objects = model.shapes.n_sites
+    n_objects = model.shapes.n_objects
     n_features = model.shapes.n_features
 
     features = model.data.features.values

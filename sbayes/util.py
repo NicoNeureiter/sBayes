@@ -14,6 +14,7 @@ from itertools import combinations, permutations
 from typing import Sequence, Union, Iterator
 
 import psutil
+from numpy._typing import NDArray
 from unidecode import unidecode
 from math import lgamma
 
@@ -120,13 +121,13 @@ def bounding_box(points):
 
 
 def get_neighbours(cluster, already_in_cluster, adjacency_matrix, indirection=0):
-    """This function returns the neighbourhood of a cluster as given in the adjacency_matrix, excluding sites already
-    belonging to this or any other cluster.
+    """This function returns the neighbourhood of a cluster as given in the adjacency_matrix, excluding
+    objects already belonging to this or any other cluster.
 
     Args:
         cluster (np.array): The current cluster (boolean array)
-        already_in_cluster (np.array): All sites already assigned to a cluster (boolean array)
-        adjacency_matrix (np.array): The adjacency matrix of the sites (boolean)
+        already_in_cluster (np.array): All objects already assigned to a cluster (boolean array)
+        adjacency_matrix (np.array): The adjacency matrix of the objects (boolean)
         indirection (int): Number of inbetween steps allowed for transitive neighborhood.
 
     Returns:
@@ -149,7 +150,7 @@ def compute_delaunay(locations):
 
     Args:
         locations (np.array): a set of locations
-            shape (n_sites, n_spatial_dims = 2)
+            shape (n_objects, n_spatial_dims = 2)
     Returns:
         (np.array) sparse matrix of Delaunay triangulation
             shape (n_edges, n_edges)
@@ -296,7 +297,7 @@ def encode_states(features_raw, feature_states):
     # Define shapes
     n_states, n_features = feature_states.shape
     features_bin_shape = features_raw.shape + (n_states,)
-    n_sites, _ = features_raw.shape
+    n_objects, _ = features_raw.shape
     assert n_features == _
 
     # Initialize arrays and counts
@@ -380,14 +381,14 @@ def read_costs_from_csv(file: str, logger=None):
     return data
 
 
-def write_languages_to_csv(features, sites, families, file):
+def write_languages_to_csv(features, objects, families, file):
     """This is a helper function to export features as a csv file
     Args:
         features (np.array): features
-            shape: (n_sites, n_features, n_categories)
-        sites (dict): sites with unique id
+            shape: (n_objects, n_features, n_categories)
+        objects (dict): objects with unique id
         families (np.array): families
-            shape: (n_families, n_sites)
+            shape: (n_families, n_objects)
         file(str): output csv file
     """
     families = families.transpose(1, 0)
@@ -399,11 +400,11 @@ def write_languages_to_csv(features, sites, families, file):
         writer = csv.writer(csv_file)
         writer.writerow(csv_names)
 
-        for i in sites['id']:
+        for i in objects['id']:
             # name
             name = "site_" + str(i)
             # location
-            x, y = sites['locations'][i]
+            x, y = objects['locations'][i]
             # features
             f = np.where(features[i] == 1)[1].tolist()
             # family
@@ -600,7 +601,7 @@ def add_edge(edges, edge_nodes, coords, i, j):
     Args:
         edges (set): set of edges
         edge_nodes(list): coordinates of all nodes in all edges
-        coords(float, float): point coordinates of sites
+        coords(float, float): point coordinates of objects
         i (int): i-th point
         j (int): j-th point
         """
@@ -1022,21 +1023,20 @@ def mle_weights(samples):
 
 def assign_na(features, n_na):
     """ Randomly assign NAs to features. Makes the simulated data more realistic. A feature is NA if for one
-    site a feature is 0 in all categories
+    object a feature is 0 in all categories
     Args:
         features(np.ndarray): binary feature array
-            shape: (sites, features, categories)
+            shape: (objects, features, categories)
         n_na: number of NAs added
-    returns: features(np.ndarray): binary feature array, with shape = (sites, features, categories)
+    returns: features(np.ndarray): binary feature array, with shape = (objects, features, categories)
     """
 
     features = features.astype(float)
-    # Choose a random site and feature and set to None
+    # Choose a random object and feature and set to None
     for _ in range(n_na):
-
-        na_site = np.random.choice(a=features.shape[0], size=1)
+        na_obj = np.random.choice(a=features.shape[0], size=1)
         na_feature = np.random.choice(a=features.shape[1], size=1)
-        features[na_site, na_feature, :] = 0
+        features[na_obj, na_feature, :] = 0
 
     return features
 
@@ -1234,13 +1234,13 @@ def get_permutations(n: int) -> Iterator[tuple[int]]:
 
 
 # def get_best_permutation(
-#         areas: NDArray[bool],  # shape = (n_areas, n_sites)
-#         prev_area_sum: NDArray[int],  # shape = (n_areas, n_sites)
+#         areas: NDArray[bool],  # shape = (n_areas, n_objects)
+#         prev_area_sum: NDArray[int],  # shape = (n_areas, n_objects)
 # ) -> tuple[int]:
 #     """Return a permutation of areas that would align the areas in the new sample with previous ones."""
 #
 #     def clustering_agreement(p):
-#         """In how many sites does permutation `p` previous samples?"""
+#         """In how many sites does permutation `p` match previous samples?"""
 #         return np.sum(prev_area_sum * areas[p, :])
 #
 #     all_permutations = get_permutations(areas.shape[0])
@@ -1248,8 +1248,8 @@ def get_permutations(n: int) -> Iterator[tuple[int]]:
 
 
 def get_best_permutation(
-        areas: NDArray[bool],  # shape = (n_areas, n_sites)
-        prev_area_sum: NDArray[int],  # shape = (n_areas, n_sites)
+        areas: NDArray[bool],  # shape = (n_areas, n_objects)
+        prev_area_sum: NDArray[int],  # shape = (n_areas, n_objects)
 ) -> NDArray[int]:
     """Return a permutation of areas that would align the areas in the new sample with previous ones."""
     cluster_agreement_matrix = np.matmul(prev_area_sum, areas.T)
@@ -1484,3 +1484,34 @@ def onehot_to_integer_encoding(onehot: NDArray[bool], none_index: int = -1, axis
 if __name__ == "__main__":
     import doctest
     doctest.testmod()
+
+
+def normalize_weights(
+    weights: NDArray[float],  # shape: (n_features, 1 + n_confounders)
+    has_components: NDArray[bool]  # shape: (n_objects, 1 + n_confounders)
+) -> NDArray[float]:  # shape: (n_objects, n_features, 1 + n_confounders)
+    """This function assigns each site a weight if it has a likelihood and zero otherwise
+    Args:
+        weights: the weights to normalize
+        has_components: indicators for which objects are affected by cluster and confounding effects
+    Return:
+        the weight_per site
+    """
+    # Find the unique patterns in `has_components` and remember the inverse mapping
+    pattern, pattern_inv = np.unique(has_components, axis=0, return_inverse=True)
+
+    # Calculate the normalized weights per pattern
+    w_per_pattern = pattern[:, None, :] * weights[None, :, :]
+    w_per_pattern /= np.sum(w_per_pattern, axis=-1, keepdims=True)
+
+    # Broadcast the normalized weights per pattern to the objects where the patterns appeared using pattern_inv
+    return w_per_pattern[pattern_inv]
+
+    # # Broadcast weights to each site and mask with the has_components arrays
+    # # Broadcasting:
+    # #   `weights` does not know about sites -> add axis to broadcast to the sites-dimension of `has_component`
+    # #   `has_components` does not know about features -> add axis to broadcast to the features-dimension of `weights`
+    # weights_per_site = weights[np.newaxis, :, :] * has_components[:, np.newaxis, :]
+    #
+    # # Re-normalize the weights, where weights were masked
+    # return weights_per_site / weights_per_site.sum(axis=2, keepdims=True)

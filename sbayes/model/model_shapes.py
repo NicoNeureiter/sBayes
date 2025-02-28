@@ -8,7 +8,7 @@ from numpy.typing import NDArray
 @dataclass
 class ModelShapes:
     n_clusters: int
-    n_sites: int
+    n_objects: int
     n_features: int
     n_states: int
     states_per_feature: NDArray[bool]

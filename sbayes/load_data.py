@@ -185,11 +185,11 @@ class Confounder:
             group_assignment = np.ones((1, n_objects), dtype=bool)
             group_names = ["<ALL>"]
         else:
-            group_names_by_site = data[confounder_name]
-            group_names = list(np.unique(group_names_by_site.dropna()))
+            group_names_by_obj = data[confounder_name]
+            group_names = list(np.unique(group_names_by_obj.dropna()))
             group_assignment = np.zeros((len(group_names), n_objects), dtype=bool)
             for i_g, name_g in enumerate(group_names):
-                group_assignment[i_g, np.where(group_names_by_site == name_g)] = True
+                group_assignment[i_g, np.where(group_names_by_obj == name_g)] = True
 
         return cls(
             name=confounder_name,

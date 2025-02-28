@@ -18,7 +18,7 @@ class Results:
 
     Attributes:
         clusters (NDArray[bool]): Array containing samples of clusters.
-            shape: (n_clusters, n_samples, n_sites)
+            shape: (n_clusters, n_samples, n_objects)
         parameters (pd.DataFrame): Data-frame containing sample information about parameters
                                    and likelihood, prior and posterior probabilities.
         groups_by_confounders (dict[str, list[str]): A list of groups for each confounder.
@@ -140,7 +140,7 @@ class Results:
         return clusters, parameters
 
     @staticmethod
-    def read_clusters_from_str(clusters_samples: str) -> NDArray[bool]:  # shape: (n_clusters, n_samples, n_sites)
+    def read_clusters_from_str(clusters_samples: str) -> NDArray[bool]:  # shape: (n_clusters, n_samples, n_objects)
         clusters_list = []
         # This makes len(result) = number of clusters (flipped array)
 
@@ -162,7 +162,7 @@ class Results:
 
             # Parse each sample
             parsed_sample = parse_cluster_columns(sample)
-            # shape: (n_clusters, n_sites)
+            # shape: (n_clusters, n_objects)
 
             # Add each item in parsed_area_columns to the corresponding array in result
             for j in range(len(parsed_sample)):
@@ -171,7 +171,7 @@ class Results:
         return np.array(clusters_list, dtype=bool)
 
     @staticmethod
-    def read_clusters(txt_path: PathLike) -> NDArray[bool]:  # shape: (n_clusters, n_samples, n_sites)
+    def read_clusters(txt_path: PathLike) -> NDArray[bool]:  # shape: (n_clusters, n_samples, n_objects)
         """Read the cluster samples from the text file at `txt_path` and return as a
                 boolean numpy array."""
         with open(txt_path, "r") as f_sample:

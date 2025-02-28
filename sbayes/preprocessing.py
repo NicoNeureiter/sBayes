@@ -22,7 +22,7 @@ from sbayes.util import compute_delaunay, read_costs_from_csv, PathLike
 
 
 def load_canvas(config, logger=None):
-    """ This function reads sites from a csv, with the following columns:
+    """ This function reads objects from a csv, with the following columns:
         x: the x-coordinate
         y: the y-coordinate
         all other expected columns are defined in the config file
@@ -76,17 +76,17 @@ def load_canvas(config, logger=None):
         # name could be any unique identifier, sequential id are integers from 0 to len(name)
         seq_id.append(i)
 
-    sites = {'locations': locations,
-             'id': identifier,
-             'cluster': [int(z) for z in cluster],
-             'confounders': confounders}
+    objects = {'locations': locations,
+               'id': identifier,
+               'cluster': [int(z) for z in cluster],
+               'confounders': confounders}
 
-    site_names = {'external': identifier,
-                  'internal': list(range(0, len(identifier)))}
+    object_names = {'external': identifier,
+                    'internal': list(range(0, len(identifier)))}
     if logger:
         logger.info(str(len(identifier)) + " locations read from " + str(config['canvas']))
 
-    return sites, site_names
+    return objects, object_names
 
 
 class ComputeNetwork:
@@ -101,16 +101,16 @@ class ComputeNetwork:
 
     def __init__(
             self,
-            sites,
+            objects,
             crs=None):
-        """Convert a set of sites into a network.
+        """Convert a set of objects into a network.
 
         This function converts a set of language locations, with their attributes,
-        into a network (graph). If a subset is defined, only those sites in the
+        into a network (graph). If a subset is defined, only those objects in the
         subset go into the network.
 
         Args:
-            sites(typ.Union[dict, 'Objects']): a dict of sites with keys "locations", "id"
+            objects(typ.Union[dict, 'Objects']): a dict of objects with keys "locations", "id"
         Returns:
             dict: a network
 
@@ -129,9 +129,9 @@ class ComputeNetwork:
                 raise e
 
         # Define vertices
-        vertices = sites['id']
-        locations = sites['locations']
-        self.names = sites['id']
+        vertices = objects['id']
+        locations = objects['locations']
+        self.names = objects['id']
 
         # Delaunay triangulation
         delaunay = compute_delaunay(locations)
@@ -142,7 +142,7 @@ class ComputeNetwork:
         adj_mat = delaunay.tocsr()
 
         if crs is None:
-            loc = np.asarray(sites['locations'])
+            loc = np.asarray(objects['locations'])
             diff = loc[:, None] - loc
             dist_mat = np.linalg.norm(diff, axis=-1)
             self.lat_lon = None
@@ -206,13 +206,13 @@ class ComputeNetwork:
 def subset_features(features, subset):
     """This function returns the subset of a feature array
         Args:
-            features(np.array): features for each site
-                shape(n_sites, n_features, n_categories)
-            subset(list): boolean assignment of sites to subset
+            features(np.array): features for each object
+                shape(n_objects, n_features, n_categories)
+            subset(list): boolean assignment of objects to subset
 
         Returns:
             np.array: The subset
-                shape(n_sub_sites, n_features, n_categories)
+                shape(n_sub_objects, n_features, n_categories)
     """
     sub = np.array(subset, dtype=bool)
     return features[sub, :, :]

@@ -14,8 +14,7 @@ import itertools
 
 import numpy as np
 
-from sbayes.model import normalize_weights
-from sbayes.util import set_defaults, iter_items_recursive, PathLike
+from sbayes.util import set_defaults, iter_items_recursive, PathLike, normalize_weights
 from sbayes.util import decompose_config_path, fix_relative_path
 
 from sbayes.preprocessing import (

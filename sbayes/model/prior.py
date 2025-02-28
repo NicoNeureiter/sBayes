@@ -18,11 +18,10 @@ from scipy.sparse import csr_matrix
 import libpysal as pysal
 
 from sbayes.model.model_shapes import ModelShapes
-from sbayes.model.likelihood import update_weights, normalize_weights
 from sbayes.preprocessing import sample_categorical
-from sbayes.sampling.state import Sample, Clusters
 from sbayes.util import (compute_delaunay, n_smallest_distances, log_multinom,
-                         dirichlet_logpdf, log_expit, PathLike, log_binom, normalize, FLOAT_TYPE, timeit)
+                         dirichlet_logpdf, log_expit, PathLike, log_binom, normalize, FLOAT_TYPE, timeit,
+                         normalize_weights)
 from sbayes.config.config import PriorConfig, DirichletPriorConfig, GeoPriorConfig, ClusterSizePriorConfig, \
     ConfoundingEffectPriorConfig
 from sbayes.load_data import Data, ComputeNetwork, GroupName, ConfounderName, StateName, FeatureName, Confounder
@@ -72,7 +71,7 @@ class Prior:
 
         self.source_prior = SourcePrior(na_features=self.data.features.na_values)
 
-    def __call__(self, sample: Sample, caching=True) -> float:
+    def __call__(self, sample, caching=True) -> float:
         """Compute the prior of the current sample.
         Args:
             sample: A Sample object consisting of clusters, weights, areal and confounding effects
@@ -105,37 +104,6 @@ class Prior:
             config=self.config,
             data=self.data,
         )
-
-    def generate_sample(self) -> Sample:
-        """Generate a sample from the prior distribution."""
-        confounders = self.data.confounders
-
-        # Generate samples from the independent prior distributions
-        weights = self.prior_weights.generate_sample()
-        clusters = self.size_prior.generate_sample()
-
-        # Sample the source array, conditioned on the weights and clusters
-        has_components = compute_has_components(clusters, confounders)
-        source = self.source_prior.generate_sample(weights, has_components)
-
-        feature_counts_cluster = np.zeros((self.shapes.n_clusters, self.shapes.n_features, self.shapes.n_states))
-        feature_counts_by_confounder = {}
-        for conf, n_groups in self.shapes.n_groups.items():
-            feature_counts_by_confounder[conf] = np.zeros((n_groups, self.shapes.n_features, self.shapes.n_states))
-
-        # Create a sample object from the generated numpy arrays
-        return Sample.from_numpy_arrays(
-            clusters=clusters,
-            weights=weights,
-            confounders=confounders,
-            feature_counts={'clusters': feature_counts_cluster, **feature_counts_by_confounder},
-            source=source,
-            model_shapes=self.shapes
-        )
-
-    def generate_samples(self, n_samples: int) -> list[Sample]:
-        """Generate `n_samples` samples from the prior distribution"""
-        return [self.generate_sample() for _ in range(n_samples)]
 
 
 def compute_has_components(clusters: NDArray[bool], confounders: dict[str, Confounder]):
@@ -247,7 +215,7 @@ class DirichletPrior:
     def parse_attributes(self):
         raise NotImplementedError()
 
-    def __call__(self, sample: Sample):
+    def __call__(self, sample):
         raise NotImplementedError()
 
     def invalid_prior_message(self, s):
@@ -323,7 +291,7 @@ class ConfoundingEffectsPrior(DirichletPrior):
         if not self.any_dynamic_priors:
             self._concentration_array.setflags(write=False)
 
-    def concentration_array(self, sample: Sample):
+    def concentration_array(self, sample):
         if self.any_dynamic_priors:
             universal_prior_counts = self.conf_effect_priors['universal'].concentration_array(sample)[0]
             universal_feature_counts = sample.feature_counts['universal'].value[0]
@@ -354,7 +322,7 @@ class ConfoundingEffectsPrior(DirichletPrior):
 
         return self._concentration_array
 
-    def concentration_array_given_unchanged(self, sample: Sample, changed_objects: NDArray[bool]):
+    def concentration_array_given_unchanged(self, sample, changed_objects: NDArray[bool]):
         if self.any_dynamic_priors:
             universal_prior_counts = self.conf_effect_priors['universal'].concentration_array(sample)[0]
             universal_feature_counts = sample.feature_counts['universal'].value[0]
@@ -388,7 +356,7 @@ class ConfoundingEffectsPrior(DirichletPrior):
 
         return self._concentration_array
 
-    def __call__(self, sample: Sample, caching=True) -> float:
+    def __call__(self, sample, caching=True) -> float:
         """"Calculate the log PDF of the confounding effects prior.
 
         Args:
@@ -455,7 +423,7 @@ class ClusterEffectPrior(DirichletPrior):
         for i_f, conc_f in enumerate(self.concentration):
             self.concentration_array[i_f, :len(conc_f)] = conc_f
 
-    # def __call__(self, sample: Sample, caching=True) -> float:
+    # def __call__(self, sample, caching=True) -> float:
     #     """Compute the prior for the areal effect (or load from cache).
     #     Args:
     #         sample: Current MCMC sample.
@@ -520,7 +488,7 @@ class WeightsPrior(DirichletPrior):
 
         self.concentration_array = np.array(self.concentration, dtype=FLOAT_TYPE)
 
-    def __call__(self, sample: Sample, caching=True) -> float:
+    def __call__(self, sample, caching=True) -> float:
         """Compute the prior for weights (or load from cache).
         Args:
             sample: Current MCMC sample.
@@ -551,7 +519,7 @@ class WeightsPrior(DirichletPrior):
         cache.update_value(log_p)
         return log_p
 
-    def pointwise_prior(self, sample: Sample) -> NDArray[float]:
+    def pointwise_prior(self, sample) -> NDArray[float]:
         return compute_group_effect_prior_pointwise(
             group_effect=sample.weights.value,
             concentration=self.concentration,
@@ -571,7 +539,7 @@ class SourcePrior:
     def __init__(self, na_features: NDArray[bool]):
         self.valid_observations = ~na_features
 
-    def __call__(self, sample: Sample, caching=True) -> float:
+    def __call__(self, sample, caching=True) -> float:
         """Compute (or load from cache) the prior for the source array, given the weights.
         Args:
             sample: Current MCMC sample.
@@ -612,7 +580,7 @@ class SourcePrior:
         return cache.value.sum()
 
     @staticmethod
-    def old_source_prior(sample: Sample) -> float:
+    def old_source_prior(sample) -> float:
         weights = update_weights(sample)
         is_source = np.where(sample.source.value.ravel())
         observation_weights = weights.ravel()[is_source]
@@ -645,7 +613,7 @@ class ClusterSizePrior:
         valid_types = ','.join(self.PriorType)
         return f'Invalid prior type {s} for size prior (choose from [{valid_types}]).'
 
-    def __call__(self, sample: Sample, caching=True) -> float:
+    def __call__(self, sample, caching=True) -> float:
         """Compute the prior probability of a set of clusters, based on its number of objects.
         Args:
             sample: Current MCMC sample.
@@ -661,8 +629,8 @@ class ClusterSizePrior:
         if self.prior_type is self.PriorType.UNIFORM_SIZE:
             # P(size)   =   uniform
             # P(zone | size)   =   1 / |{clusters of size k}|   =   1 / (n choose k)
-            logp = -log_multinom(self.shapes.n_sites, sizes)
-            # logp = -log_binom(self.shapes.n_sites, sizes).sum()
+            logp = -log_multinom(self.shapes.n_objects, sizes)
+            # logp = -log_binom(self.shapes.n_objects, sizes).sum()
 
         elif self.prior_type is self.PriorType.QUADRATIC_SIZE:
             # Here we assume that only a quadratically growing subset of clusters is
@@ -687,7 +655,7 @@ class ClusterSizePrior:
 
     def generate_sample(self) -> NDArray[bool]:  # shape: (n_clusters, n_objects)
         n_clusters = self.shapes.n_clusters
-        n_objects = self.shapes.n_sites
+        n_objects = self.shapes.n_objects
         if self.prior_type is self.PriorType.UNIFORM_AREA:
             onehots = np.eye(n_clusters + 1, n_clusters, dtype=bool)
 
@@ -767,7 +735,7 @@ class GeoPrior(object):
         else:
             raise ValueError(f'Unknown probability_function `{self.probability_function}`')
 
-    def __call__(self, sample: Sample, caching=True) -> float:
+    def __call__(self, sample, caching=True) -> float:
         """Compute the geo-prior of the current cluster (or load from cache).
         Args:
             sample: Current MCMC sample
@@ -823,7 +791,7 @@ class GeoPrior(object):
 
     def get_costs_per_object(
         self,
-        sample: Sample,
+        sample,
         i_cluster: int,
     ) -> NDArray[float]:  # shape: (n_objects)
         """Compute the change in the geo-prior (difference in log-probability) when adding each possible object."""
@@ -1058,6 +1026,24 @@ def compute_group_effect_prior_pointwise(
         p[f] = dirichlet_logpdf(x=conf_group, alpha=concentration[f])
 
     return p
+
+
+def update_weights(sample, caching: bool = True) -> NDArray[float]:
+    """Compute the normalized mixture weights of each component at each object.
+    Args:
+        sample: the current MCMC sample.
+        caching: ignore cache if set to false.
+    Returns:
+        np.array: normalized weights of each component at each object.
+            shape: (n_objects, n_features, 1 + n_confounders)
+    """
+    cache = sample.cache.weights_normalized
+
+    if (not caching) or cache.is_outdated():
+        w_normed = normalize_weights(sample.weights.value, sample.cache.has_components.value)
+        cache.update_value(w_normed)
+
+    return cache.value
 
 
 if __name__ == '__main__':
