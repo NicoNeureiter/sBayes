@@ -1470,78 +1470,17 @@ def heat_binary_probability(p: float, temperature: float) -> float:
     return p_pow / (p_pow + (1 - p)**pow)
 
 
-def onehot_to_integer_encoding(onehot: NDArray[bool], none_index: int = -1, axis: int = -1) -> NDArray[int]:
+def onehot_to_integer_encoding(onehot: NDArray[bool], none_index: int = -1, axis: int = -1) -> jnp.ndarray:
     """Convert one-hot encoding to integer encoding.
 
     == Usage ===
-    >>> onehot_to_integer_encoding(jnp.array([[1, 0, 0], [0, 1, 0], [0, 0, 1], [0, 0, 0]]))
+    >>> onehot_to_integer_encoding(np.array([[1, 0, 0], [0, 1, 0], [0, 0, 1], [0, 0, 0]], dtype=bool))
     Array([ 0,  1,  2, -1], dtype=int32)
     """
     int_encoding = jnp.where(onehot.any(axis=axis), jnp.argmax(onehot, axis=axis), none_index)
     return int_encoding
 
+
 if __name__ == "__main__":
     import doctest
     doctest.testmod()
-
-    # def sample_diri_mult_pdf(counts, a, S=10000):
-    #     n = np.sum(counts)
-    #     p = np.random.dirichlet(a, size=S)
-    #     # lh_per_observation_and_sample = (p @ t.T)
-    #     # lh_per_sample = lh_per_observation_and_sample.prod(axis=-1)
-    #     lh = stats.multinomial.pmf(x=counts, n=n, p=p)
-    #     return lh.mean()
-    #
-    # def sample_diri_cat_pdf(t, a, S=10000):
-    #     print(S)
-    #     p = np.random.dirichlet(a, size=S)
-    #     lh_per_observation_and_sample = (p @ t.T)
-    #     lh_per_sample = lh_per_observation_and_sample.prod(axis=-1)
-    #     return lh_per_sample.mean()
-    #
-    # a = np.array([0.3, 0.9, 1.5, 0.0])
-    # t = np.array([
-    #     [1, 0, 0, 0],
-    #     [0, 1, 0, 0],
-    #     [0, 1, 0, 0],
-    #     [0, 0, 1, 0],
-    #     [0, 0, 1, 0],
-    # ], dtype=bool)
-    # k = t.sum(axis=0)
-    # p = normalize(a)
-    # counts = np.sum(t, axis=0)
-    #
-    # # print(p[None, :][[0, 0, 0, 0, 0, 0]])
-    #
-    # # s_values = np.array([2**(2*i) for i in range(2, 16)])
-    # # s_values = np.arange(5_000, 1_000_000, 5_000)
-    # s_values = np.arange(100, 2_000, 100)**2
-    # pdf_sampled = [sample_diri_cat_pdf(t[:, :-1], a[:-1], S=S) for S in s_values]
-    # print(pdf_sampled)
-    #
-    # # pdf_exact = np.exp(dirichlet_categorical_logpdf(counts, a))
-    # # pdf_exact = np.exp(dirichlet_multinomial_logpdf(counts, a))
-    # pdf_exact = np.exp(dirichlet_categorical_logpdf(counts, a))
-    # print(pdf_exact)
-    # pdf_exact_2 = np.exp(dirichlet_categorical_logpdf(counts[:-1], a[:-1]))
-    # print(pdf_exact_2)
-    #
-    # import matplotlib.pyplot as plt
-    # plt.scatter(s_values, pdf_sampled, s=10)
-    # plt.axhline(pdf_exact, color='darkorange', zorder=2)
-    # # plt.ylim(0.00286, 0.00289)
-    # plt.show()
-    # #
-    # # exit()
-    # # #################################################
-    # #
-    # # pdf_sampled = sample_diri_mult_pdf(k, a)
-    # # print(pdf_sampled)
-    # #
-    # # pdf_exact = dirichlet_multinomial_logpdf(k, a)
-    # # print(np.exp(pdf_exact))
-    # #
-    # # import tensorflow_probability as tfp
-    # # print(
-    # #     tfp.distributions.DirichletMultinomial(4, a).prob(k)
-    # # )

@@ -9,6 +9,7 @@ import json
 
 import numpy as np
 from numpy.typing import NDArray
+import jax.numpy as jnp
 
 import scipy.stats as stats
 from ruamel import yaml
@@ -163,7 +164,7 @@ class DirichletPrior:
     concentration: Concentration | dict[GroupName, Concentration]
     concentration_array: NDArray[float]
 
-    uniform_concentration_array: NDArray[float] = None
+    uniform_concentration_array: NDArray[np.float64] = None
 
     def __init__(
         self,
@@ -387,37 +388,37 @@ class ConfoundingEffectsPrior(DirichletPrior):
 
         return self._concentration_array
 
-    # def __call__(self, sample: Sample, caching=True) -> float:
-    #     """"Calculate the log PDF of the confounding effects prior.
-    #
-    #     Args:
-    #         sample: Current MCMC sample.
-    #
-    #     Returns:
-    #         Logarithm of the prior probability density.
-    #     """
-    #
-    #     parameter = sample.confounding_effects[self.conf]
-    #     cache = sample.cache.confounding_effects_prior[self.conf]
-    #     if caching and not cache.is_outdated():
-    #         return cache.value.sum()
-    #
-    #     group_names = sample.confounders[self.conf].group_names
-    #     with cache.edit() as cached_priors:
-    #         for i_group in cache.what_changed(f'c_{self.conf}', caching=caching):
-    #             group = group_names[i_group]
-    #
-    #             if self.config[group].type is self.PriorType.UNIFORM:
-    #                 cached_priors[i_group] = 0.0
-    #                 continue
-    #
-    #             cached_priors[i_group] = compute_group_effect_prior(
-    #                 group_effect=parameter.value[i_group],
-    #                 concentration=self.concentration[group],
-    #                 applicable_states=self.shapes.states_per_feature,
-    #             )
-    #
-    #     return cache.value.sum()
+    def __call__(self, sample: Sample, caching=True) -> float:
+        """"Calculate the log PDF of the confounding effects prior.
+
+        Args:
+            sample: Current MCMC sample.
+
+        Returns:
+            Logarithm of the prior probability density.
+        """
+
+        parameter = sample.confounding_effects[self.conf]
+        cache = sample.cache.confounding_effects_prior[self.conf]
+        if caching and not cache.is_outdated():
+            return cache.value.sum()
+
+        group_names = sample.confounders[self.conf].group_names
+        with cache.edit() as cached_priors:
+            for i_group in cache.what_changed(f'c_{self.conf}', caching=caching):
+                group = group_names[i_group]
+
+                if self.config[group].type is self.PriorType.UNIFORM:
+                    cached_priors[i_group] = 0.0
+                    continue
+
+                cached_priors[i_group] = compute_group_effect_prior(
+                    group_effect=parameter.value[i_group],
+                    concentration=self.concentration[group],
+                    applicable_states=self.shapes.states_per_feature,
+                )
+
+        return cache.value.sum()
 
     def generate_sample(self) -> dict[GroupName, NDArray[float]]:  # shape: (n_samples, n_features, n_states)
         group_effects = {}
@@ -820,7 +821,6 @@ class GeoPrior(object):
         elif skeleton is skeleton_types.COMPLETE:
             return cost_mat
 
-
     def get_costs_per_object(
         self,
         sample: Sample,
@@ -871,6 +871,35 @@ class GeoPrior(object):
                 msg += f'\tCost-matrix file: {self.config["costs"]}\n'
 
         return msg
+
+    def local_costs(self, clusters, k=3) -> NDArray[float]:
+        """Compute the local costs for all clusters."""
+        n_objects, n_clusters = clusters.shape
+        neighbour_sort_idxs = jnp.argsort(self.cost_matrix, axis=-1)
+        row_idxs = jnp.arange(n_objects)[:, None]
+        cost_sorted = self.cost_matrix[row_idxs, neighbour_sort_idxs]
+        probs_sorted = clusters[row_idxs, neighbour_sort_idxs]
+        cum_probs_nearest = jnp.cumsum(probs_sorted, axis=-1)
+        first_k = first_k_continuous(probs_sorted, axis=-1)
+        return local_costs
+
+def first_k_continuous(probs: NDArray[float], k: float, axis: int = -1) -> NDArray[float]:
+    """Clip the probabilities in `probs` to only contain the first `k` probability mass.
+
+    Args:
+        probs: The probabilities to clip.
+        k: The number of probabilities to keep.
+    Returns:
+        The clipped probabilities `probs_to_k` with `sum(probs_to_k) == k`.
+
+    == Usage ===
+    >>> np.round(first_k_continuous(np.array([0.8, 0.3, 0.6]), 1.0), 1)
+    Array([0.8, 0.2, 0. ], dtype=float32)
+    """
+    cum_probs = jnp.cumsum(probs, axis=axis)
+    cum_probs_to_k = cum_probs.clip(0, k)
+    probs_to_k = jnp.diff(cum_probs_to_k, prepend=0, axis=axis)
+    return probs_to_k
 
 
 def compute_diameter_based_geo_prior(

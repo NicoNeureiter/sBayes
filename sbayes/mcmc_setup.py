@@ -4,27 +4,19 @@
 """ Setup of the MCMC process """
 from __future__ import annotations
 
-import time
-from datetime import timedelta
-from multiprocessing import Process, Pipe
-from pathlib import Path
-from time import sleep
-
 from jax import random
 import numpy as np
 from numpy.typing import NDArray
 import numpyro
-from numpyro.infer import MCMC, NUTS
+
 from sbayes.preprocessing import sample_categorical
 
-from sbayes.results import Results
 from sbayes.model import Model
-from sbayes.sampling.loggers import ResultsLogger, ParametersCSVLogger, ClustersLogger, LikelihoodLogger, \
-    OperatorStatsLogger, StateDumper
+from sbayes.sampling.loggers import write_samples
 from sbayes.experiment_setup import Experiment
 from sbayes.load_data import Data
-from sbayes.util import RNG, process_memory, format_cluster_columns
-
+from sbayes.sampling.numpyro_sampling import sample_nuts, sample_svi, get_manual_guide
+from sbayes.util import format_cluster_columns, get_best_permutation
 
 numpyro.set_host_device_count(4)
 
@@ -55,17 +47,12 @@ class MCMCSetup:
 
     def log_setup(self):
         mcmc_cfg = self.config.mcmc
-        wu_cfg = mcmc_cfg.warmup
-        op_cfg = mcmc_cfg.operators
         self.logger.info(self.model.get_setup_message())
         self.logger.info(f'''
 MCMC SETUP
 ##########################################
 MCMC with {mcmc_cfg.steps} steps and {mcmc_cfg.samples} samples
-Warm-up: {wu_cfg.warmup_chains} chains exploring the parameter space in {wu_cfg.warmup_steps} steps
-Ratio of cluster steps (growing, shrinking, swapping clusters): {op_cfg.clusters}
-Ratio of weight steps (changing weights): {op_cfg.weights}
-Ratio of source steps (changing source component assignment): {op_cfg.source}''')
+Warm-up: {mcmc_cfg.warmup.warmup_steps} steps''')
         self.logger.info('\n')
 
     def sample(
@@ -76,88 +63,60 @@ Ratio of source steps (changing source component assignment): {op_cfg.source}'''
     ):
         mcmc_config = self.config.mcmc
 
-        # Sample the model parameters and latent variables using MCMC
-        mcmc = MCMC(
-            sampler=NUTS(self.model.get_model),
-            num_warmup=50,
-            num_samples=200,
-            num_chains=1,
-            thinning=1,
+        numpyro.enable_x64()
+
+        inference_mode = "MCMC"
+        # inference_mode = "SVI"
+
+        if inference_mode == "MCMC":
+            rng_key = random.PRNGKey(seed=124 * run)
+            sampler, samples = sample_nuts(
+                model=self.model.get_model,
+                num_warmup=mcmc_config.warmup.warmup_steps,
+                num_samples=mcmc_config.steps,
+                num_chains=1,  # NN: Could be configurable, but I don't see a clear advantage over parallel runs
+                rng_key=rng_key,
+                thinning=mcmc_config.steps // mcmc_config.samples,
+                # show_inference_summary=show_inference_summary,
+                # init_params=self.model.generate_initial_params(rng_key),
+            )
+
+        elif inference_mode == "SVI":
+            sampler, samples = sample_svi(
+                model=self.model.get_model,
+                num_warmup=mcmc_config.warmup.warmup_steps,
+                num_samples=mcmc_config.samples,
+                num_chains=1,  # NN: Could be configurable, but I don't see a clear advantage over parallel runs
+                rng_key=random.PRNGKey(seed=123 * run),
+                thinning=mcmc_config.steps // mcmc_config.samples,
+                # show_inference_summary=show_inference_summary,
+                # guide=get_manual_guide(self.model),
+            )
+        else:
+            raise ValueError(f"Unknown inference mode: {inference_mode}")
+
+        K = self.model.n_clusters
+        write_samples(
+            samples=samples,
+            clusters_path=self.path_results / f'clusters_K{K}_{run}.txt',
+            params_path=self.path_results / f'stats_K{K}_{run}.txt',
+            data=self.data,
+            model=self.model,
         )
-        mcmc.run(random.PRNGKey(3))
-        samples = mcmc.get_samples()
 
-        print(samples)
-        print(samples['z'].shape)
-
-        clusters_path = self.path_results / f'clusters_K{self.model.n_clusters}_{run}.txt'
+        clusters_path = self.path_results / f'clusters_K{self.model.n_clusters}_{run}_*.txt'
+        clusters_sum = np.zeros(samples['z'].shape[1:])[:, :-1]
         with open(clusters_path, "w", buffering=1) as clusters_file:
             for clusters in np.array(samples['z']):
                 clusters_binary = sample_categorical(clusters, binary_encoding=True)[:, :-1]
+
+                # Find the best permutation to match previous cluster labels
+                permutation = get_best_permutation(clusters_binary.T, clusters_sum.T)
+                clusters_binary = clusters_binary[:, permutation]
+
+                # Update the sum of clusters for future iterations
+                clusters_sum += clusters_binary
+
+                # Write the clusters to the file
                 clusters_string = format_cluster_columns(clusters_binary.T)
                 clusters_file.write(clusters_string + '\n')
-
-        show_inference_summary = True
-        if show_inference_summary:
-            mcmc.print_summary()
-
-    def get_sample_loggers(self, run: int, resume: bool, chain: int = 0) -> list[ResultsLogger]:
-        k = self.model.n_clusters
-        base_dir = self.path_results
-        if chain == 0:
-            chain_str = ''
-        else:
-            chain_str = f'.chain{chain}'
-            base_dir = base_dir / 'hot_chains'
-            base_dir.mkdir(exist_ok=True)
-
-        state_path = base_dir / f'state_K{k}_{run}{chain_str}.pickle'
-        params_path = base_dir / f'stats_K{k}_{run}{chain_str}.txt'
-        clusters_path = base_dir / f'clusters_K{k}_{run}{chain_str}.txt'
-        likelihood_path = base_dir / f'likelihood_K{k}_{run}{chain_str}.h5'
-        op_stats_path = base_dir / f'operator_stats_K{k}_{run}{chain_str}.txt'
-
-        # Always include the StateDumper to make sure we can resume runs later on
-        sample_loggers = [StateDumper(state_path, self.data, self.model, resume=resume)]
-        if not self.config.results.log_hot_chains and chain > 0:
-            return sample_loggers
-
-        sample_loggers += [
-            ParametersCSVLogger(params_path, self.data, self.model,
-                                log_source=self.config.results.log_source,
-                                float_format=f"%.{self.config.results.float_precision}g",
-                                resume=resume),
-            ClustersLogger(clusters_path, self.data, self.model, resume=resume),
-            OperatorStatsLogger(op_stats_path, self.data, self.model, operators=[], resume=resume),
-        ]
-
-        if (not self.config.mcmc.sample_from_prior      # When sampling from prior, the likelihood is not interesting
-                and self.config.results.log_likelihood  # Likelihood logger can be manually deactivated
-                and chain == 0):                        # No likelihood logger for hot chains
-            sample_loggers.append(LikelihoodLogger(likelihood_path, self.data, self.model, resume=resume))
-
-        return sample_loggers
-
-    def get_results_file_path(
-        self,
-        prefix: str,
-        run: int,
-        chain: int = 0,
-        suffix: str = 'txt'
-    ) -> Path:
-        if chain == 0:
-            base_dir = self.path_results
-            chain_str = ""
-        else:
-            base_dir = self.path_results / "hot_chains"
-            chain_str = f".chain{chain}"
-
-        k = self.model.n_clusters
-        return base_dir / f'{prefix}_K{k}_{run}{chain_str}.{suffix}'
-
-    def print_screen_log(self, i_step: int, likelihood: float):
-        i_step_str = f"{i_step:<12}"
-        likelihood_str = f'log-likelihood of the cold chain:  {likelihood:<19.2f}'
-        time_per_million = (time.time() - self.t_start) / (i_step + 1) * 1000000
-        time_str = f'{timedelta(seconds=int(time_per_million))} / million steps'
-        self.logger.info(i_step_str + likelihood_str + time_str)

@@ -2,23 +2,22 @@
 # -*- coding: utf-8 -*-
 """ Imports the real world data """
 from __future__ import annotations
+
+from enum import Enum
+
 import pyproj
 from dataclasses import dataclass, field
 from logging import Logger
 from collections import OrderedDict
-from typing import Optional, TypeVar, Type
-
-try:
-    from typing import Literal
-except ImportError:
-    from typing_extensions import Literal
+from typing import Literal, Optional, TypeVar, Type, Iterator
 
 import pandas as pd
 import numpy as np
 from numpy.typing import NDArray
+import jax.numpy as jnp
 
 from sbayes.preprocessing import ComputeNetwork, read_geo_cost_matrix
-from sbayes.util import PathLike, read_data_csv, encode_states
+from sbayes.util import PathLike, read_data_csv, encode_states, onehot_to_integer_encoding
 from sbayes.config.config import SBayesConfig
 from sbayes.experiment_setup import Experiment
 
@@ -86,6 +85,7 @@ class Objects:
 class Features:
 
     values: NDArray[bool]  # shape: (n_objects, n_features, n_states)
+    values_int: NDArray[int] = field(init=False)  # shape: (n_objects, n_features)
     names: NDArray[FeatureName]  # shape: (n_features,)
     states: NDArray[bool]  # shape: (n_features, n_states)
     state_names: list[list[StateName]]  # shape for each feature f: (n_states[f],)
@@ -103,6 +103,9 @@ class Features:
             self.feature_and_state_names[f] = states_names_f
 
         object.__setattr__(self, 'na_values', np.sum(self.values, axis=-1) == 0)
+
+        values_int = onehot_to_integer_encoding(self.values, none_index=-1, axis=-1)
+        object.__setattr__(self, 'values_int', values_int)
 
     def __getitem__(self, key: str) -> NDArray | list | int:
         return getattr(self, key)
@@ -195,6 +198,54 @@ class Confounder:
         )
 
 
+class FeatureType(str, Enum):
+
+    categorical = "categorical"
+    gaussian = "gaussian"
+    poisson = "poisson"
+    logitnormal = "logitnormal"
+
+    @classmethod
+    def values(cls) -> Iterator[FeatureType | str]:
+        return iter(cls)
+
+
+class Partition:
+    def __init__(
+        self,
+        name: str,
+        feature_type: FeatureType,
+        features: NDArray,
+        feature_indices: NDArray[bool],
+        n_states: int | None = None,
+        meta: dict = None,
+    ):
+        self.name = name
+        self.feature_type = feature_type
+        self.features = jnp.array(features)
+        self.feature_indices = jnp.array(feature_indices)
+        self.n_states = n_states
+        self.n_features = features.shape[1]
+        self.meta = meta or {}
+
+
+def split_categorical_partitions(features: Features) -> list[Partition]:
+    partitions = []
+    n_states_per_feature = features.n_states_per_feature
+    for n_states in np.unique(n_states_per_feature):
+        p_name = f"categorical[{n_states}]"
+        feature_indices = n_states_per_feature == n_states
+        p = Partition(
+            name=p_name,
+            feature_type=FeatureType.categorical,
+            features=features.values_int[:, feature_indices],
+            feature_indices=feature_indices,
+            n_states=n_states,
+        )
+        partitions.append(p)
+    return partitions
+
+
 class Data:
 
     """Container and loading functionality for different types of data involved in a
@@ -208,6 +259,8 @@ class Data:
     geo_cost_matrix: Optional[NDArray[float]]
     network: ComputeNetwork
     logger: Logger
+
+    partitions: list[Partition]
 
     def __init__(
         self,
@@ -238,6 +291,9 @@ class Data:
             self.geo_cost_matrix = read_geo_cost_matrix(
                 object_names=self.objects.id, file=geo_costs, logger=self.logger
             )
+
+        self.partitions = split_categorical_partitions(self.features)
+
 
     @classmethod
     def from_config(cls: Type[S], config: SBayesConfig, logger=None) -> S:
