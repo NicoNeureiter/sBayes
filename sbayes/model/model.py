@@ -2,8 +2,6 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 
-from tokenize import group
-
 import numpy as np
 import jax
 import jax.numpy as jnp
@@ -14,15 +12,12 @@ import numpyro
 import numpyro.distributions as dist
 from numpyro.distributions.transforms import StickBreakingTransform, ExpTransform
 from numpyro.infer.util import initialize_model
-from sqlalchemy.testing.plugin.plugin_base import config
 
 from sbayes.model.model_shapes import ModelShapes
 from sbayes.model.prior import Prior, GeoPrior
 from sbayes.config.config import ModelConfig
 from sbayes.load_data import Data, Partition, FeatureType
 from sbayes.util import onehot_to_integer_encoding
-
-numpyro.enable_x64()
 
 
 def indent(text, amount, ch=' '):
@@ -106,7 +101,7 @@ class Model:
 
             # Place back into list of concentrations
             self.conf_eff_prior_conc.append(
-                jnp.array(conc, dtype=jnp.float64)
+                jnp.array(conc, dtype=jnp.float32)
             )
 
         self.conf_eff_prior_conc_by_partition = {}
@@ -116,7 +111,7 @@ class Model:
                 for conc in self.conf_eff_prior_conc
             ]
 
-        self.cluster_prior_probs = jnp.ones(self.n_clusters + 1, dtype=jnp.float64)  # +1 for "non-assigned"
+        self.cluster_prior_probs = jnp.ones(self.n_clusters + 1, dtype=jnp.float32)  # +1 for "non-assigned"
         # Alternative cluster prior with equal weight on "cluster" and "not cluster"
         # self.cluster_prior_probs = self.cluster_prior_probs.at[-1].set(self.n_clusters)
         # self.cluster_prior_probs = self.cluster_prior_probs.at[-1].set(2)
@@ -131,7 +126,7 @@ class Model:
             group_indexes = onehot_to_integer_encoding(confounder.group_assignment, none_index=-1, axis=0)
             self.group_assignments = self.group_assignments.at[i_c].set(group_indexes)
 
-        self.w_prior_conc = jnp.array(self.prior.prior_weights.concentration_array).astype(jnp.float64)
+        self.w_prior_conc = jnp.array(self.prior.prior_weights.concentration_array).astype(jnp.float32)
 
         self.features = jnp.array(self.data.features.values, dtype=jnp.bool)
         self.features_int = onehot_to_integer_encoding(self.data.features.values, none_index=-1, axis=-1)
@@ -139,7 +134,7 @@ class Model:
 
         self.valid_states = self.data.features.states
 
-        self._has_component = jnp.astype(self.group_assignments != -1, jnp.float64)
+        self._has_component = jnp.astype(self.group_assignments != -1, jnp.float32)
 
         self.partitions = self.data.partitions
         self.partition_inices = jnp.stack([p.feature_indices for p in self.partitions])
@@ -283,7 +278,7 @@ class Model:
         # After normalization, this is equivalent to  Dirichlet(w_prior_conc)
         # shape: (n_features, n_components)
 
-        varying_weights_per_cluster = False  # TODO: Move to config
+        varying_weights_per_cluster = True  # TODO: Move to config
         if varying_weights_per_cluster:
             with numpyro.plate("plate_clusters_w", self.n_clusters, dim=-2):
                 with numpyro.plate("plate_features_w", self.shapes.n_features, dim=-1):

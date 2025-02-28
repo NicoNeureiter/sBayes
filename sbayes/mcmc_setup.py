@@ -63,8 +63,6 @@ Warm-up: {mcmc_cfg.warmup.warmup_steps} steps''')
     ):
         mcmc_config = self.config.mcmc
 
-        numpyro.enable_x64()
-
         inference_mode = "MCMC"
         # inference_mode = "SVI"
 
@@ -103,20 +101,3 @@ Warm-up: {mcmc_cfg.warmup.warmup_steps} steps''')
             data=self.data,
             model=self.model,
         )
-
-        clusters_path = self.path_results / f'clusters_K{self.model.n_clusters}_{run}_*.txt'
-        clusters_sum = np.zeros(samples['z'].shape[1:])[:, :-1]
-        with open(clusters_path, "w", buffering=1) as clusters_file:
-            for clusters in np.array(samples['z']):
-                clusters_binary = sample_categorical(clusters, binary_encoding=True)[:, :-1]
-
-                # Find the best permutation to match previous cluster labels
-                permutation = get_best_permutation(clusters_binary.T, clusters_sum.T)
-                clusters_binary = clusters_binary[:, permutation]
-
-                # Update the sum of clusters for future iterations
-                clusters_sum += clusters_binary
-
-                # Write the clusters to the file
-                clusters_string = format_cluster_columns(clusters_binary.T)
-                clusters_file.write(clusters_string + '\n')

@@ -84,7 +84,10 @@ def sample_nuts(
         mcmc.print_summary()
         # print(mcmc.get_extra_fields())
 
-    return mcmc, mcmc.get_samples(group_by_chain=False)
+    samples = mcmc.get_samples(group_by_chain=False)
+    samples["potential_energy"] = mcmc.get_extra_fields()["potential_energy"]
+
+    return mcmc, samples
 
 
 def get_manual_guide(model: Model):

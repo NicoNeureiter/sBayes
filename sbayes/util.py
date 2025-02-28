@@ -31,7 +31,7 @@ import jax.numpy as jnp
 
 
 FLOAT_TYPE = np.float32
-INT_TYPE = np.int64
+INT_TYPE = np.int32
 EPS = np.finfo(FLOAT_TYPE).eps
 LOG_EPS = np.finfo(FLOAT_TYPE).min
 RNG = np.random.default_rng()
@@ -300,7 +300,7 @@ def encode_states(features_raw, feature_states):
     assert n_features == _
 
     # Initialize arrays and counts
-    features_bin = np.zeros(features_bin_shape, dtype=int)
+    features_bin = np.zeros(features_bin_shape, dtype=INT_TYPE)
     applicable_states = np.zeros((n_features, n_states), dtype=bool)
     state_names = []
     na_number = 0
