@@ -1,19 +1,20 @@
 mcmc:
-    steps: 10000
-    samples: 200
-    runs: 2
+    steps: 100
+    samples: 100
+    runs: 1
     warmup:
-        warmup_steps: 500
+        warmup_steps: 20
 model:
     clusters: 3
     confounders:
         - universal
         - family
     prior:
-        objects_per_cluster:
-            type: uniform_area
-            min: 3
-            max: 100
+        cluster_assignment:
+            type: logistic_normal
+            logistic_normal_config:
+                loc: 0.0
+                scale: 3.0
         geo:
             type: uniform
             rate: 200_000                # meters
