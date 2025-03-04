@@ -99,83 +99,6 @@ class BaseConfig(BaseModel, extra='forbid'):
 """ ===== PRIOR CONFIGS ===== """
 
 
-class GeoPriorConfig(BaseConfig):
-
-    """Configuration of the geo-prior."""
-
-    class Types(str, Enum):
-        UNIFORM = "uniform"
-        COST_BASED = "cost_based"
-        SIMULATED = "simulated"
-
-    class AggregationStrategies(str, Enum):
-        MEAN = "mean"
-        SUM = "sum"
-        MAX = "max"
-
-    class ProbabilityFunction(str, Enum):
-        EXPONENTIAL = "exponential"
-        SIGMOID = "sigmoid"
-
-    class Skeleton(str, Enum):
-        MST = "mst"
-        DELAUNAY = "delaunay"
-        DIAMETER = "diameter"  # i.e. the longest shortest path between two nodes
-        COMPLETE = "complete_graph"
-
-    type: Types = Types.UNIFORM
-    """Type of prior distribution. Choose from: [uniform, cost_based, simulated]."""
-
-    costs: Union[RelativeFilePath, Literal["from_data"]] = "from_data"
-    # costs: FilePath = "from_data"
-    """Source of the geographic costs used for cost_based geo-prior. Either `from_data`
-    (derive geodesic distances from locations) or path to a CSV file."""
-
-    aggregation: AggregationStrategies = AggregationStrategies.MEAN
-    """Policy defining how costs of single edges are aggregated. Choose from: [mean, sum or max]."""
-
-    probability_function: ProbabilityFunction = ProbabilityFunction.EXPONENTIAL
-    """Monotonic function that defines how aggregated costs are mapped to prior probabilities."""
-
-    rate: Optional[PositiveFloat] = None
-    """Rate at which the prior probability decreases for a cost_based geo-prior. Required if type=cost_based."""
-
-    inflection_point: Optional[float] = None
-    """Value where the sigmoid probability function reaches 0.5. Required if type=cost_based
-    and probability_function=sigmoid."""
-
-    skeleton: Skeleton = Skeleton.MST
-    """The graph along which the costs are aggregated. Per default, the cost of edges on the minimum
-     spanning tree (mst) are aggregated. Choose from: [mst, delaunay, diameter, complete_graph]"""
-
-    @model_validator(mode="before")
-    @classmethod
-    def validate_geo_prior_parameters(cls, values):
-        if (values.get("type") == "cost_based") and (values.get("rate") is None):
-            raise ValidationError(
-                "Field `rate` is required for geo-prior of type `cost_based`."
-            )
-        return values
-
-
-class ClusterSizePriorConfig(BaseConfig):
-    """Configuration of the area size prior."""
-
-    class Types(str, Enum):
-        UNIFORM_AREA = "uniform_area"
-        UNIFORM_SIZE = "uniform_size"
-        QUADRATIC_SIZE = "quadratic"
-
-    type: Types
-    """Type of prior distribution. Choose from: [uniform_area, uniform_size or quadratic]."""
-
-    min: PositiveInt = 2
-    """Minimum cluster size."""
-
-    max: PositiveInt = 10000
-    """Maximum cluster size."""
-
-
 class DirichletPriorConfig(BaseConfig):
 
     class Types(str, Enum):
@@ -252,6 +175,100 @@ class DirichletPriorConfig(BaseConfig):
             return DirichletPriorConfig.__attrdocs__.get(attr)
 
 
+class LogisticNormalPriorConfig(BaseConfig):
+    loc: float = 0.0
+    """The mean of the logistic normal prior."""
+
+    scale: float = 1.0
+    """The scale of the logistic normal prior."""
+
+
+class ClusterPriorConfig(BaseConfig):
+    """Configuration of the cluster assignment prior."""
+
+    class Types(str, Enum):
+        CATEGORICAL = "categorical"
+        DIRICHLET = "dirichlet"
+        LOGISTIC_NORMAL = "logistic_normal"
+
+    type: Types
+    """Type of prior distribution. Choose from: [categorical, dirichlet or logit_normal]."""
+
+    dirichlet_config: Optional[DirichletPriorConfig] = None
+    """Configuration of the Dirichlet prior for the cluster assignment."""
+
+    logistic_normal_config: Optional[LogisticNormalPriorConfig] = None
+    """Configuration of the Logistic Normal prior for the cluster assignment."""
+
+    min: PositiveInt = 2
+    """Minimum cluster size."""
+
+    max: PositiveInt = 10000
+    """Maximum cluster size."""
+
+    # NN: min and max bounds are tricky to enforce with continuous assignments.
+    # TODO: Discuss if there is demand and how it could be implemented.
+
+
+class GeoPriorConfig(BaseConfig):
+
+    """Configuration of the geo-prior."""
+
+    class Types(str, Enum):
+        UNIFORM = "uniform"
+        COST_BASED = "cost_based"
+        SIMULATED = "simulated"
+
+    class AggregationStrategies(str, Enum):
+        MEAN = "mean"
+        SUM = "sum"
+        MAX = "max"
+
+    class ProbabilityFunction(str, Enum):
+        EXPONENTIAL = "exponential"
+        SIGMOID = "sigmoid"
+
+    class Skeleton(str, Enum):
+        MST = "mst"
+        DELAUNAY = "delaunay"
+        DIAMETER = "diameter"  # i.e. the longest shortest path between two nodes
+        COMPLETE = "complete_graph"
+
+    type: Types = Types.UNIFORM
+    """Type of prior distribution. Choose from: [uniform, cost_based, simulated]."""
+
+    costs: Union[RelativeFilePath, Literal["from_data"]] = "from_data"
+    # costs: FilePath = "from_data"
+    """Source of the geographic costs used for cost_based geo-prior. Either `from_data`
+    (derive geodesic distances from locations) or path to a CSV file."""
+
+    aggregation: AggregationStrategies = AggregationStrategies.MEAN
+    """Policy defining how costs of single edges are aggregated. Choose from: [mean, sum or max]."""
+
+    probability_function: ProbabilityFunction = ProbabilityFunction.EXPONENTIAL
+    """Monotonic function that defines how aggregated costs are mapped to prior probabilities."""
+
+    rate: Optional[PositiveFloat] = None
+    """Rate at which the prior probability decreases for a cost_based geo-prior. Required if type=cost_based."""
+
+    inflection_point: Optional[float] = None
+    """Value where the sigmoid probability function reaches 0.5. Required if type=cost_based
+    and probability_function=sigmoid."""
+
+    skeleton: Skeleton = Skeleton.MST
+    """The graph along which the costs are aggregated. Per default, the cost of edges on the minimum
+     spanning tree (mst) are aggregated. Choose from: [mst, delaunay, diameter, complete_graph]"""
+
+    @model_validator(mode="before")
+    @classmethod
+    def validate_geo_prior_parameters(cls, values):
+        if (values.get("type") == "cost_based") and (values.get("rate") is None):
+            raise ValidationError(
+                "Field `rate` is required for geo-prior of type `cost_based`."
+            )
+        return values
+
+
 class WeightsPriorConfig(DirichletPriorConfig):
     """Configuration of the prion on the weights of the mixture components."""
 
@@ -273,8 +290,17 @@ class PriorConfig(BaseConfig):
 
     cluster_effect: ClusterEffectConfig
     geo: GeoPriorConfig
-    objects_per_cluster: ClusterSizePriorConfig
+    cluster_assignment: ClusterPriorConfig
     weights: WeightsPriorConfig
+
+    @model_validator(mode="before")
+    @classmethod
+    def validate_confounder_priors(cls, values):
+        """Ensure that priors are defined for each confounder."""
+        if "objects_per_cluster" in values:
+                raise NameError(f"The `objects_per_cluster` config has been changed to generally describe the "
+                                f"distribution of cluster assignments and renamed to `cluster_assignment`.")
+        return values
 
 
 class ModelConfig(BaseConfig):

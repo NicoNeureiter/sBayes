@@ -61,8 +61,6 @@ class Model:
         self.config = config
         self.confounders = data.confounders
         self.n_clusters = config.clusters
-        self.min_size = config.prior.objects_per_cluster.min
-        self.max_size = config.prior.objects_per_cluster.max
         n_objects, n_features, n_states_f = self.data.features.values.shape
 
         self.shapes = ModelShapes(
@@ -144,7 +142,7 @@ class Model:
         """Return the model function for the sBayes model."""
 
         # Add the cluster prior to the model
-        z = self.add_cluster_prior()
+        z = self.prior.size_prior.get_numpyro_distr()
 
         # `z` has a dummy "no-cluster" at the end, which we want to remove for most purposes
         clusters = z[..., :-1]
@@ -214,27 +212,6 @@ class Model:
                     numpyro.sample(f"x_{p_name}", dist.Categorical(probs=p_data_mixed), obs=partition.features)
         #             # numpyro.sample('x', dist.MixtureSameFamily(likelihood_by_comp, w_per_object), obs=self.features_int)
 
-    def add_cluster_prior(self):
-
-        # LOGISTIC NORMAL MODEL
-        with numpyro.plate("plate_objects_1", self.shapes.n_objects, dim=-2):
-            with numpyro.plate("plate_clusters_1", self.shapes.n_clusters + 1, dim=-1):
-                z_logit = numpyro.sample("z_logit", dist.Normal(
-                    loc=jnp.log(self.cluster_prior_probs),
-                    scale=jnp.full_like(self.cluster_prior_probs, 3.0)
-                ))
-                z = numpyro.deterministic("z", softmax(z_logit, axis=-1))
-
-        # with numpyro.plate("plate_objects_1", self.shapes.n_objects, dim=-1):
-        #     z = numpyro.sample("z", dist.Dirichlet(1.0 * self.cluster_prior_probs))
-
-        # with numpyro.plate("plate_objects_1", self.shapes.n_objects, dim=-1):
-        #     k1 = self.n_clusters + 1
-        #     z_int = numpyro.sample("z_int", dist.Categorical(jnp.ones(k1) / k1))
-        #     z = numpyro.deterministic("z", jax.nn.one_hot(z_int, k1))
-
-        return z
-
     def add_geo_prior(self, clusters, geo_prior_type = 'fully_connected'):
         cluster_size = jnp.sum(clusters, axis=-2)
 
@@ -245,7 +222,7 @@ class Model:
             # same_cluster_prob = clusters @ clusters.T                 # Expected total distance
             same_cluster_prob = clusters_normed @ clusters.T            # Expected distance to a random language
             expected_distance_in_clusters = jnp.sum(same_cluster_prob * dist_mat)
-            log_geo_priors = -expected_distance_in_clusters / 500_000
+            log_geo_priors = -expected_distance_in_clusters / 2_000_000
             # log_geo_priors = -expected_distance_in_clusters / self.prior.geo_prior.scale
         else:
             raise NotImplementedError
@@ -278,7 +255,7 @@ class Model:
         # After normalization, this is equivalent to  Dirichlet(w_prior_conc)
         # shape: (n_features, n_components)
 
-        varying_weights_per_cluster = True  # TODO: Move to config
+        varying_weights_per_cluster = False  # TODO: Move to config
         if varying_weights_per_cluster:
             with numpyro.plate("plate_clusters_w", self.n_clusters, dim=-2):
                 with numpyro.plate("plate_features_w", self.shapes.n_features, dim=-1):
@@ -321,7 +298,5 @@ class Model:
         setup_msg += "Model\n"
         setup_msg += "##########################################\n"
         setup_msg += f"Number of clusters: {self.config.clusters}\n"
-        setup_msg += f"Clusters have a minimum size of {self.config.prior.objects_per_cluster.min} " \
-                     f"and a maximum size of {self.config.prior.objects_per_cluster.max}\n"
         setup_msg += self.prior.get_setup_message()
         return setup_msg

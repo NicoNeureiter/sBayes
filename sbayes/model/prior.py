@@ -1,5 +1,3 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
 from __future__ import annotations
 
 from functools import lru_cache
@@ -9,8 +7,10 @@ import json
 
 import numpy as np
 from numpy.typing import NDArray
+import jax
 import jax.numpy as jnp
-
+import numpyro
+import numpyro.distributions as dist
 import scipy.stats as stats
 from ruamel import yaml
 from scipy.sparse.csgraph import minimum_spanning_tree, csgraph_from_dense
@@ -22,7 +22,7 @@ from sbayes.preprocessing import sample_categorical
 from sbayes.util import (compute_delaunay, n_smallest_distances, log_multinom,
                          dirichlet_logpdf, log_expit, PathLike, log_binom, normalize, FLOAT_TYPE, timeit,
                          normalize_weights)
-from sbayes.config.config import PriorConfig, DirichletPriorConfig, GeoPriorConfig, ClusterSizePriorConfig, \
+from sbayes.config.config import PriorConfig, DirichletPriorConfig, GeoPriorConfig, ClusterPriorConfig, \
     ConfoundingEffectPriorConfig
 from sbayes.load_data import Data, ComputeNetwork, GroupName, ConfounderName, StateName, FeatureName, Confounder
 
@@ -31,7 +31,7 @@ class Prior:
     """The joint prior of all parameters in the sBayes model.
 
     Attributes:
-        size_prior (ClusterSizePrior): prior on the cluster size
+        size_prior (ClusterPrior): prior on the cluster size
         geo_prior (GeoPrior): prior on the geographic spread of a cluster
         prior_weights (WeightsPrior): prior on the mixture weights
         prior_cluster_effect (ClusterEffectPrior): prior on the areal effect
@@ -43,8 +43,8 @@ class Prior:
         self.config = config
         self.data = data
 
-        self.size_prior = ClusterSizePrior(config=self.config.objects_per_cluster,
-                                           shapes=self.shapes)
+        self.size_prior = ClusterPrior(config=self.config.cluster_assignment,
+                                       shapes=self.shapes)
         self.geo_prior = GeoPrior(config=self.config.geo,
                                   cost_matrix=data.geo_cost_matrix,
                                   network=data.network)
@@ -222,6 +222,25 @@ class DirichletPrior:
         name = self.__class__.__name__
         valid_types = ', '.join(self.PriorType)
         return f'Invalid prior type {s} for {name} (choose from [{valid_types}]).'
+
+
+def parse_dirichlet_concentration(
+    dirichlet_type: str,
+    n_states: int,
+    prior_concentration: float = None
+) -> jnp.array:
+    if dirichlet_type == DirichletPriorConfig.Types.UNIFORM:
+        return jnp.full(n_states, 1.0)
+    elif dirichlet_type == DirichletPriorConfig.Types.JEFFREYS:
+        return jnp.full(n_states, 0.5)
+    elif dirichlet_type == DirichletPriorConfig.Types.BBS:
+        return jnp.ones(n_states) / n_states
+    elif dirichlet_type == DirichletPriorConfig.Types.SYMMETRIC_DIRICHLET:
+        if prior_concentration is None:
+            raise ValueError(f"Dirichlet prior of type `symmetric_dirichlet` requires a concentration parameter.")
+        return jnp.full(n_states, prior_concentration)
+    else:
+        raise ValueError(f"Invalid Dirichlet prior type: {dirichlet_type}")
 
 
 class ConfoundingEffectsPrior(DirichletPrior):
@@ -595,77 +614,68 @@ class SourcePrior:
         return sample_categorical(p, binary_encoding=True)
 
 
-class ClusterSizePrior:
+class ClusterPrior:
 
-    PriorType = ClusterSizePriorConfig.Types
+    PriorType = ClusterPriorConfig.Types
 
-    def __init__(self, config: ClusterSizePriorConfig, shapes: ModelShapes, initial_counts=1.):
+    def __init__(self, config: ClusterPriorConfig, shapes: ModelShapes):
         self.config = config
         self.shapes = shapes
-        self.initial_counts = initial_counts
         self.prior_type = config.type
         self.min = self.config.min
         self.max = self.config.max
 
-        self.cached = None
+        self.concentration = None
+        self.logi_norm_loc = None
+        self.logi_norm_scale = None
 
-    def invalid_prior_message(self, s):
-        valid_types = ','.join(self.PriorType)
-        return f'Invalid prior type {s} for size prior (choose from [{valid_types}]).'
+        self.parse_attributes()
 
-    def __call__(self, sample, caching=True) -> float:
-        """Compute the prior probability of a set of clusters, based on its number of objects.
-        Args:
-            sample: Current MCMC sample.
-        Returns:
-            Log-probability of the cluster size.
-        """
-        cache = sample.cache.cluster_size_prior
-        if caching and not cache.is_outdated():
-            return cache.value
-
-        sizes = np.sum(sample.clusters.value, axis=-1)
-
-        if self.prior_type is self.PriorType.UNIFORM_SIZE:
-            # P(size)   =   uniform
-            # P(zone | size)   =   1 / |{clusters of size k}|   =   1 / (n choose k)
-            logp = -log_multinom(self.shapes.n_objects, sizes)
-            # logp = -log_binom(self.shapes.n_objects, sizes).sum()
-
-        elif self.prior_type is self.PriorType.QUADRATIC_SIZE:
-            # Here we assume that only a quadratically growing subset of clusters is
-            # plausibly permitted by the likelihood and/or geo-prior.
-            # P(zone | size) = 1 / |{"plausible" clusters of size k}| = 1 / k**2
-            log_plausible_clusters = np.log(sizes ** 2)
-            logp = -np.sum(log_plausible_clusters)
-
-        elif self.prior_type is self.PriorType.UNIFORM_AREA:
-            # No size prior
-            # P(zone | size) = P(zone) = const.
-            logp = 0.
+    def parse_attributes(self):
+        """Parse the attributes of the cluster assignment prior."""
+        if self.prior_type is self.PriorType.CATEGORICAL:
+            pass
+        elif self.prior_type is self.PriorType.DIRICHLET:
+            self.concentration = parse_dirichlet_concentration(
+                dirichlet_type=self.config.dirichlet_config.type,
+                n_states=self.shapes.n_clusters + 1,
+                prior_concentration=self.config.dirichlet_config.prior_concentration
+            )
+        elif self.prior_type is self.PriorType.LOGISTIC_NORMAL:
+            self.logi_norm_loc = self.config.logistic_normal_config.loc
+            self.logi_norm_scale = self.config.logistic_normal_config.scale
         else:
-            raise ValueError(self.invalid_prior_message(self.prior_type))
-
-        cache.update_value(logp)
-        return logp
+            raise ValueError(f'Invalid prior type {self.prior_type} for cluster assignment.')
 
     def get_setup_message(self):
         """Compile a set-up message for logging."""
-        return f'Prior on cluster size: {self.prior_type.value}\n'
+        return f'Prior on cluster assignment: {self.prior_type.value}\n'
 
-    def generate_sample(self) -> NDArray[bool]:  # shape: (n_clusters, n_objects)
-        n_clusters = self.shapes.n_clusters
-        n_objects = self.shapes.n_objects
-        if self.prior_type is self.PriorType.UNIFORM_AREA:
-            onehots = np.eye(n_clusters + 1, n_clusters, dtype=bool)
+    def get_numpyro_distr(self):
+        K = self.shapes.n_clusters
+        if self.prior_type is self.PriorType.CATEGORICAL:
+            with numpyro.plate("plate_objects_z", self.shapes.n_objects, dim=-1):
+                z_int = dist.Categorical(jnp.ones(K + 1) / (K + 1))
+                z = jax.nn.one_hot(z_int, K+1)
+                numpyro.deterministic("z", z)
 
-            clusters = np.zeros((n_clusters, n_objects))
-            while not np.all(self.min <= np.sum(clusters, axis=-1) <= self.max):
-                clusters = onehots[np.random.randint(0, n_clusters+1, size=n_objects)].T
-            return clusters
+        elif self.prior_type is self.PriorType.DIRICHLET:
+            with numpyro.plate("plate_objects_z", self.shapes.n_objects, dim=-1):
+                z = dist.Dirichlet(self.concentration)
+
+        elif self.prior_type is self.PriorType.LOGISTIC_NORMAL:
+            with numpyro.plate("plate_objects_z", self.shapes.n_objects, dim=-2):
+                with numpyro.plate("plate_clusters_z", self.shapes.n_clusters + 1, dim=-1):
+                    z_logit = numpyro.sample("z_logit", dist.Normal(
+                        loc=self.logi_norm_loc,
+                        scale=self.logi_norm_scale
+                    ))
+                    z = jax.nn.softmax(z_logit, axis=-1)
+                    numpyro.deterministic("z", z)
         else:
-            raise NotImplementedError()
+            raise ValueError(f'Invalid prior type {self.prior_type} for cluster assignment.')
 
+        return z
 
 Aggregator = Callable[[Sequence[float]], float]
 """A type describing functions that aggregate costs in the geo-prior."""

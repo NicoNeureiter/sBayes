@@ -95,9 +95,9 @@ Warm-up: {mcmc_cfg.warmup.warmup_steps} steps''')
 
         K = self.model.n_clusters
         write_samples(
+            run=run,
+            base_path=self.path_results,
             samples=samples,
-            clusters_path=self.path_results / f'clusters_K{K}_{run}.txt',
-            params_path=self.path_results / f'stats_K{K}_{run}.txt',
             data=self.data,
             model=self.model,
         )

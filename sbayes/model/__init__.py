@@ -4,7 +4,7 @@ from sbayes.model.prior import (
     Prior,
     ConfoundingEffectsPrior,
     ClusterEffectPrior,
-    ClusterSizePrior,
+    ClusterPrior,
     SourcePrior,
     WeightsPrior,
 )
