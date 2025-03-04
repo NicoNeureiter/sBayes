@@ -17,9 +17,9 @@ def get_cluster_names(n_clusters: int) -> list[str]:
 
 
 def write_samples(
+    run: int,
+    base_path: Path,
     samples: dict,
-    clusters_path: Path,
-    params_path: Path,
     data: Data,
     model: Model,
     match_clusters: bool = True
@@ -113,11 +113,18 @@ def write_samples(
     if "potential_energy" in samples:
         params_df["potential_energy"] = samples["potential_energy"]
 
+    clusters_path = base_path / f'clusters_K{n_clusters}_{run}.txt'
+    clusters_continuous_path = base_path / f'clusters_K{n_clusters}_{run}.npy'
+    params_path = base_path / f'stats_K{n_clusters}_{run}.txt'
+
     # Write clusters file
     with open(clusters_path, "w") as clusters_file:
         for clusters in clusters_samples:
             row = format_cluster_columns(clusters)
             clusters_file.write(row + "\n")
+
+    # Write continuous cluster assignment file
+    np.save(clusters_continuous_path, clusters_samples_cont)
 
     # Write params file
     with open(params_path, "w") as params_file:
