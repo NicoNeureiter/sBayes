@@ -26,7 +26,7 @@ On Windows the three libraries need to be installed manually from the correspond
 
 Once these system libraries are ready, sBayes can be installed (along with the required python libraries) using:
 ```shell
- pip install --user git+git://github.com/derpetermann/sBayes.git
+ pip install --user git+git://github.com/NicoNeureiter/sBayes.git
 ```
 
 ## Running sBayes
