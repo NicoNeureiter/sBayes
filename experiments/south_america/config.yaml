@@ -1,9 +1,9 @@
 mcmc:
-    steps: 100
-    samples: 100
-    runs: 1
+    steps: 1000
+    samples: 200
+    runs: 2
     warmup:
-        warmup_steps: 20
+        warmup_steps: 200
 model:
     clusters: 3
     confounders:
@@ -17,39 +17,49 @@ model:
                 scale: 3.0
         geo:
             type: uniform
+            skeleton: complete_graph
+            probability_function: exponential
             rate: 200_000                # meters
-            inflection_point: 1_000_000  # meters
+#            inflection_point: 1_000_000  # meters
         weights:
             type: uniform
         cluster_effect:
-            type: symmetric_dirichlet
-            prior_concentration: 1.0
+            categorical:
+                type: symmetric_dirichlet
+                prior_concentration: 1.0
         confounding_effects:
             universal:
                 <ALL>:
-#                    type: uniform
-                    type: dirichlet
-                    file: data/prior_universal/universal_counts.json
+                    categorical:
+#                        type: uniform
+                        type: dirichlet
+                        file: data/prior_universal/universal_counts.json
             family:
 #                <DEFAULT>:
 #                    type: uniform
                 Tucanoan:
-                    type: dirichlet
-                    file: data/prior_inheritance/tucanoan.json
+                    categorical:
+                        type: dirichlet
+                        file: data/prior_inheritance/tucanoan.json
                 Panoan:
-                    type: dirichlet
-                    file: data/prior_inheritance/panoan.json
+                    categorical:
+                        type: dirichlet
+                        file: data/prior_inheritance/panoan.json
                 Tacanan:
-                    type: uniform
+                    categorical:
+                        type: uniform
                 Arawak:
-                    type: dirichlet
-                    file: data/prior_inheritance/arawak.json
+                    categorical:
+                        type: dirichlet
+                        file: data/prior_inheritance/arawak.json
                 Quechuan:
-                    type: dirichlet
-                    file: data/prior_inheritance/quechuan.json
+                    categorical:
+                        type: dirichlet
+                        file: data/prior_inheritance/quechuan.json
                 Tupian:
-                    type: dirichlet
-                    file: data/prior_inheritance/tupian.json
+                    categorical:
+                        type: dirichlet
+                        file: data/prior_inheritance/tupian.json
 
 data:
     features: data/features.csv

@@ -10,17 +10,8 @@ class ModelShapes:
     n_clusters: int
     n_objects: int
     n_features: int
-    n_states: int
-    states_per_feature: NDArray[bool]
     n_confounders: int
     n_groups: dict[str, int]
-    _n_states_per_feature: list[int] = None
-
-    @property
-    def n_states_per_feature(self):
-        if self._n_states_per_feature is None:
-            self._n_states_per_feature = [sum(applicable) for applicable in self.states_per_feature]
-        return self._n_states_per_feature
 
     @property
     def n_components(self):

@@ -162,7 +162,7 @@ def get_manual_guide(model: Model):
             n_groups = len(model.group_names[i_c])
             with numpyro.plate(f"plate_groups_{i_c}", n_groups + 1, dim=-2):
                 with numpyro.plate(f"plate_features_{i_c}", model.shapes.n_features, dim=-1):
-                    conf_effect_conc = numpyro.param(f"conf_effect_conc_{i_c - 1}", model.conf_eff_prior_conc[i_c - 1] + counts_by_conf[i_c - 1] / model.shapes.n_components,
+                    conf_effect_conc = numpyro.param(f"conf_effect_conc_{i_c - 1}", model.conf_eff_prior_params[i_c - 1] + counts_by_conf[i_c - 1] / model.shapes.n_components,
                                                      constraint=constraints.positive)
                     numpyro.sample(f"conf_eff_{i_c - 1}", dist.Dirichlet(conf_effect_conc))
 

@@ -112,9 +112,9 @@ def main(
 def cli():
     """Command line interface."""
 
-    # When in debug mode, activate verbose warning (printing stack trace)
-    if __debug__:
-        activate_verbose_warnings()
+    # # When in debug mode, activate verbose warning (printing stack trace)
+    # if __debug__:
+    #     activate_verbose_warnings()
 
     # Initialize CLI argument parser
     parser = argparse.ArgumentParser(

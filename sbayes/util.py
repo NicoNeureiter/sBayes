@@ -22,9 +22,9 @@ import numpy as np
 from numpy.typing import NDArray
 from scipy.optimize import linear_sum_assignment
 import pandas as pd
-import scipy
+import jax.scipy as scipy
 import scipy.spatial as spatial
-from scipy.special import betaln, expit
+from jax.scipy.special import betaln, expit
 import scipy.stats as stats
 from scipy.sparse import csr_matrix
 from numba import jit, njit, float32, float64, int64, boolean, vectorize
@@ -293,59 +293,43 @@ def range_like(a):
 
 
 # Encoding
-def encode_states(features_raw, feature_states):
+def encode_states(features_raw, feature_types: dict):
     # Define shapes
-    n_states, n_features = feature_states.shape
-    features_bin_shape = features_raw.shape + (n_states,)
-    n_objects, _ = features_raw.shape
-    assert n_features == _
+    n_features = len(feature_types)
+    n_states = max(len(v['states']) for v in feature_types.values())
 
     # Initialize arrays and counts
-    features_bin = np.zeros(features_bin_shape, dtype=INT_TYPE)
+    # features_bin = np.zeros(features_bin_shape, dtype=bool)
+    features_int = np.zeros_like(features_raw, dtype=INT_TYPE)
+
     applicable_states = np.zeros((n_features, n_states), dtype=bool)
-    state_names = []
-    na_number = 0
 
-    # Binary vectors used for encoding
-    one_hot = np.eye(n_states)
+    # # Binary vectors used for encoding
+    # one_hot = np.eye(n_states, dtype=bool)
 
-    for f_idx in range(n_features):
-        f_name = feature_states.columns[f_idx]
-        f_states = feature_states[f_name]
-
+    for f_idx, (f_name, f_type) in enumerate(feature_types.items()):
         # Define applicable states for feature f
-        applicable_states[f_idx] = ~f_states.isna()
-
-        # Define external and internal state names
-        s_ext = f_states.dropna().to_list()
-        s_int = range_like(s_ext)
-        state_names.append(s_ext)
+        f_states = f_type['states']
+        applicable_states[f_idx, :len(f_states)] = True
 
         # Map external to internal states for feature f
-        ext_to_int = dict(zip(s_ext, s_int))
-        f_raw = features_raw[f_name]
-        f_enc = f_raw.map(ext_to_int)
-        if not (set(f_raw.dropna()).issubset(set(s_ext))):
-            print(set(f_raw.dropna()) - set(s_ext))
-            print(s_ext)
-        assert set(f_raw.dropna()).issubset(set(s_ext))  # All states should map to an encoding
+        name_to_index = {f: i  for i, f in enumerate(f_states)}
+        f_enc = features_raw[f_name].map(name_to_index)
 
         # Binarize features
         f_applicable = ~f_enc.isna().to_numpy()
-        f_enc_applicable = f_enc[f_applicable].astype(int)
+        f_enc_applicable = f_enc[f_applicable].astype(INT_TYPE)
 
-        features_bin[f_applicable, f_idx] = one_hot[f_enc_applicable]
-
-        # Count NA
-        na_number += np.count_nonzero(f_enc.isna())
+        # features_bin[f_applicable, f_idx] = one_hot[f_enc_applicable]
+        features_int[f_applicable, f_idx] = f_enc_applicable
 
     features = {
-        'values': features_bin.astype(bool),
+        'values': features_int,
         'states': applicable_states,
-        'state_names': state_names
+        'state_names': [ft['states'] for ft in feature_types.values()],
     }
 
-    return features, na_number
+    return features
 
 
 def normalize_str(s: str) -> str:
@@ -1256,11 +1240,11 @@ def get_best_permutation(
     return linear_sum_assignment(cluster_agreement_matrix, maximize=True)[1]
 
 
-if scipy.__version__ >= '1.8.0':
-    log_expit = scipy.special.log_expit
-else:
-    def log_expit(*args, **kwargs):
-        return np.log(expit(*args, **kwargs))
+# if scipy.__version__ >= '1.8.0':
+#     log_expit = scipy.special.log_expit
+# else:
+def log_expit(*args, **kwargs):
+    return jnp.log(expit(*args, **kwargs))
 
 
 def set_defaults(cfg: dict, default_cfg: dict):

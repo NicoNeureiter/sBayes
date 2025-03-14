@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import os
 from pathlib import Path
 from enum import Enum
@@ -99,18 +101,184 @@ class BaseConfig(BaseModel, extra='forbid'):
 """ ===== PRIOR CONFIGS ===== """
 
 
+class GaussianMeanPriorConfig(BaseConfig):
+    """Configuration of the prior on the mean of a normal distribution"""
+
+    class Types(str, Enum):
+        IMPROPER_UNIFORM = "improper_uniform"
+        GAUSSIAN = "gaussian"
+
+    type: Types = Types.IMPROPER_UNIFORM
+    """Type of prior distribution (`improper_uniform` or `gaussian`)."""
+
+    file: Optional[RelativeFilePath] = None
+    """Path to the parameters of the Gaussian distribution."""
+
+    parameters: Optional[Dict[str, float]] = None
+    """Parameters of the Gaussian distribution."""
+
+    @model_validator(mode="before")
+    def warn_when_using_default_type(cls, values):
+        if "type" not in values:
+            warnings.warn(
+                f"No `type` defined for `{cls.__name__}`. Using `improper_uniform` as a default."
+            )
+        return values
+
+    @model_validator(mode="before")
+    def validate_gamma_parameters(cls, values):
+        prior_type = values.get("type")
+
+        if prior_type == "gaussian":
+            if (values.get("file") is None) and (values.get("parameters") is None):
+                raise ValidationError(
+                    f"Provide `file` or `parameters` for `{cls.__name__}` of type `gaussian`."
+                )
+        return values
+
+    def dict(self, *args, **kwargs):
+        """A custom dict method to hide non-applicable attributes depending on prior type."""
+        self_dict = super().dict(*args, **kwargs)
+        if self.type is self.Types.IMPROPER_UNIFORM:
+            self_dict.pop("file")
+            self_dict.pop("parameters")
+        else:
+            if self.file is not None:
+                self_dict.pop("parameters")
+            elif self.parameters is not None:
+                self_dict.pop("file")
+
+        return self_dict
+
+    @classmethod
+    def get_attr_doc(cls, attr):
+        doc = super().get_attr_doc(attr)
+        if not doc:
+            return GaussianMeanPriorConfig.__attrdocs__.get(attr)
+
+
+class GaussianVariancePriorConfig(BaseConfig):
+    """Configuration of the prior on the variance of a normal distribution"""
+
+    class Types(str, Enum):
+        JEFFREYS = "jeffreys"
+        INV_GAMMA = "inv-gamma"
+        FIXED = "fixed"
+        EXPONENTIAL = "exponential"
+
+    type: Types
+    """Type of prior distribution (`improper_uniform` or `gaussian`)."""
+
+    file: Optional[RelativeFilePath] = None
+    """Path to the parameters of the Gaussian distribution."""
+
+    parameters: Optional[Dict[str, float]] = None
+    """Parameters of the Gaussian distribution."""
+
+    @model_validator(mode="before")
+    def validate_gamma_parameters(cls, values):
+        prior_type = values.get("type")
+
+        if prior_type == "inv-gamma":
+            if (values.get("file") is None) and (values.get("parameters") is None):
+                raise ValidationError(
+                    f"Provide `file` or `parameters` for `{cls.__name__}` of type `inv-gamma`."
+                )
+        return values
+
+    def dict(self, *args, **kwargs):
+        """A custom dict method to hide non-applicable attributes depending on prior type."""
+        self_dict = super().dict(*args, **kwargs)
+        if self.type is self.Types.JEFFREYS:
+            self_dict.pop("file")
+            self_dict.pop("parameters")
+        else:
+            if self.file is not None:
+                self_dict.pop("parameters")
+            elif self.parameters is not None:
+                self_dict.pop("file")
+
+        return self_dict
+
+    @classmethod
+    def get_attr_doc(cls, attr):
+        doc = super().get_attr_doc(attr)
+        if not doc:
+            return GaussianVariancePriorConfig.__attrdocs__.get(attr)
+
+
+class GaussianPriorConfig(BaseConfig):
+    """Configuration of the prior on the mean and variance of a normal distribution"""
+
+    mean: GaussianMeanPriorConfig
+    variance: GaussianVariancePriorConfig
+
+
+class PoissonPriorConfig(BaseConfig):
+    """Configuration of the prior on the rate parameter of a Poisson distribution"""
+
+    class Types(str, Enum):
+        JEFFREYS = "jeffreys"
+        GAMMA = "gamma"
+
+    type: Types = Types.JEFFREYS
+    """Type of prior distribution (`jeffreys` or `gamma`)."""
+
+    file: Optional[RelativeFilePath] = None
+    """Path to the parameters of the Gamma distribution."""
+
+    parameters: Optional[Dict[str, float]] = None
+    """Parameters of the Gamma distribution."""
+
+    @model_validator(mode="before")
+    def warn_when_using_default_type(cls, values):
+        if "type" not in values:
+            warnings.warn(
+                f"No `type` defined for `{cls.__name__}`. Using `jeffreys` as a default."
+            )
+        return values
+
+    @model_validator(mode="before")
+    def validate_gamma_parameters(cls, values):
+        prior_type = values.get("type")
+
+        if prior_type == "gamma":
+            if (values.get("file") is None) and (values.get("parameters") is None):
+                raise ValidationError(
+                    f"Provide `file` or `parameters` for `{cls.__name__}` of type `gamma`."
+                )
+        return values
+
+    def dict(self, *args, **kwargs):
+        """A custom dict method to hide non-applicable attributes depending on prior type."""
+        self_dict = super().dict(*args, **kwargs)
+        if self.type is self.Types.JEFFREYS:
+            self_dict.pop("file")
+            self_dict.pop("parameters")
+        else:
+            if self.file is not None:
+                self_dict.pop("parameters")
+            elif self.parameters is not None:
+                self_dict.pop("file")
+
+        return self_dict
+
+    @classmethod
+    def get_attr_doc(cls, attr):
+        doc = super().get_attr_doc(attr)
+        if not doc:
+            return PoissonPriorConfig.__attrdocs__.get(attr)
+
+
 class DirichletPriorConfig(BaseConfig):
 
     class Types(str, Enum):
         UNIFORM = "uniform"
         DIRICHLET = "dirichlet"
-        JEFFREYS = "jeffreys"
-        BBS = "BBS"
-        UNIVERSAL = "universal"
         SYMMETRIC_DIRICHLET = "symmetric_dirichlet"
 
     type: Types = Types.UNIFORM
-    """Type of prior distribution. Choose from: [uniform, dirichlet, jeffreys, BBS, symmetric_dirichlet]"""
+    """Type of prior distribution. Choose from: [uniform, dirichlet, symmetric_dirichlet]"""
 
     file: Optional[RelativeFilePath] = None
     """Path to parameters of the Dirichlet distribution (YAML or JSON format).
@@ -140,18 +308,10 @@ class DirichletPriorConfig(BaseConfig):
                     f"Provide `file` or `parameters` for `{cls_name}` of type `dirichlet`."
                 )
 
-        elif self.type in [self.Types.UNIVERSAL, self.Types.SYMMETRIC_DIRICHLET]:
+        elif self.type == self.Types.SYMMETRIC_DIRICHLET:
             if self.prior_concentration is None:
                 raise ValidationError(f"Provide `prior_concentration` for `{cls_name}` of type `{self.type}`.")
 
-        return self
-
-    @model_validator(mode="after")
-    def validate_no_hierarchical_prior(self):
-        if self.type == self.Types.UNIVERSAL:
-            type_options = [t.value for t in self.Types if t != self.Types.UNIVERSAL]
-            raise NotImplementedError(f"The hierarchical prior type `universal` is not implemented yet."
-                                      f" Choose one of the following prior types: {type_options}")
         return self
 
     def dict(self, *args, **kwargs):
@@ -217,7 +377,6 @@ class GeoPriorConfig(BaseConfig):
     class Types(str, Enum):
         UNIFORM = "uniform"
         COST_BASED = "cost_based"
-        SIMULATED = "simulated"
 
     class AggregationStrategies(str, Enum):
         MEAN = "mean"
@@ -233,6 +392,7 @@ class GeoPriorConfig(BaseConfig):
         DELAUNAY = "delaunay"
         DIAMETER = "diameter"  # i.e. the longest shortest path between two nodes
         COMPLETE = "complete_graph"
+        SPECTRAL = "spectral"
 
     type: Types = Types.UNIFORM
     """Type of prior distribution. Choose from: [uniform, cost_based, simulated]."""
@@ -273,19 +433,25 @@ class WeightsPriorConfig(DirichletPriorConfig):
     """Configuration of the prion on the weights of the mixture components."""
 
 
-class ConfoundingEffectPriorConfig(DirichletPriorConfig):
+class ConfoundingEffectConfig(BaseConfig):
     """Configuration of the prior on the parameters of the confounding-effects."""
+    categorical: DirichletPriorConfig | None = None
+    gaussian: GaussianPriorConfig | None = None
+    poisson: PoissonPriorConfig | None = None
 
 
 class ClusterEffectConfig(DirichletPriorConfig):
     """Configuration of the prior on the parameters of the cluster-effect."""
+    categorical: DirichletPriorConfig | None = None
+    gaussian: GaussianPriorConfig | None = None
+    poisson: PoissonPriorConfig | None = None
 
 
 class PriorConfig(BaseConfig):
 
     """Configuration of all priors of a sBayes model."""
 
-    confounding_effects: Dict[str, Dict[str, ConfoundingEffectPriorConfig]]
+    confounding_effects: Dict[str, Dict[str, ConfoundingEffectConfig]]
     """The priors for the confounding_effects in each group of each confounder."""
 
     cluster_effect: ClusterEffectConfig
@@ -314,7 +480,10 @@ class ModelConfig(BaseConfig):
     """The list of confounder names."""
 
     prior: PriorConfig
-    """The config section defining the priors of the model"""
+    """The config section defining the priors of the model."""
+
+    sample_from_prior: bool = False
+    """If `true`, the data is ignored and parameters are sampled from the prior distribution."""
 
     @classmethod
     def deprecated_attributes(cls) -> list:
@@ -330,24 +499,6 @@ class ModelConfig(BaseConfig):
         return values
 
 
-class OperatorsConfig(BaseConfig):
-
-    """The frequency at which each parameter is updated by an MCMC operator. Will be normalized to 1.0 at runtime."""
-
-    clusters: NonNegativeFloat = 70.0
-    """Frequency at which the assignment of objects to clusters is changed."""
-
-    weights: NonNegativeFloat = 10.0
-    """Frequency at which mixture weights are changed."""
-
-    source: NonNegativeFloat = 20.0
-    """Frequency at which the assignments of observations to mixture components are changed."""
-
-    @classmethod
-    def deprecated_attributes(cls) -> list:
-        return ["cluster_effect", "confounding_effects"]
-
-
 class WarmupConfig(BaseConfig):
 
     """Configuration of the warm-up phase in the MCMC chain."""
@@ -357,27 +508,6 @@ class WarmupConfig(BaseConfig):
 
     warmup_chains: PositiveInt = 10
     """The number parallel chains used in the warm-up phase."""
-
-
-class InitializationConfig(BaseConfig):
-
-    """Configuration for the initialization of a sample in each warm-up chain of the MCMC."""
-
-    attempts: PositiveInt = 10
-    """Number of initial samples for each warm-up chain. Only the one with highest posterior will be used."""
-
-    em_steps: PositiveInt = 50
-    """Number of steps in the expectation-maximization initializer."""
-
-    objects_per_cluster: PositiveInt = 10
-    """The average number of objects assigned to each cluster in the initialization phase."""
-
-    _initial_cluster_steps: bool = True
-    """If `true`, apply an initial cluster operator step to each cluster before selecting the best sample."""
-
-    @classmethod
-    def deprecated_attributes(cls) -> list:
-        return ["initial_cluster_steps"]
 
 
 class MC3Config(BaseConfig):
@@ -430,11 +560,6 @@ class MC3Config(BaseConfig):
             valid_chain_pairs = int(self.chains * (self.chains - 1) / 2)
         if self._swap_attempts > valid_chain_pairs:
             self._swap_attempts = valid_chain_pairs
-            # warnings.warn(
-            #     f"With `only_swap_adjacent_chains={self.only_swap_adjacent_chains}` and "
-            #     f"{self.chains} chains the number of swap attempts can not be more than "
-            #     f"{valid_chain_pairs}. Adjusted swap_attempts={valid_chain_pairs}."
-            # )
 
         # Per default `prior_temperature_diff` is the same as `temperature_diff`.
         if self.prior_temperature_diff == "temperature_diff":
@@ -456,35 +581,12 @@ class MCMCConfig(BaseConfig):
     runs: PositiveInt = 1
     """The number of times the sampling is repeated (with new output files for each run)."""
 
-    sample_from_prior: bool = False
-    """If `true`, the MCMC ignores the data and samples parameters from the prior distribution."""
-
-    grow_to_adjacent: Annotated[float, Field(ge=0, le=1)] = 0.8
-    """The fraction of grow-steps that only propose adjacent languages as candidates to be added to an area."""
-
-    screen_log_interval: PositiveInt = 1000
-    """Frequency at which the step ID and log-likelihood are written to the screen logger (and log file)."""
-
-    operators: OperatorsConfig = Field(default_factory=OperatorsConfig)
-    initialization: InitializationConfig = Field(default_factory=InitializationConfig)
     warmup: WarmupConfig = Field(default_factory=WarmupConfig)
     mc3: MC3Config = Field(default_factory=MC3Config)
 
-    @model_validator(mode="before")
     @classmethod
-    def forward_init_objects_per_cluster(cls, values):
-        if "init_objects_per_cluster" in values:
-            if "initialization" in values and "objects_per_cluster" in values["initialization"]:
-                raise ValueError("The `init_objects_per_cluster` field was moved to `initialization > "
-                                 "objects_per_cluster`. Please remove the old `init_objects_per_cluster` entry.")
-            else:
-                if "initialization" not in values:
-                    values["initialization"] = {}
-                values["initialization"]["objects_per_cluster"] = values.pop("init_objects_per_cluster")
-                warnings.warn("The `init_objects_per_cluster` field was moved to `initialization > objects_per_cluster."
-                              " The value is be forwarded automatically, but this will not be supported in future "
-                              "versions of sBayes. Please adapt the config file accordingly.")
-        return values
+    def deprecated_attributes(cls) -> list:
+        return ["sample_from_prior", "operators", "init_objects_per_cluster", "initialization", "grow_to_adjacent", "screen_log_interval"]
 
     @model_validator(mode="after")
     def validate_sample_spacing(self):
@@ -502,11 +604,25 @@ class DataConfig(BaseConfig):
     features: RelativeFilePath
     """Path to the CSV file with features used for the analysis."""
 
-    feature_states: RelativeFilePath
+    feature_states: Optional[RelativeFilePath] = None
     """Path to the CSV file defining the possible states for each feature."""
+
+    feature_types: Optional[RelativeFilePath] = None
+    """Path to the YAML file defining the type and support of each feature."""
 
     projection: str = "epsg:4326"
     """String identifier of the projection in which locations are given."""
+
+    @model_validator(mode="after")
+    def validate_feature_types(self):
+        """Ensure that either feature_types or feature_states file is provided."""
+        if self.feature_types is None:
+            if self.feature_states is None:
+                raise ValidationError("Provide either `feature_types` or `feature_states` for the data.")
+            else:
+                warnings.warn("The `feature_states` field is deprecated. Please use `feature_types` instead.")
+
+        return self
 
 
 class ResultsConfig(BaseConfig):

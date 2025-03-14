@@ -1,8 +1,7 @@
 from __future__ import annotations
 
 from functools import lru_cache
-from pathlib import Path
-from typing import List, Sequence, Callable, Optional, OrderedDict
+from typing import Sequence, Callable
 import json
 
 import numpy as np
@@ -11,31 +10,28 @@ import jax
 import jax.numpy as jnp
 import numpyro
 import numpyro.distributions as dist
-import scipy.stats as stats
-from ruamel import yaml
 from scipy.sparse.csgraph import minimum_spanning_tree, csgraph_from_dense
 from scipy.sparse import csr_matrix
 import libpysal as pysal
 
 from sbayes.model.model_shapes import ModelShapes
-from sbayes.preprocessing import sample_categorical
-from sbayes.util import (compute_delaunay, n_smallest_distances, log_multinom,
-                         dirichlet_logpdf, log_expit, PathLike, log_binom, normalize, FLOAT_TYPE, timeit,
-                         normalize_weights)
+from sbayes.util import dirichlet_logpdf, log_expit, FLOAT_TYPE, normalize_weights
 from sbayes.config.config import PriorConfig, DirichletPriorConfig, GeoPriorConfig, ClusterPriorConfig, \
-    ConfoundingEffectPriorConfig
-from sbayes.load_data import Data, ComputeNetwork, GroupName, ConfounderName, StateName, FeatureName, Confounder
+    ConfoundingEffectConfig, GaussianVariancePriorConfig, GaussianMeanPriorConfig, GaussianPriorConfig, \
+    ClusterEffectConfig
+from sbayes.load_data import Data, ComputeNetwork, GroupName, StateName, FeatureName, Confounder, \
+    CategoricalFeatures, GaussianFeatures, GenericTypeFeatures
 
 
 class Prior:
     """The joint prior of all parameters in the sBayes model.
 
     Attributes:
-        size_prior (ClusterPrior): prior on the cluster size
+        cluster_prior (ClusterPrior): prior on the cluster size
         geo_prior (GeoPrior): prior on the geographic spread of a cluster
-        prior_weights (WeightsPrior): prior on the mixture weights
-        prior_cluster_effect (ClusterEffectPrior): prior on the areal effect
-        prior_confounding_effects (ConfoundingEffectsPrior): prior on all confounding effects
+        weights_prior (WeightsPrior): prior on the mixture weights
+        cluster_effect_prior (ClusterEffectPrior): prior on the areal effect
+        confounding_effects_prior (CategoricalConfoundingEffectsPrior): prior on all confounding effects
     """
 
     def __init__(self, shapes: ModelShapes, config: PriorConfig, data: Data):
@@ -43,58 +39,29 @@ class Prior:
         self.config = config
         self.data = data
 
-        self.size_prior = ClusterPrior(config=self.config.cluster_assignment,
-                                       shapes=self.shapes)
-        self.geo_prior = GeoPrior(config=self.config.geo,
+        self.cluster_prior = ClusterPrior(config=config.cluster_assignment,
+                                          shapes=self.shapes)
+        self.geo_prior = GeoPrior(config=config.geo,
                                   cost_matrix=data.geo_cost_matrix,
                                   network=data.network)
-        self.prior_weights = WeightsPrior(config=self.config.weights,
-                                          shapes=self.shapes,
-                                          feature_names=data.features.feature_and_state_names)
-        self.prior_cluster_effect = ClusterEffectPrior(config=self.config.cluster_effect,
-                                                       shapes=self.shapes,
-                                                       feature_names=data.features.feature_and_state_names)
-        self.prior_confounding_effects = {}
-        for conf_name, conf_prior_config in self.config.confounding_effects.items():
-            conf = data.confounders[conf_name]
-            self.prior_confounding_effects[conf_name] = ConfoundingEffectsPrior(
-                config=conf_prior_config,
-                shapes=self.shapes,
-                conf=conf_name,
-                feature_names=data.features.feature_and_state_names,
-                group_names=conf.group_names,
-                conf_effect_priors=self.prior_confounding_effects,
-                features=data.features.values,
-            )
-            if self.prior_confounding_effects[conf_name].any_dynamic_priors:
-                conf.has_universal_prior = True
+        self.weights_prior = WeightsPrior(config=config.weights, shapes=self.shapes)
 
-        self.source_prior = SourcePrior(na_features=self.data.features.na_values)
-
-    def __call__(self, sample, caching=True) -> float:
-        """Compute the prior of the current sample.
-        Args:
-            sample: A Sample object consisting of clusters, weights, areal and confounding effects
-        Returns:
-            The (log)prior of the current sample
-        """
-        log_prior = 0
-
-        # Sum all prior components (in log-space)
-        log_prior += self.size_prior(sample, caching=caching)
-        log_prior += self.geo_prior(sample, caching=caching)
-        log_prior += self.prior_weights(sample, caching=caching)
-        log_prior += self.source_prior(sample, caching=caching)
-        return log_prior
+        self.cluster_effect_prior = ClusterEffectPrior(config=config.cluster_effect, partitions=data.features.partitions)
+        self.confounding_effects_prior = {
+            c: ConfoundingEffectsPrior(config=config.confounding_effects[c], conf=conf, partitions=data.features.partitions)
+            for c, conf in data.confounders.items()
+        }
 
     def get_setup_message(self):
         """Compile a set-up message for logging."""
         setup_msg = self.geo_prior.get_setup_message()
-        setup_msg += self.size_prior.get_setup_message()
-        setup_msg += self.prior_weights.get_setup_message()
-        setup_msg += self.prior_cluster_effect.get_setup_message()
-        for k, v in self.prior_confounding_effects.items():
-            setup_msg += v.get_setup_message()
+        setup_msg += self.cluster_prior.get_setup_message()
+        setup_msg += self.weights_prior.get_setup_message()
+        for partition in self.data.features.partitions:
+            setup_msg += f"Priors for partition {partition.name}:\n"
+            setup_msg += self.cluster_effect_prior[partition.name].get_setup_message()
+            for k, v in self.confounding_effects_prior.items():
+                setup_msg += v[partition.name].get_setup_message()
 
         return setup_msg
 
@@ -118,500 +85,321 @@ def compute_has_components(clusters: NDArray[bool], confounders: dict[str, Confo
     return np.array(has_components)
 
 
-Concentration = List[NDArray[float]]
+def parse_concentration_dict(
+    concentration_dict: dict[FeatureName, dict[StateName, float]],
+    feature_names: dict[FeatureName, Sequence[StateName]],
+) -> list[np.ndarray]:
+    """Compile the array with concentration parameters"""
+    concentration = []
+    for f, state_names_f in feature_names.items():
+        conc_f = [concentration_dict[f][s] for s in state_names_f]
+        concentration.append(np.array(conc_f, dtype=FLOAT_TYPE))
+    return concentration
 
 
-class DirichletPrior:
+def parse_custom_concentration(config: DirichletPriorConfig, feature_names: dict[FeatureName, Sequence[StateName]]) -> list[np.ndarray]:
+    # Get the concentration parameters from config or JSON file
+    if config.file:
+        with open(config.file, 'r') as f:
+            concentration_dict = json.load(f)
+    elif config.parameters:
+        concentration_dict = config.parameters
+    else:
+        raise ValueError('DirichletPrior requires a file or parameters.')
 
-    PriorType = DirichletPriorConfig.Types
+    # Parse the config parameters (requires feature_names)
+    return parse_concentration_dict(concentration_dict, feature_names)
 
-    config: DirichletPriorConfig | dict[GroupName, DirichletPriorConfig]
-    shapes: ModelShapes
-    initial_counts: float
-    prior_type: Optional[PriorType]
-    concentration: Concentration | dict[GroupName, Concentration]
-    concentration_array: NDArray[float]
 
-    uniform_concentration_array: NDArray[np.float64] = None
+def parse_dirichlet_concentration(
+    config: DirichletPriorConfig,
+    shape: tuple[int,...],
+    feature_names: dict[FeatureName, Sequence[StateName]] | None = None,
+) -> jnp.array:
+    """Parse the concentration parameter of a Dirichlet prior."""
+    if config.type == DirichletPriorConfig.Types.UNIFORM:
+        return jnp.full(shape, 1.0)
+    elif config.type == DirichletPriorConfig.Types.SYMMETRIC_DIRICHLET:
+        assert config.prior_concentration is not None
+        return jnp.full(shape, config.prior_concentration)
+    elif config.type == DirichletPriorConfig.Types.DIRICHLET:
+        assert feature_names is not None
+        return parse_custom_concentration(config, feature_names)
+    else:
+        raise ValueError(f"Invalid Dirichlet prior type: {config.type}")
+
+
+class CategoricalConfoundingEffectsPrior:
+
+    def __init__(
+        self,
+        config: dict[GroupName, DirichletPriorConfig],
+        conf: Confounder,
+        partition: CategoricalFeatures,
+    ):
+        self.config = config
+        self.conf = conf
+        self.partition = partition
+        self.group_names = conf.group_names
+
+        n_groups = len(self.group_names)
+        self.concentration = {}
+        self.concentration_array = np.zeros((n_groups, partition.n_features, partition.n_states), dtype=float)
+        default_config = config.get("<DEFAULT>", DirichletPriorConfig())
+        for i_g, group in enumerate(self.group_names):
+            # If config is not provided for this group, use the default config
+            if group not in config:
+                config[group] = default_config
+
+            # Parse the concentration parameters into the concentration dictionary
+            self.concentration[group] = parse_dirichlet_concentration(
+                config=config[group],
+                shape=(partition.n_features, partition.n_states),
+                feature_names=partition.state_names_dict,
+            )
+
+            # Compile the concentration array
+            self.concentration_array[i_g, ...] = np.array(self.concentration[group], dtype=FLOAT_TYPE)
+
+    def get_setup_message(self):
+        """Compile a set-up message for logging."""
+        msg = f"Prior on confounding effect {self.conf.name}:\n"
+        for i_g, group in enumerate(self.group_names):
+            msg += f"\tPrior {self.config[group].type.value} for confounder {self.conf.name} = {group}.\n"
+        return msg
+
+
+class CategoricalClusterEffectPrior:
+
+    def __init__(
+        self,
+        config: DirichletPriorConfig,
+        partition: CategoricalFeatures,
+    ):
+        self.config = config
+        self.partition = partition
+        self.concentration = parse_dirichlet_concentration(
+            config=self.config,
+            shape=(partition.n_features, partition.n_states),
+            feature_names=partition.state_names_dict,
+        )
+        self.concentration_array = np.array(self.concentration, dtype=FLOAT_TYPE)
+
+    def get_setup_message(self):
+        """Compile a set-up message for logging."""
+        return f'Prior on cluster effect for {self.partition.name} features: {self.config.type.value}\n'
+
+
+class GaussianMeanPrior:
+
+    def __init__(
+        self,
+        config: GaussianPriorConfig  | dict[GroupName, GaussianPriorConfig],
+        partition: GaussianFeatures,
+        group_names: Sequence[GroupName] | None = None,
+    ):
+        self.config = config
+        self.partition = partition
+        self.group_names = group_names
+
+        if isinstance(config, GaussianPriorConfig):
+            # Parse the prior mean and variance from config
+            mu_0_array, sigma_0_array = self.parse_group_prior(config.mean)
+
+        elif isinstance(config, dict):
+            if group_names is None:
+                raise ValueError('Group names are required for multiple Gaussian priors.')
+
+            default_config = config.get("<DEFAULT>", None)
+
+            # Parse the prior mean and variance for each group from respective config
+            n_groups = len(group_names)
+            mu_0_array = np.zeros((n_groups, partition.n_features))
+            sigma_0_array = np.zeros((n_groups, partition.n_features))
+            for i_g, group in enumerate(group_names):
+                group_config = config.get(group, default_config)
+                if group_config is None:
+                    raise ValueError(f'No gaussian prior config for group `{group}`.')
+                mu_0_array[i_g, :], sigma_0_array[i_g, :] = self.parse_group_prior(group_config.mean)
+
+        else:
+            raise ValueError(f'Invalid Gaussian prior config: {config}')
+
+        # Convert to jax arrays
+        self.mu_0_array = jnp.array(mu_0_array)
+        self.sigma_0_array = jnp.array(sigma_0_array)
+
+    def parse_group_prior(self, config: GaussianMeanPriorConfig):
+        n_features = self.partition.n_features
+        if config.type is config.Types.GAUSSIAN:
+            mu_0_array = jnp.full(n_features, config.parameters['mu_0'])
+            sigma_0_array = jnp.full(n_features, config.parameters['sigma_0'])
+        else:
+            raise ValueError(self.invalid_prior_message(config.type))
+        return mu_0_array, sigma_0_array
+
+    def invalid_prior_message(self, s):
+        name = self.__class__.__name__
+        valid_types = ', '.join(self.config.Types)
+        return f'Invalid prior type {s} for {name} (choose from [{valid_types}]).'
+
+
+class GaussianVariancePrior:
+
+    def __init__(
+        self,
+        config: GaussianPriorConfig | dict[GroupName, GaussianPriorConfig],
+        partition: GaussianFeatures,
+        group_names: Sequence[GroupName] | None = None,
+    ):
+        self.config = config
+        self.partition = partition
+        self.group_names = group_names
+
+        if isinstance(config, GaussianPriorConfig):
+            self.rate = self.parse_group_prior(config.variance)
+        elif isinstance(config, dict):
+            if group_names is None:
+                raise ValueError('Group names are required for multiple Gaussian priors.')
+            default_config = config.get("<DEFAULT>", None)
+            group_rates = []
+            for group in group_names:
+                group_config = config.get(group, default_config)
+                if group_config is None:
+                    raise ValueError(f'No gaussian prior config for group `{group}`.')
+                group_rates.append(
+                    self.parse_group_prior(group_config.variance)
+                )
+            self.rate = jnp.array(group_rates)
+        else:
+            raise ValueError(f'Invalid Gaussian prior config: {config}')
+
+    def parse_group_prior(self, config: GaussianVariancePriorConfig):
+        n_features = self.partition.n_features
+        if config.type is config.Types.EXPONENTIAL:
+            rate = jnp.full(n_features, config.parameters['rate'])
+        else:
+            raise ValueError(self.invalid_prior_message(config.type))
+        return rate
+
+    def invalid_prior_message(self, s):
+        name = self.__class__.__name__
+        valid_types = ', '.join(GaussianVariancePriorConfig.Types)
+        return f'Invalid prior type {s} for {name} (choose from [{valid_types}]).'
+
+
+class GaussianConfoundingEffectsPrior:
+
+    def __init__(
+        self,
+        config: dict[GroupName, GaussianPriorConfig],
+        conf: Confounder,
+        partition: GaussianFeatures,
+    ):
+        self.config = config
+        self.conf = conf
+        self.partition = partition
+        self.mean = GaussianMeanPrior(config=config, partition=partition, group_names=conf.group_names)
+        self.variance = GaussianVariancePrior(config=config, partition=partition, group_names=conf.group_names)
+
+    def get_setup_message(self):
+        """Compile a set-up message for logging."""
+        msg = f"Prior on confounding effect {self.conf.name} for {self.partition.name} features:\n"
+        for group in self.config.keys():
+            msg += f"\tPrior for group {group}: (mean={self.config[group].mean.type.value}, variance={self.config[group].variance.type.value}).\n"
+        return msg
+
+class GaussianClusterEffectPrior:
+
+    def __init__(
+        self,
+        config: GaussianPriorConfig,
+        partition: GaussianFeatures,
+    ):
+        self.config = config
+        self.partition = partition
+        self.mean = GaussianMeanPrior(config=self.config, partition=partition)
+        self.variance = GaussianVariancePrior(config=self.config, partition=partition)
+
+    def get_setup_message(self):
+        """Compile a set-up message for logging."""
+        return f"Prior on cluster effect for {self.partition.name} features:  (mean={self.config.mean.type.value}, variance={self.config.variance.type.value})\n"
+
+
+class ClusterEffectPrior:
+
+    def __init__(
+        self,
+        config: ClusterEffectConfig,
+        partitions: list[GenericTypeFeatures],
+    ):
+        self.config = config
+        self.partition_priors = {}
+
+        # Create prior for  each partition
+        for p in partitions:
+            if isinstance(p, CategoricalFeatures):
+                self.partition_priors[p.name] = CategoricalClusterEffectPrior(config.categorical, p)
+            elif isinstance(p, GaussianFeatures):
+                self.partition_priors[p.name] = GaussianClusterEffectPrior(config.gaussian, p)
+            else:
+                raise NotImplementedError(f'Partition type {type(p)} is not supported.')
+
+    def __getitem__(self, partition_name):
+        return self.partition_priors[partition_name]
+
+    def get_setup_message(self):
+        return "".join(prior.get_setup_message() for prior in self.partition_priors.values())
+
+class ConfoundingEffectsPrior:
+
+    def __init__(
+        self,
+        config: dict[GroupName, ConfoundingEffectConfig],
+        conf: Confounder,
+        partitions: list[GenericTypeFeatures],
+    ):
+        self.config = config
+        self.partition_priors = {}
+
+        # Create prior for  each partition
+        for p in partitions:
+            if isinstance(p, CategoricalFeatures):
+                categorical_configs = {g: c.categorical for g, c in config.items()}
+                self.partition_priors[p.name] = CategoricalConfoundingEffectsPrior(categorical_configs, conf, p)
+            elif isinstance(p, GaussianFeatures):
+                gaussian_configs = {g: c.gaussian for g, c in config.items()}
+                self.partition_priors[p.name] = GaussianConfoundingEffectsPrior(gaussian_configs, conf, p)
+            else:
+                raise NotImplementedError(f'Partition type {type(p)} is not supported.')
+
+    def __getitem__(self, partition_name):
+        return self.partition_priors[partition_name]
+
+    def get_setup_message(self):
+        return "".join(prior.get_setup_message() for prior in self.partition_priors.values())
+
+class WeightsPrior:
 
     def __init__(
         self,
         config: DirichletPriorConfig | dict[GroupName, DirichletPriorConfig],
         shapes: ModelShapes,
-        feature_names: OrderedDict[FeatureName, list[StateName]],
-        initial_counts=1.0,
     ):
         self.config = config
         self.shapes = shapes
-        self.initial_counts = initial_counts
-        self.feature_names = feature_names
-        self.prior_type = None
-        self.concentration = None
-
-        self.parse_attributes()
-
-        self.uniform_concentration_array = self.concentration_list_to_array(
-            self.get_symmetric_concentration(1.0)
+        self.concentration = parse_dirichlet_concentration(
+            config=self.config,
+            shape=(shapes.n_features, self.shapes.n_components),
         )
-
-    @property
-    def n_features(self):
-        return len(self.feature_names)
-
-    def load_concentration(self, config: DirichletPriorConfig) -> list[np.ndarray]:
-        if config.file:
-            return self.parse_concentration_json(config.file)
-        elif config.parameters:
-            return self.parse_concentration_dict(config.parameters)
-        else:
-            raise ValueError('DirichletPrior requires a file or parameters.')
-
-    def parse_concentration_json(self, json_path: PathLike) -> list[np.ndarray]:
-        # Read the concentration parameters from the JSON file
-        with open(json_path, 'r') as f:
-            if Path(json_path).suffix.lower() in [".yaml", ".yml"]:
-                concentration_dict = yaml.YAML(typ='safe').load(json_path)
-            else:
-                concentration_dict = json.load(f)
-        # Parse the resulting dictionary
-        return self.parse_concentration_dict(concentration_dict)
-
-    def parse_concentration_dict(
-        self,
-        concentration_dict: dict[FeatureName, dict[StateName, float]]
-    ) -> list[np.ndarray]:
-        """Compile the array with concentration parameters"""
-        concentration = []
-        for f, state_names_f in self.feature_names.items():
-            conc_f = [
-                self.initial_counts + concentration_dict[f][s]
-                for s in state_names_f
-            ]
-            concentration.append(np.array(conc_f, dtype=FLOAT_TYPE))
-        return concentration
-
-    def get_symmetric_concentration(self, c: float) -> list[np.ndarray]:
-        concentration = []
-        for n_states_f in self.shapes.n_states_per_feature:
-            concentration.append(
-                np.full(shape=n_states_f, fill_value=c)
-            )
-        return concentration
-
-    def get_oneovern_concentration(self) -> list[np.ndarray]:
-        concentration = []
-        for n_states_f in self.shapes.n_states_per_feature:
-            concentration.append(
-                np.ones(shape=n_states_f) / n_states_f
-            )
-        return concentration
-
-    def concentration_list_to_array(self, concentration: list[NDArray[float]]):
-        concentration_array = np.zeros((self.shapes.n_features, self.shapes.n_states))
-        for i_f, c_g_f in enumerate(concentration):
-            concentration_array[i_f, :len(c_g_f)] = c_g_f
-        return concentration_array
-
-    def parse_attributes(self):
-        raise NotImplementedError()
-
-    def __call__(self, sample):
-        raise NotImplementedError()
-
-    def invalid_prior_message(self, s):
-        name = self.__class__.__name__
-        valid_types = ', '.join(self.PriorType)
-        return f'Invalid prior type {s} for {name} (choose from [{valid_types}]).'
-
-
-def parse_dirichlet_concentration(
-    dirichlet_type: str,
-    n_states: int,
-    prior_concentration: float = None
-) -> jnp.array:
-    if dirichlet_type == DirichletPriorConfig.Types.UNIFORM:
-        return jnp.full(n_states, 1.0)
-    elif dirichlet_type == DirichletPriorConfig.Types.JEFFREYS:
-        return jnp.full(n_states, 0.5)
-    elif dirichlet_type == DirichletPriorConfig.Types.BBS:
-        return jnp.ones(n_states) / n_states
-    elif dirichlet_type == DirichletPriorConfig.Types.SYMMETRIC_DIRICHLET:
-        if prior_concentration is None:
-            raise ValueError(f"Dirichlet prior of type `symmetric_dirichlet` requires a concentration parameter.")
-        return jnp.full(n_states, prior_concentration)
-    else:
-        raise ValueError(f"Invalid Dirichlet prior type: {dirichlet_type}")
-
-
-class ConfoundingEffectsPrior(DirichletPrior):
-
-    conf: ConfounderName
-
-    def __init__(
-        self,
-        *args,
-        conf: ConfounderName,
-        group_names: list[str],
-        conf_effect_priors: dict[str, ConfoundingEffectsPrior],
-        features: NDArray[bool],
-        **kwargs
-    ):
-        self.conf = conf
-        self.group_names = group_names
-        self.any_dynamic_priors = False
-        self.conf_effect_priors = conf_effect_priors
-        self.features = features
-        self.precision = 0.0
-        super(ConfoundingEffectsPrior, self).__init__(*args, **kwargs)
-
-    def get_default_prior_config(self) -> ConfoundingEffectPriorConfig:
-        return ConfoundingEffectPriorConfig()
-
-    def parse_attributes(self):
-        n_groups = len(self.group_names)
-        self.concentration = {}
-        self._concentration_array = np.zeros((n_groups, self.shapes.n_features, self.shapes.n_states), dtype=float)
-        self.any_dynamic_priors = False
-
-        default_config = self.config.get("<DEFAULT>", None)
-
-        for i_g, group in enumerate(self.group_names):
-            if group not in self.config:
-                if default_config is None:
-                    self.config[group] = self.get_default_prior_config()
-                else:
-                    self.config[group] = default_config
-
-            config_g = self.config[group]
-            group_prior_type = config_g.type
-            if group_prior_type is self.PriorType.UNIFORM:
-                self.concentration[group] = self.get_symmetric_concentration(1.0)
-            elif group_prior_type is self.PriorType.JEFFREYS:
-                self.concentration[group] = self.get_symmetric_concentration(0.5)
-            elif group_prior_type is self.PriorType.BBS:
-                self.concentration = self.get_oneovern_concentration()
-            elif group_prior_type is self.PriorType.DIRICHLET:
-                self.concentration[group] = self.load_concentration(config_g)
-            elif group_prior_type is self.PriorType.SYMMETRIC_DIRICHLET:
-                self.concentration[group] = self.get_symmetric_concentration(config_g.prior_concentration)
-            elif group_prior_type is self.PriorType.UNIVERSAL:
-                # Concentration will change based on sample of universal distribution...
-                # For initialization: use uniform as dummy concentration to avoid invalid states
-                self.concentration[group] = self.get_symmetric_concentration(config_g.prior_concentration)
-                self.precision = config_g.prior_concentration
-                self.any_dynamic_priors = True
-
-            else:
-                raise ValueError(self.invalid_prior_message(config_g.type))
-
-            for i_f, conc_f in enumerate(self.concentration[group]):
-                self._concentration_array[i_g, i_f, :len(conc_f)] = conc_f
-
-        if not self.any_dynamic_priors:
-            self._concentration_array.setflags(write=False)
-
-    def concentration_array(self, sample):
-        if self.any_dynamic_priors:
-            universal_prior_counts = self.conf_effect_priors['universal'].concentration_array(sample)[0]
-            universal_feature_counts = sample.feature_counts['universal'].value[0]
-
-            univ_counts = universal_prior_counts + universal_feature_counts
-            mean = normalize(univ_counts, axis=-1)
-            # shape: (n_features, n_states)
-
-            # Add 5% uniform distribution to avoid overly pointy
-            uniform = normalize(self.shapes.states_per_feature, axis=-1)
-            mean = 0.95 * mean + 0.05 * uniform
-
-            # # Clip precision at the actual universal posterior counts
-            # precision = np.minimum(self.precision, univ_counts.sum(axis=-1, keepdims=True))
-            precision = self.precision
-
-            # OLD: We add 1 to the precision for each possible feature state
-            # NEW: We scale the precision by the number of feature states
-            # TODO: discuss whether this makes sense
-            precision *= np.asarray(self.shapes.n_states_per_feature)[:, np.newaxis]
-
-            # Scale the mean vector to length precision
-            concentration = mean * precision
-
-            for i_g, group in enumerate(self.group_names):
-                if self.config[group].type is self.PriorType.UNIVERSAL:
-                    self._concentration_array[i_g] = concentration
-
-        return self._concentration_array
-
-    def concentration_array_given_unchanged(self, sample, changed_objects: NDArray[bool]):
-        if self.any_dynamic_priors:
-            universal_prior_counts = self.conf_effect_priors['universal'].concentration_array(sample)[0]
-            universal_feature_counts = sample.feature_counts['universal'].value[0]
-
-            univ_counts = universal_prior_counts + universal_feature_counts
-
-            univ_counts_changeable = np.sum(sample.source.value[changed_objects, :, 0, None] *
-                                            self.features[changed_objects, :, :], axis=0)
-
-            univ_counts -= univ_counts_changeable
-            mean = normalize(univ_counts, axis=-1)
-            # shape: (n_features, n_states)
-
-            # Add 5% uniform distribution to avoid overly pointy
-            uniform = normalize(self.shapes.states_per_feature, axis=-1)
-            mean = 0.95 * mean + 0.05 * uniform
-
-            # # Clip precision at the actual universal posterior counts
-            # precision = np.minimum(self.precision, univ_counts.sum(axis=-1, keepdims=True))
-            precision = self.precision
-
-            # scale the precision by the number of feature states
-            precision *= np.asarray(self.shapes.n_states_per_feature)[:, np.newaxis]
-
-            # Scale the mean vector to length precision
-            concentration = mean * precision
-
-            for i_g, group in enumerate(self.group_names):
-                if self.config[group].type is self.PriorType.UNIVERSAL:
-                    self._concentration_array[i_g] = concentration
-
-        return self._concentration_array
-
-    def __call__(self, sample, caching=True) -> float:
-        """"Calculate the log PDF of the confounding effects prior.
-
-        Args:
-            sample: Current MCMC sample.
-
-        Returns:
-            Logarithm of the prior probability density.
-        """
-
-        parameter = sample.confounding_effects[self.conf]
-        cache = sample.cache.confounding_effects_prior[self.conf]
-        if caching and not cache.is_outdated():
-            return cache.value.sum()
-
-        group_names = sample.confounders[self.conf].group_names
-        with cache.edit() as cached_priors:
-            for i_group in cache.what_changed(f'c_{self.conf}', caching=caching):
-                group = group_names[i_group]
-
-                if self.config[group].type is self.PriorType.UNIFORM:
-                    cached_priors[i_group] = 0.0
-                    continue
-
-                cached_priors[i_group] = compute_group_effect_prior(
-                    group_effect=parameter.value[i_group],
-                    concentration=self.concentration[group],
-                    applicable_states=self.shapes.states_per_feature,
-                )
-
-        return cache.value.sum()
-
-    def generate_sample(self) -> dict[GroupName, NDArray[float]]:  # shape: (n_samples, n_features, n_states)
-        group_effects = {}
-        for i_g, conc_g in enumerate(self.concentration):
-            group_effects[...] = np.array([
-
-            ])
-        return group_effects
-
-    def get_setup_message(self):
-        """Compile a set-up message for logging."""
-        msg = f"Prior on confounding effect {self.conf}:\n"
-        for i_g, group in enumerate(self.group_names):
-            msg += f"\tPrior {self.config[group].type.value} for confounder {self.conf} = {group}.\n"
-        return msg
-
-
-class ClusterEffectPrior(DirichletPrior):
-
-    def parse_attributes(self):
-        self.prior_type = self.config.type
-        if self.prior_type is self.PriorType.UNIFORM:
-            self.concentration = self.get_symmetric_concentration(1.0)
-        elif self.prior_type is self.PriorType.JEFFREYS:
-            self.concentration = self.get_symmetric_concentration(0.5)
-        elif self.prior_type is self.PriorType.BBS:
-            self.concentration = self.get_oneovern_concentration()
-        elif self.prior_type is self.PriorType.SYMMETRIC_DIRICHLET:
-            self.concentration = self.get_symmetric_concentration(self.config.prior_concentration)
-        else:
-            raise ValueError(self.invalid_prior_message(self.prior_type))
-
-        self.concentration_array = np.zeros((self.shapes.n_features, self.shapes.n_states))
-        for i_f, conc_f in enumerate(self.concentration):
-            self.concentration_array[i_f, :len(conc_f)] = conc_f
-
-    # def __call__(self, sample, caching=True) -> float:
-    #     """Compute the prior for the areal effect (or load from cache).
-    #     Args:
-    #         sample: Current MCMC sample.
-    #     Returns:
-    #         Logarithm of the prior probability density.
-    #     """
-    #     parameter = sample.cluster_effect
-    #     cache = sample.cache.cluster_effect_prior
-    #     if not cache.is_outdated():
-    #         # return np.sum(cache.value)
-    #         return cache.value
-    #
-    #     log_p = 0.0
-    #     if self.prior_type is self.PriorType.UNIFORM:
-    #         pass
-    #     else:
-    #         for i_cluster in range(sample.n_clusters):
-    #             log_p += compute_group_effect_prior(
-    #                 group_effect=parameter.value[i_cluster],
-    #                 concentration=self.concentration,
-    #                 applicable_states=self.shapes.states_per_feature,
-    #             )
-    #
-    #     cache.update_value(log_p)
-    #     # return np.sum(cache.value)
-    #     return log_p
-
-    def get_setup_message(self):
-        """Compile a set-up message for logging."""
-        return f'Prior on cluster effect: {self.prior_type.value}\n'
-
-
-class WeightsPrior(DirichletPrior):
-
-    def get_symmetric_concentration(self, c: float) -> list[np.ndarray]:
-        return [np.full(self.shapes.n_components, c) for _ in range(self.shapes.n_features)]
-
-    def get_oneovern_concentration(self) -> list[np.ndarray]:
-        return self.get_symmetric_concentration(1 / self.shapes.n_components)
-
-    def concentration_list_to_array(self, concentration: list[NDArray[float]]):
-        concentration_array = np.zeros((self.shapes.n_features, self.shapes.n_components))
-        for i_f, c_g_f in enumerate(concentration):
-            concentration_array[i_f, :len(c_g_f)] = c_g_f
-        return concentration_array
-
-    def parse_attributes(self):
-        self.prior_type = self.config.type
-        if self.prior_type is self.PriorType.UNIFORM:
-            self.concentration = list(np.full(
-                shape=(self.shapes.n_features, self.shapes.n_components),
-                fill_value=self.initial_counts
-            ))
-        elif self.prior_type is self.PriorType.JEFFREYS:
-            self.concentration = self.get_symmetric_concentration(0.5)
-        elif self.prior_type is self.PriorType.BBS:
-            self.concentration = self.get_oneovern_concentration()
-        elif self.prior_type is self.PriorType.SYMMETRIC_DIRICHLET:
-            self.concentration = self.get_symmetric_concentration(self.config.prior_concentration)
-        else:
-            raise ValueError(self.invalid_prior_message(self.prior_type))
-
         self.concentration_array = np.array(self.concentration, dtype=FLOAT_TYPE)
 
-    def __call__(self, sample, caching=True) -> float:
-        """Compute the prior for weights (or load from cache).
-        Args:
-            sample: Current MCMC sample.
-        Returns:
-            Logarithm of the prior probability density.
-        """
-        # TODO: reactivate caching once we implement more complex priors
-        parameter = sample.weights
-        cache = sample.cache.weights_prior
-        if not cache.is_outdated():
-            return cache.value
-
-        log_p = 0.0
-        if self.prior_type is self.PriorType.UNIFORM:
-            pass
-        elif self.prior_type in [self.PriorType.DIRICHLET,
-                                 self.PriorType.JEFFREYS,
-                                 self.PriorType.BBS,
-                                 self.PriorType.SYMMETRIC_DIRICHLET]:
-            log_p = compute_group_effect_prior(
-                group_effect=parameter.value,
-                concentration=self.concentration,
-                applicable_states=np.ones_like(parameter.value, dtype=bool),
-            )
-        else:
-            raise ValueError(self.invalid_prior_message(self.prior_type))
-
-        cache.update_value(log_p)
-        return log_p
-
-    def pointwise_prior(self, sample) -> NDArray[float]:
-        return compute_group_effect_prior_pointwise(
-            group_effect=sample.weights.value,
-            concentration=self.concentration,
-            applicable_states=np.ones_like(sample.weights.value, dtype=bool),
-        )
+    def get_numpyro_distr(self) -> float:
+        ...  # TODO: implement
 
     def get_setup_message(self):
         """Compile a set-up message for logging."""
-        return f'Prior on weights: {self.prior_type.value}\n'
-
-    def generate_sample(self) -> NDArray[float]:  # shape: (n_features, n_states)
-        return np.array([np.random.dirichlet(c) for c in self.concentration])
-
-
-class SourcePrior:
-
-    def __init__(self, na_features: NDArray[bool]):
-        self.valid_observations = ~na_features
-
-    def __call__(self, sample, caching=True) -> float:
-        """Compute (or load from cache) the prior for the source array, given the weights.
-        Args:
-            sample: Current MCMC sample.
-        Returns:
-            Logarithm of the prior probability density.
-        """
-        cache = sample.cache.source_prior
-        if caching and not cache.is_outdated():
-            return cache.value.sum()
-
-        # if cache.ahead_of("weights"):
-        #     changed = np.arange(sample.n_objects)
-        # else:
-        #     changed = cache.what_changed(input_key=["source"], caching=caching)
-        #
-        # if len(changed) > 0:
-        #     w = update_weights(sample)[changed]
-        #     s = sample.source.value[changed]
-        #     observation_weights = np.sum(w * s, axis=-1)
-        #     with cache.edit() as source_prior:
-        #         source_prior[changed] = np.sum(np.log(observation_weights), axis=-1, where=self.valid_observations[changed])
-
-        with cache.edit() as source_prior:
-            if cache.ahead_of("weights"):
-                changed = np.arange(sample.n_objects)
-            else:
-                changed = cache.what_changed(input_key=["source"], caching=caching)
-
-            if len(changed) > 0:
-                w = update_weights(sample)[changed]
-                s = sample.source.value[changed]
-
-                valid = self.valid_observations[changed]
-                obs_weights = np.sum(w * s, axis=-1)
-                obs_log_weights = np.log(obs_weights, where=valid)
-                source_prior[changed] = np.sum(obs_log_weights, where=valid, axis=-1)
-
-        return cache.value.sum()
-
-    @staticmethod
-    def old_source_prior(sample) -> float:
-        weights = update_weights(sample)
-        is_source = np.where(sample.source.value.ravel())
-        observation_weights = weights.ravel()[is_source]
-        return np.log(observation_weights).sum()
-
-    @staticmethod
-    def generate_sample(
-        weights: NDArray[float],
-        has_components: NDArray[bool],
-    ) -> NDArray[float]:  # shape: (n_objects, n_features)
-        p = normalize_weights(weights, has_components)
-        return sample_categorical(p, binary_encoding=True)
+        return f'Prior on weights: {self.config.type.value}\n'
 
 
 class ClusterPrior:
@@ -636,10 +424,9 @@ class ClusterPrior:
         if self.prior_type is self.PriorType.CATEGORICAL:
             pass
         elif self.prior_type is self.PriorType.DIRICHLET:
-            self.concentration = parse_dirichlet_concentration(
-                dirichlet_type=self.config.dirichlet_config.type,
-                n_states=self.shapes.n_clusters + 1,
-                prior_concentration=self.config.dirichlet_config.prior_concentration
+            self.concetration = parse_dirichlet_concentration(
+                config=self.config.dirichlet_config,
+                shape=(self.shapes.n_objects, self.shapes.n_clusters + 1),
             )
         elif self.prior_type is self.PriorType.LOGISTIC_NORMAL:
             self.logi_norm_loc = self.config.logistic_normal_config.loc
@@ -706,7 +493,7 @@ class GeoPrior(object):
         self.covariance = None
         self.aggregator = None
         self.aggregation_policy = None
-        self.probability_function = None
+        self.prob_func_type = None
         self.scale = None
         self.inflection_point = None
         self.cached = None
@@ -728,14 +515,14 @@ class GeoPrior(object):
             self.aggregation_policy = config.aggregation
             self.aggregator = self.AGGREGATORS[self.aggregation_policy]
 
-            self.probability_function = config.probability_function
+            self.prob_func_type = config.probability_function
             self.inflection_point = config.inflection_point
 
     def get_probability_function(self) -> Callable[[float], float]:
-        if self.probability_function is GeoPriorConfig.ProbabilityFunction.EXPONENTIAL:
+        if self.prob_func_type is GeoPriorConfig.ProbabilityFunction.EXPONENTIAL:
             return lambda x: -x / self.scale  # == log(e**(-x/scale))
 
-        elif self.probability_function is GeoPriorConfig.ProbabilityFunction.SIGMOID:
+        elif self.prob_func_type is GeoPriorConfig.ProbabilityFunction.SIGMOID:
             assert self.inflection_point is not None
             x0 = self.inflection_point
             s = self.scale
@@ -743,45 +530,80 @@ class GeoPrior(object):
             # The last term `- log_expit(x0/s)` scales the sigmoid to be 1 at distance 0
 
         else:
-            raise ValueError(f'Unknown probability_function `{self.probability_function}`')
+            raise ValueError(f'Unknown probability_function `{self.prob_func_type}`')
 
-    def __call__(self, sample, caching=True) -> float:
-        """Compute the geo-prior of the current cluster (or load from cache).
+    def get_numpyro_distr(self, clusters) -> float:
+        """Compute the geo-prior of a fuzzy cluster.
         Args:
-            sample: Current MCMC sample
+            clusters: Current sample of the fuzzy cluster assignments.
         Returns:
             Logarithm of the prior probability density
         """
         if self.prior_type is self.PriorTypes.UNIFORM:
             return 0.0
 
-        cache = sample.cache.geo_prior
-        if caching and not cache.is_outdated():
-            return cache.value.sum()
-
+        n_objects, n_clusters = clusters.shape
+        cluster_size = jnp.sum(clusters, axis=-2)
         prob_func = self.get_probability_function()
 
-        with cache.edit() as geo_priors:
-            for i_c in cache.what_changed("clusters", caching=caching):
-                c = sample.clusters.value[i_c]
-                cost_mat_c = self.cost_matrix[c][:, c]
-                n = np.count_nonzero(c)
+        dist_mat = self.cost_matrix
 
-                if self.prior_type is self.PriorTypes.COST_BASED:
-                    distances = self.compute_distances_along_skeleton(c)
-                    agg_distance = self.aggregator(distances)
-                    geo_priors[i_c] = prob_func(agg_distance)
-                elif self.prior_type is self.PriorTypes.DIAMETER_BASED:
-                    geo_priors[i_c] = prob_func(cost_mat_c.max())
-                elif self.prior_type is self.PriorTypes.SIMULATED:
-                    cost_mat_c = cost_mat_c * 0.020838 / self.mean_edge_length
-                    distances = compute_mst_distances(cost_mat_c)
-                    geo_priors[i_c] = SimulatedSigmoid.sigmoid(distances.sum(), n)
-                else:
-                    raise ValueError('geo_prior must be either \"uniform\" or \"cost_based\".')
+        # distances, weights = self.compute_distances_along_skeleton(clusters)
+        if self.config.skeleton is GeoPriorConfig.Skeleton.MST:
+            aggregated_distance = 0.0
+            for cluster in clusters.T:
+                aggregated_distance += self.compute_fuzzy_mst_distance(cluster)
+        elif self.config.skeleton is GeoPriorConfig.Skeleton.COMPLETE:
+            clusters_normed = clusters / cluster_size[None, :]
+            same_cluster_prob = clusters_normed @ clusters.T  # Expected distance to a random language
+            aggregated_distance = jnp.sum(same_cluster_prob * dist_mat)
 
-        # cache.update_value(geo_prior)
-        return cache.value.sum()
+        elif self.config.skeleton == GeoPriorConfig.Skeleton.SPECTRAL:
+            def get_spectrum(C):
+                    L = jnp.fill_diagonal(C, jnp.sum(C, axis=-1), inplace=False)
+                    eigvals = jnp.linalg.eigvals(L)
+                    return jnp.sum(jnp.real(eigvals))
+
+            # Compute spectral geo-prior
+            connectivities = clusters.T[:, :, None] * clusters.T[:, None, :]  # shape (n_clusters, n_objects, n_objects)
+            mats = connectivities * dist_mat  # shape (n_clusters, n_objects, n_objects)
+            eigvals_batched = jax.vmap(get_spectrum, in_axes=0, out_axes=0)(mats)
+            # eigvals_batched = jax.vmap(jnp.linalg.eigvals, in_axes=0, out_axes=0)(mats)
+            aggregated_distance = jnp.sum(jnp.real(eigvals_batched))
+
+        else:
+            raise ValueError(f'Unknown skeleton type `{self.config.skeleton}`')
+
+        # for i_c in range(n_clusters):
+        #     c = clusters[i_c]
+        #     if self.prior_type is self.PriorTypes.COST_BASED:
+        #         distances = self.compute_distances_along_skeleton(c)
+        #         agg_distance = self.aggregator(distances)
+        #         geo_prior += prob_func(agg_distance)
+        #     else:
+        #         raise ValueError('geo_prior must be either \"uniform\" or \"cost_based\".')
+
+        log_geo_priors = prob_func(aggregated_distance)
+        numpyro.factor('geo_prior', log_geo_priors)
+
+        return log_geo_priors
+
+    def compute_fuzzy_mst_distance(self, cluster):
+        C = jnp.array(self.cost_matrix)
+
+        # Objects are considered the `core` if they are more likely in the cluster than not
+        core = cluster > 0.5
+
+        # # Compute the distance of each object to the core
+        dist_to_core = jnp.min(C, axis=1, where=core, initial=jnp.inf)
+
+        # Compute the minimum spanning tree within the core objects
+        C_core = C[core][:, core]
+        core_mst = minimum_spanning_tree(C_core)
+
+        return core_mst.sum()
+
+
 
     def compute_distances_along_skeleton(self, cluster):
         skeleton = self.config.skeleton
@@ -798,36 +620,6 @@ class GeoPrior(object):
             raise NotImplementedError
         elif skeleton is skeleton_types.COMPLETE:
             return cost_mat
-
-    def get_costs_per_object(
-        self,
-        sample,
-        i_cluster: int,
-    ) -> NDArray[float]:  # shape: (n_objects)
-        """Compute the change in the geo-prior (difference in log-probability) when adding each possible object."""
-
-        if self.prior_type is self.PriorTypes.UNIFORM:
-            # Uniform prior -> no changes in cost possible
-            return np.zeros(sample.n_objects)
-
-        cluster = sample.clusters.value[i_cluster]
-        m = np.count_nonzero(cluster)
-        cost_to_cluster = np.min(self.cost_matrix[cluster], axis=0)
-
-        distances_before = compute_mst_distances(self.cost_matrix[cluster][:, cluster])
-        aggr_cost_before = self.aggregator(distances_before)
-
-        if self.aggregation_policy == self.AggrStrats.MEAN:
-            aggr_cost_after = (cost_to_cluster + m*aggr_cost_before) / (1 + m)
-        elif self.aggregation_policy == self.AggrStrats.SUM:
-            aggr_cost_after = cost_to_cluster + aggr_cost_before
-        elif self.aggregation_policy == self.AggrStrats.MAX:
-            aggr_cost_after = np.maximum(cost_to_cluster, aggr_cost_before)
-        else:
-            raise ValueError(f"Aggregation strategy {self.aggregation_policy} not fully implemented yet.")
-
-        prob_func = self.get_probability_function()
-        return prob_func(aggr_cost_after) - prob_func(aggr_cost_before)
 
     def invalid_prior_message(self, s):
         valid_types = ','.join(self.PriorTypes)
@@ -857,9 +649,8 @@ class GeoPrior(object):
         row_idxs = jnp.arange(n_objects)[:, None]
         cost_sorted = self.cost_matrix[row_idxs, neighbour_sort_idxs]
         probs_sorted = clusters[row_idxs, neighbour_sort_idxs]
-        cum_probs_nearest = jnp.cumsum(probs_sorted, axis=-1)
-        first_k = first_k_continuous(probs_sorted, axis=-1)
-        return local_costs
+        first_k = first_k_continuous(probs_sorted, k, axis=-1)
+        return cost_sorted.dot(first_k)
 
 def first_k_continuous(probs: NDArray[float], k: float, axis: int = -1) -> NDArray[float]:
     """Clip the probabilities in `probs` to only contain the first `k` probability mass.

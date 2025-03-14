@@ -6,7 +6,7 @@ from itertools import product
 import numpy as np
 import pandas as pd
 
-from sbayes.load_data import Data
+from sbayes.load_data import Data, CategoricalFeatures, GaussianFeatures, PoissonFeatures, GenericTypeFeatures
 from sbayes.preprocessing import sample_categorical
 from sbayes.util import format_cluster_columns, get_best_permutation, normalize
 from sbayes.model import Model
@@ -14,6 +14,23 @@ from sbayes.model import Model
 def get_cluster_names(n_clusters: int) -> list[str]:
     """Create a list of names for the clusters based on the number of clusters."""
     return [f"a{i}" for i in range(n_clusters)]
+
+
+def get_cluster_effect_names(partitions: list[GenericTypeFeatures]) -> list[str]:
+    """Create a list of names for the cluster effects based on the partitions."""
+    names = []
+    for p in partitions:
+        if isinstance(p, CategoricalFeatures):
+            names.append(f"cluster_effect_{p.name}")
+        elif isinstance(p, GaussianFeatures):
+            names.append(f"cluster_effect_{p.name}_mean")
+            names.append(f"cluster_effect_{p.name}_variance")
+        elif isinstance(p, PoissonFeatures):
+            names.append(f"cluster_effect_{p.name}_rate")
+        else:
+            raise ValueError("Only categorical partitions are currently supported.")
+
+    return []
 
 
 def write_samples(
@@ -30,9 +47,10 @@ def write_samples(
     n_samples, n_clusters, n_objects = clusters_samples.shape
 
     # cluster_eff_samples = np.array(samples['cluster_effect'])
-    cluster_eff_samples = np.zeros((n_samples, n_clusters, data.features.n_features, data.features.n_states))
-    for partition in data.partitions:
-        cluster_eff_samples[:, :, partition.feature_indices, :partition.n_states] = samples[f'cluster_effect_{partition.name}']
+    partitions = data.features.partitions
+
+    # Cast all parameters from jax.numpy to numpy
+    samples = {k: np.array(v) for k, v in samples.items()}
 
     if match_clusters:
         clusters_sum = np.zeros(clusters_samples.shape[1:], dtype=int)
@@ -43,7 +61,8 @@ def write_samples(
 
             # Permute clusters
             clusters = clusters[permutation]
-            cluster_eff_samples[i] = cluster_eff_samples[i, permutation]
+            for param_name in get_cluster_effect_names(partitions):
+                samples[param_name][i] = samples[param_name][i, permutation]
 
             # Update cluster_sum for matching future samples
             clusters_sum += clusters
@@ -51,7 +70,8 @@ def write_samples(
 
     cluster_names = get_cluster_names(n_clusters)
     feature_names = data.features.names
-    state_names = [f"s{s}" for s in range(data.features.n_states)]
+    n_states = max((p.n_states for p in data.features.categorical_partitions()), default=0)
+    state_names = [f"s{s}" for s in range(n_states)]
 
     param_dfs_list = []
 
@@ -83,26 +103,61 @@ def write_samples(
 
     all_cluster_eff_dfs = []
     all_conf_eff_dfs = []
-    for partition in data.partitions:
-        feat_idxs = partition.feature_indices
+    for partition in data.features.partitions:
+        if isinstance(partition, CategoricalFeatures):
+            cluster_eff_df = samples_array_to_df(
+                param_samples=samples[f'cluster_effect_{partition.name}'],
+                names=[cluster_names, partition.names, state_names[:partition.n_states]],
+                prefix='areal'
+            )
+            all_cluster_eff_dfs.append(cluster_eff_df)
 
-        # Subset states for cluster effects and place in data frame
-        cluster_eff_df = samples_array_to_df(
-            param_samples=cluster_eff_samples[:, :, feat_idxs, :partition.n_states],
-            names=[cluster_names, feature_names[feat_idxs], state_names[:partition.n_states]],
-            prefix='areal'
-        )
-        all_cluster_eff_dfs.append(cluster_eff_df)
+            # Subset states for all confounding effects and place in data frames
+            for i_c, conf in enumerate(data.confounders.values()):
+                conf_eff_df = samples_array_to_df(
+                    param_samples=samples[f"conf_effect_{i_c}_{partition.name}"],
+                    names=[conf.group_names, partition.names, state_names[:partition.n_states]],
+                    prefix=conf.name)
+                all_conf_eff_dfs.append(conf_eff_df)
 
-        # Subset states for all confounding effects and place in data frames
-        for i_c, conf in enumerate(data.confounders.values()):
-            conf_eff_samples = np.array(samples[f"conf_eff_{i_c}_{partition.name}"])[:, :-1, :, :]
+        elif isinstance(partition, GaussianFeatures):
+            cluster_eff_mean_df = samples_array_to_df(
+                param_samples=samples[f'cluster_effect_{partition.name}_mean'],
+                names=[cluster_names, partition.names],
+                prefix='areal',
+                suffix='mean',
+            )
+            cluster_eff_variance_df = samples_array_to_df(
+                param_samples=samples[f'cluster_effect_{partition.name}_variance'],
+                names=[cluster_names, partition.names],
+                prefix='areal',
+                suffix='variance',
+            )
+            all_cluster_eff_dfs.append(cluster_eff_mean_df)
+            all_cluster_eff_dfs.append(cluster_eff_variance_df)
 
-            conf_eff_df = samples_array_to_df(
-                param_samples=conf_eff_samples,
-                names=[conf.group_names, feature_names[feat_idxs], state_names[:partition.n_states]],
-                prefix=conf.name)
-            all_conf_eff_dfs.append(conf_eff_df)
+            # Collect, reshape and place all confounding effects in data frames
+            for i_c, conf in enumerate(data.confounders.values()):
+                conf_eff_mean_df = samples_array_to_df(
+                    param_samples=samples[f"conf_effect_{i_c}_{partition.name}_mean"],
+                    names=[conf.group_names, partition.names],
+                    prefix=conf.name,
+                    suffix='mean'
+                )
+                all_conf_eff_dfs.append(conf_eff_mean_df)
+
+                conf_eff_variance_df = samples_array_to_df(
+                    param_samples=samples[f"conf_effect_{i_c}_{partition.name}_variance"],
+                    names=[conf.group_names, partition.names],
+                    prefix=conf.name,
+                    suffix='variance'
+                )
+                all_conf_eff_dfs.append(conf_eff_variance_df)
+
+        else:
+            print(partition)
+            raise NotImplementedError("Only categorical features are currently supported.")
+
 
     # Add cluster and confounding effects to the data frame list
     param_dfs_list += all_cluster_eff_dfs + all_conf_eff_dfs
@@ -135,6 +190,7 @@ def samples_array_to_df(
     param_samples: np.ndarray,
     names: list[list[str]],
     prefix: str = "",
+    suffix: str = "",
 ) -> pd.DataFrame:
     """
     Flatten an n-dimensional numpy array into a pandas DataFrame, with column names
@@ -157,6 +213,8 @@ def samples_array_to_df(
     column_names = ['_'.join(combo) for combo in product(*names)]
     if prefix:
         column_names = [f"{prefix}_{col}" for col in column_names]
+    if suffix:
+        column_names = [f"{col}_{suffix}" for col in column_names]
 
     # Reshape the samples array to have shape (num_samples, -1)
     flattened_samples = param_samples.reshape(param_samples.shape[0], -1)
