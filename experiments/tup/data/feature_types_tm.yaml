@@ -1,0 +1,80 @@
+bus:
+  type: gaussian
+  states:
+    min: 0.0
+    max: 0.31907350508154103
+car:
+  type: gaussian
+  states:
+    min: 0.0
+    max: 0.8748048704339682
+passenger:
+  type: gaussian
+  states:
+    min: 0.0
+    max: 0.29486815990927134
+walk:
+  type: gaussian
+  states:
+    min: 0.0
+    max: 0.8707280832095097
+train:
+  type: gaussian
+  states:
+    min: 0.0
+    max: 0.5870406189555126
+tram:
+  type: gaussian
+  states:
+    min: 0.0
+    max: 0.24723655121591748
+bicycle:
+  type: gaussian
+  states:
+    min: 0.0
+    max: 0.3680618744313012
+regional_train:
+  type: gaussian
+  states:
+    min: 0.0
+    max: 0.21025841816758026
+airplane:
+  type: gaussian
+  states:
+    min: 0.0
+    max: 0.26270136307311026
+ebicycle:
+  type: gaussian
+  states:
+    min: 0.0
+    max: 0.40448569218870845
+subway:
+  type: gaussian
+  states:
+    min: 0.0
+    max: 0.024922118380062305
+motorbike_scooter:
+  type: gaussian
+  states:
+    min: 0.0
+    max: 0.20093457943925233
+boat:
+  type: gaussian
+  states:
+    min: 0.0
+    max: 0.15296052631578946
+taxi_uber:
+  type: gaussian
+  states:
+    min: 0.0
+    max: 0.01791277258566978
+ebikesharing:
+  type: gaussian
+  states:
+    min: 0.0
+    max: 0.0038052492926139137
+carsharing:
+  type: gaussian
+  states:
+    min: 0.0
+    max: 0.008071367884451997
