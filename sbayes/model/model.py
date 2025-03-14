@@ -123,54 +123,6 @@ class Model:
             else:
                 raise ValueError(f"Partition type {partition.__class__.__name__} not supported.")
 
-    # def add_partition_categorical(
-    #     self,
-    #     partition: CategoricalFeatures,
-    #     clusters: jnp.ndarray,      # shape: (n_objects, n_clusters)
-    #     all_weights: jnp.ndarray,       # shape: (n_components, n_objects, n_features)
-    #     no_clusters: bool = False
-    # ):
-    #     # Short alias for partition_name
-    #     p_name = partition.name
-    #
-    #     # p_data_by_comp = self.p_data_by_comp
-    #     p_data_by_comp = jnp.zeros((self.shapes.n_components, self.shapes.n_objects, partition.n_features, partition.n_states))
-    #
-    #     # Sample and assign cluster effects
-    #     with numpyro.plate(f"plate_clusters_{p_name}", self.n_clusters, dim=-2):
-    #         with numpyro.plate(f"plate_features_{p_name}", partition.n_features, dim=-1):
-    #             cluster_effect_prior = dist.Dirichlet(self.prior.cluster_effect_prior[p_name].concentration_array)
-    #             cluster_effect = numpyro.sample(f"cluster_effect_{p_name}", cluster_effect_prior)
-    #             # shape: (n_clusters, n_features, n_states)
-    #
-    #     if not no_clusters:
-    #         clusters_normalized = clusters / self.has_component[0, :, None]
-    #         p_data_by_comp = p_data_by_comp.at[0].set(
-    #             jnp.einsum('nk,kfs->nfs', clusters_normalized, cluster_effect)
-    #         )
-    #
-    #     # Sample and assign confounding effects
-    #     for i_c, c in enumerate(self.confounders):
-    #         # concentration = self.conf_eff_prior_params[p_name][i_c - 1]
-    #         n_groups = len(self.group_names[i_c])
-    #         concentration = self.prior.confounding_effects_prior[c][p_name].concentration_array
-    #         with numpyro.plate(f"plate_groups_{i_c}", n_groups, dim=-2):
-    #             with numpyro.plate(f"plate_features_{i_c}_{p_name}", partition.n_features, dim=-1):
-    #                 conf_effect = numpyro.sample(f"conf_effect_{i_c}_{p_name}", dist.Dirichlet(concentration))
-    #                 # shape: (n_groups, n_features, n_states)
-    #
-    #         p_data_by_comp = p_data_by_comp.at[1+i_c].set(conf_effect[self.group_assignments[i_c], :, :])
-    #
-    #     if not self.config.sample_from_prior:
-    #         # Define mixture likelihood
-    #         partition_weights = all_weights[:, :, partition.feature_indices]
-    #         p_data_mixed = jnp.einsum('kif,kifs->ifs', partition_weights, p_data_by_comp)  # shape: (n_objects, n_features, n_states)
-    #         with numpyro.plate(f"plate_objects_lh_{p_name}", self.shapes.n_objects, dim=-2):
-    #             with numpyro.plate(f"plate_features_lh_{p_name}", partition.n_features, dim=-1):
-    #                 with numpyro.handlers.mask(mask=~partition.na_values):
-    #                     numpyro.sample(f"x_{p_name}", dist.Categorical(probs=p_data_mixed), obs=partition.values)
-
-
     def add_partition_categorical(
         self,
         partition: CategoricalFeatures,
