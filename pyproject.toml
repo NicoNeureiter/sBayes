@@ -41,8 +41,8 @@ modelComparison = ["arviz"]
 gui = ["tkinter"]
 
 [project.urls]
-Source = "https://github.com/derpetermann/sBayes"
-Documentation = "https://github.com/derpetermann/sBayes/blob/devel/documentation/user_manual.md"
+Source = "https://github.com/NicoNeureiter/sBayes"
+Documentation = "https://github.com/NicoNeureiter/sBayes/blob/master/documentation/user_manual.md"
 
 [tool.setuptools.packages.find]
 where = ["."]
