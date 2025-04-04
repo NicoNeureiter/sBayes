@@ -1,3 +1,6 @@
+import warnings
+from functools import partial
+
 import jax.numpy as jnp
 import jax
 from jax import random, lax
@@ -7,19 +10,21 @@ from jax.nn import softmax
 
 import numpyro
 from numpyro.distributions.transforms import StickBreakingTransform
-from numpyro.infer import MCMC, NUTS, SVI, Trace_ELBO, Predictive, MixedHMC, DiscreteHMCGibbs
+from numpyro.infer import MCMC, NUTS, SVI, Trace_ELBO, Predictive, MixedHMC, DiscreteHMCGibbs, init_to_median, \
+    init_to_value
 import numpyro.distributions as dist
 from numpyro.distributions import transforms, constraints
 # from numpyro.contrib.tfp.mcmc import ReplicaExchangeMC
 # from numpyro.contrib.nested_sampling import NestedSampler  # Changes quite a few jax settings (e.g. x64)
-from numpyro import handlers
 from numpyro.infer import autoguide
 import matplotlib.pyplot as plt
+from numpyro.infer.autoguide import AutoGuideList
 from numpyro.infer.reparam import NeuTraReparam
 from numpyro.infer.util import initialize_model
 from numpyro.optim import Adam
 
 from sbayes.model import Model
+from sbayes.sampling.initialization import get_svi_init_sample
 
 # from tensorflow_probability.substrates import jax as tfp
 
@@ -36,6 +41,7 @@ def get_model_shapes(model, rng_key):
     init_params, _, _, _ = initialize_model(rng_key, model)
     return {k: v.size for k, v in init_params.z.items()}
 
+
 def sample_nuts(
     model,
     num_warmup: int,
@@ -45,25 +51,20 @@ def sample_nuts(
     thinning: int = 1,
     init_params: dict = None,
 ):
-    # # # Sample the model parameters and latent variables using NUTS
-    # dim = get_model_dims(model, rng_key)
-    # # model_shapes = get_model_shapes(model, rng_key)
-    # # model_params = tuple(model_shapes.keys())
-    # # print(dim)
-    # # exit()
-    # #
-    # # inv_mass_matrix = {model_params: jnp.full(dim, 0.01, dtype=jnp.float32)}
-    # # kernel = NUTS(
-    # #     model,
-    # #     inverse_mass_matrix=inv_mass_matrix,
-    # #     adapt_mass_matrix=False,
-    # #     dense_mass=False,
-    # # )
+    # Generate an initial sample using SVI
+    init_sample = get_svi_init_sample(model, model_args=(), model_kwargs={}, rng_key=rng_key, svi_steps=3000)
 
-    inner_kernel = NUTS(model)
+    # Estimate dense mass matrix for correlated sites
+    # correlated_sites = ("z_logit", ) + tuple(f"cluster_effect_{p.name}" for p in model.partitions)
+
+    # Create NUTS kernel
+    # kernel = NUTS(model.get_model, init_strategy=init_to_value(values=init_sample), dense_mass=[correlated_sites])
+    kernel = NUTS(model.get_model, init_strategy=init_to_value(values=init_sample))
+
+    # FOR DISCRETE MODELS
+    # inner_kernel = NUTS(model.get_model)
     # kernel = MixedHMC(inner_kernel=inner_kernel, num_discrete_updates=10)
     # kernel = DiscreteHMCGibbs(inner_kernel=inner_kernel)
-    kernel = inner_kernel
 
     mcmc = MCMC(
         sampler=kernel,
@@ -72,20 +73,101 @@ def sample_nuts(
         num_chains=num_chains,
         thinning=thinning,
     )
+    mcmc.run(rng_key, extra_fields=("potential_energy", "adapt_state.step_size", "adapt_state.inverse_mass_matrix"))
+
+    show_inference_summary = False
+    if show_inference_summary:
+        mcmc.print_summary()
+
+    show_adapt_state = False
+    if show_adapt_state:
+        for field_name, field in mcmc.get_extra_fields().items():
+            for param_names, values in field.items():
+                print(field_name, param_names, values)
+
+    samples = mcmc.get_samples(group_by_chain=True)
+    samples["potential_energy"] = mcmc.get_extra_fields(group_by_chain=True)["potential_energy"]
+
+    return mcmc, samples
+
+def sample_nuts_mc3(
+    model,
+    num_warmup: int,
+    num_samples: int,
+    num_chains: int,
+    rng_key: random.PRNGKey,
+    thinning: int = 1,
+):
+    mcmc = MCMC(
+        sampler=NUTS(model.get_model, init_strategy=init_to_median),
+        num_warmup=num_warmup,
+        num_samples=num_samples,
+        num_chains=num_chains,
+        thinning=thinning,
+    )
     mcmc.run(
         rng_key,
-        init_params=init_params,
-        extra_fields=("potential_energy",),
-        # extra_fields=("potential_energy", "adapt_state.step_size", "adapt_state.inverse_mass_matrix"),
+        extra_fields=("potential_energy", "adapt_state.step_size", "adapt_state.inverse_mass_matrix", "adapt_state.mass_matrix_sqrt"),
     )
+
+    show_inference_summary = False
+    if show_inference_summary:
+        mcmc.print_summary()
+
+    show_adapt_state = True
+    if show_adapt_state:
+        for field_name, field in mcmc.get_extra_fields().items():
+            for param_names, values in field.items():
+                print(field_name, param_names, values)
+
+    samples = mcmc.get_samples(group_by_chain=True)
+    samples["potential_energy"] = mcmc.get_extra_fields(group_by_chain=True)["potential_energy"]
+
+    return mcmc, samples
+
+def sample_nuts_with_annealing(
+    model,
+    num_warmup: int,
+    num_samples: int,
+    num_chains: int,
+    rng_key: random.PRNGKey,
+    thinning: int = 1,
+):
+    post_warmup_state = None
+
+    # for temp in [16, 8, 4, 2, 1]:
+    for temp in [8, 4, 2, 1]:
+        warmup_mcmc = MCMC(
+            sampler=NUTS(lambda : model.get_tempered_model(temperature=temp)),
+            num_warmup=50,
+            num_samples=1,
+            num_chains=num_chains,
+            progress_bar=False,
+        )
+        warmup_mcmc.post_warmup_state = post_warmup_state
+        warmup_mcmc.warmup(rng_key)
+        post_warmup_state = warmup_mcmc.last_state
+        rng_key = post_warmup_state.rng_key
+
+    mcmc = MCMC(
+        sampler=NUTS(model.get_model),
+        num_warmup=num_warmup,
+        num_samples=num_samples,
+        num_chains=num_chains,
+        thinning=thinning,
+    )
+    mcmc.post_warmup_state = post_warmup_state
+    mcmc.warmup(rng_key)
+    rng_key = post_warmup_state.rng_key
+    mcmc.run(rng_key, extra_fields=("potential_energy",))
 
     show_inference_summary = False
     if show_inference_summary:
         mcmc.print_summary()
         # print(mcmc.get_extra_fields())
 
-    samples = mcmc.get_samples(group_by_chain=False)
-    samples["potential_energy"] = mcmc.get_extra_fields()["potential_energy"]
+    samples = mcmc.get_samples(group_by_chain=True)
+    samples["potential_energy"] = mcmc.get_extra_fields(group_by_chain=True)["potential_energy"]
 
     return mcmc, samples
 
@@ -174,32 +256,39 @@ def get_manual_guide(model: Model):
 
 
 def sample_svi(
-    model: callable,
+    model: Model,
     num_warmup: int,
     num_samples: int,
     num_chains: int,
     rng_key: random.PRNGKey,
     guide_family: str = "AutoNormal",
+    # guide_family: str = "AutoDAIS",
     # guide_family: str = "Manual",
     DIAS_K: int = 8,
     thinning: int = 1,
     show_inference_summary: bool = True,
     guide = None,
 ):
-    # if guide is not None:
-    #     guide_family = "Manual"
-
     # Choose the guide family for SVI
     if guide_family == "AutoNormal":
-        guide = autoguide.AutoNormal(model)
-        step_size = 0.01
+        # guide = autoguide.AutoNormal(model.get_model)
+        guide = autoguide.AutoMultivariateNormal(model.get_model)
+        step_size = 0.005
+    elif guide_family == "AutoLowRankMultivariateNormal":
+        guide = autoguide.AutoLowRankMultivariateNormal(model.get_model, rank=50)
+        step_size = 0.04
     elif guide_family == "AutoDAIS":
-        guide = autoguide.AutoDAIS(model, K=DIAS_K, eta_init=0.02, eta_max=0.5)
+        guide = autoguide.AutoDAIS(model.get_model, K=DIAS_K, eta_init=0.02, eta_max=0.5)
         step_size = 0.005
     elif guide_family == "Manual":
         step_size = 0.002
     else:
         raise ValueError(f"Unknown guide family `{guide_family}`")
+
+    guide = AutoGuideList(model.get_model)
+    correlated_sites = ["z_logit",] + [f"cluster_effect_{p.name}" for p in model.partitions]
+    guide.append(autoguide.AutoNormal(numpyro.handlers.block(model.get_model, hide=correlated_sites)))
+    guide.append(autoguide.AutoMultivariateNormal(numpyro.handlers.block(model.get_model, expose=correlated_sites)))
 
     # Define ADAM optimizer
     optimizer = numpyro.optim.ClippedAdam(
@@ -212,8 +301,8 @@ def sample_svi(
 
 
     # Run SVI
-    svi = SVI(model, guide, optimizer, loss=Trace_ELBO())
-    svi_result = svi.run(rng_key, 10_000)
+    svi = SVI(model.get_model, guide, optimizer, loss=Trace_ELBO())
+    svi_result = svi.run(rng_key, 4_000)
     params = svi_result.params
 
     if show_inference_summary:
@@ -224,8 +313,8 @@ def sample_svi(
         plt.show()
 
     # get posterior samples
-    predictive = Predictive(model, guide=guide, params=params, num_samples=num_samples,
-                            return_sites=["z"] + list(get_model_shapes(model, rng_key).keys()),
+    predictive = Predictive(model.get_model, guide=guide, params=params, num_samples=num_samples,
+                            return_sites=["z"] + list(get_model_shapes(model.get_model, rng_key).keys()),
     )
     posterior_samples = predictive(random.PRNGKey(1))
     return None, posterior_samples

@@ -132,8 +132,8 @@ class GenericTypeFeatures:
 
 class CategoricalFeatures(GenericTypeFeatures):
 
-    # Integer representation of categorical features
-    # states: NDArray[bool]                   # shape: (n_features, n_states)
+    """Integer representation of categorical features."""
+
     state_names: NDArray[StateName]         # (n_features, n_states)
     state_names_dict: dict[FeatureName, NDArray[StateName]]
 
@@ -221,6 +221,9 @@ class CategoricalFeatures(GenericTypeFeatures):
     def name(self):
         return f"Categorical[{self.n_states}]"
 
+    def to_binary(self):
+        """Convert to binary one-hot encoding."""
+        return np.eye(self.n_states)[self.values]
 
 class GaussianFeatures(GenericTypeFeatures):
     """Features that are continuous measurements following a Gaussian distribution."""

@@ -257,35 +257,54 @@ class GaussianVariancePrior:
         self.group_names = group_names
 
         if isinstance(config, GaussianPriorConfig):
-            self.rate = self.parse_group_prior(config.variance)
+            self.parameters = self.parse_group_prior(config.variance)
         elif isinstance(config, dict):
             if group_names is None:
                 raise ValueError('Group names are required for multiple Gaussian priors.')
             default_config = config.get("<DEFAULT>", None)
-            group_rates = []
+            group_parameters = []
             for group in group_names:
                 group_config = config.get(group, default_config)
                 if group_config is None:
                     raise ValueError(f'No gaussian prior config for group `{group}`.')
-                group_rates.append(
+                group_parameters.append(
                     self.parse_group_prior(group_config.variance)
                 )
-            self.rate = jnp.array(group_rates)
+            self.parameters = jnp.array(group_parameters).transpose((1, 0, 2))
         else:
             raise ValueError(f'Invalid Gaussian prior config: {config}')
 
     def parse_group_prior(self, config: GaussianVariancePriorConfig):
         n_features = self.partition.n_features
         if config.type is config.Types.EXPONENTIAL:
-            rate = jnp.full(n_features, config.parameters['rate'])
+            return jnp.full(n_features, config.parameters['rate'])
+        if config.type is config.Types.GAMMA:
+            return jnp.array([
+                jnp.full(n_features, config.parameters['shape']),
+                jnp.full(n_features, config.parameters['rate']),
+            ])
+
         else:
             raise ValueError(self.invalid_prior_message(config.type))
-        return rate
 
     def invalid_prior_message(self, s):
         name = self.__class__.__name__
         valid_types = ', '.join(GaussianVariancePriorConfig.Types)
         return f'Invalid prior type {s} for {name} (choose from [{valid_types}]).'
+
+    def get_numpyro_distr(self):
+        if isinstance(self.config, GaussianPriorConfig):
+            typ = self.config.variance.type
+        else:
+            assert isinstance(self.config, dict), self.config
+            typ = next(iter(self.config.values())).variance.type
+
+        if typ is GaussianVariancePriorConfig.Types.EXPONENTIAL:
+            return dist.Exponential(rate=self.parameters)
+        elif typ is GaussianVariancePriorConfig.Types.INV_GAMMA:
+            raise NotImplementedError('InverseGamma prior not implemented.')
+        elif typ is GaussianVariancePriorConfig.Types.GAMMA:
+            return dist.Gamma(concentration=self.parameters[0], rate=self.parameters[1])
 
 
 class GaussianConfoundingEffectsPrior:
@@ -442,13 +461,13 @@ class ClusterPrior:
         K = self.shapes.n_clusters
         if self.prior_type is self.PriorType.CATEGORICAL:
             with numpyro.plate("plate_objects_z", self.shapes.n_objects, dim=-1):
-                z_int = dist.Categorical(jnp.ones(K + 1) / (K + 1))
+                z_int = numpyro.sample("z_int", dist.Categorical(jnp.ones(K + 1) / (K + 1)))
                 z = jax.nn.one_hot(z_int, K+1)
                 numpyro.deterministic("z", z)
 
         elif self.prior_type is self.PriorType.DIRICHLET:
             with numpyro.plate("plate_objects_z", self.shapes.n_objects, dim=-1):
-                z = dist.Dirichlet(self.concentration)
+                z = numpyro.sample("z", dist.Dirichlet(self.concentration))
 
         elif self.prior_type is self.PriorType.LOGISTIC_NORMAL:
             with numpyro.plate("plate_objects_z", self.shapes.n_objects, dim=-2):
@@ -522,11 +541,15 @@ class GeoPrior(object):
         if self.prob_func_type is GeoPriorConfig.ProbabilityFunction.EXPONENTIAL:
             return lambda x: -x / self.scale  # == log(e**(-x/scale))
 
+        if self.prob_func_type is GeoPriorConfig.ProbabilityFunction.SQUARED_EXPONENTIAL:
+            return lambda x: -(x / self.scale)**2  # == log(e**(-(x/scale)**2))
+
         elif self.prob_func_type is GeoPriorConfig.ProbabilityFunction.SIGMOID:
-            assert self.inflection_point is not None
+            # assert self.inflection_point is not None
             x0 = self.inflection_point
             s = self.scale
             return lambda x: log_expit(-(x - x0) / s) - log_expit(x0 / s)
+            # return lambda x: jnp.log(1E-100 + jax.scipy.special.expit(-(x - x0) / s))
             # The last term `- log_expit(x0/s)` scales the sigmoid to be 1 at distance 0
 
         else:
@@ -570,7 +593,8 @@ class GeoPrior(object):
             eigvals_batched = jax.vmap(get_spectrum, in_axes=0, out_axes=0)(mats)
             # eigvals_batched = jax.vmap(jnp.linalg.eigvals, in_axes=0, out_axes=0)(mats)
             aggregated_distance = jnp.sum(jnp.real(eigvals_batched))
-
+        elif self.config.skeleton is GeoPriorConfig.Skeleton.DIAMETER:
+            aggregated_distance = jnp.sum(average_max_distance(clusters, self.cost_matrix))
         else:
             raise ValueError(f'Unknown skeleton type `{self.config.skeleton}`')
 
@@ -652,7 +676,53 @@ class GeoPrior(object):
         first_k = first_k_continuous(probs_sorted, k, axis=-1)
         return cost_sorted.dot(first_k)
 
-def first_k_continuous(probs: NDArray[float], k: float, axis: int = -1) -> NDArray[float]:
+    def continuous_diameters(self, clusters) -> jnp.array:
+        """Compute the continuous diameter of all clusters."""
+        cost_mat = self.cost_matrix
+        diameters = []
+        for c in clusters.T:
+            edge_probs = jnp.ravel(c[:, None] * c[None, :])
+            edge_costs = jnp.ravel(cost_mat)
+            max_cost_order = jnp.argsort(edge_costs, descending=True)
+            max_cost_distr = first_k_continuous(edge_probs[max_cost_order], k=1)
+            d = edge_costs[max_cost_order].dot(max_cost_distr)
+            diameters.append(d)
+
+        return jnp.array(diameters)
+
+def average_max_distance(clusters: jnp.array, cost_matrix: jnp.array) -> jnp.array:
+    """Compute the average distance from each node to the farthest node in the cluster.
+
+    Args:
+        clusters: The fuzzy cluster assignments.
+        cost_matrix: The cost matrix between locations
+
+    Usage:
+    >>> clusters = np.array([[0.3, 0.7], [0.4, 0.6], [0.8, 0.2]])
+    >>> cost_matrix = np.array([[0, 1, 2], [1, 0, 3], [2, 3, 0]])
+    >>> jnp.round(average_max_distance(clusters, cost_matrix), 4)  # round for numerically stable comparison
+    Array([2.0133, 1.3333], dtype=float32)
+    """
+    n_objects, n_clusters = clusters.shape
+
+    max_cost_order = jnp.argsort(cost_matrix, axis=-1, descending=True)
+    sorted_cost = jnp.take_along_axis(cost_matrix, max_cost_order, axis=-1)
+    # clusters_normed = clusters / jnp.sum(clusters, axis=0, keepdims=True)
+
+    max_distances = []
+    for i in range(n_clusters):
+        c = clusters[:, i]
+        other_probs = jnp.repeat(c[None, :], n_objects, axis=0)
+        sorted_probs = jnp.take_along_axis(other_probs, max_cost_order, axis=-1)
+        max_cost_distr = first_k_continuous(sorted_probs, k=1, axis=-1)
+        d = jnp.sum(max_cost_distr * sorted_cost, axis=-1)
+        # d_expected = jnp.dot(clusters_normed[:, i], d)
+        d_expected = jnp.dot(c, d)
+        max_distances.append(d_expected)
+    return jnp.array(max_distances)
+
+
+def first_k_continuous(probs: jnp.array, k: float, axis: int = -1) -> jnp.array:
     """Clip the probabilities in `probs` to only contain the first `k` probability mass.
 
     Args:
@@ -662,7 +732,7 @@ def first_k_continuous(probs: NDArray[float], k: float, axis: int = -1) -> NDArr
         The clipped probabilities `probs_to_k` with `sum(probs_to_k) == k`.
 
     == Usage ===
-    >>> np.round(first_k_continuous(np.array([0.8, 0.3, 0.6]), 1.0), 1)
+    >>> np.round(first_k_continuous(jnp.array([0.8, 0.3, 0.6]), 1.0), 1)
     Array([0.8, 0.2, 0. ], dtype=float32)
     """
     cum_probs = jnp.cumsum(probs, axis=axis)

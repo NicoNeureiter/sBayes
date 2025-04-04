@@ -19,7 +19,6 @@ def run_experiment(
     experiment_name: str,
     custom_settings: dict = None,
     resume: bool = False,
-    i_run: int = 0,
 ):
     # Initialize the experiment
     experiment = Experiment(
@@ -27,7 +26,6 @@ def run_experiment(
         experiment_name=experiment_name,
         custom_settings=custom_settings,
         log=True,
-        i_run=i_run,
     )
 
     # Experiment based on a specified (in config) data-set
@@ -38,26 +36,22 @@ def run_experiment(
     mcmc = MCMCSetup(data=data, experiment=experiment)
     mcmc.log_setup()
 
-    if experiment.config.mcmc.mc3.activate:
-        mcmc.sample_mc3(run=i_run, resume=resume)
-    else:
-        mcmc.sample(run=i_run, resume=resume)
+    mcmc.sample(resume=resume)
 
 
 def runner(args):
     """A wrapper for `run_experiment` to make it callable using the pool.map interface."""
-    i_run, n_clusters, config, experiment_name, custom_settings, resume = args
+    n_clusters, config, experiment_name, custom_settings, resume = args
     # run_experiment(config, f"{experiment_name}/K{n_clusters}_{i_run}",
 
     run_settings = deepcopy(custom_settings) if custom_settings else {}
-    update_recursive(run_settings, {"model": {"clusters": n_clusters}, "mcmc": {"runs": 1}})
+    update_recursive(run_settings, {"model": {"clusters": n_clusters}})
 
     run_experiment(
         config=config,
         experiment_name=experiment_name,
         custom_settings=run_settings,
         resume=resume,
-        i_run=i_run,
     )
 
 
@@ -68,7 +62,6 @@ def main(
     processes: int = 1,
     resume: bool = False,
     n_clusters: int | list[int] = None,
-    i_run: int = None,
 ):
     # Initialize the experiment
     experiment = Experiment(
@@ -77,13 +70,6 @@ def main(
         custom_settings=custom_settings,
         log=False,
     )
-
-    # Define a range of run IDs. Either a fixed value via CLI or a ranges defined by `runs` in the config file.
-    n_runs = experiment.config.mcmc.runs
-    if i_run is None:
-        i_run_range = list(range(n_runs))
-    else:
-        i_run_range = [i_run]
 
     # Use n_clusters from CLI args or from config.
     if n_clusters is None:
@@ -97,7 +83,7 @@ def main(
 
     # Define configurations for each distinct sBayes run that needs to be executed
     run_configurations = list(product(
-        i_run_range, n_clusters, [config], [experiment.experiment_name], [custom_settings], [resume]
+        n_clusters, [config], [experiment.experiment_name], [custom_settings], [resume]
     ))
 
     # Run all configurations sequentially or in parallel
@@ -173,7 +159,7 @@ def cli():
         )
 
     main(config=config, experiment_name=args.name, processes=args.threads,
-         resume=args.resume, n_clusters=args.numClusters, i_run=args.runID)
+         resume=args.resume, n_clusters=args.numClusters)
 
 
 if __name__ == "__main__":

@@ -4,7 +4,10 @@ from pathlib import Path
 from itertools import product
 
 import numpy as np
+import numpyro.handlers
 import pandas as pd
+from numpyro.infer import log_likelihood
+import pickle
 
 from sbayes.load_data import Data, CategoricalFeatures, GaussianFeatures, PoissonFeatures, GenericTypeFeatures
 from sbayes.preprocessing import sample_categorical
@@ -184,6 +187,10 @@ def write_samples(
     # Write params file
     with open(params_path, "w") as params_file:
         params_df.to_csv(params_file, sep='\t', index=False)
+
+    likelihoods = log_likelihood(model.get_model, samples)
+    with open(base_path / f'likelihoods_K{n_clusters}_{run}.pkl', 'wb') as f:
+        pickle.dump(likelihoods, f)
 
 
 def samples_array_to_df(
