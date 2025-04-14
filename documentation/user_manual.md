@@ -46,7 +46,7 @@ To install `sBayes`, open a terminal window, navigate to the folder
 where you want to install it and follow these steps:
 
 1.  Get the `sBayes` source code by running:\
-    ` git clone https://github.com/derpetermann/sBayes`\
+    ` git clone https://github.com/NicoNeureiter/sBayes`\
     This will create a `sBayes` directory on your computer.
 
 2.  Navigate to this new directory by running `cd sBayes`.
@@ -64,7 +64,7 @@ packages. Open a terminal window, navigate to the folder where you want
 to install `sBayes` and follow these steps:
 
 1.  Get the `sBayes` source code by running:\
-    ` git clone https://github.com/derpetermann/sBayes`\
+    ` git clone https://github.com/NicoNeureiter/sBayes`\
     This will create a `sBayes` directory on your computer.
 
 2.  Navigate to this new directory by running `cd sBayes`.
@@ -83,12 +83,14 @@ in step 3 instead.
 
 ### Windows
 
-On Windows we recommend using [Anaconda](https://www.anaconda.com/) to
+Windows users have experienced issues with installing all dependencies directly on their operating system in 
+the past, which is why we suggest to install sBayes in a Docker container (see next subsection). If you want 
+to attempt installing it directly in Windows, we recommend using [Anaconda](https://www.anaconda.com/) to
 install the required packages. To do this, download Anaconda, open an Anaconda terminal window, navigate
 to the folder where you want to install `sBayes` and follow these steps:
 
 1.  Get the `sBayes` source code by running:\
-    ` git clone https://github.com/derpetermann/sBayes`\
+    ` git clone https://github.com/NicoNeureiter/sBayes`\
     This will create a `sBayes` directory on your computer.
 
 2.  Navigate to this new directory by running `cd sBayes`.
@@ -98,6 +100,40 @@ to the folder where you want to install `sBayes` and follow these steps:
 
 4.  Install `sBayes` along with some required python libraries by
     running `pip install .`
+
+
+### Installation using Docker (any operating system)
+In case you run into problems installing any of the dependencies, we recommend to install sBayes in a Docker container.
+If you use this option With this installation option, you won’t need to install Python or any packages yourself. 
+To do so, follow these steps:
+
+1.  Install Docker Desktop if you don’t have it yet.
+    - You can download it at https://docs.docker.com/desktop/ (select your OS).
+    - After installation, launch Docker Desktop once to complete the setup (you may need to restart your computer).
+
+2.  Get the `sBayes` source code by running:\
+    ` git clone https://github.com/NicoNeureiter/sBayes`\
+    This will create a `sBayes` directory on your computer.
+
+3.  Navigate to this new directory by running `cd sBayes`.
+
+4.  Build the Docker image by running: \ 
+    ` docker build -t sbayes`\
+    This will take a few minutes the first time.
+
+If you chose this installation route, the `sBayes` command line interface will be slightly different to a native 
+installation. Instead of the normal command line interface
+
+` sbayes <path_to_config_file> <command_line_arguments>` 
+
+you will need to run one of the wrapper scripts.
+
+**On Windows:** ` sbayes_docker.bat <path_to_config_file> <command_line_arguments>`
+
+**On Mac/Linux:** ` sbayes_docker.sh <path_to_config_file> <command_line_arguments>`
+
+All files referenced in the config file should be in the same folder (or subfolders) and given by relative 
+paths, so that the Docker container can access them.
 
 # Data coding
 
