@@ -118,7 +118,7 @@ To do so, follow these steps:
 3.  Navigate to this new directory by running `cd sBayes`.
 
 4.  Build the Docker image by running: \ 
-    ` docker build -t sbayes`\
+    ` docker build -t sbayes -f docker/Dockerfile .`\
     This will take a few minutes the first time.
 
 If you chose this installation route, the `sBayes` command line interface will be slightly different to a native 
@@ -128,9 +128,15 @@ installation. Instead of the normal command line interface
 
 you will need to run one of the wrapper scripts.
 
-**On Windows:** ` sbayes_docker.bat <path_to_config_file> <command_line_arguments>`
+**On Windows:** ` docker/sbayes.bat <path_to_config_file> <command_line_arguments>`
 
-**On Mac/Linux:** ` sbayes_docker.sh <path_to_config_file> <command_line_arguments>`
+**On Mac/Linux:** ` docker/sbayes.sh <path_to_config_file> <command_line_arguments>`
+
+Similarly, the plotting functions are accessed via the following wrapper scripts:
+
+**On Windows:** ` docker/sblot.bat <path_to_config_file> <command_line_arguments>`
+
+**On Mac/Linux:** ` docker/sblot.sh <path_to_config_file> <command_line_arguments>`
 
 All files referenced in the config file should be in the same folder (or subfolders) and given by relative 
 paths, so that the Docker container can access them.

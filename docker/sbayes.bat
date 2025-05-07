@@ -2,7 +2,7 @@
 setlocal enabledelayedexpansion
 
 if "%~1"=="" (
-  echo Usage: run_sbayes.bat path\to\config.yaml [additional sbayes CLI arguments...]
+  echo Usage: run_sbayes.bat path\to\config.yaml [additional sBayes CLI arguments...]
   exit /b 1
 )
 

@@ -2,7 +2,7 @@
 set -e
 
 if [ "$#" -lt 1 ]; then
-  echo "Usage: $0 path/to/config.yaml [additional sbayes CLI arguments...]"
+  echo "Usage: $0 path/to/config.yaml [additional sBayes CLI arguments...]"
   exit 1
 fi
 
