@@ -209,38 +209,48 @@ class Model:
             mean_by_comp = mean_by_comp.at[self.n_clusters + i_c].set(conf_eff_mean[g, :])
             variance_by_comp = variance_by_comp.at[self.n_clusters + i_c].set(conf_eff_variance[g, :])
 
-        with numpyro.plate(f"plate_objects_lh_{p_name}", self.shapes.n_objects, dim=-2):
-            with numpyro.plate(f"plate_features_lh_{p_name}", partition.n_features, dim=-1):
-                with numpyro.handlers.mask(mask=~partition.na_values):
-                    numpyro.sample(f"x_{p_name}", dist.MixtureSameFamily(
-                        mixing_distribution=dist.Categorical(probs=mixture_weights[:, :, partition.feature_indices].transpose((1, 2, 0))),
-                        component_distribution=dist.Normal(loc=mean_by_comp.transpose((1, 2, 0)), scale=variance_by_comp.transpose((1, 2, 0))**0.5)
-                    ), obs=partition.values)
+        if not self.config.sample_from_prior:
+            # print(partition.values)
+            # exit()
+            with numpyro.plate(f"plate_objects_lh_{p_name}", self.shapes.n_objects, dim=-2):
+                with numpyro.plate(f"plate_features_lh_{p_name}", partition.n_features, dim=-1):
+                    with numpyro.handlers.mask(mask=~partition.na_values):
+                        # numpyro.sample(f"x_{p_name}", dist.MixtureSameFamily(
+                        #     mixing_distribution=dist.Categorical(probs=mixture_weights[:, :, partition.feature_indices].transpose((1, 2, 0))),
+                        #     component_distribution=dist.Normal(loc=mean_by_comp.transpose((1, 2, 0)), scale=variance_by_comp.transpose((1, 2, 0))**0.5)
+                        # ), obs=partition.values)
+                        # Shape: [n_objects, n_features, n_components]
+
+                        log_weights = jnp.log(mixture_weights[:, :, partition.feature_indices].transpose((1, 2, 0)))  # (n_obj, n_feat, n_comp)
+                        means = mean_by_comp.transpose((1, 2, 0))  # (n_obj, n_feat, n_comp)
+                        stds = variance_by_comp.transpose((1, 2, 0)) ** 0.5  # (n_obj, n_feat, n_comp)
+
+                        # Broadcast obs to match component shape: (n_obj, n_feat, 1)
+                        observations = partition.values[..., None]
+
+                        # Compute log prob for each component
+                        log_probs = dist.Normal(loc=means, scale=stds).log_prob(observations)  # (n_obj, n_feat, n_comp)
+
+                        # Log-sum-exp over components to marginalize the mixture
+                        total_log_prob = jax.scipy.special.logsumexp(log_weights + log_probs, axis=-1)  # (n_obj, n_feat)
+
+                        # Contribute to the joint log prob
+                        numpyro.factor(f"log_prob_{p_name}", total_log_prob.sum())
 
     def add_weights_prior(self, clusters):
-        # w = numpyro.sample("w", dist.Gamma(self.w_prior_conc, 1)) # After normalization, this is equivalent to Dirichlet(w_prior_conc)
         w = numpyro.sample("w", dist.Dirichlet(self.w_prior_conc))
         # shape: (n_features, n_components)
 
-        varying_weights_per_cluster = False  # TODO: Move to config
-        if varying_weights_per_cluster:
+        if self.config.prior.weights.varying_cluster_weights:
             c0 = numpyro.sample("w_cluster_concentration_0", dist.Gamma(2., 2.))
             c1 = numpyro.sample("w_cluster_concentration_1", dist.Gamma(2., 2.))
-            # c = 10
-            wc = w[:, 0]
             with numpyro.plate("plate_clusters_w", self.n_clusters, dim=-2):
                 with numpyro.plate("plate_features_w", self.shapes.n_features, dim=-1):
-                    # w_cluster = numpyro.sample("w_cluster_factor", dist.Beta(c*wc, c*(1-wc)))
+                    # w_cluster = numpyro.sample("w_cluster", dist.Gamma(w[:, 0], 1))
                     # cluster_factor = numpyro.sample("w_cluster_factor", dist.Gamma(concentration=c, rate=c))
-                    # cluster_factor = numpyro.sample("w_cluster_factor", dist.LogNormal(0, 1/c))
-
-                    # cluster_factor = numpyro.sample("w_cluster_factor", dist.Beta(0.3, 0.1))
-                    # cluster_factor = numpyro.sample("w_cluster_factor", dist.Beta(1.0, 1.0))
                     cluster_factor = numpyro.sample("w_cluster_factor", dist.Beta(c1, c0))
 
-            w_cluster = cluster_factor * wc
-
-            #         w_cluster = numpyro.sample("w_cluster", dist.Gamma(w[:, 0], 1))
+            w_cluster = cluster_factor * w[:, 0]
             w_cluster_mixed = clusters @ w_cluster
             # shape: (n_objects, n_features)
 
@@ -248,7 +258,7 @@ class Model:
 
         # Multiply weights with `has_component` to mask out components that are not present in the group and normalize
         w_per_object = w.T[:, None, :] * self.has_component[:, :, None]
-        if varying_weights_per_cluster:
+        if self.config.prior.weights.varying_cluster_weights:
             w_per_object = w_per_object.at[0].set(w_cluster_mixed)
         w_per_object = w_per_object / w_per_object.sum(axis=-3, keepdims=True)
         # shape: (n_components, n_objects, n_features)

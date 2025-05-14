@@ -443,7 +443,7 @@ class ClusterPrior:
         if self.prior_type is self.PriorType.CATEGORICAL:
             pass
         elif self.prior_type is self.PriorType.DIRICHLET:
-            self.concetration = parse_dirichlet_concentration(
+            self.concentration = parse_dirichlet_concentration(
                 config=self.config.dirichlet_config,
                 shape=(self.shapes.n_objects, self.shapes.n_clusters + 1),
             )
@@ -466,16 +466,25 @@ class ClusterPrior:
                 numpyro.deterministic("z", z)
 
         elif self.prior_type is self.PriorType.DIRICHLET:
+            if self.config.hierarchical:
+                c = numpyro.sample("z_concentration", dist.Uniform(0, 1))
+                concentration = jnp.full((self.shapes.n_clusters + 1, ), c)
+            else:
+                concentration = self.concentration
             with numpyro.plate("plate_objects_z", self.shapes.n_objects, dim=-1):
-                z = numpyro.sample("z", dist.Dirichlet(self.concentration))
+                z = numpyro.sample("z", dist.Dirichlet(concentration))
 
         elif self.prior_type is self.PriorType.LOGISTIC_NORMAL:
+            if self.config.hierarchical:
+                scale = numpyro.sample("z_concentration", dist.LogNormal(0.0, 1.0))
+                # scale = jnp.full((self.shapes.n_clusters + 1, ), s)
+            else:
+                scale = self.logi_norm_scale
+
             with numpyro.plate("plate_objects_z", self.shapes.n_objects, dim=-2):
                 with numpyro.plate("plate_clusters_z", self.shapes.n_clusters + 1, dim=-1):
-                    z_logit = numpyro.sample("z_logit", dist.Normal(
-                        loc=self.logi_norm_loc,
-                        scale=self.logi_norm_scale
-                    ))
+                    z_logit_unscaled = numpyro.sample("z_logit", dist.Normal(self.logi_norm_loc, 1.0))
+                    z_logit = z_logit_unscaled * scale
                     z = jax.nn.softmax(z_logit, axis=-1)
                     numpyro.deterministic("z", z)
         else:

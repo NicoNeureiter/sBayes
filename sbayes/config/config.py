@@ -163,6 +163,7 @@ class GaussianVariancePriorConfig(BaseConfig):
     class Types(str, Enum):
         JEFFREYS = "jeffreys"
         INV_GAMMA = "inv-gamma"
+        GAMMA = "gamma"
         FIXED = "fixed"
         EXPONENTIAL = "exponential"
 
@@ -354,6 +355,9 @@ class ClusterPriorConfig(BaseConfig):
     type: Types
     """Type of prior distribution. Choose from: [categorical, dirichlet or logit_normal]."""
 
+    hierarchical: bool = False                                  # TODO <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+    """If `true`, use a hierarchical Dirichlet prior for the cluster assignment."""
+
     dirichlet_config: Optional[DirichletPriorConfig] = None
     """Configuration of the Dirichlet prior for the cluster assignment."""
 
@@ -385,6 +389,7 @@ class GeoPriorConfig(BaseConfig):
 
     class ProbabilityFunction(str, Enum):
         EXPONENTIAL = "exponential"
+        SQUARED_EXPONENTIAL = "squared_exponential"
         SIGMOID = "sigmoid"
 
     class Skeleton(str, Enum):
@@ -431,6 +436,9 @@ class GeoPriorConfig(BaseConfig):
 
 class WeightsPriorConfig(DirichletPriorConfig):
     """Configuration of the prion on the weights of the mixture components."""
+
+    varying_cluster_weights: bool = False
+    """If `true`, the weight of the cluster component are allowed to vary across clusters."""
 
 
 class ConfoundingEffectConfig(BaseConfig):
@@ -634,14 +642,18 @@ class ResultsConfig(BaseConfig):
     )
     """Path to the results directory."""
 
+    write_interval: PositiveInt = 1000
+    """The number of MCMC steps between each write to the results file (`samples.h5`)."""
+
+    samples_file_only: bool = False
+    """If `true`, results are only written to a `samples.h5` file. If `false`, results are also transformed and stored 
+    in various .txt files for clusters, stats and pointwise likelihood."""
+
     log_file: bool = True
     """Whether to write log-messages to a file."""
 
     log_likelihood: bool = True
     """Whether to log the likelihood of each observation in a .h5 file (used for model comparison)."""
-
-    log_source: bool = False
-    """Whether to log the proportion of objects assigned to each component in each feature."""
 
     log_hot_chains: bool = True
     """Whether to create log files (clusters, stats and operator_stats) for hot MC3 chains."""

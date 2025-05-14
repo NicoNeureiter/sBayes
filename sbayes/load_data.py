@@ -387,7 +387,6 @@ class Features:
         # return Feature class consisting of all different types of features
         return cls(all_features=all_features, partitions=partitions)
 
-
 @dataclass
 class Confounder:
 
@@ -478,7 +477,6 @@ class Data:
             self.geo_cost_matrix = read_geo_cost_matrix(
                 object_names=self.objects.id, file=geo_costs, logger=self.logger
             )
-
 
 
     @classmethod

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+from abc import abstractmethod
 from pathlib import Path
 from itertools import product
 
@@ -8,11 +10,18 @@ import numpyro.handlers
 import pandas as pd
 from numpyro.infer import log_likelihood
 import pickle
+import tables
 
 from sbayes.load_data import Data, CategoricalFeatures, GaussianFeatures, PoissonFeatures, GenericTypeFeatures
 from sbayes.preprocessing import sample_categorical
 from sbayes.util import format_cluster_columns, get_best_permutation, normalize
 from sbayes.model import Model
+
+import warnings
+
+# Suppress warnings from PyTables about natural names
+warnings.simplefilter("ignore", category=tables.NaturalNameWarning)
+
 
 def get_cluster_names(n_clusters: int) -> list[str]:
     """Create a list of names for the clusters based on the number of clusters."""
@@ -171,6 +180,9 @@ def write_samples(
     if "potential_energy" in samples:
         params_df["potential_energy"] = samples["potential_energy"]
 
+    if "z_concentration" in samples:
+        params_df["z_concentration"] = samples["z_concentration"]
+
     clusters_path = base_path / f'clusters_K{n_clusters}_{run}.txt'
     clusters_continuous_path = base_path / f'clusters_K{n_clusters}_{run}.npy'
     params_path = base_path / f'stats_K{n_clusters}_{run}.txt'
@@ -188,9 +200,36 @@ def write_samples(
     with open(params_path, "w") as params_file:
         params_df.to_csv(params_file, sep='\t', index=False)
 
-    likelihoods = log_likelihood(model.get_model, samples)
-    with open(base_path / f'likelihoods_K{n_clusters}_{run}.pkl', 'wb') as f:
-        pickle.dump(likelihoods, f)
+    # Write pointwise likelihoods to file
+    if not model.config.sample_from_prior:
+        likelihoods_by_partition = log_likelihood(model.get_model, samples)
+        likelihoods_flat = np.empty((n_samples,) + data.features.all_features.shape)
+        for p in data.features.partitions:
+            likelihoods_flat[:, :, p.feature_indices] = likelihoods_by_partition[f"x_{p.name}"]
+
+        # Create the likelihood array
+        with tables.open_file(base_path / f'likelihood_K{n_clusters}_{run}.h5', mode="w") as lh_file:
+            logged_likelihood_array = lh_file.create_earray(
+                where=lh_file.root,
+                name="likelihood",
+                obj=likelihoods_flat.reshape(n_samples, -1),
+                atom=tables.Float32Col(),
+                filters=tables.Filters(
+                    complevel=9, complib="blosc:zlib", bitshuffle=True, fletcher32=True
+                ),
+                shape=(0, n_objects * data.features.n_features),
+            )
+            logged_likelihood_array.close()
+
+            na_array = lh_file.create_carray(
+                where=lh_file.root,
+                name="na_values",
+                obj=data.features.missing.ravel(),
+                atom=tables.BoolCol(),
+                filters=tables.Filters(complevel=9, fletcher32=True),
+                shape=(n_objects * data.features.n_features,),
+            )
+            na_array.close()
 
 
 def samples_array_to_df(
@@ -229,6 +268,7 @@ def samples_array_to_df(
     # Create a DataFrame using the flattened data and generated column names
     return pd.DataFrame(flattened_samples, columns=column_names)
 
+
 def combine_param_samples(
     samples: dict[str, np.ndarray],
     param_names: dict[str, list[list[str]]]
@@ -264,6 +304,116 @@ def combine_param_samples(
 
     return combined_df
 
+
+class OnlineLogger:
+
+    def __init__(
+        self,
+        path: str,
+        data: Data,
+        model: Model,
+        resume: bool,
+    ):
+        self.path: Path = Path(path)
+        self.data: Data = data
+        self.model: Model = model.__copy__()
+
+        self.file = None
+        self.column_names = None
+
+        self.resume = resume
+
+    @abstractmethod
+    def write_header(self, sample: dict):
+        pass
+
+    @abstractmethod
+    def _write_sample(self, sample: dict, **write_args):
+        pass
+
+    def write_sample(self, sample: dict, **write_args):
+        if self.file is None:
+            self.open()
+            self.write_header(sample)
+        self._write_sample(sample, **write_args)
+
+    def open(self):
+        self.file = open(self.path, "a" if self.resume else "w", buffering=1)
+        # ´buffering=1´ activates line-buffering, i.e. flushing to file after each line
+
+    def close(self):
+        if self.file:
+            self.file.close()
+            self.file = None
+
+def numpy_to_tables_dtype(dtype):
+    """Convert numpy dtype to tables dtype."""
+    if np.issubdtype(dtype, np.integer):
+        return tables.Int32Col()
+    elif np.issubdtype(dtype, np.floating):
+        return tables.Float32Col()
+    elif np.issubdtype(dtype, np.bool_):
+        return tables.BoolCol()
+    else:
+        raise ValueError(f"Unsupported numpy dtype: {dtype}")
+
+
+class OnlineSampleLogger(OnlineLogger):
+
+    """The OnlineSampleLogger continually writes the samples to a pytables file (.h5)."""
+
+    def __init__(self, *args, **kwargs):
+        self.logged_likelihood_array = None
+        super().__init__(*args, **kwargs)
+
+    def open(self):
+        if self.resume:
+            try:
+                self.file = tables.open_file(self.path, mode="a")
+
+            except tables.exceptions.HDF5ExtError as e:
+                logging.warning(f"Could not append to existing sample file '{self.path.name}' ({type(e).__name__})."
+                                f" Overwriting previous samples.")
+                # Set resume to False and open again
+                self.resume = False
+                self.open()
+
+        else:
+            self.file = tables.open_file(self.path, mode="w")
+
+    def write_header(self, sample: dict):
+        if self.resume:
+            return
+
+        for param_name, param_value in sample.items():
+            # Create the likelihood array
+            n_chains, n_samples, *param_dims = param_value.shape
+            self.file.create_earray(
+                where=self.file.root,
+                name=param_name,
+                atom=numpy_to_tables_dtype(np.array(param_value).dtype),
+                filters=tables.Filters(complevel=5),
+                shape=(n_chains, 0, *param_dims),
+            )
+
+    def _write_sample(self, sample: dict, **write_args):
+        # n_new_samples = write_args.get("n_new_samples", 1)
+        for param_name, param_values in sample.items():
+            # Write the new samples to the file
+            self.file.root[param_name].append(np.array(param_values))
+        self.file.flush()
+
+    def read_samples(self) -> dict[str, np.ndarray]:
+        """Read the samples from the HDF file and return them as a dictionary."""
+        samples = {}
+        for param in self.file.root:
+            # Swap axes from (n_samples, n_chains,...) to (n_chains, n_samples, ...)
+            param_array = np.array(param).swapaxes(0, 1)
+
+            # Place the paramter samples in the dictionary
+            samples[param._v_name] = param_array
+
+        return samples
 
 if __name__ == '__main__':
     # Example usage
