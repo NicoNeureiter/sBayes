@@ -19,11 +19,9 @@ dependencies = [
     "geopandas",
     "matplotlib",
     "numpy<2.0.0",
-    "pygeos",
     "pandas",
     "pyproj",
     "scipy",
-    "Shapely",
     "seaborn",
     "cartopy",
     "typing_extensions",
@@ -34,6 +32,8 @@ dependencies = [
     "psutil",
     "numba",
     "libpysal",
+    "jax",
+    "numpyro",
 ]
 
 [project.optional-dependencies]
