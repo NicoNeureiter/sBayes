@@ -1,28 +1,19 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-
 """ Setup of the MCMC process """
 from __future__ import annotations
 
-import json
 import pickle
+import time
 
 from jax import random
-import numpy as np
 from numpy.typing import NDArray
 import numpyro
 from numpyro.diagnostics import summary
-
-from sbayes.preprocessing import sample_categorical
 
 from sbayes.model import Model
 from sbayes.sampling.loggers import write_samples, OnlineSampleLogger
 from sbayes.experiment_setup import Experiment
 from sbayes.load_data import Data
-from sbayes.sampling.numpyro_sampling import sample_nuts, sample_svi, get_manual_guide, sample_nuts_with_annealing
-from sbayes.util import format_cluster_columns, get_best_permutation
-
-numpyro.set_host_device_count(4)
+from sbayes.sampling.numpyro_sampling import sample_nuts, sample_svi
 
 
 class MCMCSetup:
@@ -66,6 +57,8 @@ Warm-up: {mcmc_cfg.warmup.warmup_steps} steps''')
     ):
         mcmc_config = self.config.mcmc
         results_config = self.config.results
+
+        self.t_start = time.time()
 
         inference_mode = "MCMC"
         # inference_mode = "SVI"
@@ -152,3 +145,5 @@ Warm-up: {mcmc_cfg.warmup.warmup_steps} steps''')
 
         sample_logger.close()
 
+        runtime = time.time() - self.t_start
+        self.logger.info(f"Runtime: {runtime:.2f} seconds")

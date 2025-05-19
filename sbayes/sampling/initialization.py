@@ -1,29 +1,33 @@
 import warnings
 from functools import partial
 
-from numpyro.infer import SVI, Trace_ELBO, init_to_feasible
+from numpyro.infer import SVI, Trace_ELBO, init_to_feasible, MCMC, NUTS
 from numpyro.infer.autoguide import AutoNormal, AutoDelta
 from numpyro.infer.util import log_density, unconstrain_fn, transform_fn
 from numpyro.optim import Adam
-from numpyro.handlers import seed, trace
 import jax
 import jax.numpy as jnp
 from numpyro.util import find_stack_level
+from tqdm import tqdm
 
 
 def get_svi_init_sample(model, model_args=(), model_kwargs=None, rng_key=None, svi_steps=100, num_chains=1):
     if model_kwargs is None:
         model_kwargs = {}
 
-    # guide = AutoNormal(model.get_model, init_loc_fn=init_to_feasible)
-    guide = AutoDelta(model.get_model)
+    guide = AutoNormal(model.get_model, init_loc_fn=init_to_feasible)
+    # guide = AutoDelta(model.get_model)
     optimizer = Adam(3e-3)
 
     svi = SVI(model.get_model, guide, optimizer, loss=Trace_ELBO())
     svi_result = svi.run(rng_key, svi_steps, *model_args, **model_kwargs)
 
     # Return samples from the variational approximation
-    return guide.sample_posterior(jax.random.PRNGKey(1), svi_result.params)
+    init_sample = guide.sample_posterior(jax.random.PRNGKey(1), svi_result.params)
+
+    print(f"SVI sample has log-prob {log_density(model.get_model, model_args, model_kwargs, init_sample)[0]}")
+
+    return init_sample
 
     # def init_fn(site):
     #     if (site["type"] == "sample"
@@ -90,12 +94,12 @@ def init_by_svi(site=None, svi_steps=30):
         return guide.sample_posterior(jax.random.PRNGKey(1), svi_result.params)
 
 
-def find_best_initial_sample(model, model_args=(), model_kwargs=None, rng_key=None, num_samples=100):
+def find_best_initial_sample(model, rng_key=None, num_samples=100):
     """
     Return the best initialization point based on prior samples with highest joint log prob.
     """
-    if model_kwargs is None:
-        model_kwargs = {}
+    model_args = ()
+    model_kwargs = {}
 
     keys = jax.random.split(rng_key, num_samples)
     samples = []
@@ -103,18 +107,8 @@ def find_best_initial_sample(model, model_args=(), model_kwargs=None, rng_key=No
 
 
     for key in keys:
-        # prior_trace = trace(seed(model, key)).get_trace(*model_args, **model_kwargs)
-        #
-        # sample_dict = {
-        #     name: site["value"]
-        #     for name, site in prior_trace.items()
-        #     if site["type"] == "sample" and not site["is_observed"]
-        # }
         sample_dict = model.generate_initial_params(key)
-
         log_joint, _ = log_density(model.get_model, model_args, model_kwargs, sample_dict)
-        # print(log_joint)
-
         samples.append(sample_dict)
         log_probs.append(log_joint)
 
@@ -130,3 +124,27 @@ def find_best_initial_sample(model, model_args=(), model_kwargs=None, rng_key=No
 
     return samples[best_idx]
 
+
+def init_by_annealing(model, model_args, model_kwargs, rng_key, steps_per_temp=1000, temp_schedule=None):
+    """Run annealed MCMC to find a good initial state. The annealing slowly decreases the temperature, thereby moving
+    through the parameter space in the beginning, but gradually focusing on the high posterior areas later on."""
+    if temp_schedule is None:
+        temp_schedule = [16, 8, 4, 2, 1, 0.5, 0.25]
+
+    init_sample = find_best_initial_sample(model, rng_key=rng_key)
+
+    mcmc = MCMC(
+        sampler=NUTS(model.get_model, init_sample), num_warmup=2, num_samples=steps_per_temp,
+        num_chains=1,
+        progress_bar=False,
+    )
+    rng_key, subkey = jax.random.split(rng_key, 2)
+    mcmc.warmup(rng_key)
+    mcmc_state = mcmc.last_state
+    for temp in tqdm(temp_schedule, desc="Initialization by annealing..."):
+        mcmc.post_warmup_state = mcmc_state
+        rng_key, subkey = jax.random.split(rng_key, 2)
+        mcmc.run(rng_key=subkey)
+        mcmc_state = mcmc.last_state
+
+    return mcmc_state

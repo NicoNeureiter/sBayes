@@ -1,21 +1,15 @@
-import warnings
-from functools import partial
-
 import jax.numpy as jnp
 import jax
 from jax import random, lax
-from jax import nn
-from jax.example_libraries.optimizers import inverse_time_decay
 from jax.nn import softmax
 from tqdm import tqdm
 import numpyro
 from numpyro.distributions.transforms import StickBreakingTransform
-from numpyro.infer import MCMC, NUTS, SVI, Trace_ELBO, Predictive, MixedHMC, DiscreteHMCGibbs, init_to_median, \
+from numpyro.infer import MCMC, NUTS, SVI, Trace_ELBO, Predictive, init_to_median, \
     init_to_value
 import numpyro.distributions as dist
 from numpyro.distributions import transforms, constraints
-# from numpyro.contrib.tfp.mcmc import ReplicaExchangeMC
-# from numpyro.contrib.nested_sampling import NestedSampler  # Changes quite a few jax settings (e.g. x64)
+import numpyro.contrib.tfp.mcmc as tfp_kernels
 from numpyro.infer import autoguide
 import matplotlib.pyplot as plt
 from numpyro.infer.autoguide import AutoGuideList
@@ -24,13 +18,12 @@ from numpyro.infer.util import initialize_model
 from numpyro.optim import Adam
 
 from sbayes.model import Model
-from sbayes.sampling.initialization import get_svi_init_sample
+from sbayes.sampling.initialization import get_svi_init_sample, find_best_initial_sample
 from sbayes.sampling.loggers import OnlineSampleLogger
 from sbayes.util import timeit
 
-# from tensorflow_probability.substrates import jax as tfp
 
-numpyro.set_host_device_count(4)
+numpyro.set_host_device_count(8)
 # jax.config.update("jax_traceback_filtering", "off")
 
 
@@ -56,27 +49,41 @@ def sample_nuts(
     init_sample: dict = None,
     sample_logger: OnlineSampleLogger = None,
 ):
-    # # Generate an initial sample using SVI
-    # if init_sample is None:
-    #     init_sample = get_svi_init_sample(model, model_args=(), model_kwargs={}, rng_key=rng_key, svi_steps=3000)
-
-
-    # Estimate dense mass matrix for correlated sites
-    # correlated_sites = ("z_logit", ) + tuple(f"cluster_effect_{p.name}" for p in model.partitions)
+    # Generate an initial sample using SVI
+    if init_sample is None:
+        # init_sample = get_svi_init_sample(model, rng_key=rng_key, svi_steps=1000)
+        init_sample = find_best_initial_sample(model, rng_key=rng_key)
 
     # Create NUTS kernel
-    # kernel = NUTS(model.get_model, init_strategy=init_to_value(values=init_sample), dense_mass=[correlated_sites])
     if init_sample:
-        # kernel = NUTS(lambda: model.get_tempered_model(10000.), init_strategy=init_to_value(values=init_sample))
         kernel = NUTS(model.get_model, init_strategy=init_to_value(values=init_sample))
     else:
-        # kernel = NUTS(lambda: model.get_tempered_model(10000.))
-        kernel = NUTS(model.get_model)
+        kernel = NUTS(model.get_model, init_strategy=init_to_median)
 
     # FOR DISCRETE MODELS
     # inner_kernel = NUTS(model.get_model)
     # kernel = MixedHMC(inner_kernel=inner_kernel, num_discrete_updates=10)
     # kernel = DiscreteHMCGibbs(inner_kernel=inner_kernel)
+
+
+    # # MC3 kernel
+    # # def make_nuts_kernel(model_fn, *args, **kwargs):
+    # #     # return tfp_kernels.NoUTurnSampler(model_fn, step_size=1.0)
+    # #     return tfp.mcmc.HamiltonianMonteCarlo(
+    # #         target_log_prob_fn=model_fn,
+    # #         step_size=200 / jnp.sqrt(0.5 ** jnp.arange(4)[..., None]),
+    # #         num_leapfrog_steps=jnp.asarray(10),
+    # #     )
+    # #
+    # # kernel = tfp_kernels.ReplicaExchangeMC(
+    # #     model=model.get_model,
+    # #     inverse_temperatures=0.95 ** jnp.arange(4, dtype=jnp.float32),
+    # #     make_kernel_fn=make_nuts_kernel,
+    # # )
+    # kernel = tfp_kernels.MetropolisAdjustedLangevinAlgorithm(
+    #     model=model.get_model,
+    #     step_size=.1,
+    # )
 
     num_writes = num_samples // write_interval
     split_runs = num_writes >= 2
@@ -121,9 +128,9 @@ def sample_nuts(
 
         samples = sample_logger.read_samples()
     else:
-        mcmc.run(rng_key, extra_fields=("potential_energy", "adapt_state.step_size", "adapt_state.inverse_mass_matrix"))
+        mcmc.run(rng_key)  #, extra_fields=("potential_energy", "adapt_state.step_size", "adapt_state.inverse_mass_matrix"))
         samples = mcmc.get_samples(group_by_chain=True)
-        samples["potential_energy"] = mcmc.get_extra_fields(group_by_chain=True)["potential_energy"]
+        # samples["potential_energy"] = mcmc.get_extra_fields(group_by_chain=True)["potential_energy"]
         sample_logger.write_sample(samples)
 
     return mcmc, samples
@@ -135,32 +142,62 @@ def sample_nuts_mc3(
     num_samples: int,
     num_chains: int,
     rng_key: random.PRNGKey,
+    swap_interval: int,
+    temp_diff: float,
     thinning: int = 1,
+    init_sample: dict = None,
+    sample_logger: OnlineSampleLogger = None,
 ):
+    # Create NUTS kernel
+    kernel = NUTS(model.get_model, init_strategy=init_to_median(num_samples=30))
+
+    num_swaps = num_samples // swap_interval
+    split_runs = num_swaps >= 2
+
     mcmc = MCMC(
-        sampler=NUTS(model.get_model, init_strategy=init_to_median),
+        sampler=kernel,
         num_warmup=num_warmup,
-        num_samples=num_samples,
+        num_samples=swap_interval if split_runs else num_samples,
         num_chains=num_chains,
         thinning=thinning,
+        progress_bar=not split_runs,
     )
-    mcmc.run(
-        rng_key,
-        extra_fields=("potential_energy", "adapt_state.step_size", "adapt_state.inverse_mass_matrix", "adapt_state.mass_matrix_sqrt"),
-    )
+    if split_runs:
+        rng_key, subkey = random.split(rng_key, 2)
+        mcmc.warmup(rng_key=subkey)
+        mcmc_state = mcmc.post_warmup_state
+        num_samples_done = 0
+        for _ in tqdm(range(num_swaps)):
+            mcmc.post_warmup_state = mcmc_state
+            rng_key, subkey = random.split(rng_key, 2)
+            mcmc.run(rng_key=subkey, extra_fields=("potential_energy",))
+            mcmc_state = mcmc.last_state
 
-    show_inference_summary = False
-    if show_inference_summary:
-        mcmc.print_summary()
+            samples = mcmc.get_samples(group_by_chain=True)
+            samples["potential_energy"] = mcmc.get_extra_fields(group_by_chain=True)["potential_energy"]
 
-    show_adapt_state = True
-    if show_adapt_state:
-        for field_name, field in mcmc.get_extra_fields().items():
-            for param_names, values in field.items():
-                print(field_name, param_names, values)
+            sample_logger.write_sample(samples)
+            num_samples_done += samples["potential_energy"].shape[1]
 
-    samples = mcmc.get_samples(group_by_chain=True)
-    samples["potential_energy"] = mcmc.get_extra_fields(group_by_chain=True)["potential_energy"]
+        if num_samples_done < num_samples // thinning:
+            mcmc.post_warmup_state = mcmc_state
+            mcmc.num_samples = num_samples - num_samples_done * thinning
+            rng_key, subkey = random.split(rng_key, 2)
+            mcmc.run(rng_key=subkey, extra_fields=("potential_energy",))
+
+            samples = mcmc.get_samples(group_by_chain=True)
+            samples["potential_energy"] = mcmc.get_extra_fields(group_by_chain=True)["potential_energy"]
+
+            sample_logger.write_sample(samples)
+
+            num_samples_done += samples["potential_energy"].shape[1]
+
+        samples = sample_logger.read_samples()
+    else:
+        mcmc.run(rng_key, extra_fields=("potential_energy", "adapt_state.step_size", "adapt_state.inverse_mass_matrix"))
+        samples = mcmc.get_samples(group_by_chain=True)
+        samples["potential_energy"] = mcmc.get_extra_fields(group_by_chain=True)["potential_energy"]
+        sample_logger.write_sample(samples)
 
     return mcmc, samples
 
@@ -366,12 +403,11 @@ def sample_parallel_tempering(
     rng_key: random.PRNGKey
 ):
     def make_nuts_kernel(model, *args, **kwargs):
-        return tfp.mcmc.NoUTurnSampler(model, step_size=0.1)
+        return tfp_kernels.NoUTurnSampler(model.get_model, step_size=1.0)
 
     # Sample the model parameters and latent variables using MCMC
-    # kernel = TFPKernel[tfp.mcmc.ReplicaExchangeMC](
-    kernel = ReplicaExchangeMC(
-        model=model,
+    kernel = tfp_kernels.ReplicaExchangeMC(
+        model=model.get_model,
         inverse_temperatures=0.9 ** jnp.arange(4),
         make_kernel_fn=make_nuts_kernel,
     )
