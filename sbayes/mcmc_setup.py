@@ -71,7 +71,8 @@ Warm-up: {mcmc_cfg.warmup.warmup_steps} steps''')
         if inference_mode == "MCMC":
             # If resuming, read the initial sample from the samples.h5 file
             if resume:
-                initial_sample = sample_logger.read_samples()
+                sample_logger.open()
+                initial_sample = sample_logger.load_state()
             else:
                 initial_sample = None
 
@@ -115,10 +116,6 @@ Warm-up: {mcmc_cfg.warmup.warmup_steps} steps''')
 
                 with open(self.path_results / f'mcmc_summary.pkl', 'wb') as f:
                     pickle.dump(summary(samples, group_by_chain=True), f)
-
-                # Write the numpyro mcmc checkpoint to a file
-                with open(self.path_results / f'state.pkl', 'wb') as f:
-                    pickle.dump(sampler.last_state, f)
 
                 # Write results to sBayes results files (separate files for clusters and other parameters)
                 for i in range(mcmc_config.runs):

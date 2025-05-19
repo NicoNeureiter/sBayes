@@ -183,6 +183,10 @@ def write_samples(
     if "z_concentration" in samples:
         params_df["z_concentration"] = samples["z_concentration"]
 
+    if "w_cluster_concentration_0" in samples:
+        params_df["w_cluster_concentration_0"] = samples["w_cluster_concentration_0"]
+        params_df["w_cluster_concentration_1"] = samples["w_cluster_concentration_1"]
+
     clusters_path = base_path / f'clusters_K{n_clusters}_{run}.txt'
     clusters_continuous_path = base_path / f'clusters_K{n_clusters}_{run}.npy'
     params_path = base_path / f'stats_K{n_clusters}_{run}.txt'
@@ -315,6 +319,7 @@ class OnlineLogger:
         resume: bool,
     ):
         self.path: Path = Path(path)
+        self.state_path = self.path.parent / "state.pkl"
         self.data: Data = data
         self.model: Model = model.__copy__()
 
@@ -336,6 +341,14 @@ class OnlineLogger:
             self.open()
             self.write_header(sample)
         self._write_sample(sample, **write_args)
+
+    def dump_state(self, state):
+        with open(self.state_path, 'wb') as f:
+            pickle.dump(state, f)
+
+    def load_state(self):
+        with open(self.state_path, 'rb') as f:
+            return pickle.load(f)
 
     def open(self):
         self.file = open(self.path, "a" if self.resume else "w", buffering=1)

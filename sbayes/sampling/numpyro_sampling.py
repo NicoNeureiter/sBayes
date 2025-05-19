@@ -52,13 +52,12 @@ def sample_nuts(
     # Generate an initial sample using SVI
     if init_sample is None:
         # init_sample = get_svi_init_sample(model, rng_key=rng_key, svi_steps=1000)
-        init_sample = find_best_initial_sample(model, rng_key=rng_key)
+        s = find_best_initial_sample(model, rng_key=rng_key)
 
-    # Create NUTS kernel
-    if init_sample:
-        kernel = NUTS(model.get_model, init_strategy=init_to_value(values=init_sample))
+        # Create NUTS kernel
+        kernel = NUTS(model.get_model, init_strategy=init_to_value(values=s))
     else:
-        kernel = NUTS(model.get_model, init_strategy=init_to_median)
+        kernel = NUTS(model.get_model)
 
     # FOR DISCRETE MODELS
     # inner_kernel = NUTS(model.get_model)
@@ -96,10 +95,14 @@ def sample_nuts(
         thinning=thinning,
         progress_bar=not split_runs,
     )
-    if split_runs:
+    if init_sample:
+        mcmc.post_warmup_state = mcmc_state = init_sample
+    else:
         rng_key, subkey = random.split(rng_key, 2)
         mcmc.warmup(rng_key=subkey)
         mcmc_state = mcmc.post_warmup_state
+
+    if split_runs:
         num_samples_done = 0
         for _ in tqdm(range(num_writes)):
             mcmc.post_warmup_state = mcmc_state
@@ -111,6 +114,7 @@ def sample_nuts(
             samples["potential_energy"] = mcmc.get_extra_fields(group_by_chain=True)["potential_energy"]
 
             sample_logger.write_sample(samples)
+            sample_logger.dump_state(mcmc.last_state)
             num_samples_done += samples["potential_energy"].shape[1]
 
         if num_samples_done < num_samples // thinning:
@@ -123,15 +127,17 @@ def sample_nuts(
             samples["potential_energy"] = mcmc.get_extra_fields(group_by_chain=True)["potential_energy"]
 
             sample_logger.write_sample(samples)
+            sample_logger.dump_state(mcmc.last_state)
 
             num_samples_done += samples["potential_energy"].shape[1]
 
         samples = sample_logger.read_samples()
     else:
-        mcmc.run(rng_key)  #, extra_fields=("potential_energy", "adapt_state.step_size", "adapt_state.inverse_mass_matrix"))
+        mcmc.run(rng_key, extra_fields=("potential_energy",))
         samples = mcmc.get_samples(group_by_chain=True)
-        # samples["potential_energy"] = mcmc.get_extra_fields(group_by_chain=True)["potential_energy"]
+        samples["potential_energy"] = mcmc.get_extra_fields(group_by_chain=True)["potential_energy"]
         sample_logger.write_sample(samples)
+        sample_logger.dump_state(mcmc.last_state)
 
     return mcmc, samples
 
