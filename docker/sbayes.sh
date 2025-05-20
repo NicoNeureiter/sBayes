@@ -11,4 +11,4 @@ CONFIG_DIR="$(dirname "$CONFIG_PATH")"
 shift  # Remove the config path from the arguments
 CONFIG_FILE="$(basename "$CONFIG_PATH")"
 
-docker run --rm -v "$CONFIG_DIR":/data sbayes /data/"$CONFIG_FILE" "$@"
+docker run --rm -v "$CONFIG_DIR":/data sbayes python -m sbayes /data/"$CONFIG_FILE" "$@"
