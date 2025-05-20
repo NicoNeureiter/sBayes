@@ -29,4 +29,4 @@ shift
 goto buildargs
 
 :run
-docker run --rm -v "%CONFIG_DIR%:/data" sbayes /data/%CONFIG_FILE% %CLI_ARGS%
+docker run --rm -v "%CONFIG_DIR%:/data" sbayes python -m sbayes /data/%CONFIG_FILE% %CLI_ARGS%
