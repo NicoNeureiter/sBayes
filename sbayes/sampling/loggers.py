@@ -217,7 +217,7 @@ def write_samples(
                 where=lh_file.root,
                 name="likelihood",
                 obj=likelihoods_flat.reshape(n_samples, -1),
-                atom=tables.Float32Col(),
+                atom=tables.Float64Col(),
                 filters=tables.Filters(
                     complevel=9, complib="blosc:zlib", bitshuffle=True, fletcher32=True
                 ),
