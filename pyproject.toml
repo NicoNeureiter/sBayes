@@ -34,10 +34,10 @@ dependencies = [
     "psutil",
     "numba",
     "libpysal",
+    "arviz",
 ]
 
 [project.optional-dependencies]
-modelComparison = ["arviz"]
 gui = ["tkinter"]
 
 [project.urls]
