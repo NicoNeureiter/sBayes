@@ -9,7 +9,7 @@ from numpyro.infer import MCMC, NUTS, SVI, Trace_ELBO, Predictive, init_to_media
     init_to_value
 import numpyro.distributions as dist
 from numpyro.distributions import transforms, constraints
-import numpyro.contrib.tfp.mcmc as tfp_kernels
+# import numpyro.contrib.tfp.mcmc as tfp_kernels
 from numpyro.infer import autoguide
 import matplotlib.pyplot as plt
 from numpyro.infer.autoguide import AutoGuideList
@@ -59,12 +59,6 @@ def sample_nuts(
     else:
         kernel = NUTS(model.get_model)
 
-    # FOR DISCRETE MODELS
-    # inner_kernel = NUTS(model.get_model)
-    # kernel = MixedHMC(inner_kernel=inner_kernel, num_discrete_updates=10)
-    # kernel = DiscreteHMCGibbs(inner_kernel=inner_kernel)
-
-
     # # MC3 kernel
     # # def make_nuts_kernel(model_fn, *args, **kwargs):
     # #     # return tfp_kernels.NoUTurnSampler(model_fn, step_size=1.0)
@@ -102,6 +96,11 @@ def sample_nuts(
         mcmc.warmup(rng_key=subkey)
         mcmc_state = mcmc.post_warmup_state
 
+    if num_samples == 1 and num_warmup == 1:
+        # Special setting for expanding samples from a previous run
+        samples = sample_logger.read_samples()
+        return mcmc, samples
+
     if split_runs:
         num_samples_done = 0
         for _ in tqdm(range(num_writes)):
@@ -132,6 +131,7 @@ def sample_nuts(
             num_samples_done += samples["potential_energy"].shape[1]
 
         samples = sample_logger.read_samples()
+
     else:
         mcmc.run(rng_key, extra_fields=("potential_energy",))
         samples = mcmc.get_samples(group_by_chain=True)

@@ -176,16 +176,25 @@ def write_samples(
 
     params_df = pd.concat(param_dfs_list, axis=1)
 
+    optional_parameters = [
+        "potential_energy",
+        "w_cluster_concentration_0",
+        "w_cluster_concentration_1",
+        "z_concentration",
+        "z_stretch_0",
+        "z_stretch_1",
+        "cluster_mask"
+    ]
+    for param in optional_parameters:
+        if param in samples:
+            s = samples[param]
+            assert len(s.shape) <= 2
+            if len(s.shape) == 1:
+                params_df[param] = s
+            else:
+                for i, s_i in enumerate(s.T):
+                    params_df[f"{param}_{i}"] = s[:, i]
 
-    if "potential_energy" in samples:
-        params_df["potential_energy"] = samples["potential_energy"]
-
-    if "z_concentration" in samples:
-        params_df["z_concentration"] = samples["z_concentration"]
-
-    if "w_cluster_concentration_0" in samples:
-        params_df["w_cluster_concentration_0"] = samples["w_cluster_concentration_0"]
-        params_df["w_cluster_concentration_1"] = samples["w_cluster_concentration_1"]
 
     clusters_path = base_path / f'clusters_K{n_clusters}_{run}.txt'
     clusters_continuous_path = base_path / f'clusters_K{n_clusters}_{run}.npy'

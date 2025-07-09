@@ -59,9 +59,12 @@ class Results:
         # }
 
         # Posterior, likelihood, prior
-        self.posterior = self.parameters["posterior"].to_numpy(dtype=float)
-        self.likelihood = self.parameters["likelihood"].to_numpy(dtype=float)
-        self.prior = self.parameters["prior"].to_numpy(dtype=float)
+        if "posterior" in self.parameters.columns:
+            self.posterior = self.parameters["posterior"].to_numpy(dtype=float)
+        if "likelihood" in self.parameters.columns:
+            self.likelihood = self.parameters["likelihood"].to_numpy(dtype=float)
+        if "prior" in self.parameters.columns:
+            self.prior = self.parameters["prior"].to_numpy(dtype=float)
 
         # Posterior, likelihood, prior contribution per area
         self.posterior_single_clusters = Results.read_dictionary(

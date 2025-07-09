@@ -15,7 +15,7 @@ from scipy.sparse import csr_matrix
 import libpysal as pysal
 
 from sbayes.model.model_shapes import ModelShapes
-from sbayes.util import dirichlet_logpdf, log_expit, FLOAT_TYPE, normalize_weights
+from sbayes.util import dirichlet_logpdf, log_expit, FLOAT_TYPE, normalize_weights, EPS, normalize
 from sbayes.config.config import PriorConfig, DirichletPriorConfig, GeoPriorConfig, ClusterPriorConfig, \
     ConfoundingEffectConfig, GaussianVariancePriorConfig, GaussianMeanPriorConfig, GaussianPriorConfig, \
     ClusterEffectConfig
@@ -463,7 +463,7 @@ class ClusterPrior:
             with numpyro.plate("plate_objects_z", self.shapes.n_objects, dim=-1):
                 z_int = numpyro.sample("z_int", dist.Categorical(jnp.ones(K + 1) / (K + 1)))
                 z = jax.nn.one_hot(z_int, K+1)
-                numpyro.deterministic("z", z)
+                numpyro.deterministic("z_raw", z)
 
         elif self.prior_type is self.PriorType.DIRICHLET:
             if self.config.hierarchical:
@@ -471,8 +471,19 @@ class ClusterPrior:
                 concentration = jnp.full((self.shapes.n_clusters + 1, ), c)
             else:
                 concentration = self.concentration
-            with numpyro.plate("plate_objects_z", self.shapes.n_objects, dim=-1):
-                z = numpyro.sample("z", dist.Dirichlet(concentration))
+
+            with numpyro.plate("plate_objects_z", self.shapes.n_objects, dim=-2):
+                # z = numpyro.sample("z", dist.Dirichlet(concentration))
+                with numpyro.plate("plate_clusters_z", self.shapes.n_clusters + 1, dim=-1):
+                    z_raw = numpyro.sample("z_raw", dist.Gamma(concentration, 1.0))
+
+                if self.config.cluster_mask:
+                    c = self.config.cluster_mask_concentration
+                    with numpyro.plate("plate_clusters_z", self.shapes.n_clusters + 1, dim=-1):
+                        shrinkage = numpyro.sample("cluster_mask", dist.Beta(c, c))
+                    z_raw *= shrinkage[None, :]
+
+                z = z_raw / z_raw.sum(axis=-1, keepdims=True)
 
         elif self.prior_type is self.PriorType.LOGISTIC_NORMAL:
             if self.config.hierarchical:
@@ -486,11 +497,27 @@ class ClusterPrior:
                     z_logit_unscaled = numpyro.sample("z_logit", dist.Normal(self.logi_norm_loc, 1.0))
                     z_logit = z_logit_unscaled * scale
                     z = jax.nn.softmax(z_logit, axis=-1)
-                    numpyro.deterministic("z", z)
+
         else:
             raise ValueError(f'Invalid prior type {self.prior_type} for cluster assignment.')
 
+        if self.config.stretch_and_clip:
+            s = self.config.stretch_factor
+            z_stretched = z.at[:, -1].multiply(s)
+            d = z_stretched[:, -1:] - z[:, -1:]
+            z_stretched = z_stretched.at[:, :-1] \
+                .subtract((z[:, :-1] / (jnp.sum(z[:, :-1], axis=-1, keepdims=True) + 1E6)) * d)
+            z_stretched = jnp.clip(z_stretched, 1E-9, 1 - 1E-9)
+
+            # Shouldn't be necessary, but renormalize for numerical stability
+            z_stretched = normalize(z_stretched, axis=-1)
+
+            z = z_stretched
+
+        numpyro.deterministic("z", z)
+
         return z
+
 
 Aggregator = Callable[[Sequence[float]], float]
 """A type describing functions that aggregate costs in the geo-prior."""

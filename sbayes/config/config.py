@@ -364,6 +364,15 @@ class ClusterPriorConfig(BaseConfig):
     logistic_normal_config: Optional[LogisticNormalPriorConfig] = None
     """Configuration of the Logistic Normal prior for the cluster assignment."""
 
+    stretch_and_clip: bool = False
+    stretch_factor: PositiveFloat = 1.0
+    """If stretch_and_clip, stretch the 'no cluster' component up by the stretch_factor 
+    and clip the resulting cluster assignment vector back to the probability simplex."""
+
+    cluster_mask: bool = False
+    cluster_mask_concentration: PositiveFloat = 1.0
+    """If `cluster_mask` is set, estimate a mask that fuzzily deactivates single clusters."""
+
     min: PositiveInt = 2
     """Minimum cluster size."""
 

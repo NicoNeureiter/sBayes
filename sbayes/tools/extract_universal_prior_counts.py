@@ -4,7 +4,7 @@ import json
 import os
 import argparse
 
-from sbayes.load_data import read_features_from_csv, Confounder
+from sbayes.load_data import read_features_from_csv, Confounder, Features, CategoricalFeatures
 from sbayes.util import scale_counts
 
 
@@ -20,6 +20,7 @@ def main(args):
     parser.add_argument("--output", nargs="?", type=Path, help="The output JSON file")
     parser.add_argument("--add", nargs="?", default=1.0, type=float, help="Concentration of the hyper-prior (1.0 is Uniform)")
     parser.add_argument("--scaleCounts", nargs="?", default=None, type=float, help="An upper bound on the concentration of the prior (default is infinity/no upper bound)")
+    parser.add_argument("--confounders", nargs="*", type=str, help="List of confounders to include in the prior. Default is ['universal']. Use 'none' to exclude confounders.")
 
     args = parser.parse_args(args)
     prior_data_file = args.data
@@ -27,6 +28,9 @@ def main(args):
     output_file = args.output
     hyper_prior_concentration = args.add
     max_counts = args.scaleCounts
+    confounders = args.confounders
+    if confounders is None:
+        confounders = ["universal"]
 
     # GUI
     gui_required = (prior_data_file is None
@@ -73,20 +77,26 @@ def main(args):
     objects, features, confounders = read_features_from_csv(
         data_path=prior_data_file,
         feature_states_path=feature_states_file,
-        confounder_names=['universal'],
+        confounder_names=confounders,
     )
-
-    counts = np.sum(features.values, axis=0)  # shape: (n_features, n_states)
-
-    # Apply the scale_counts if provided
-    if max_counts is not None:
-        counts = scale_counts(counts, max_counts)
+    features: Features = features
 
     counts_dict = {}
-    for i_f, feature in enumerate(features.names):
-        counts_dict[feature] = {}
-        for i_s, state in enumerate(features.state_names[i_f]):
-            counts_dict[feature][state] = hyper_prior_concentration + counts[i_f, i_s]
+    for partition in features.partitions:
+        if not isinstance(partition, CategoricalFeatures):
+            continue  # Skip non-categorical features
+
+        # Count the occurrences of each state in each feature in the partition
+        counts = np.sum(partition.to_binary(), axis=0)  # shape: (n_features, n_states)
+
+        # Apply the scale_counts if provided
+        if max_counts is not None:
+            counts = scale_counts(counts, max_counts)
+
+        for i_f, feature in enumerate(partition.names):
+            counts_dict[feature] = {}
+            for i_s, state in enumerate(partition.state_names[i_f]):
+                counts_dict[feature][state] = hyper_prior_concentration + counts[i_f, i_s]
 
     with open(output_file, 'w') as prior_file:
         json.dump(counts_dict, prior_file, indent=4)
