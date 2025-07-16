@@ -95,6 +95,8 @@ class Model:
 
         # self.get_model = handlers.seed(self._get_model, rng_seed=0)
 
+        self.sample_from_prior = config.sample_from_prior
+
     def get_model(self, no_clusters: bool = False):
         """Return the model function for the sBayes model."""
 
@@ -156,13 +158,20 @@ class Model:
             g = self.group_assignments[i_c]
             p_data_by_comp = p_data_by_comp.at[self.n_clusters + i_c].set(conf_effect[g, :, :])
 
-        if not self.config.sample_from_prior:
-            # Define mixture likelihood
-            p_data_mixed = jnp.einsum('kif,kifs->ifs', mixture_weights[:, :, partition.feature_indices], p_data_by_comp)  # shape: (n_objects, n_features, n_states)
-            with numpyro.plate(f"plate_objects_lh_{p_name}", self.shapes.n_objects, dim=-2):
-                with numpyro.plate(f"plate_features_lh_{p_name}", partition.n_features, dim=-1):
-                    with numpyro.handlers.mask(mask=~partition.na_values):
-                        numpyro.sample(f"x_{p_name}", dist.Categorical(probs=p_data_mixed), obs=partition.values)
+        # Define mixture likelihood
+        p_data_mixed = jnp.einsum(
+            'kif,kifs->ifs',
+            mixture_weights[:, :, partition.feature_indices],
+            p_data_by_comp
+        )  # shape: (n_objects, n_features, n_states)
+        with numpyro.plate(f"plate_objects_lh_{p_name}", self.shapes.n_objects, dim=-2):
+            with numpyro.plate(f"plate_features_lh_{p_name}", partition.n_features, dim=-1):
+                with numpyro.handlers.mask(mask=~partition.na_values):
+                    numpyro.sample(
+                        f"x_{p_name}",
+                        dist.Categorical(probs=p_data_mixed),
+                        obs=None if self.sample_from_prior else partition.values,
+                    )
 
     def add_partition_gaussian(
         self,
@@ -209,31 +218,35 @@ class Model:
             mean_by_comp = mean_by_comp.at[self.n_clusters + i_c].set(conf_eff_mean[g, :])
             variance_by_comp = variance_by_comp.at[self.n_clusters + i_c].set(conf_eff_variance[g, :])
 
-        if not self.config.sample_from_prior:
-            with numpyro.plate(f"plate_objects_lh_{p_name}", self.shapes.n_objects, dim=-2):
-                with numpyro.plate(f"plate_features_lh_{p_name}", partition.n_features, dim=-1):
-                    with numpyro.handlers.mask(mask=~partition.na_values):
-                        # numpyro.sample(f"x_{p_name}", dist.MixtureSameFamily(
-                        #     mixing_distribution=dist.Categorical(probs=mixture_weights[:, :, partition.feature_indices].transpose((1, 2, 0))),
-                        #     component_distribution=dist.Normal(loc=mean_by_comp.transpose((1, 2, 0)), scale=variance_by_comp.transpose((1, 2, 0))**0.5)
-                        # ), obs=partition.values)
-                        # Shape: [n_objects, n_features, n_components]
+        with numpyro.plate(f"plate_objects_lh_{p_name}", self.shapes.n_objects, dim=-2):
+            with numpyro.plate(f"plate_features_lh_{p_name}", partition.n_features, dim=-1):
+                with numpyro.handlers.mask(mask=~partition.na_values):
+                    numpyro.sample(
+                        f"x_{p_name}",
+                        dist.MixtureSameFamily(
+                            mixing_distribution=dist.Categorical(probs=mixture_weights[:, :, partition.feature_indices].transpose((1, 2, 0))),
+                            component_distribution=dist.Normal(loc=mean_by_comp.transpose((1, 2, 0)), scale=variance_by_comp.transpose((1, 2, 0))**0.5)
+                        ),
+                        obs=None if self.sample_from_prior else partition.values
+                    )
+                    # Shape: [n_objects, n_features, n_components]
 
-                        log_weights = jnp.log(mixture_weights[:, :, partition.feature_indices].transpose((1, 2, 0)))  # (n_obj, n_feat, n_comp)
-                        means = mean_by_comp.transpose((1, 2, 0))  # (n_obj, n_feat, n_comp)
-                        stds = variance_by_comp.transpose((1, 2, 0)) ** 0.5  # (n_obj, n_feat, n_comp)
-
-                        # Broadcast obs to match component shape: (n_obj, n_feat, 1)
-                        observations = partition.values[..., None]
-
-                        # Compute log prob for each component
-                        log_probs = dist.Normal(loc=means, scale=stds).log_prob(observations)  # (n_obj, n_feat, n_comp)
-
-                        # Log-sum-exp over components to marginalize the mixture
-                        total_log_prob = jax.scipy.special.logsumexp(log_weights + log_probs, axis=-1)  # (n_obj, n_feat)
-
-                        # Contribute to the joint log prob
-                        numpyro.factor(f"log_prob_{p_name}", total_log_prob.sum())
+                    # ALTERNATIVE MANUAL IMPLEMENTATION
+                    # log_weights = jnp.log(mixture_weights[:, :, partition.feature_indices].transpose((1, 2, 0)))  # (n_obj, n_feat, n_comp)
+                    # means = mean_by_comp.transpose((1, 2, 0))  # (n_obj, n_feat, n_comp)
+                    # stds = variance_by_comp.transpose((1, 2, 0)) ** 0.5  # (n_obj, n_feat, n_comp)
+                    #
+                    # # Broadcast obs to match component shape: (n_obj, n_feat, 1)
+                    # observations = partition.values[..., None]
+                    #
+                    # # Compute log prob for each component
+                    # log_probs = dist.Normal(loc=means, scale=stds).log_prob(observations)  # (n_obj, n_feat, n_comp)
+                    #
+                    # # Log-sum-exp over components to marginalize the mixture
+                    # total_log_prob = jax.scipy.special.logsumexp(log_weights + log_probs, axis=-1)  # (n_obj, n_feat)
+                    #
+                    # # Contribute to the joint log prob
+                    # numpyro.factor(f"log_prob_{p_name}", total_log_prob.sum())
 
     def add_partition_poisson(
         self,

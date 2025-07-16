@@ -52,7 +52,7 @@ Warm-up: {mcmc_cfg.warmup.warmup_steps} steps''')
 
     def sample(
         self,
-        resume: bool = True,
+        resume: bool = False,
         # run: int = 1,
     ):
         mcmc_config = self.config.mcmc
