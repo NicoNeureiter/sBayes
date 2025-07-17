@@ -55,7 +55,15 @@ def sample_nuts(
         s = find_best_initial_sample(model, rng_key=rng_key)
 
         # Create NUTS kernel
-        kernel = NUTS(model.get_model, init_strategy=init_to_value(values=s))
+        kernel = NUTS(
+            model.get_model,
+            init_strategy=init_to_value(values=s),
+            step_size=0.05,
+            # find_heuristic_step_size=True,
+            adapt_step_size=False,
+            max_tree_depth=7,
+        )
+
     else:
         kernel = NUTS(model.get_model)
 
