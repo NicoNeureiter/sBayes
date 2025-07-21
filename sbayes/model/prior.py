@@ -419,14 +419,15 @@ class PoissonConfoundingEffectsPrior:
         self.config = config
         self.conf = conf
         self.partition = partition
-        self.mean = PoissonRatePrior(config=config, partition=partition, group_names=conf.group_names)
+        self.rate = PoissonRatePrior(config=config, partition=partition, group_names=conf.group_names)
 
     def get_setup_message(self):
         """Compile a set-up message for logging."""
         msg = f"Prior on confounding effect {self.conf.name} for {self.partition.name} features:\n"
         for group in self.config.keys():
-            msg += f"\tPrior for group {group}: (mean={self.config[group].mean.type.value}, variance={self.config[group].variance.type.value}).\n"
+            msg += f"\tPrior for group {group}: (mean={self.config[group].type.value}).\n"
         return msg
+
 
 class PoissonClusterEffectPrior:
 

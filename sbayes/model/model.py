@@ -15,7 +15,7 @@ from numpyro.distributions.transforms import StickBreakingTransform, ExpTransfor
 from numpyro.infer.util import initialize_model, unconstrain_fn, constrain_fn
 
 from sbayes.model.model_shapes import ModelShapes
-from sbayes.model.prior import Prior, GeoPrior, GaussianConfoundingEffectsPrior
+from sbayes.model.prior import Prior, GeoPrior, GaussianConfoundingEffectsPrior, PoissonConfoundingEffectsPrior
 from sbayes.config.config import ModelConfig
 from sbayes.load_data import Data, FeatureType, GenericTypeFeatures, CategoricalFeatures, GaussianFeatures, \
     PoissonFeatures
@@ -256,52 +256,43 @@ class Model:
         # Short alias for partition_name
         p_name = partition.name
 
-        #
+        # Initialize rate_by_comp
         n_flat_components = self.shapes.n_clusters + self.shapes.n_confounders
-        mean_by_comp = jnp.zeros((n_flat_components, self.shapes.n_objects, partition.n_features))
-        variance_by_comp = jnp.zeros((n_flat_components, self.shapes.n_objects, partition.n_features))
+        rate_by_comp = jnp.zeros((n_flat_components, self.shapes.n_objects, partition.n_features))
 
-        # # Sample and assign cluster effects
-        # cluster_eff_prior = self.prior.cluster_effect_prior[partition.name]
-        # with numpyro.plate(f"plate_clusters_{p_name}", self.n_clusters, dim=-2):
-        #     with numpyro.plate(f"plate_features_{p_name}", partition.n_features, dim=-1):
-        #         cluster_loc_dist = dist.Normal(cluster_eff_prior.mean.mu_0_array, cluster_eff_prior.mean.sigma_0_array)
-        #         cluster_loc = numpyro.sample(f"cluster_effect_{p_name}_mean", cluster_loc_dist)
-        #
-        #         # cluster_scale_dist = dist.Exponential(rate=cluster_eff_prior.variance.rate)
-        #         cluster_scale_dist = cluster_eff_prior.variance.get_numpyro_distr()
-        #         cluster_scale = numpyro.sample(f"cluster_effect_{p_name}_variance", cluster_scale_dist)
-        #
-        # mean_by_comp = mean_by_comp.at[:self.n_clusters].set(cluster_loc[:, None, :])
-        # variance_by_comp = variance_by_comp.at[:self.n_clusters].set(cluster_scale[:, None, :])
-        #
-        # # Sample and assign confounding effects
-        # for i_c, conf in enumerate(self.confounders.values()):
-        #     conf_eff_prior: GaussianConfoundingEffectsPrior = self.prior.confounding_effects_prior[conf.name][p_name]
-        #     with numpyro.plate(f"plate_groups_{i_c}", conf.n_groups, dim=-2):
-        #         with numpyro.plate(f"plate_features_{i_c}_{p_name}", partition.n_features, dim=-1):
-        #             mean_prior = dist.Normal(conf_eff_prior.mean.mu_0_array, conf_eff_prior.mean.sigma_0_array)
-        #             conf_eff_mean = numpyro.sample(f"conf_effect_{i_c}_{p_name}_mean", mean_prior)
-        #             # shape: (n_groups, n_features)
-        #
-        #             # variance_prior = dist.Exponential(conf_eff_prior.variance.rate)
-        #             variance_prior = conf_eff_prior.variance.get_numpyro_distr()
-        #             conf_eff_variance = numpyro.sample(f"conf_effect_{i_c}_{p_name}_variance", variance_prior)
-        #             # shape: (n_groups, n_features)
-        #
-        #     g = self.group_assignments[i_c]
-        #     mean_by_comp = mean_by_comp.at[self.n_clusters + i_c].set(conf_eff_mean[g, :])
-        #     variance_by_comp = variance_by_comp.at[self.n_clusters + i_c].set(conf_eff_variance[g, :])
-        #
-        # if not self.config.sample_from_prior:
-        #     with numpyro.plate(f"plate_objects_lh_{p_name}", self.shapes.n_objects, dim=-2):
-        #         with numpyro.plate(f"plate_features_lh_{p_name}", partition.n_features, dim=-1):
-        #             with numpyro.handlers.mask(mask=~partition.na_values):
-        #                 # numpyro.sample(f"x_{p_name}", dist.MixtureSameFamily(
-        #                 #     mixing_distribution=dist.Categorical(probs=mixture_weights[:, :, partition.feature_indices].transpose((1, 2, 0))),
-        #                 #     component_distribution=dist.Normal(loc=mean_by_comp.transpose((1, 2, 0)), scale=variance_by_comp.transpose((1, 2, 0))**0.5)
-        #                 # ), obs=partition.values)
-        #                 # Shape: [n_objects, n_features, n_components]
+        # Sample and assign cluster effects
+        cluster_eff_prior = self.prior.cluster_effect_prior[partition.name]
+        with numpyro.plate(f"plate_clusters_{p_name}", self.n_clusters, dim=-2):
+            with numpyro.plate(f"plate_features_{p_name}", partition.n_features, dim=-1):
+                cluster_rate_dist = cluster_eff_prior.get_numpyro_distr()
+                cluster_rate = numpyro.sample(f"cluster_effect_{p_name}_rate", cluster_rate_dist)
+
+        rate_by_comp = rate_by_comp.at[:self.n_clusters].set(cluster_rate[:, None, :])
+
+        # Sample and assign confounding effects
+        for i_c, conf in enumerate(self.confounders.values()):
+            conf_eff_prior: PoissonConfoundingEffectsPrior = self.prior.confounding_effects_prior[conf.name][p_name]
+            with numpyro.plate(f"plate_groups_{i_c}", conf.n_groups, dim=-2):
+                with numpyro.plate(f"plate_features_{i_c}_{p_name}", partition.n_features, dim=-1):
+                    rate_prior = conf_eff_prior.rate.get_numpyro_distr()
+                    conf_eff_rate = numpyro.sample(f"conf_effect_{i_c}_{p_name}_rate", rate_prior)
+                    # shape: (n_groups, n_features)
+
+            g = self.group_assignments[i_c]
+            rate_by_comp = rate_by_comp.at[self.n_clusters + i_c].set(conf_eff_rate[g, :])
+
+        with numpyro.plate(f"plate_objects_lh_{p_name}", self.shapes.n_objects, dim=-2):
+            with numpyro.plate(f"plate_features_lh_{p_name}", partition.n_features, dim=-1):
+                with numpyro.handlers.mask(mask=~partition.na_values):
+                    numpyro.sample(
+                        name=f"x_{p_name}",
+                        fn=dist.MixtureSameFamily(
+                            mixing_distribution=dist.Categorical(probs=mixture_weights[:, :, partition.feature_indices].transpose((1, 2, 0))),
+                            component_distribution=dist.Poisson(rate=rate_by_comp.transpose((1, 2, 0)))
+                        ),
+                        obs=None if self.sample_from_prior else partition.values
+                    )
+                    # Shape: [n_objects, n_features, n_components]
 
     def add_weights_prior(self, clusters):
         w = numpyro.sample("w", dist.Dirichlet(self.w_prior_conc))

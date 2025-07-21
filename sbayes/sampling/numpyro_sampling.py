@@ -23,7 +23,6 @@ from sbayes.sampling.loggers import OnlineSampleLogger
 from sbayes.util import timeit
 
 
-numpyro.set_host_device_count(8)
 # jax.config.update("jax_traceback_filtering", "off")
 
 
