@@ -1076,10 +1076,10 @@ gives the default values and expected data types.
 |------------------|---------------|-------------------|----------------------------------------------------|
 | `path`           | string        | "results"         | file location to save the result                   |
 | `log_file`       | boolean       | true              | return a log file?                                 |
-| `log_likelihood` | boolean       | true              | log observation likelihoods to .h5 file           |
+| `log_likelihood` | boolean       | true              | log observation likelihoods to .h5 file            |
 | `log_source`     | boolean       | false             | log component assignments by feature               |
-| `log_hot_chains` | boolean       | true              | log hot chain statistics for MC3                   |
-| `float_precision`| integer       | 8                 | decimal precision in stats files                  |
+| `log_hot_chains` | boolean       | true              | log hot chain results in MC3 runs                  |
+| `float_precision`| integer       | 8                 | decimal precision in stats files                   |
 
 
 ### Complete Configuration Example
