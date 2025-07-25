@@ -587,170 +587,6 @@ file. The configuration file can be in either YAML or JSON format. The configura
 -   `mcmc`: gives the settings for the Markov chain Monte Carlo sampling
 -   `results`: gives the location and the name of the result files
 
-## Configuration File Reference
-
-This section provides a comprehensive reference for all available configuration settings in sBayes. The configuration file supports both YAML and JSON formats, with YAML being the recommended format for its readability.
-
-### Basic Structure
-
-```yaml
-data:
-  features: path/to/features.csv
-  feature_states: path/to/feature_states.csv
-  projection: epsg:4326
-
-model:
-  clusters: 1
-  confounders: []
-  prior:
-    # Prior configurations
-
-mcmc:
-  steps: 1000000
-  samples: 1000
-  runs: 1
-  # Additional MCMC settings
-
-results:
-  path: results
-  log_file: true
-  # Additional result settings
-```
-
-### Model Configuration
-
-The `model` section defines the core model parameters:
-
-- **`clusters`**: The number of contact areas/clusters to infer (integer or list of integers)
-- **`confounders`**: List of confounder names (e.g., `["family", "universal"]`). Note that priors must be specified for each confounder in the `prior.confounding_effects` section.
-
-### Prior Configurations
-
-All prior configurations support the following types:
-
-#### Cluster Effect, Weights, and Confounding Effects Priors
-
-Available prior types:
-- **`uniform`**: Uniform Dirichlet prior (default)
-- **`dirichlet`**: Custom Dirichlet distribution (requires `parameters` or `file`)
-- **`jeffreys`**: Jeffreys prior
-- **`BBS`**: Biased coin beta-binomial prior
-- **`symmetric_dirichlet`**: Symmetric Dirichlet prior (requires `prior_concentration`)
-
-Required fields for specific types:
-- **`dirichlet`**: Either `parameters` (dict) or `file` (path to YAML/JSON)
-- **`symmetric_dirichlet`**: `prior_concentration` (float)
-
-#### Geo Prior Configuration
-
-The `geo` prior controls spatial clustering probability:
-
-- **`type`**: `uniform`, `cost_based`, or `simulated`
-- **`costs`**: `from_data` (default) or path to cost matrix CSV
-- **`probability_function`**: `exponential` (default) or `sigmoid`
-- **`skeleton`**: Graph structure for cost aggregation
-  - `mst`: Minimum spanning tree (default)
-  - `delaunay`: Delaunay triangulation
-  - `diameter`: Longest shortest path
-  - `complete_graph`: Complete graph
-- **`aggregation`**: Cost aggregation method (`mean`, `sum`, `max`)
-- **`rate`**: Rate parameter for exponential decay (required for `cost_based`)
-- **`inflection_point`**: Sigmoid inflection point (required for `sigmoid` function)
-
-#### Area Size Prior
-
-Controls the prior on cluster size:
-- **`type`**: `uniform_area` or `uniform_size`
-- **`min`**: Minimum cluster size (default: 2)
-- **`max`**: Maximum cluster size (default: 10000)
-
-### MCMC Configuration
-
-Key MCMC settings include:
-
-- **`steps`**: Total MCMC iterations (default: 1000000)
-- **`samples`**: Number of posterior samples (default: 1000)
-- **`runs`**: Number of independent runs (default: 1)
-- **`screen_log_interval`**: Frequency of progress logging (default: 1000)
-- **`grow_to_adjacent`**: Fraction of spatial growth steps to adjacent locations (default: 0.8)
-
-#### Initialization Settings
-
-The `mcmc.initialization` subsection controls MCMC initialization:
-- **`attempts`**: Number of initial samples per warmup chain (default: 10)
-- **`em_steps`**: Expectation-maximization steps (default: 50)
-- **`objects_per_cluster`**: Average objects per cluster during initialization (default: 10)
-
-#### Warmup Settings
-
-The `mcmc.warmup` subsection controls the warmup phase:
-- **`warmup_steps`**: Number of warmup steps (default: 50000)
-- **`warmup_chains`**: Number of parallel warmup chains (default: 10)
-
-#### Operators Settings
-
-The `mcmc.operators` subsection controls operator frequencies:
-- **`clusters`**: Frequency of cluster assignment changes (default: 70.0)
-- **`weights`**: Frequency of weight updates (default: 10.0)
-- **`source`**: Frequency of source assignment changes (default: 20.0)
-
-### Results Configuration
-
-Output and logging options:
-
-- **`path`**: Results directory (default: "results")
-- **`log_file`**: Write log messages to file (default: true)
-- **`log_likelihood`**: Log observation likelihoods to .h5 file (default: true)
-- **`log_source`**: Log component assignments by feature (default: false)
-- **`log_hot_chains`**: Log hot chain statistics for MC3 (default: true)
-- **`float_precision`**: Decimal precision in stats files (default: 8)
-
-### Complete YAML Example
-
-```yaml
-data:
-  features: data/features.csv
-  feature_states: data/feature_states.csv
-  projection: epsg:4326
-
-model:
-  clusters: 3
-  confounders: ["family"]
-  prior:
-    confounding_effects:
-      family:
-        all_groups:
-          type: uniform
-    cluster_effect:
-      type: uniform
-    weights:
-      type: uniform
-    geo:
-      type: cost_based
-      probability_function: exponential
-      rate: 100.0
-      skeleton: mst
-    objects_per_cluster:
-      type: uniform_size
-      min: 3
-      max: 20
-
-mcmc:
-  steps: 500000
-  samples: 1000
-  runs: 3
-  screen_log_interval: 5000
-  initialization:
-    objects_per_cluster: 8
-  warmup:
-    warmup_steps: 50000
-    warmup_chains: 15
-
-results:
-  path: output
-  log_likelihood: true
-  float_precision: 6
-```
 
 ### Configuration: `data`
 
@@ -794,22 +630,29 @@ that a key is mandatory and has to be set by the user.
 ### Configuration: `model`
 
 In `model`, users define the likelihood function and additional model
-parameters. Users can specify whether or not the model considers
-inheritance (`inheritance`) and give the number of contact areas
-(`areas`). The key `prior` is discussed in detail below.
+parameters. Users can specify the number of contact areas/clusters
+(`clusters`) and define confounding effects (`confounders`). The key `prior` is discussed in detail below.
 
-The following JSON snippet defines a model which considers inheritance,
-has five areas and a minimum and maximum size of 10 and 40 languages per
-area.
+The following JSON snippet defines a model with three clusters and family as a confounder:
 
 ```json
 "model": {
-  "inheritance": true,
-  "areas": 5,
+  "clusters": 3,
+  "confounders": ["family"],
   "prior": {
     ...
   }
 }
+```
+
+Alternatively, in YAML format:
+
+```yaml
+model:
+  clusters: 3
+  confounders: ["family"]
+  prior:
+    # Prior configurations
 ```
 
 The [table below](#tab:config_file_model) summarizes all keys in `model` and
@@ -820,30 +663,27 @@ gives the default values and expected data types.
 
 | **key**             | **data type** | **default value** | **description**                            |
 |---------------------|---------------|-------------------|--------------------------------------------|
-| `inheritance`       | boolean       | (required)        | Does the model consider inheritance?       |
-| `areas`             | number \| list| (required)        | Number (or a list of numbers) of contact areas in the model |
-| `prior`             | JSON          |                   | Defines the prior of the model. See below. |
+| `clusters`          | number \| list| (required)        | Number (or a list of numbers) of contact areas/clusters in the model |
+| `confounders`       | list          | []                | List of confounder names (e.g., ["family", "universal"]). Note that priors must be specified for each confounder in the `prior.confounding_effects` section. |
+| `prior`             | JSON/YAML     |                   | Defines the prior of the model. See below. |
 
 
 ### Configuration: `model` \> `prior`
 
 In `prior`, the user provides the prior distribution for each parameter
-in the model. There are six different types of priors (see, section
-Priors):
+in the model. The prior section supports the following main categories:
 
--   `universal`: the prior for universal preference
-
--   `inheritance`: the prior for inheritance or preference in a family
-
--   `contact`: the prior for contact or preference in an area
-
+-   `confounding_effects`: priors for confounding effects like family inheritance
+-   `cluster_effect`: the prior for cluster/contact preferences  
 -   `weights`: the prior for the weights
-
 -   `geo`: the geo-prior
+-   `objects_per_cluster`: the prior on the number of objects per cluster
 
--   `languages_per_area`: the prior on the number of languages per area
+All prior configurations support multiple types including `uniform`, `dirichlet`, `jeffreys`, `BBS`, and `symmetric_dirichlet`. Each type may require specific parameters:
+- `dirichlet`: requires either `parameters` (dict) or `file` (path to YAML/JSON)
+- `symmetric_dirichlet`: requires `prior_concentration` (float)
 
-Each key takes as input a JSON object, which -- depending on the type of
+Each key takes as input a JSON or YAML object, which -- depending on the type of
 prior -- can itself have several sub-keys (for a full list see,
 Table [8](#tab:config_file_prior){reference-type="ref"
 reference="tab:config_file_prior"}).\
@@ -863,7 +703,7 @@ path to an external JSON `file` (e.g. *prior_universal.JSON*) where the
 prior is parameterized. Externalizing the prior to a separate file is
 convenient when the model has many features and many states, in which
 case the parameterization of the prior distribution might make the
-*config.JSON* file overly convoluted. Moreover, section Constructing
+configuration file overly convoluted. Moreover, section Constructing
 priors provides automated approaches to construct the prior from
 empirical data outside the study area. Both, `parameters` and the
 external JSON file have the exact same keys and values. In what follows,
@@ -973,10 +813,10 @@ currently always set to \"uniform\".
 
 ### `geo` 
 
-The `geo` prior takes as input a JSON object with the keys `type` and
+The `geo` prior takes as input a JSON or YAML object with the keys `type` and
 `parameters`. The default prior has type \"uniform\", in which case
 every spatial allocation of points in an area has the same prior
-probability. Other types are *Gaussian* and *cost_based*.
+probability. Other types are *Gaussian*, *cost_based*, and *simulated*.
 
 For the Gaussian prior, the spatial locations in an area are evaluated
 against a two-dimensional Gaussian distribution. In `parameters`, the
@@ -998,10 +838,10 @@ perfectly spherical.
 ```
 
 For the cost-based geo prior, `sBayes` connects all locations in an area
-with a `linkage` criterion. The default criterion is \"mst\" which
-connects adjacent languages with a minimum spanning tree. Other linkage
-criteria are \"delauney\", which connects adjacent languages with a
-Delauney triangulation, and \"complete\" which connects every pair of
+with a `skeleton` criterion. The default criterion is \"mst\" which
+connects adjacent languages with a minimum spanning tree. Other skeleton
+options are \"delaunay\", which connects adjacent languages with a
+Delaunay triangulation, \"diameter\" (longest shortest path), and \"complete_graph\" which connects every pair of
 distinct languages in an area. By default, costs are computed from the
 locations of the languages (\"from_data\"), either as Euclidean distance
 or as distance on a sphere (which of the two depends on the coordinate
@@ -1010,21 +850,23 @@ provide the file path to a cost matrix to quantify the effort to travel
 between all pairs of languages.
 
 The average costs necessary to link all languages in an area are then
-evaluated against an exponential decay function, for which the user
+evaluated against a probability function. The default is an \"exponential\" decay function, 
+but \"sigmoid\" is also supported. For the exponential function, the user
 provides an appropriate `rate`. The rate gives the mean expected costs
 between languages in contact. It defines how fast the probability for
-contact decreases with increasing costs in an area. The code snippet
+contact decreases with increasing costs in an area. For the sigmoid function,
+an `inflection_point` parameter is required. The code snippet
 below enforces a cost-based geo prior. The costs are provided as travel
 times in hours in the file `travel_times.csv`. The rate is set to 12
-hours and the minimum spanning tree is used as a linkage criterion.
+hours and the minimum spanning tree is used as a skeleton criterion.
 
 ```json
 "prior": {
    ...
    "geo": {
       "type": "cost_based",
-      "costs": "travel_times.csv"
-      "linkage": "mst",
+      "costs": "travel_times.csv",
+      "skeleton": "mst",
       "rate": 12,
       "aggregation": "mean",
       "probability_function": "exponential"
@@ -1032,26 +874,49 @@ hours and the minimum spanning tree is used as a linkage criterion.
 }
 ```
 
-### `languages_per_area` {#languages_per_area .unnumbered}
+Alternatively, in YAML format:
 
-There are two types of priors for area size: \"uniform_area\" defines a
+```yaml
+prior:
+  geo:
+    type: cost_based
+    costs: travel_times.csv
+    skeleton: mst
+    rate: 12
+    aggregation: mean
+    probability_function: exponential
+```
+
+### `objects_per_cluster`
+
+There are two types of priors for cluster size: \"uniform_area\" defines a
 prior that is uniform over all areas (implicitly introducing a bias
 towards larger areas). \"uniform_size\" enforces a prior distribution
-that is uniform over all sizes of an area (for details see
+that is uniform over all sizes of a cluster (for details see
 section Priors). Additionally, we can limit the size of an area a-priori
 by defining a lower bound (\"min\") and an upper bound (\"max\") on the
-number of languages per area. The following JSON snippet defines a prior
-that is uniform over size with at least $3$ and at most $40$ languages
-per area.
+number of objects per cluster. The following JSON snippet defines a prior
+that is uniform over size with at least $3$ and at most $40$ objects
+per cluster.
 
 ```json
 "prior": {
    ...
-   "languages_per_area": {
+   "objects_per_cluster": {
       "type": "uniform_size",
       "min": 3,
       "max": 40}
 }
+```
+
+Alternatively, in YAML format:
+
+```yaml
+prior:
+  objects_per_cluster:
+    type: uniform_size
+    min: 3
+    max: 40
 ```
 
 The [following table](#config-file-prior) summarizes all `prior` keys, gives
@@ -1093,8 +958,9 @@ the default values and expected data types.
 ### Configuration: `mcmc`
 
 In *mcmc* users define how `sBayes` samples from the posterior
-distribution. The key `n_runs` gives the number of independent MCMC runs
-for the same model. Each run generates an independent posterior sample.
+distribution. Key settings include the number of independent MCMC runs
+(`runs`), MCMC steps (`steps`), posterior samples (`samples`), and
+screen logging frequency (`screen_log_interval`). Each run generates an independent posterior sample.
 In postprocessing, users can then check if the posterior samples across
 all runs converge to the same stable distribution.
 
@@ -1108,6 +974,11 @@ parameters and many states per parameter need more warmup chains and
 steps than simple models with few languages and few parameters. All
 samples generated during warmup are discarded.
 
+The MCMC initialization can be controlled through the `initialization` subsection,
+which includes settings like `attempts` (number of initial samples per warmup chain),
+`em_steps` (expectation-maximization steps), and `objects_per_cluster` (average
+objects per cluster during initialization).
+
 After warmup, the main MCMC takes over and samples from the posterior
 distribution. Users can define the number of steps in the Markov chain
 (`steps`) and the number of samples retained from the chain `samples`,
@@ -1117,18 +988,42 @@ depends on the complexity of the model.
 The following code snippet defines an MCMC analysis with five
 independent runs. Each run takes 1,000,000 steps and collects 10,000
 posterior samples. In the warmup phase, 20 independent chains take
-100,000 steps to search for high density regions in the area.
+100,000 steps to search for high density regions. The example also
+shows screen logging every 5000 steps and initialization settings.
 
 ```json
 "mcmc": {
-   ...
    "runs": 5,
    "steps": 1000000,
    "samples": 10000,
+   "screen_log_interval": 5000,
    "warmup": {
       "warmup_chains": 20,
-      "warmup_steps": 100000}
+      "warmup_steps": 100000
+   },
+   "initialization": {
+      "attempts": 10,
+      "em_steps": 50,
+      "objects_per_cluster": 8
+   }
 }
+```
+
+Alternatively, in YAML format:
+
+```yaml
+mcmc:
+  runs: 5
+  steps: 1000000
+  samples: 10000
+  screen_log_interval: 5000
+  warmup:
+    warmup_chains: 20
+    warmup_steps: 100000
+  initialization:
+    attempts: 10
+    em_steps: 50
+    objects_per_cluster: 8
 ```
 
 During sampling, the MCMC algorithm picks operators to change different
@@ -1200,22 +1095,37 @@ each parameter.
 ### Configuration: `results`
 
 In `results` users provide the name and the file location of the results
-file. The key `path` gives the file path to the folder where the results
+file and configure various logging options. The key `path` gives the file path to the folder where the results
 will be saved. Users can give absolute or relative file paths. Relative
-paths are assumed to start from the location of the *config_plot.JSON*
-file. `log_file` creates a log file with meta information about the
-analysis, such as model parameters or acceptance//rejection statistics
-per operator.
+paths are assumed to start from the location of the configuration
+file. Additional logging options include `log_file` for meta information,
+`log_likelihood` for observation likelihoods, `log_source` for component assignments,
+`log_hot_chains` for MC3 statistics, and `float_precision` for decimal precision.
 
 The following code snippet creates a folder *results* relative to the
-location of the configuration file. `sBayes` returns a log file and
-information about the number of areas is added to the result files.
+location of the configuration file and configures various logging options.
 
 ```json
 "results": {
    "path": "results",
-   "log_file": true
+   "log_file": true,
+   "log_likelihood": true,
+   "log_source": false,
+   "log_hot_chains": true,
+   "float_precision": 8
 }
+```
+
+Alternatively, in YAML format:
+
+```yaml
+results:
+  path: results
+  log_file: true
+  log_likelihood: true
+  log_source: false
+  log_hot_chains: true
+  float_precision: 8
 ```
 
 The [following table](#config-file-results) summarizes all keys in `results`,
@@ -1224,10 +1134,64 @@ gives the default values and expected data types.
 <a name="config-file-results"></a>
 #### Table: The configuration file: keys in `results`
 
-| **key**      | **data type** | **default value** | **description**                   |
-|--------------|---------------|-------------------|-----------------------------------|
-| `path`       | string        | "results"         | file location to save the result  |
-| `log_file`   | boolean       | true              | return a log file?                |
+| **key**          | **data type** | **default value** | **description**                                    |
+|------------------|---------------|-------------------|----------------------------------------------------|
+| `path`           | string        | "results"         | file location to save the result                   |
+| `log_file`       | boolean       | true              | return a log file?                                 |
+| `log_likelihood` | boolean       | true              | log observation likelihoods to .h5 file           |
+| `log_source`     | boolean       | false             | log component assignments by feature               |
+| `log_hot_chains` | boolean       | true              | log hot chain statistics for MC3                   |
+| `float_precision`| integer       | 8                 | decimal precision in stats files                  |
+
+
+### Complete Configuration Example
+
+The following example shows a complete configuration file in YAML format:
+
+```yaml
+data:
+  features: data/features.csv
+  feature_states: data/feature_states.csv
+  projection: epsg:4326
+
+model:
+  clusters: 3
+  confounders: ["family"]
+  prior:
+    confounding_effects:
+      family:
+        all_groups:
+          type: uniform
+    cluster_effect:
+      type: uniform
+    weights:
+      type: uniform
+    geo:
+      type: cost_based
+      probability_function: exponential
+      rate: 100.0
+      skeleton: mst
+    objects_per_cluster:
+      type: uniform_size
+      min: 3
+      max: 20
+
+mcmc:
+  steps: 500000
+  samples: 1000
+  runs: 3
+  screen_log_interval: 5000
+  initialization:
+    objects_per_cluster: 8
+  warmup:
+    warmup_steps: 50000
+    warmup_chains: 15
+
+results:
+  path: output
+  log_likelihood: true
+  float_precision: 6
+```
 
 
 ## Inference
