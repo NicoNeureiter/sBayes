@@ -266,7 +266,7 @@ areas are similar and whether these similarities can be explained by
 confounding. `sBayes`infers one categorical distribution for universal
 preference, inheritance in each family, an contact in each area per
 feature $f$. All model parameters are passed to `sBayes` in a separate
-configuration file (see, section about the *config.JSON* file).
+configuration file (see, section about the configuration file).
 
 ## Confounding effects
 
@@ -565,7 +565,7 @@ A default analysis in `sBayes` consists of three main steps:
 -   ***Configuration***
 
     The user collects the data in the `features.csv` file and defines
-    the settings for the analysis in the *config.JSON* file.
+    the settings for the analysis in the configuration file.
 
 -   ***Inference***
 
@@ -578,22 +578,187 @@ A default analysis in `sBayes` consists of three main steps:
     directly in `sBayes`, with third-party applications -- such as
     `Tracer`, or own plotting functions.
 
-## The *config.JSON* file
+## The configuration file
 
-Users define the settings of a `sBayes`-analysis in the *config.JSON*
-file. The *config.JSON* file has four main keys:
+Users define the settings of a `sBayes`-analysis in a configuration
+file. The configuration file can be in either YAML or JSON format. The configuration file has four main keys:
 -   `data`: provides the file paths to the empirical data
 -   `model`: defines the likelihood, the prior, and additional model parameters
 -   `mcmc`: gives the settings for the Markov chain Monte Carlo sampling
 -   `results`: gives the location and the name of the result files
 
-### *config.JSON*: `data`
+## Configuration File Reference
+
+This section provides a comprehensive reference for all available configuration settings in sBayes. The configuration file supports both YAML and JSON formats, with YAML being the recommended format for its readability.
+
+### Basic Structure
+
+```yaml
+data:
+  features: path/to/features.csv
+  feature_states: path/to/feature_states.csv
+  projection: epsg:4326
+
+model:
+  clusters: 1
+  confounders: []
+  prior:
+    # Prior configurations
+
+mcmc:
+  steps: 1000000
+  samples: 1000
+  runs: 1
+  # Additional MCMC settings
+
+results:
+  path: results
+  log_file: true
+  # Additional result settings
+```
+
+### Model Configuration
+
+The `model` section defines the core model parameters:
+
+- **`clusters`**: The number of contact areas/clusters to infer (integer or list of integers)
+- **`confounders`**: List of confounder names (e.g., `["family", "universal"]`). Note that priors must be specified for each confounder in the `prior.confounding_effects` section.
+
+### Prior Configurations
+
+All prior configurations support the following types:
+
+#### Cluster Effect, Weights, and Confounding Effects Priors
+
+Available prior types:
+- **`uniform`**: Uniform Dirichlet prior (default)
+- **`dirichlet`**: Custom Dirichlet distribution (requires `parameters` or `file`)
+- **`jeffreys`**: Jeffreys prior
+- **`BBS`**: Biased coin beta-binomial prior
+- **`symmetric_dirichlet`**: Symmetric Dirichlet prior (requires `prior_concentration`)
+
+Required fields for specific types:
+- **`dirichlet`**: Either `parameters` (dict) or `file` (path to YAML/JSON)
+- **`symmetric_dirichlet`**: `prior_concentration` (float)
+
+#### Geo Prior Configuration
+
+The `geo` prior controls spatial clustering probability:
+
+- **`type`**: `uniform`, `cost_based`, or `simulated`
+- **`costs`**: `from_data` (default) or path to cost matrix CSV
+- **`probability_function`**: `exponential` (default) or `sigmoid`
+- **`skeleton`**: Graph structure for cost aggregation
+  - `mst`: Minimum spanning tree (default)
+  - `delaunay`: Delaunay triangulation
+  - `diameter`: Longest shortest path
+  - `complete_graph`: Complete graph
+- **`aggregation`**: Cost aggregation method (`mean`, `sum`, `max`)
+- **`rate`**: Rate parameter for exponential decay (required for `cost_based`)
+- **`inflection_point`**: Sigmoid inflection point (required for `sigmoid` function)
+
+#### Area Size Prior
+
+Controls the prior on cluster size:
+- **`type`**: `uniform_area` or `uniform_size`
+- **`min`**: Minimum cluster size (default: 2)
+- **`max`**: Maximum cluster size (default: 10000)
+
+### MCMC Configuration
+
+Key MCMC settings include:
+
+- **`steps`**: Total MCMC iterations (default: 1000000)
+- **`samples`**: Number of posterior samples (default: 1000)
+- **`runs`**: Number of independent runs (default: 1)
+- **`screen_log_interval`**: Frequency of progress logging (default: 1000)
+- **`grow_to_adjacent`**: Fraction of spatial growth steps to adjacent locations (default: 0.8)
+
+#### Initialization Settings
+
+The `mcmc.initialization` subsection controls MCMC initialization:
+- **`attempts`**: Number of initial samples per warmup chain (default: 10)
+- **`em_steps`**: Expectation-maximization steps (default: 50)
+- **`objects_per_cluster`**: Average objects per cluster during initialization (default: 10)
+
+#### Warmup Settings
+
+The `mcmc.warmup` subsection controls the warmup phase:
+- **`warmup_steps`**: Number of warmup steps (default: 50000)
+- **`warmup_chains`**: Number of parallel warmup chains (default: 10)
+
+#### Operators Settings
+
+The `mcmc.operators` subsection controls operator frequencies:
+- **`clusters`**: Frequency of cluster assignment changes (default: 70.0)
+- **`weights`**: Frequency of weight updates (default: 10.0)
+- **`source`**: Frequency of source assignment changes (default: 20.0)
+
+### Results Configuration
+
+Output and logging options:
+
+- **`path`**: Results directory (default: "results")
+- **`log_file`**: Write log messages to file (default: true)
+- **`log_likelihood`**: Log observation likelihoods to .h5 file (default: true)
+- **`log_source`**: Log component assignments by feature (default: false)
+- **`log_hot_chains`**: Log hot chain statistics for MC3 (default: true)
+- **`float_precision`**: Decimal precision in stats files (default: 8)
+
+### Complete YAML Example
+
+```yaml
+data:
+  features: data/features.csv
+  feature_states: data/feature_states.csv
+  projection: epsg:4326
+
+model:
+  clusters: 3
+  confounders: ["family"]
+  prior:
+    confounding_effects:
+      family:
+        all_groups:
+          type: uniform
+    cluster_effect:
+      type: uniform
+    weights:
+      type: uniform
+    geo:
+      type: cost_based
+      probability_function: exponential
+      rate: 100.0
+      skeleton: mst
+    objects_per_cluster:
+      type: uniform_size
+      min: 3
+      max: 20
+
+mcmc:
+  steps: 500000
+  samples: 1000
+  runs: 3
+  screen_log_interval: 5000
+  initialization:
+    objects_per_cluster: 8
+  warmup:
+    warmup_steps: 50000
+    warmup_chains: 15
+
+results:
+  path: output
+  log_likelihood: true
+  float_precision: 6
+```
+
+### Configuration: `data`
 
 In `data`, the user provides the file paths to the `features.csv` file
 (`features`) and the applicable states for all features
 (`feature_states`). Users can give absolute or relative file paths.
 Relative paths are assumed to start from the location of the
-*config.JSON* file. In `projection`, users can provide a PROJ string or
+configuration file. In `projection`, users can provide a PROJ string or
 an EPSG code to define the geographic coordinate reference system (CRS)
 of the location data. If no CRS is provided, `sBayes` assumes that the
 location data are latitude/longitude data in WGS84 (\"epsg:4326\".)
@@ -601,7 +766,7 @@ location data are latitude/longitude data in WGS84 (\"epsg:4326\".)
 The following JSON snippet tells `sBayes` to open the file
 `balkan_features.csv`, with applicable states in
 *balkan_features_states.csv*. Both files are located in the sub-folder
-`data` (relative to *config.JSON*). The location data are in ETRS89
+`data` (relative to the configuration file). The location data are in ETRS89
 Lambert Azimuthal Equal-Area projection (\"epsg:3035\").
 
 ```json
@@ -616,7 +781,7 @@ gives the default values and expected data types. *(required)* indicates
 that a key is mandatory and has to be set by the user.
 
 <a name="config-file-data"></a>
-#### Table 6: The `config.JSON` file: keys in `data`
+#### Table 6: The configuration file: keys in `data`
 
 | **key**            | **data type** | **default value** | **description**                                           |
 |--------------------|---------------|-------------------|-----------------------------------------------------------|
@@ -626,7 +791,7 @@ that a key is mandatory and has to be set by the user.
 
 
 
-### *config.JSON*: `model`
+### Configuration: `model`
 
 In `model`, users define the likelihood function and additional model
 parameters. Users can specify whether or not the model considers
@@ -650,7 +815,7 @@ area.
 The [table below](#tab:config_file_model) summarizes all keys in `model` and
 gives the default values and expected data types.
 
-#### Table: The `config.JSON` file: keys in `model`
+#### Table: The configuration file: keys in `model`
 <a name="tab:config_file_model"></a>
 
 | **key**             | **data type** | **default value** | **description**                            |
@@ -660,7 +825,7 @@ gives the default values and expected data types.
 | `prior`             | JSON          |                   | Defines the prior of the model. See below. |
 
 
-### *config.JSON*: `model` \> `prior`
+### Configuration: `model` \> `prior`
 
 In `prior`, the user provides the prior distribution for each parameter
 in the model. There are six different types of priors (see, section
@@ -893,7 +1058,7 @@ The [following table](#config-file-prior) summarizes all `prior` keys, gives
 the default values and expected data types.
 
 <a name="config-file-prior"></a>
-#### Table: The `config.JSON` file: keys in `prior`
+#### Table: The configuration file: keys in `prior`
 
 | **key**                                      | **data type** | **default value** | **description**                                        |
 |----------------------------------------------|---------------|-------------------|--------------------------------------------------------|
@@ -925,7 +1090,7 @@ the default values and expected data types.
 | &nbsp; &nbsp; `max`                        | number        | 10000             | maximum number of languages per area                   |
 
 
-### *config.JSON*: `mcmc`
+### Configuration: `mcmc`
 
 In *mcmc* users define how `sBayes` samples from the posterior
 distribution. The key `n_runs` gives the number of independent MCMC runs
@@ -1011,7 +1176,7 @@ distribution and that it has created sufficient independent samples for
 each parameter.
 
 <a name="config-file-mcmc"></a>
-#### Table: The `config.JSON` file: keys in `mcmc`
+#### Table: The configuration file: keys in `mcmc`
 
 | **key**                       | **data type** | **default value** | **description**                                      |
 |-------------------------------|---------------|-------------------|------------------------------------------------------|
@@ -1032,7 +1197,7 @@ each parameter.
 | `sample_from_prior`           | boolean       | false             | whether to only sample from the prior distribution   |
 
 
-### *config.JSON*: `results`
+### Configuration: `results`
 
 In `results` users provide the name and the file location of the results
 file. The key `path` gives the file path to the folder where the results
@@ -1043,7 +1208,7 @@ analysis, such as model parameters or acceptance//rejection statistics
 per operator.
 
 The following code snippet creates a folder *results* relative to the
-location of *config.JSON* file. `sBayes` returns a log file and
+location of the configuration file. `sBayes` returns a log file and
 information about the number of areas is added to the result files.
 
 ```json
@@ -1057,7 +1222,7 @@ The [following table](#config-file-results) summarizes all keys in `results`,
 gives the default values and expected data types.
 
 <a name="config-file-results"></a>
-#### Table: The `config.JSON` file: keys in `results`
+#### Table: The configuration file: keys in `results`
 
 | **key**      | **data type** | **default value** | **description**                   |
 |--------------|---------------|-------------------|-----------------------------------|
