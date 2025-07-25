@@ -1065,6 +1065,167 @@ gives the default values and expected data types.
 | `log_file`   | boolean       | true              | return a log file?                |
 
 
+# Configuration File Reference
+
+This section provides a comprehensive reference for all configuration file settings in `sBayes`. Configuration files can be written in either YAML or JSON format, with YAML being the recommended format for better readability and commenting support.
+
+## Core Model Parameters
+
+### `clusters`
+Specifies the number of clusters (contact areas) to infer. This parameter replaces the older `areas` terminology.
+- **Type**: Integer or list of integers
+- **Required**: Yes
+- **Example**: `clusters: 3` or `clusters: [1, 2, 3, 4, 5]`
+
+### `confounders`
+List of confounder names to include in the model. Common confounders include inheritance effects and universal preferences. Each confounder requires matching priors in the `confounding_effects` section.
+- **Type**: List of strings
+- **Required**: Yes
+- **Example**: `confounders: ["inheritance", "universal"]`
+
+## Prior Distributions
+
+### Cluster Effect Priors (`cluster_effect`)
+- **`uniform`**: Uniform Dirichlet distribution
+- **`dirichlet`**: Custom Dirichlet distribution (requires `parameters` or `file`)
+- **`jeffreys`**: Jeffreys prior
+- **`BBS`**: Bayesian Bootstrap prior
+- **`symmetric_dirichlet`**: Symmetric Dirichlet distribution (requires `prior_concentration`)
+
+Required fields for `symmetric_dirichlet`:
+- `prior_concentration`: Concentration parameter for symmetric Dirichlet prior
+
+### Weights Priors (`weights`)
+Available types: `uniform`, `dirichlet`, `jeffreys`, `BBS`, `symmetric_dirichlet`
+- Same configuration options as cluster_effect priors
+- For `symmetric_dirichlet`: requires `prior_concentration` parameter
+
+### Geographic Priors (`geo`)
+**Type: `uniform`**
+- Assigns equal probability to all spatial allocations
+
+**Type: `cost_based`**
+- `costs`: `"from_data"` (geodesic distances) or path to cost matrix CSV
+- `probability_function`: `"exponential"` or `"sigmoid"`
+- `rate`: Required for exponential decay (mean expected costs between connected languages)
+- `inflection_point`: Required for sigmoid function (value where function reaches 0.5)
+- `aggregation`: `"mean"`, `"sum"`, or `"max"` for edge cost aggregation
+- `skeleton`: Graph structure for cost calculation
+  - `"mst"`: Minimum spanning tree (default)
+  - `"delaunay"`: Delaunay triangulation
+  - `"diameter"`: Diameter-based connection
+  - `"complete_graph"`: Connect all language pairs
+
+**Type: `simulated`**
+- For simulation-based geographic priors
+
+### Area Size Priors (`objects_per_cluster`)
+- **`uniform_area`**: Uniform over all areas (bias toward larger areas)
+- **`uniform_size`**: Uniform over all sizes
+- `min`: Minimum cluster size (default: 2)
+- `max`: Maximum cluster size (default: 10000)
+
+## MCMC Configuration
+
+### Core MCMC Settings
+- `steps`: Total MCMC iterations (default: 1000000)
+- `samples`: Number of posterior samples (default: 1000)
+- `runs`: Number of independent runs (default: 1)
+- `sample_from_prior`: Sample from prior only (default: false)
+- `grow_to_adjacent`: Fraction of steps growing to adjacent languages (default: 0.8)
+- `screen_log_interval`: Screen logging frequency (default: 1000)
+
+### Operators (`operators`)
+Relative frequencies for parameter updates (normalized to 1.0 at runtime):
+- `clusters`: Cluster assignment updates (default: 70.0)
+- `weights`: Mixture weight updates (default: 10.0)
+- `source`: Observation-to-component assignment updates (default: 20.0)
+
+### Initialization (`initialization`)
+- `attempts`: Initial samples per warm-up chain (default: 10)
+- `em_steps`: Expectation-maximization steps (default: 50)
+- `objects_per_cluster`: Average initial cluster size (default: 10)
+
+### Warm-up (`warmup`)
+- `warmup_steps`: Warm-up phase iterations (default: 50000)
+- `warmup_chains`: Number of parallel warm-up chains (default: 10)
+
+## Results Configuration
+
+- `path`: Output directory path (default: "results")
+- `log_file`: Generate log file (default: true)
+- `log_likelihood`: Log observation likelihoods to .h5 file (default: true)
+- `log_source`: Log component assignment proportions (default: false)
+- `log_hot_chains`: Create log files for hot chains (default: true)
+- `float_precision`: Decimal places for real-valued parameters (default: 8)
+
+## Example Configuration
+
+```yaml
+data:
+  features: data/language_features.csv
+  feature_states: data/feature_states.csv
+  projection: epsg:4326
+
+model:
+  clusters: 3
+  confounders: ["inheritance", "universal"]
+  
+  prior:
+    confounding_effects:
+      inheritance:
+        type: uniform
+      universal:
+        type: symmetric_dirichlet
+        prior_concentration: 1.0
+    
+    cluster_effect:
+      type: uniform
+    
+    weights:
+      type: uniform
+    
+    geo:
+      type: cost_based
+      costs: from_data
+      probability_function: exponential
+      rate: 100.0
+      skeleton: mst
+      aggregation: mean
+    
+    objects_per_cluster:
+      type: uniform_size
+      min: 3
+      max: 50
+
+mcmc:
+  steps: 500000
+  samples: 2000
+  runs: 3
+  screen_log_interval: 1000
+  
+  operators:
+    clusters: 70.0
+    weights: 15.0
+    source: 15.0
+  
+  initialization:
+    attempts: 10
+    em_steps: 50
+    objects_per_cluster: 8
+  
+  warmup:
+    warmup_steps: 100000
+    warmup_chains: 15
+
+results:
+  path: results/analysis_3clusters
+  log_file: true
+  log_likelihood: true
+  log_source: false
+  float_precision: 6
+```
+
 ## Inference
 
 To runs `sBayes` from the command line, users simply call
