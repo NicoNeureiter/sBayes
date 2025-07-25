@@ -581,7 +581,7 @@ A default analysis in `sBayes` consists of three main steps:
 ## The configuration file
 
 Users define the settings of a `sBayes`-analysis in a configuration
-file. The configuration file can be in either YAML or JSON format. The configuration file has four main keys:
+file. The configuration file should be in YAML format (JSON is also supported for compatibility). The configuration file has four main keys:
 -   `data`: provides the file paths to the empirical data
 -   `model`: defines the likelihood, the prior, and additional model parameters
 -   `mcmc`: gives the settings for the Markov chain Monte Carlo sampling
@@ -599,17 +599,17 @@ an EPSG code to define the geographic coordinate reference system (CRS)
 of the location data. If no CRS is provided, `sBayes` assumes that the
 location data are latitude/longitude data in WGS84 (\"epsg:4326\".)
 
-The following JSON snippet tells `sBayes` to open the file
+The following YAML snippet tells `sBayes` to open the file
 `balkan_features.csv`, with applicable states in
 *balkan_features_states.csv*. Both files are located in the sub-folder
 `data` (relative to the configuration file). The location data are in ETRS89
 Lambert Azimuthal Equal-Area projection (\"epsg:3035\").
 
-```json
-"data": {
-  "features" : "data/balkan_features.csv"
-  "feature_states": "data/balkan_features_states.csv",
-  "projection": "epsg:3035"}
+```yaml
+data:
+  features: data/balkan_features.csv
+  feature_states: data/balkan_features_states.csv
+  projection: epsg:3035
 ```
 
 Table [6](#config-file-data) summarizes all keys in *data* and
@@ -633,19 +633,7 @@ In `model`, users define the likelihood function and additional model
 parameters. Users can specify the number of contact areas/clusters
 (`clusters`) and define confounding effects (`confounders`). The key `prior` is discussed in detail below.
 
-The following JSON snippet defines a model with three clusters and family as a confounder:
-
-```json
-"model": {
-  "clusters": 3,
-  "confounders": ["family"],
-  "prior": {
-    ...
-  }
-}
-```
-
-Alternatively, in YAML format:
+The following YAML snippet defines a model with three clusters and family as a confounder:
 
 ```yaml
 model:
@@ -665,7 +653,7 @@ gives the default values and expected data types.
 |---------------------|---------------|-------------------|--------------------------------------------|
 | `clusters`          | number \| list| (required)        | Number (or a list of numbers) of contact areas/clusters in the model |
 | `confounders`       | list          | []                | List of confounder names (e.g., ["family", "universal"]). Note that priors must be specified for each confounder in the `prior.confounding_effects` section. |
-| `prior`             | JSON/YAML     |                   | Defines the prior of the model. See below. |
+| `prior`             | YAML          |                   | Defines the prior of the model. See below. |
 
 
 ### Configuration: `model` \> `prior`
@@ -680,17 +668,17 @@ in the model. The prior section supports the following main categories:
 -   `objects_per_cluster`: the prior on the number of objects per cluster
 
 All prior configurations support multiple types including `uniform`, `dirichlet`, `jeffreys`, `BBS`, and `symmetric_dirichlet`. Each type may require specific parameters:
-- `dirichlet`: requires either `parameters` (dict) or `file` (path to YAML/JSON)
+- `dirichlet`: requires either `parameters` (dict) or `file` (path to YAML)
 - `symmetric_dirichlet`: requires `prior_concentration` (float)
 
-Each key takes as input a JSON or YAML object, which -- depending on the type of
+Each key takes as input a YAML object, which -- depending on the type of
 prior -- can itself have several sub-keys (for a full list see,
 Table [8](#tab:config_file_prior){reference-type="ref"
 reference="tab:config_file_prior"}).\
 
 ### `universal` <a name="universal"></a>
 
-The prior for universal preference (`universal`) takes as input a JSON
+The prior for universal preference (`universal`) takes as input a YAML
 object with the keys `type`, `parameters`, and `file`. The default
 `type` is \"uniform\", which defines a uniform Dirichlet distribution,
 such that for each feature each applicable state is equally likely a
@@ -699,14 +687,14 @@ priori.
 If additional information is available to inform the prior, users can
 set `type` to \"dirichlet\" and provide the `parameters` of a Dirichlet
 prior distribution explicitly. Alternatively, users can provide the file
-path to an external JSON `file` (e.g. *prior_universal.JSON*) where the
+path to an external YAML `file` (e.g. *prior_universal.yaml*) where the
 prior is parameterized. Externalizing the prior to a separate file is
 convenient when the model has many features and many states, in which
 case the parameterization of the prior distribution might make the
 configuration file overly convoluted. Moreover, section Constructing
 priors provides automated approaches to construct the prior from
 empirical data outside the study area. Both, `parameters` and the
-external JSON file have the exact same keys and values. In what follows,
+external YAML file have the exact same keys and values. In what follows,
 we explain how to parameterize the universal prior for the three
 features in Table [2](#features_example) and the applicable states in
 Table [3](#features_states).
@@ -730,27 +718,32 @@ $$
  P(\alpha_{\mathit{role\textunderscore mark}}) = \textrm{Dir}(\psi_{A}=2.0, \psi_{B}=0.3, \psi_{C}=4.7, \psi_{D} = 3.0, \psi_{E} = 4.0) 
 $$
 
-The JSON snippet below encodes the universal prior:
+The YAML snippet below encodes the universal prior:
 
-```json
-"prior": {
-  ...
-  "universal": {
-    "type": "dirichlet", 
-    "parameters": {
-      "pers_aff": {"Y": 6.1, "N": 7.9},
-      "role_mark":{"A": 2.0, "B": 0.3, 
-                   "C": 4.7, "D": 3.0, "E": 4.0},
-      "vow_con":{"Y": 2.0, "N": 12.0}
-    }
-  }
-}
+```yaml
+prior:
+  # ...
+  universal:
+    type: dirichlet
+    parameters:
+      pers_aff:
+        "Y": 6.1
+        "N": 7.9
+      role_mark:
+        "A": 2.0
+        "B": 0.3
+        "C": 4.7
+        "D": 3.0
+        "E": 4.0
+      vow_con:
+        "Y": 2.0
+        "N": 12.0
 ```
 
 ### `inheritance` <a name="inheritance"></a>
 
 The prior for preference in a family (`inheritance`) takes as input a
-JSON object for each family in `features.csv` (e.g. `Arawak`,
+YAML object for each family in `features.csv` (e.g. `Arawak`,
 `Tacanoan`, \...). Each family key has three sub-keys: `type`,
 `parameters`, and `file`. The default `type` is \"uniform\", which
 defines a uniform Dirichlet prior distribution: for each feature each
@@ -758,8 +751,8 @@ applicable state is equally likely a priori. When there is additional
 information to inform the prior, users can set `type` to \"dirichlet\"
 and explicitly provide the `parameters` of the Dirichlet prior
 distribution in the family. Alternatively, users can provide the `file`
-path to an external JSON files (e.g. *prior_Arawak.JSON*) where the
-prior is parameterized. The `parameters` and the external JSON file have
+path to an external YAML files (e.g. *prior_Arawak.yaml*) where the
+prior is parameterized. The `parameters` and the external YAML file have
 the exact same keys and values. In what follows, we explain how to
 parameterize the prior for Arawak for the three features in
 Table [2](#features_example) and the applicable states in
@@ -786,24 +779,30 @@ P(\beta_{\mathit{role\textunderscore mark}, \textit{Arawak}}) = \textrm{Dir}(\ps
 $$
 
 
-The JSON snippet below encodes the prior for Arawak and Tucanoan:
+The YAML snippet below encodes the prior for Arawak and Tucanoan:
 
-```json
-"prior": {
-  ...
-  "inheritance": {
-    "Arawak" :{
-      "type": "dirichlet", 
-      "parameters": {
-        "pers_aff": {"Y": 6.0, "N": 1.0},
-        "role_mark":{"A": 2.0, "B": 1.0, 
-                     "C": 2.9, "D": 1.0, "E": 0.1},
-        "vow_con":{"Y": 3.0, "N": 4.0}}},
-    "Tucanoan":{
-      "type": "uniform"},
-    ...
-  }
-}
+```yaml
+prior:
+  # ...
+  inheritance:
+    Arawak:
+      type: dirichlet
+      parameters:
+        pers_aff:
+          "Y": 6.0
+          "N": 1.0
+        role_mark:
+          "A": 2.0
+          "B": 1.0
+          "C": 2.9
+          "D": 1.0
+          "E": 0.1
+        vow_con:
+          "Y": 3.0
+          "N": 4.0
+    Tucanoan:
+      type: uniform
+    # ...
 ```
 
 ### `contact` and `weights`
@@ -813,7 +812,7 @@ currently always set to \"uniform\".
 
 ### `geo` 
 
-The `geo` prior takes as input a JSON or YAML object with the keys `type` and
+The `geo` prior takes as input a YAML object with the keys `type` and
 `parameters`. The default prior has type \"uniform\", in which case
 every spatial allocation of points in an area has the same prior
 probability. Other types are *Gaussian*, *cost_based*, and *simulated*.
@@ -826,15 +825,14 @@ Gaussian geo-prior with a variance in $x$ and $y$ of $400~\mathrm{km^2}$
 and a covariance of zero, i.e. the bivariate normal distribution is
 perfectly spherical.
 
-```json
-"prior": {
-   ...
-   "geo": {
-        "type": "gaussian",
-        "covariance":[[400, 0],
-                      [0, 400]]
-  }
-}
+```yaml
+prior:
+  # ...
+  geo:
+    type: gaussian
+    covariance:
+      - [400, 0]
+      - [0, 400]
 ```
 
 For the cost-based geo prior, `sBayes` connects all locations in an area
@@ -860,24 +858,9 @@ below enforces a cost-based geo prior. The costs are provided as travel
 times in hours in the file `travel_times.csv`. The rate is set to 12
 hours and the minimum spanning tree is used as a skeleton criterion.
 
-```json
-"prior": {
-   ...
-   "geo": {
-      "type": "cost_based",
-      "costs": "travel_times.csv",
-      "skeleton": "mst",
-      "rate": 12,
-      "aggregation": "mean",
-      "probability_function": "exponential"
-    }
-}
-```
-
-Alternatively, in YAML format:
-
 ```yaml
 prior:
+  # ...
   geo:
     type: cost_based
     costs: travel_times.csv
@@ -895,24 +878,13 @@ towards larger areas). \"uniform_size\" enforces a prior distribution
 that is uniform over all sizes of a cluster (for details see
 section Priors). Additionally, we can limit the size of an area a-priori
 by defining a lower bound (\"min\") and an upper bound (\"max\") on the
-number of objects per cluster. The following JSON snippet defines a prior
+number of objects per cluster. The following YAML snippet defines a prior
 that is uniform over size with at least $3$ and at most $40$ objects
 per cluster.
 
-```json
-"prior": {
-   ...
-   "objects_per_cluster": {
-      "type": "uniform_size",
-      "min": 3,
-      "max": 40}
-}
-```
-
-Alternatively, in YAML format:
-
 ```yaml
 prior:
+  # ...
   objects_per_cluster:
     type: uniform_size
     min: 3
@@ -927,29 +899,29 @@ the default values and expected data types.
 
 | **key**                                      | **data type** | **default value** | **description**                                        |
 |----------------------------------------------|---------------|-------------------|--------------------------------------------------------|
-| `universal`                                  | JSON          | -                 | the prior for universal preference                     |
+| `universal`                                  | YAML          | -                 | the prior for universal preference                     |
 | &nbsp; &nbsp; `type`                       | string        | (required)        | type of the prior, either "uniform" or "dirichlet"     |
-| &nbsp; &nbsp; `parameters`                 | JSON          | -                 | parameterization of the prior distribution             |
-| &nbsp; &nbsp; `file`                       | string        | -                 | alternatively: file path to `universal_prior.JSON`     |
-| `inheritance`                                | JSON          | -                 | the prior for preference in a family                   |
-| &nbsp; &nbsp; `family 1`                   | JSON          | -                 | prior distribution for family 1                        |
+| &nbsp; &nbsp; `parameters`                 | YAML          | -                 | parameterization of the prior distribution             |
+| &nbsp; &nbsp; `file`                       | string        | -                 | alternatively: file path to `universal_prior.yaml`     |
+| `inheritance`                                | YAML          | -                 | the prior for preference in a family                   |
+| &nbsp; &nbsp; `family 1`                   | YAML          | -                 | prior distribution for family 1                        |
 | &nbsp; &nbsp; &nbsp; &nbsp; `type`       | string        | (required)        | type of prior, either "uniform" or "dirichlet"         |
-| &nbsp; &nbsp; &nbsp; &nbsp; `parameters` | JSON          | -                 | parameterization of the prior distribution for family 1|
-| &nbsp; &nbsp; &nbsp; &nbsp; `file`       | JSON          | -                 | alternatively: file path to `prior_<family 1>.JSON`   |
-| &nbsp; &nbsp; `family 2`                   | JSON          | -                 | prior distribution for family 2                        |
+| &nbsp; &nbsp; &nbsp; &nbsp; `parameters` | YAML          | -                 | parameterization of the prior distribution for family 1|
+| &nbsp; &nbsp; &nbsp; &nbsp; `file`       | string        | -                 | alternatively: file path to `prior_<family 1>.yaml`   |
+| &nbsp; &nbsp; `family 2`                   | YAML          | -                 | prior distribution for family 2                        |
 | &nbsp; &nbsp; &nbsp; &nbsp; ...          |               |                   |                                                        |
-| `contact`                                    | JSON          | -                 | the prior for preference in an area                    |
+| `contact`                                    | YAML          | -                 | the prior for preference in an area                    |
 | &nbsp; &nbsp; `type`                       | string        | "uniform"         | only "uniform" priors are supported                    |
-| `weights`                                    | JSON          | -                 | the weights prior                                      |
+| `weights`                                    | YAML          | -                 | the weights prior                                      |
 | &nbsp; &nbsp; `type`                       | string        | "uniform"         | only "uniform" priors are supported                    |
-| `geo`                                        | JSON          | -                 | the geo-prior                                          |
+| `geo`                                        | YAML          | -                 | the geo-prior                                          |
 | &nbsp; &nbsp; `type`                       | string        | "uniform"         | type of geo-prior: "uniform", "gaussian" or "cost_based"|
-| &nbsp; &nbsp; `parameters`                 | JSON          | -                 | additional parameters for defining the geo-prior       |
+| &nbsp; &nbsp; `parameters`                 | YAML          | -                 | additional parameters for defining the geo-prior       |
 | &nbsp; &nbsp; &nbsp; &nbsp; `covariance` | array         | -                 | Gaussian covariance matrix (for "gaussian" geo-prior)  |
 | &nbsp; &nbsp; &nbsp; &nbsp; `costs`      | string        | "from_data"       | "from_data" or file path to cost matrix (for "cost_based" geo-prior) |
 | &nbsp; &nbsp; &nbsp; &nbsp; `rate`       | number        | -                 | rate of exponential distribution (for "cost_based" geo-prior) |
 | &nbsp; &nbsp; &nbsp; &nbsp; `linkage`    | string        | "mst"             | linkage criterion (for "cost_based" geo-prior)         |
-| `languages_per_area`                         | JSON          | -                 | the prior on the number of languages per area          |
+| `languages_per_area`                         | YAML          | -                 | the prior on the number of languages per area          |
 | &nbsp; &nbsp; `type`                       | string        | "uniform_size"    | type of prior, either "uniform_area" or "uniform_size" |
 | &nbsp; &nbsp; `min`                        | number        | 2                 | minimum number of languages per area                   |
 | &nbsp; &nbsp; `max`                        | number        | 10000             | maximum number of languages per area                   |
@@ -991,26 +963,6 @@ posterior samples. In the warmup phase, 20 independent chains take
 100,000 steps to search for high density regions. The example also
 shows screen logging every 5000 steps and initialization settings.
 
-```json
-"mcmc": {
-   "runs": 5,
-   "steps": 1000000,
-   "samples": 10000,
-   "screen_log_interval": 5000,
-   "warmup": {
-      "warmup_chains": 20,
-      "warmup_steps": 100000
-   },
-   "initialization": {
-      "attempts": 10,
-      "em_steps": 50,
-      "objects_per_cluster": 8
-   }
-}
-```
-
-Alternatively, in YAML format:
-
 ```yaml
 mcmc:
   runs: 5
@@ -1047,18 +999,17 @@ modify inheritance in 20% and those to change the weights and contact in
 30%. The initial size for areas is 6. 85% of all steps grow to adjacent
 languages.
 
-```json
-"mcmc": {
-   ...
-   "operators": {
-      "area": 0.1,
-      "weights": 0.3, 
-      "universal": 0.1, 
-      "inheritance": 0.2,
-      "contact": 0.3},
-   "grow_to_adjacent": 0.85,
-   "init_lang_per_area": 6
-}
+```yaml
+mcmc:
+  # ...
+  operators:
+    area: 0.1
+    weights: 0.3
+    universal: 0.1
+    inheritance: 0.2
+    contact: 0.3
+  grow_to_adjacent: 0.85
+  init_lang_per_area: 6
 ```
 
 The [following table](#config-file-mcmc)
@@ -1078,10 +1029,10 @@ each parameter.
 | `runs`                        | number        | 1                 | number of independent runs of the analysis           |
 | `steps`                       | number        | 100000            | number of steps in the Markov chain                 |
 | `samples`                     | number        | 1000              | number of samples in the posterior                  |
-| `warmup`                      | JSON          | -                 | settings for the warmup                             |
+| `warmup`                      | YAML          | -                 | settings for the warmup                             |
 | &nbsp; &nbsp; `warmup_chains` | number        | 15                | number of warmup chains                              |
 | &nbsp; &nbsp; `warmup_steps`  | number        | 100000            | number of warmup steps                               |
-| `operators`                   | JSON          | -                 | operators and their frequencies                      |
+| `operators`                   | YAML          | -                 | operators and their frequencies                      |
 | &nbsp; &nbsp; `area`          | number        | 0.05              | frequency of area operator                           |
 | &nbsp; &nbsp; `weights`       | number        | 0.4               | frequency of weights operator                        |
 | &nbsp; &nbsp; `universal`     | number        | 0.05              | frequency of universal operator                      |
@@ -1104,19 +1055,6 @@ file. Additional logging options include `log_file` for meta information,
 
 The following code snippet creates a folder *results* relative to the
 location of the configuration file and configures various logging options.
-
-```json
-"results": {
-   "path": "results",
-   "log_file": true,
-   "log_likelihood": true,
-   "log_source": false,
-   "log_hot_chains": true,
-   "float_precision": 8
-}
-```
-
-Alternatively, in YAML format:
 
 ```yaml
 results:
