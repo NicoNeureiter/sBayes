@@ -136,6 +136,12 @@ def cli():
         nargs="?", type=bool, default=False, const=True,
         help="Run numpyro inference on a GPU.",
     )
+
+    parser.add_argument(
+        "-c", "--numCPUs",
+        nargs="?", type=int, default=1,
+        help="Number of CPUs to use for parallel numpyro chains.",
+    )
     parser.add_argument(
         "-K", "--numClusters",
         nargs="*", type=PositiveInt,
@@ -169,7 +175,7 @@ def cli():
         numpyro.set_platform('gpu')
     else:
         numpyro.set_platform('cpu')
-        numpyro.set_host_device_count(args.threads)
+        numpyro.set_host_device_count(args.numCPUs)
 
     main(config=config, experiment_name=args.name, processes=args.threads,
          resume=args.resume, n_clusters=args.numClusters)
