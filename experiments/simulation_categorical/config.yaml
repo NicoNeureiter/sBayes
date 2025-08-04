@@ -1,0 +1,37 @@
+mcmc:
+    steps: 1200
+    samples: 400
+    runs: 1
+    warmup:
+        warmup_steps: 100
+
+model:
+    clusters: 2
+    confounders:
+        - confounder_1
+    prior:
+        cluster_assignment:
+            type: dirichlet
+            dirichlet_config:
+                type: symmetric_dirichlet
+                prior_concentration: 1.0
+        geo:
+            type: uniform
+        weights:
+            type: uniform
+        cluster_effect:
+                categorical:
+                    type: symmetric_dirichlet
+                    prior_concentration: 1.0
+        confounding_effects:
+            confounder_1:
+                <DEFAULT>:
+                    categorical:
+                        type: uniform
+
+data:
+    features: template_data/features.csv
+    feature_types: template_data/feature_types.yaml
+
+results:
+    path: sims
