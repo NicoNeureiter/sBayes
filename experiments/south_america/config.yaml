@@ -1,9 +1,9 @@
 mcmc:
-    steps: 1000
-    samples: 200
-    runs: 2
+    steps: 500
+    samples: 100
+    runs: 1
     warmup:
-        warmup_steps: 200
+        warmup_steps: 100
 model:
     clusters: 3
     confounders:
@@ -11,16 +11,15 @@ model:
         - family
     prior:
         cluster_assignment:
-            type: logistic_normal
-            logistic_normal_config:
-                loc: 0.0
-                scale: 3.0
+            type: dirichlet
+            dirichlet_config:
+                type: symmetric_dirichlet
+                prior_concentration: 0.2
         geo:
             type: uniform
             skeleton: complete_graph
             probability_function: exponential
-            rate: 200_000                # meters
-#            inflection_point: 1_000_000  # meters
+            rate: 500_000  # meters
         weights:
             type: uniform
         cluster_effect:
@@ -31,7 +30,6 @@ model:
             universal:
                 <ALL>:
                     categorical:
-#                        type: uniform
                         type: dirichlet
                         file: data/prior_universal/universal_counts.json
             family:
@@ -67,4 +65,4 @@ data:
     projection: "+proj=eqdc +lat_0=-32 +lon_0=-60 +lat_1=-5 +lat_2=-42 +x_0=0 +y_0=0
         +ellps=aust_SA +units=m +no_defs"
 results:
-    log_source: true
+    samples_file_only: false

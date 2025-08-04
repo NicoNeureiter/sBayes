@@ -7,6 +7,7 @@ import argparse
 from pathlib import Path
 
 from pydantic import PositiveInt
+import numpyro
 
 from sbayes.experiment_setup import Experiment
 from sbayes.util import PathLike, update_recursive, activate_verbose_warnings
@@ -104,7 +105,7 @@ def cli():
 
     # Initialize CLI argument parser
     parser = argparse.ArgumentParser(
-        description="An MCMC algorithm to detect clusters in the presence of confounders."
+        description="Bayesian inference of clusters in the presence of confounders."
     )
 
     # The only required (positional) argument is the path to the config file:
@@ -123,12 +124,23 @@ def cli():
     parser.add_argument(
         "-t", "--threads",
         nargs="?", type=PositiveInt, default=1,
-        help="The number of parallel runs. Defaults to 1 which means that all runs will be executed sequentially.",
+        help="Number of parallel runs. Defaults to 1, which means all runs will be executed sequentially.",
     )
     parser.add_argument(
         "-r", "--resume",
-        nargs="?", type=bool, default=False,
-        help="Whether to resume a previous run (requires experiment name, runID and number of clusters to match).",
+        nargs="?", type=bool, default=False, const=True,
+        help="Resume previous run (requires experiment name, runID and number of clusters to match).",
+    )
+    parser.add_argument(
+        "-g", "--gpu",
+        nargs="?", type=bool, default=False, const=True,
+        help="Run numpyro inference on a GPU.",
+    )
+
+    parser.add_argument(
+        "-c", "--numCPUs",
+        nargs="?", type=int, default=1,
+        help="Number of CPUs to use for parallel numpyro chains.",
     )
     parser.add_argument(
         "-K", "--numClusters",
@@ -157,6 +169,13 @@ def cli():
             initialdir="..",
             filetypes=(("json files", ".json"), ("yaml files", ".yaml .yml"), ("all files", "*.*")),
         )
+
+    # Setting numpyro device based on CLI argument. Needs to be done before any numpyro commands.
+    if args.gpu:
+        numpyro.set_platform('gpu')
+    else:
+        numpyro.set_platform('cpu')
+        numpyro.set_host_device_count(args.numCPUs)
 
     main(config=config, experiment_name=args.name, processes=args.threads,
          resume=args.resume, n_clusters=args.numClusters)

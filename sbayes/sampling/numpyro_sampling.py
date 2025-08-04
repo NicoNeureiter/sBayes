@@ -23,7 +23,6 @@ from sbayes.sampling.loggers import OnlineSampleLogger
 from sbayes.util import timeit
 
 
-numpyro.set_host_device_count(8)
 # jax.config.update("jax_traceback_filtering", "off")
 
 
@@ -55,7 +54,15 @@ def sample_nuts(
         s = find_best_initial_sample(model, rng_key=rng_key)
 
         # Create NUTS kernel
-        kernel = NUTS(model.get_model, init_strategy=init_to_value(values=s))
+        kernel = NUTS(
+            model.get_model,
+            init_strategy=init_to_value(values=s),
+            step_size=0.02,
+            # find_heuristic_step_size=True,
+            adapt_step_size=False,
+            max_tree_depth=8,
+        )
+
     else:
         kernel = NUTS(model.get_model)
 

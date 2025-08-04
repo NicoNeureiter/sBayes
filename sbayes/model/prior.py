@@ -18,9 +18,9 @@ from sbayes.model.model_shapes import ModelShapes
 from sbayes.util import dirichlet_logpdf, log_expit, FLOAT_TYPE, normalize_weights, EPS, normalize
 from sbayes.config.config import PriorConfig, DirichletPriorConfig, GeoPriorConfig, ClusterPriorConfig, \
     ConfoundingEffectConfig, GaussianVariancePriorConfig, GaussianMeanPriorConfig, GaussianPriorConfig, \
-    ClusterEffectConfig
+    ClusterEffectConfig, PoissonPriorConfig
 from sbayes.load_data import Data, ComputeNetwork, GroupName, StateName, FeatureName, Confounder, \
-    CategoricalFeatures, GaussianFeatures, GenericTypeFeatures
+    CategoricalFeatures, GaussianFeatures, GenericTypeFeatures, PoissonFeatures
 
 
 class Prior:
@@ -345,6 +345,108 @@ class GaussianClusterEffectPrior:
         return f"Prior on cluster effect for {self.partition.name} features:  (mean={self.config.mean.type.value}, variance={self.config.variance.type.value})\n"
 
 
+class PoissonRatePrior:
+
+    def __init__(
+        self,
+        config: PoissonPriorConfig | dict[GroupName, PoissonPriorConfig],
+        partition: PoissonFeatures,
+        group_names: Sequence[GroupName] | None = None,
+    ):
+        self.config = config
+        self.partition = partition
+        self.group_names = group_names
+
+        if isinstance(config, PoissonPriorConfig):
+            self.parameters = self.parse_group_prior(config)
+        elif isinstance(config, dict):
+            if group_names is None:
+                raise ValueError('Group names are required for poisson priors.')
+            default_config = config.get("<DEFAULT>", None)
+            group_parameters = []
+            for group in group_names:
+                group_config = config.get(group, default_config)
+                if group_config is None:
+                    raise ValueError(f'No poisson prior config for group `{group}`.')
+                group_parameters.append(
+                    self.parse_group_prior(group_config)
+                )
+            self.parameters = jnp.array(group_parameters).transpose((1, 0, 2))
+        else:
+            raise ValueError(f'Invalid Gaussian prior config: {config}')
+
+    def parse_group_prior(self, config: PoissonPriorConfig):
+        n_features = self.partition.n_features
+        if config.type is config.Types.JEFFREYS:
+            return None
+        if config.type is config.Types.GAMMA:
+            return jnp.array([
+                jnp.full(n_features, config.parameters['shape']),
+                jnp.full(n_features, config.parameters['rate']),
+            ])
+        else:
+            raise ValueError(self.invalid_prior_message(config.type))
+
+    def invalid_prior_message(self, s):
+        name = self.__class__.__name__
+        valid_types = ', '.join(PoissonPriorConfig.Types)
+        return f'Invalid prior type {s} for {name} (choose from [{valid_types}]).'
+
+    def get_numpyro_distr(self):
+        if isinstance(self.config, PoissonRatePrior):
+            typ = self.config.type
+        else:
+            assert isinstance(self.config, dict), self.config
+            typ = next(iter(self.config.values())).type
+            assert (all(v.variance.type == typ for v in self.config.values()))
+
+        if typ is PoissonPriorConfig.Types.JEFFREYS:
+            return dist.Exponential(rate=self.parameters)
+        elif typ is PoissonPriorConfig.Types.GAMMA:
+            return dist.Gamma(concentration=self.parameters[0], rate=self.parameters[1])
+        else:
+            raise ValueError(f'Invalid prior type {typ} for Poisson rate prior.')
+
+
+class PoissonConfoundingEffectsPrior:
+
+    def __init__(
+        self,
+        config: dict[GroupName, PoissonPriorConfig],
+        conf: Confounder,
+        partition: PoissonFeatures,
+    ):
+        self.config = config
+        self.conf = conf
+        self.partition = partition
+        self.rate = PoissonRatePrior(config=config, partition=partition, group_names=conf.group_names)
+
+    def get_setup_message(self):
+        """Compile a set-up message for logging."""
+        msg = f"Prior on confounding effect {self.conf.name} for {self.partition.name} features:\n"
+        for group in self.config.keys():
+            msg += f"\tPrior for group {group}: (mean={self.config[group].type.value}).\n"
+        return msg
+
+
+class PoissonClusterEffectPrior:
+
+    def __init__(
+        self,
+        config: PoissonPriorConfig,
+        partition: PoissonFeatures,
+    ):
+        self.config = config
+        self.partition = partition
+        self.mean = PoissonRatePrior(config=self.config, partition=partition)
+
+    def get_setup_message(self):
+        """Compile a set-up message for logging."""
+        return f"Prior on cluster effect for {self.partition.name} features:  (mean={self.config.mean.type.value}, variance={self.config.variance.type.value})\n"
+
+
+
+
 class ClusterEffectPrior:
 
     def __init__(
@@ -361,6 +463,8 @@ class ClusterEffectPrior:
                 self.partition_priors[p.name] = CategoricalClusterEffectPrior(config.categorical, p)
             elif isinstance(p, GaussianFeatures):
                 self.partition_priors[p.name] = GaussianClusterEffectPrior(config.gaussian, p)
+            elif isinstance(p, PoissonFeatures):
+                self.partition_priors[p.name] = PoissonClusterEffectPrior(config.poisson, p)
             else:
                 raise NotImplementedError(f'Partition type {type(p)} is not supported.')
 
@@ -389,6 +493,9 @@ class ConfoundingEffectsPrior:
             elif isinstance(p, GaussianFeatures):
                 gaussian_configs = {g: c.gaussian for g, c in config.items()}
                 self.partition_priors[p.name] = GaussianConfoundingEffectsPrior(gaussian_configs, conf, p)
+            elif isinstance(p, PoissonFeatures):
+                poisson_configs = {g: c.poisson for g, c in config.items()}
+                self.partition_priors[p.name] = PoissonConfoundingEffectsPrior(poisson_configs, conf, p)
             else:
                 raise NotImplementedError(f'Partition type {type(p)} is not supported.')
 
@@ -507,6 +614,7 @@ class ClusterPrior:
             d = z_stretched[:, -1:] - z[:, -1:]
             z_stretched = z_stretched.at[:, :-1] \
                 .subtract((z[:, :-1] / (jnp.sum(z[:, :-1], axis=-1, keepdims=True) + 1E6)) * d)
+
             z_stretched = jnp.clip(z_stretched, 1E-9, 1 - 1E-9)
 
             # Shouldn't be necessary, but renormalize for numerical stability

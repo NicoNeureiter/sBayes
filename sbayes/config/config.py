@@ -457,7 +457,7 @@ class ConfoundingEffectConfig(BaseConfig):
     poisson: PoissonPriorConfig | None = None
 
 
-class ClusterEffectConfig(DirichletPriorConfig):
+class ClusterEffectConfig(BaseConfig):
     """Configuration of the prior on the parameters of the cluster-effect."""
     categorical: DirichletPriorConfig | None = None
     gaussian: GaussianPriorConfig | None = None
