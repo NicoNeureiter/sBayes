@@ -48,6 +48,20 @@ def sample_nuts(
     init_sample: dict = None,
     sample_logger: OnlineSampleLogger = None,
 ):
+
+    # dense_mass = []
+    # # for i in range(model.n_clusters):
+    # dense_mass.append(
+    #     (f"z_logit",) + tuple(f"cluster_effect_{p.name}" for p in model.partitions)
+    # )
+    # dense_mass.append(("w",))
+    #
+    # # for i, conf in enumerate(model.data.confounders.values()):
+    # #     for p in model.partitions:
+    # #         dense_mass.append([f"conf_effect_{i}_{p.name}"])
+    #
+    # print(dense_mass)
+
     # Generate an initial sample using SVI
     if init_sample is None:
         # init_sample = get_svi_init_sample(model, rng_key=rng_key, svi_steps=1000)
@@ -57,10 +71,12 @@ def sample_nuts(
         kernel = NUTS(
             model.get_model,
             init_strategy=init_to_value(values=s),
-            step_size=0.02,
-            # find_heuristic_step_size=True,
-            adapt_step_size=False,
-            max_tree_depth=8,
+            # dense_mass=dense_mass,
+            # step_size=0.02,
+            find_heuristic_step_size=True,
+            # adapt_step_size=False,
+            # max_tree_depth=9,
+            # target_accept_prob=0.85,
         )
 
     else:

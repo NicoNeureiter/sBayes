@@ -355,7 +355,7 @@ class ClusterPriorConfig(BaseConfig):
     type: Types
     """Type of prior distribution. Choose from: [categorical, dirichlet or logit_normal]."""
 
-    hierarchical: bool = False                                  # TODO <<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<
+    hierarchical: bool = False
     """If `true`, use a hierarchical Dirichlet prior for the cluster assignment."""
 
     dirichlet_config: Optional[DirichletPriorConfig] = None
