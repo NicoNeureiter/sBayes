@@ -279,8 +279,7 @@ class PoissonFeatures(GenericTypeFeatures):
             return None
         else:
             poisson_features_dict = dict(values=poisson_data.to_numpy(dtype=float, na_value=np.nan),
-                                         names=np.asarray(poisson_columns),
-                                         na_number=poisson_data.isna().sum().sum())
+                                         names=np.asarray(poisson_columns))
 
             # return Feature class consisting of all poisson features
             return cls(**poisson_features_dict)
@@ -315,8 +314,7 @@ class LogitNormalFeatures(GenericTypeFeatures):
             logit_values = logit(values)
 
             logit_normal_features_dict = dict(values=logit_values,
-                                              names=np.asarray(logit_normal_columns),
-                                              na_number=logit_normal_data.isna().sum().sum())
+                                              names=np.asarray(logit_normal_columns))
 
             # return Feature class consisting of all logit-normal features
             return cls(**logit_normal_features_dict)
