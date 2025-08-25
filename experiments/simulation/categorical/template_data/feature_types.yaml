@@ -1,0 +1,241 @@
+f1:
+  type: categorical
+  states:
+    - A
+    - B
+    - C
+f2:
+  type: categorical
+  states:
+    - A
+    - B
+    - C
+f3:
+  type: categorical
+  states:
+    - A
+    - B
+    - C
+f4:
+  type: categorical
+  states:
+    - A
+    - B
+    - C
+f5:
+  type: categorical
+  states:
+    - A
+    - B
+    - C
+f6:
+  type: categorical
+  states:
+    - A
+    - B
+    - C
+f7:
+  type: categorical
+  states:
+    - A
+    - B
+    - C
+f8:
+  type: categorical
+  states:
+    - A
+    - B
+    - C
+f9:
+  type: categorical
+  states:
+    - A
+    - B
+    - C
+f10:
+  type: categorical
+  states:
+    - A
+    - B
+    - C
+f11:
+  type: categorical
+  states:
+    - A
+    - B
+    - C
+f12:
+  type: categorical
+  states:
+    - A
+    - B
+    - C
+f13:
+  type: categorical
+  states:
+    - A
+    - B
+    - C
+f14:
+  type: categorical
+  states:
+    - A
+    - B
+    - C
+f15:
+  type: categorical
+  states:
+    - A
+    - B
+    - C
+f16:
+  type: categorical
+  states:
+    - A
+    - B
+    - C
+f17:
+  type: categorical
+  states:
+    - A
+    - B
+    - C
+f18:
+  type: categorical
+  states:
+    - A
+    - B
+    - C
+f19:
+  type: categorical
+  states:
+    - A
+    - B
+    - C
+f20:
+  type: categorical
+  states:
+    - A
+    - B
+    - C
+f21:
+  type: categorical
+  states:
+    - A
+    - B
+    - C
+f22:
+  type: categorical
+  states:
+    - A
+    - B
+    - C
+f23:
+  type: categorical
+  states:
+    - A
+    - B
+    - C
+f24:
+  type: categorical
+  states:
+    - A
+    - B
+    - C
+f25:
+  type: categorical
+  states:
+    - A
+    - B
+    - C
+f26:
+  type: categorical
+  states:
+    - A
+    - B
+    - C
+f27:
+  type: categorical
+  states:
+    - A
+    - B
+    - C
+f28:
+  type: categorical
+  states:
+    - A
+    - B
+    - C
+f29:
+  type: categorical
+  states:
+    - A
+    - B
+    - C
+f30:
+  type: categorical
+  states:
+    - A
+    - B
+    - C
+f31:
+  type: categorical
+  states:
+    - A
+    - B
+    - C
+f32:
+  type: categorical
+  states:
+    - A
+    - B
+    - C
+f33:
+  type: categorical
+  states:
+    - A
+    - B
+    - C
+f34:
+  type: categorical
+  states:
+    - A
+    - B
+    - C
+f35:
+  type: categorical
+  states:
+    - A
+    - B
+    - C
+f36:
+  type: categorical
+  states:
+    - A
+    - B
+    - C
+f37:
+  type: categorical
+  states:
+    - A
+    - B
+    - C
+f38:
+  type: categorical
+  states:
+    - A
+    - B
+    - C
+f39:
+  type: categorical
+  states:
+    - A
+    - B
+    - C
+f40:
+  type: categorical
+  states:
+    - A
+    - B
+    - C
+
