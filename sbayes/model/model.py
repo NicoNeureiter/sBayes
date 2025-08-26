@@ -123,8 +123,7 @@ class Model:
             elif isinstance(partition, GaussianFeatures):
                 self.add_partition_gaussian(partition, mixture_weights)
             elif isinstance(partition, PoissonFeatures):
-                # self.add_partition_poisson(partition, clusters, mixture_weights)
-                raise NotImplementedError
+                self.add_partition_poisson(partition, mixture_weights)
             else:
                 raise ValueError(f"Partition type {partition.__class__.__name__} not supported.")
 
