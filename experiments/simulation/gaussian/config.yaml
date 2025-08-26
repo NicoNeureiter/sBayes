@@ -1,0 +1,53 @@
+mcmc:
+    steps: 1200
+    samples: 400
+    runs: 1
+    warmup:
+        warmup_steps: 100
+
+model:
+    clusters: 2
+    confounders:
+        - confounder_1
+    prior:
+        cluster_assignment:
+            type: logistic_normal
+            logistic_normal_config:
+                scale: 3
+        geo:
+            type: uniform
+        weights:
+               type: symmetric_dirichlet
+               prior_concentration: 0.6
+        cluster_effect:
+            gaussian:
+                mean:
+                    type: gaussian
+                    parameters:
+                        mu_0: 0.0
+                        sigma_0: 1.0
+                variance: 
+                    type: gamma
+                    parameters:
+                        shape: 0.5
+                        rate: 1.0
+        confounding_effects:
+            confounder_1:
+                <DEFAULT>:
+                    gaussian:
+                        mean: 
+                            type: gaussian
+                            parameters: 
+                                mu_0: 0.0
+                                sigma_0: 1.0
+                        variance: 
+                            type: gamma
+                            parameters:
+                                shape: 0.5
+                                rate: 1.0
+data:
+    features: template_data/features.csv
+    feature_types: template_data/feature_types.yaml
+
+results:
+    path: sims

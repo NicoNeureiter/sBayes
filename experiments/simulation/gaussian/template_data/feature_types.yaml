@@ -1,0 +1,34 @@
+defaults: &gaussian
+  type: gaussian
+
+f1: *gaussian
+f2: *gaussian
+f3: *gaussian
+f4: *gaussian
+f5: *gaussian
+f6: *gaussian
+f7: *gaussian
+f8: *gaussian
+f9: *gaussian
+f10: *gaussian
+f11: *gaussian
+f12: *gaussian
+f13: *gaussian
+f14: *gaussian
+f15: *gaussian
+f16: *gaussian
+f17: *gaussian
+f18: *gaussian
+f19: *gaussian
+f20: *gaussian
+f21: *gaussian
+f22: *gaussian
+f23: *gaussian
+f24: *gaussian
+f25: *gaussian
+f26: *gaussian
+f27: *gaussian
+f28: *gaussian
+f29: *gaussian
+f30: *gaussian
+
