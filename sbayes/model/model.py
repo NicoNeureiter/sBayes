@@ -15,7 +15,8 @@ from numpyro.distributions.transforms import StickBreakingTransform, ExpTransfor
 from numpyro.infer.util import initialize_model, unconstrain_fn, constrain_fn
 
 from sbayes.model.model_shapes import ModelShapes
-from sbayes.model.prior import Prior, GeoPrior, GaussianConfoundingEffectsPrior, PoissonConfoundingEffectsPrior
+from sbayes.model.prior import Prior, GeoPrior, GaussianConfoundingEffectsPrior, PoissonConfoundingEffectsPrior, \
+    PoissonClusterEffectPrior
 from sbayes.config.config import ModelConfig
 from sbayes.load_data import Data, FeatureType, GenericTypeFeatures, CategoricalFeatures, GaussianFeatures, \
     PoissonFeatures
@@ -139,6 +140,7 @@ class Model:
         p_data_by_comp = jnp.zeros((n_flat_components, self.shapes.n_objects, partition.n_features, partition.n_states))
 
         # Sample and assign cluster effects
+        # cluster_effect = self.prior.cluster_effect_prior[p_name].get_numpyro_distr(self.n_clusters)
         with numpyro.plate(f"plate_clusters_{p_name}", self.n_clusters, dim=-2):
             with numpyro.plate(f"plate_features_{p_name}", partition.n_features, dim=-1):
                 cluster_effect_prior = dist.Dirichlet(self.prior.cluster_effect_prior[p_name].concentration_array)
@@ -261,10 +263,10 @@ class Model:
         rate_by_comp = jnp.zeros((n_flat_components, self.shapes.n_objects, partition.n_features))
 
         # Sample and assign cluster effects
-        cluster_eff_prior = self.prior.cluster_effect_prior[partition.name]
+        cluster_eff_prior: PoissonClusterEffectPrior = self.prior.cluster_effect_prior[partition.name]
         with numpyro.plate(f"plate_clusters_{p_name}", self.n_clusters, dim=-2):
             with numpyro.plate(f"plate_features_{p_name}", partition.n_features, dim=-1):
-                cluster_rate_dist = cluster_eff_prior.get_numpyro_distr()
+                cluster_rate_dist = cluster_eff_prior.mean.get_numpyro_distr()
                 cluster_rate = numpyro.sample(f"cluster_effect_{p_name}_rate", cluster_rate_dist)
 
         rate_by_comp = rate_by_comp.at[:self.n_clusters].set(cluster_rate[:, None, :])
