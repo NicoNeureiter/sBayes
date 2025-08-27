@@ -1,9 +1,9 @@
 mcmc:
-    steps: 1200
-    samples: 400
+    steps: 3000
+    samples: 500
     runs: 1
     warmup:
-        warmup_steps: 100
+        warmup_steps: 1000
 
 model:
     clusters: 2
@@ -25,12 +25,12 @@ model:
                     type: gaussian
                     parameters:
                         mu_0: 0.0
-                        sigma_0: 1.0
+                        sigma_0: 10.
                 variance: 
                     type: gamma
                     parameters:
-                        shape: 0.5
-                        rate: 1.0
+                        shape: 10.
+                        rate: 0.1
         confounding_effects:
             confounder_1:
                 <DEFAULT>:
