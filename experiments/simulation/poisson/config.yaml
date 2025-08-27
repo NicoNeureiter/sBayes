@@ -1,0 +1,41 @@
+mcmc:
+    steps: 3000
+    samples: 500
+    runs: 1
+    warmup:
+        warmup_steps: 1000
+
+model:
+    clusters: 2
+    confounders:
+        - confounder_1
+    prior:
+        cluster_assignment:
+            type: logistic_normal
+            logistic_normal_config:
+                scale: 3
+        geo:
+            type: uniform
+        weights:
+               type: symmetric_dirichlet
+               prior_concentration: 0.6
+        cluster_effect:
+            poisson:
+                type: gamma
+                parameters:
+                    shape: 3.
+                    rate: 5.
+        confounding_effects:
+            confounder_1:
+                <DEFAULT>:
+                    poisson:
+                        type: gamma
+                        parameters:
+                            shape: 2.
+                            rate: 5.
+data:
+    features: template_data/features.csv
+    feature_types: template_data/feature_types.yaml
+
+results:
+    path: sims
