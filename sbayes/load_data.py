@@ -201,7 +201,6 @@ class CategoricalFeatures(GenericTypeFeatures):
             names_partition = names[feature_indices]
             state_names = np.array([feature_types[f]['states'] for f in names_partition])
             partition_features = data_int[:, feature_indices]
-
             partition = cls(
                 values=partition_features,
                 feature_indices=np.array(feature_indices),
@@ -274,12 +273,16 @@ class PoissonFeatures(GenericTypeFeatures):
         # Retrieve all Poisson features
         poisson_columns = [k for k, v in feature_types.items() if v['type'] == "poisson"]
         poisson_data = data.loc[:, poisson_columns]
-
         if poisson_data.empty:
             return None
         else:
-            poisson_features_dict = dict(values=poisson_data.to_numpy(dtype=float, na_value=np.nan),
-                                         names=np.asarray(poisson_columns))
+
+            poisson_features_dict = dict(
+                values=poisson_data.to_numpy(dtype=float),
+                feature_indices=data.columns.get_indexer(poisson_columns),
+                names=np.asarray(poisson_columns),
+                na_values=np.isnan(poisson_data.to_numpy(dtype=float))
+            )
 
             # return Feature class consisting of all poisson features
             return cls(**poisson_features_dict)
