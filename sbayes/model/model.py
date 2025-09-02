@@ -124,7 +124,6 @@ class Model:
                 self.add_partition_gaussian(partition, mixture_weights)
             elif isinstance(partition, PoissonFeatures):
                 self.add_partition_poisson(partition, mixture_weights)
-                #raise NotImplementedError
             else:
                 raise ValueError(f"Partition type {partition.__class__.__name__} not supported.")
 

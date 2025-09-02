@@ -989,8 +989,7 @@ def normalize(x, axis=-1):
     >>> normalize(np.ones((2, 4)), axis=0).tolist()
     [[0.5, 0.5, 0.5, 0.5], [0.5, 0.5, 0.5, 0.5]]
     """
-    assert np.all(np.sum(x, axis=axis) > 0), np.min(x)
-    return (x / np.sum(x, axis=axis, keepdims=True)).astype(FLOAT_TYPE)
+    return (x / jnp.sum(x, axis=axis, keepdims=True))
 
 
 def mle_weights(samples):

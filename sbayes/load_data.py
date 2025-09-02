@@ -222,7 +222,9 @@ class CategoricalFeatures(GenericTypeFeatures):
 
     def to_binary(self):
         """Convert to binary one-hot encoding."""
-        return np.eye(self.n_states)[self.values]
+        binarized = np.eye(self.n_states, dtype=bool)[self.values]
+        binarized[self.na_values, :] = False
+        return binarized
 
 class GaussianFeatures(GenericTypeFeatures):
     """Features that are continuous measurements following a Gaussian distribution."""
@@ -325,6 +327,7 @@ class LogitNormalFeatures(GenericTypeFeatures):
     @property
     def name(self):
         return "LogitNormal"
+
 
 class Features:
 
