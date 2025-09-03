@@ -337,6 +337,7 @@ class DirichletPriorConfig(BaseConfig):
 
 
 class LogisticNormalPriorConfig(BaseConfig):
+
     loc: float = 0.0
     """The mean of the logistic normal prior."""
 
@@ -597,6 +598,9 @@ class MCMCConfig(BaseConfig):
 
     runs: PositiveInt = 1
     """The number of times the sampling is repeated (with new output files for each run)."""
+
+    initialization_strategy: Literal["SVI", "heuristic"] = "SVI"
+    """How to generate an initial sample for the MCMC chain. Choose from: [SVI, heuristic]."""
 
     warmup: WarmupConfig = Field(default_factory=WarmupConfig)
     mc3: MC3Config = Field(default_factory=MC3Config)

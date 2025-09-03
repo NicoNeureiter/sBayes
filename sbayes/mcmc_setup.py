@@ -88,6 +88,7 @@ Warm-up: {mcmc_cfg.warmup.warmup_steps} steps''')
                 write_interval=results_config.write_interval,
                 thinning=mcmc_config.steps // mcmc_config.samples,
                 init_sample=initial_sample,
+                init_strategy=mcmc_config.initialization_strategy,
                 sample_logger=sample_logger,
             )
 

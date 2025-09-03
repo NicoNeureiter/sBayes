@@ -46,6 +46,7 @@ def sample_nuts(
     write_interval: int,
     thinning: int = 1,
     init_sample: dict = None,
+    init_strategy: str = "SVI",
     sample_logger: OnlineSampleLogger = None,
 ):
 
@@ -64,8 +65,12 @@ def sample_nuts(
 
     # Generate an initial sample using SVI
     if init_sample is None:
-        # init_sample = get_svi_init_sample(model, rng_key=rng_key, svi_steps=1000)
-        s = find_best_initial_sample(model, rng_key=rng_key)
+        if init_strategy == "SVI":
+            s = get_svi_init_sample(model, rng_key=rng_key, svi_steps=1000)
+        elif init_strategy == "heuristic":
+            s = find_best_initial_sample(model, rng_key=rng_key)
+        else:
+            raise NotImplementedError
 
         # Create NUTS kernel
         kernel = NUTS(

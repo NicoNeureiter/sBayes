@@ -20,7 +20,7 @@ def get_svi_init_sample(model, model_args=(), model_kwargs=None, rng_key=None, s
     optimizer = Adam(3e-3)
 
     svi = SVI(model.get_model, guide, optimizer, loss=Trace_ELBO())
-    svi_result = svi.run(rng_key, svi_steps, *model_args, **model_kwargs)
+    svi_result = svi.run(rng_key, svi_steps, progress_bar=False, *model_args, **model_kwargs)
 
     # Return samples from the variational approximation
     init_sample = guide.sample_posterior(jax.random.PRNGKey(1), svi_result.params)
@@ -114,8 +114,8 @@ def find_best_initial_sample(model, rng_key=None, num_samples=100):
 
     best_idx = int(jnp.argmax(jnp.stack(log_probs)))
 
-    # print(f"Best sample {best_idx} has log-prob {log_probs[best_idx]}")
-    #
+    print(f"Best sample {best_idx} has log-prob {log_probs[best_idx]}")
+
     # median_sample = {k: jnp.median(jnp.array([s[k] for s in samples]), axis=0) for k in samples[0]}
     # print(f"Median sample has log-prob {log_density(model.get_model, model_args, model_kwargs, median_sample)[0]}")
     #
