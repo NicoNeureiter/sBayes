@@ -121,6 +121,8 @@ def sample_nuts(
 
     if num_samples == 1 and num_warmup == 1:
         # Special setting for expanding samples from a previous run
+        sample_logger.resume = True
+        sample_logger.open()
         samples = sample_logger.read_samples()
         return mcmc, samples
 
