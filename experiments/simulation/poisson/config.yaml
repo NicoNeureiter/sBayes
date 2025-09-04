@@ -23,8 +23,8 @@ model:
             poisson:
                 type: gamma
                 parameters:
-                    shape: 5.
-                    rate: 0.5
+                    shape: 10.
+                    rate: 1.
         confounding_effects:
             confounder_1:
                 <DEFAULT>:
