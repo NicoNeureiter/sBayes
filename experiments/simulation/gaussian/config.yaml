@@ -3,7 +3,7 @@ mcmc:
     samples: 500
     runs: 1
     warmup:
-        warmup_steps: 2000
+        warmup_steps: 1000
 
 model:
     clusters: 2
@@ -29,7 +29,7 @@ model:
                 variance: 
                     type: gamma
                     parameters:
-                        shape: 15.
+                        shape: 10.
                         rate: 1.
         confounding_effects:
             confounder_1:
@@ -43,7 +43,7 @@ model:
                         variance: 
                             type: gamma
                             parameters:
-                                shape: 15.
+                                shape: 10.
                                 rate: 1.
 data:
     features: template_data/features.csv
