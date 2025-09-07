@@ -82,8 +82,3 @@ def fix_inv_mass_matrix_diag(imm_diag, model, param_shapes) -> dict:
         if p not in all_cluster_params:
             imm[(p,)] = jnp.mean(imm_diag_p, axis=0)
     return imm
-
-
-def adjust_inv_mass_matrix():
-    imm_diag =
-    imm = fix_inv_mass_matrix_diag(imm_diag, param_shapes)
