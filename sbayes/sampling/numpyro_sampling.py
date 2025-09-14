@@ -53,11 +53,10 @@ def sample_nuts(
     init_strategy: str = "SVI",
     sample_logger: OnlineSampleLogger = None,
 ):
-
     # Generate an initial sample using SVI
     if init_sample is None:
         if init_strategy == "SVI":
-            s = get_svi_init_sample(model, rng_key=rng_key, svi_steps=2000)
+            s = get_svi_init_sample(model, rng_key=rng_key, svi_steps=5_000)
         elif init_strategy == "heuristic":
             s = find_best_initial_sample(model, rng_key=rng_key)
         else:
@@ -67,7 +66,10 @@ def sample_nuts(
         kernel = NUTS(
             model.get_model,
             init_strategy=init_to_value(values=s),
+            # dense_mass=[("z_raw",)],
             find_heuristic_step_size=True,
+            max_tree_depth=14,
+            target_accept_prob=0.75,
         )
 
         # mcmc_warmup = MCMC(sampler=kernel, num_warmup=num_warmup, num_samples=num_samples,

@@ -5,7 +5,6 @@ import pickle
 import time
 
 from jax import random
-from numpy.typing import NDArray
 import numpyro
 from numpyro.diagnostics import summary
 
@@ -14,12 +13,10 @@ from sbayes.sampling.loggers import write_samples, OnlineSampleLogger
 from sbayes.experiment_setup import Experiment
 from sbayes.load_data import Data
 from sbayes.sampling.numpyro_sampling import sample_nuts, sample_svi
+from sbayes.tools.realign_clusters_within_run import align_clusters
 
 
 class MCMCSetup:
-
-    swap_matrix: NDArray[int] = None
-    last_swap_matrix_save: int = 0
 
     def __init__(self, data: Data, experiment: Experiment):
         self.data = data
@@ -77,12 +74,10 @@ Warm-up: {mcmc_cfg.warmup.warmup_steps} steps''')
                 initial_sample = None
 
             # sampler, samples = sample_nuts_with_annealing(
-            #     model=self.model,
             sampler, samples = sample_nuts(
                 model=self.model,
                 num_warmup=mcmc_config.warmup.warmup_steps,
                 num_samples=mcmc_config.steps,
-                # num_chains=1,  # NN: Could be configurable, but I don't see a clear advantage over parallel runs
                 num_chains=mcmc_config.runs,
                 rng_key=rng_key,
                 write_interval=results_config.write_interval,
@@ -97,11 +92,9 @@ Warm-up: {mcmc_cfg.warmup.warmup_steps} steps''')
                 model=self.model,
                 num_warmup=mcmc_config.warmup.warmup_steps,
                 num_samples=mcmc_config.samples,
-                # num_chains=1,  # NN: Could be configurable, but I don't see a clear advantage over parallel runs
                 num_chains=mcmc_config.runs,
                 rng_key=rng_key,
                 thinning=mcmc_config.steps // mcmc_config.samples,
-                # show_inference_summary=show_inference_summary,
                 # guide=get_manual_guide(self.model),
             )
         else:
@@ -110,6 +103,7 @@ Warm-up: {mcmc_cfg.warmup.warmup_steps} steps''')
         self.logger.info("Writing samples to disk")
 
         if not results_config.samples_file_only:
+            # align_clusters()
             # Write the raw numpyro samples and the mcmc summary to separate files
             if isinstance(sampler, numpyro.infer.mcmc.MCMC):
                 with open(self.path_results / f'samples.pkl', 'wb') as f:

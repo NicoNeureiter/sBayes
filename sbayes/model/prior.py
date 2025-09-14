@@ -10,13 +10,14 @@ import jax
 import jax.numpy as jnp
 import numpyro
 import numpyro.distributions as dist
+from numpyro.distributions.transforms import StickBreakingTransform
 from scipy.sparse.csgraph import minimum_spanning_tree, csgraph_from_dense
 from scipy.sparse import csr_matrix
 import libpysal as pysal
 
 from sbayes.model.model_shapes import ModelShapes
 from sbayes.util import dirichlet_logpdf, log_expit, FLOAT_TYPE, normalize_weights, EPS, normalize
-from sbayes.config.config import PriorConfig, DirichletPriorConfig, GeoPriorConfig, ClusterPriorConfig, \
+from sbayes.config.config import PriorConfig, CategoricalPriorConfig, GeoPriorConfig, ClusterPriorConfig, \
     ConfoundingEffectConfig, GaussianVariancePriorConfig, GaussianMeanPriorConfig, GaussianPriorConfig, \
     ClusterEffectConfig, PoissonPriorConfig
 from sbayes.load_data import Data, ComputeNetwork, GroupName, StateName, FeatureName, Confounder, \
@@ -93,11 +94,11 @@ def parse_concentration_dict(
     concentration = []
     for f, state_names_f in feature_names.items():
         conc_f = [concentration_dict[f][s] for s in state_names_f]
-        concentration.append(np.array(conc_f, dtype=FLOAT_TYPE))
+        concentration.append(jnp.array(conc_f, dtype=FLOAT_TYPE))
     return concentration
 
 
-def parse_custom_concentration(config: DirichletPriorConfig, feature_names: dict[FeatureName, Sequence[StateName]]) -> list[np.ndarray]:
+def parse_custom_concentration(config: CategoricalPriorConfig, feature_names: dict[FeatureName, Sequence[StateName]]) -> list[np.ndarray]:
     # Get the concentration parameters from config or JSON file
     if config.file:
         with open(config.file, 'r') as f:
@@ -112,17 +113,17 @@ def parse_custom_concentration(config: DirichletPriorConfig, feature_names: dict
 
 
 def parse_dirichlet_concentration(
-    config: DirichletPriorConfig,
+    config: CategoricalPriorConfig,
     shape: tuple[int,...],
     feature_names: dict[FeatureName, Sequence[StateName]] | None = None,
 ) -> jnp.array:
     """Parse the concentration parameter of a Dirichlet prior."""
-    if config.type == DirichletPriorConfig.Types.UNIFORM:
+    if config.type == CategoricalPriorConfig.Types.UNIFORM:
         return jnp.full(shape, 1.0)
-    elif config.type == DirichletPriorConfig.Types.SYMMETRIC_DIRICHLET:
+    elif config.type == CategoricalPriorConfig.Types.SYMMETRIC_DIRICHLET:
         assert config.prior_concentration is not None
         return jnp.full(shape, config.prior_concentration)
-    elif config.type == DirichletPriorConfig.Types.DIRICHLET:
+    elif config.type == CategoricalPriorConfig.Types.DIRICHLET:
         assert feature_names is not None
         return parse_custom_concentration(config, feature_names)
     else:
@@ -133,7 +134,7 @@ class CategoricalConfoundingEffectsPrior:
 
     def __init__(
         self,
-        config: dict[GroupName, DirichletPriorConfig],
+        config: dict[GroupName, CategoricalPriorConfig],
         conf: Confounder,
         partition: CategoricalFeatures,
     ):
@@ -145,7 +146,7 @@ class CategoricalConfoundingEffectsPrior:
         n_groups = len(self.group_names)
         self.concentration = {}
         self.concentration_array = np.zeros((n_groups, partition.n_features, partition.n_states), dtype=float)
-        default_config = config.get("<DEFAULT>", DirichletPriorConfig())
+        default_config = config.get("<DEFAULT>", CategoricalPriorConfig())
         for i_g, group in enumerate(self.group_names):
             # If config is not provided for this group, use the default config
             if group not in config:
@@ -161,33 +162,124 @@ class CategoricalConfoundingEffectsPrior:
             # Compile the concentration array
             self.concentration_array[i_g, ...] = np.array(self.concentration[group], dtype=FLOAT_TYPE)
 
+        self.use_parameter_transformation = self.config[self.group_names[0]].use_parameter_transformation
+
     def get_setup_message(self):
         """Compile a set-up message for logging."""
         msg = f"Prior on confounding effect {self.conf.name}:\n"
         for i_g, group in enumerate(self.group_names):
-            msg += f"\tPrior {self.config[group].type.value} for confounder {self.conf.name} = {group}.\n"
+            msg += f"\tPrior {self.config[group].type.value} for confounder {self.conf.name} in partition {self.partition.name} = {group}.\n"
         return msg
 
+    def get_numpyro_distr(self):
+        p_name = self.partition.name
+        c_name = self.conf.name
+        with numpyro.plate(f"plate_groups_{c_name}_{p_name}", self.conf.n_groups, dim=-2):
+            with numpyro.plate(f"plate_features_{c_name}_{p_name}", self.partition.n_features, dim=-1):
+                if self.use_parameter_transformation:
+                    conf_eff = dirichlet_from_latent(f"conf_effect_{c_name}_{p_name}", self.concentration_array)
+                else:
+                    conf_eff_distr = dist.Dirichlet(self.concentration_array)
+                    conf_eff = numpyro.sample(f"conf_effect_{c_name}_{p_name}", conf_eff_distr)
+
+        return conf_eff
 
 class CategoricalClusterEffectPrior:
 
+    PriorType = CategoricalPriorConfig.Types
+
     def __init__(
         self,
-        config: DirichletPriorConfig,
+        config: CategoricalPriorConfig,
         partition: CategoricalFeatures,
     ):
         self.config = config
         self.partition = partition
-        self.concentration = parse_dirichlet_concentration(
-            config=self.config,
-            shape=(partition.n_features, partition.n_states),
-            feature_names=partition.state_names_dict,
-        )
-        self.concentration_array = np.array(self.concentration, dtype=FLOAT_TYPE)
+
+        self.prior_type = self.config.type
+        if self.prior_type in [self.PriorType.UNIFORM,
+                               self.PriorType.DIRICHLET,
+                               self.PriorType.SYMMETRIC_DIRICHLET]:
+            self.concentration = parse_dirichlet_concentration(
+                config=self.config,
+                shape=(partition.n_features, partition.n_states),
+                feature_names=partition.state_names_dict,
+            )
+            self.concentration_array = jnp.array(self.concentration, dtype=FLOAT_TYPE)
+        elif self.prior_type is self.PriorType.LOGISTIC_NORMAL:
+            self.logi_norm_loc = 0.0
+            self.logi_norm_scale = self.config.logistic_normal_scale
+        else:
+            raise ValueError(f'Invalid prior type {self.prior_type} for cluster assignment.')
 
     def get_setup_message(self):
         """Compile a set-up message for logging."""
         return f'Prior on cluster effect for {self.partition.name} features: {self.config.type.value}\n'
+
+    def get_data_dependent_contributions(
+        self,
+        clusters_weights: jnp.array,  # shape: (n_clusters, n_objects, n_features)
+        additive_smoothing: float = 0.5,
+    ):
+        x = self.partition.to_binary().astype(jnp.float32)
+        # shape: (n_objects, n_features, n_states)
+
+        # prior_counts = self.concentration_array
+        feature_counts = jnp.einsum("ijk,jkl->ikl", clusters_weights, x)
+        return normalize(feature_counts + additive_smoothing, axis=-1)
+
+    def get_numpyro_distr(
+        self,
+        n_clusters: int,
+        clust_eff_pred: jnp.array,  # (n_clusters, n_features, n_states)
+    ):
+        n_features = self.partition.n_features
+        p_name = self.partition.name
+
+        # clust_eff_offset = numpyro.param(f"clust_eff_offset_{p_name}", jnp.zeros_like(clust_eff_pred, dtype=jnp.float32))
+
+        with numpyro.plate(f"plate_clusters_{p_name}_offset", n_clusters, dim=-2):
+            with numpyro.plate(f"plate_features_{p_name}_offset", n_features, dim=-1):
+                if self.config.use_parameter_transformation:
+                    clust_eff = dirichlet_from_latent(
+                        name=f"cluster_effect_{p_name}",
+                        concentration=self.concentration,
+                        offset=clust_eff_pred,
+                    )
+                else:
+                    clust_eff_distr = dist.Dirichlet(self.concentration)
+                    clust_eff = numpyro.sample(f"cluster_effect_{p_name}", clust_eff_distr)
+        #
+        # if self.prior_type == self.PriorType.LOGISTIC_NORMAL:
+        #     clust_eff_pred_latent = jnp.log(clust_eff_pred * n_states)
+        #     cluster_eff_raw = clust_eff_pred_latent + clust_eff_offset
+        # else:
+        #     transform = StickBreakingTransform()
+        #     clust_eff_pred_latent = transform.inv(clust_eff_pred)
+        #     cluster_eff_raw = transform(clust_eff_pred_latent + clust_eff_offset)
+        #
+        # numpyro.deterministic(f"clust_eff_pred_{p_name}", clust_eff_pred_latent)
+        # numpyro.deterministic(f"clust_eff_raw_{p_name}", cluster_eff_raw)
+        #
+        # with numpyro.plate(f"plate_clusters_{p_name}", n_clusters, dim=-2):
+        #     with numpyro.plate(f"plate_features_{p_name}", n_features, dim=-1):
+        #         if self.prior_type == self.PriorType.LOGISTIC_NORMAL:
+        #             with numpyro.plate(f"plate_states_{p_name}", n_states, dim=-1):
+        #             # if self.prior_type is self.PriorType.LOGISTIC_NORMAL:
+        #                 clust_eff_distr = dist.Normal(self.logi_norm_loc, 1.0)
+        #         else:
+        #             clust_eff_distr = dist.Dirichlet(self.concentration)
+        #
+        #         prior_log_prob = clust_eff_distr.log_prob(cluster_eff_raw) + transform.log_abs_det_jacobian(clust_eff_pred_latent + clust_eff_offset, cluster_eff_raw)
+        #         numpyro.factor(f"cluster_effect_factor_{p_name}", prior_log_prob)
+        #         # cluster_eff_raw = numpyro.sample(f"cluster_effect_raw_{p_name}", clust_eff_distr)
+        #
+        #     # clust_eff_per_clust.append(clust_eff_i)
+        #
+        #
+        # numpyro.deterministic(f"cluster_effect_{p_name}", clust_eff)
+
+        return clust_eff
 
 
 class GaussianMeanPrior:
@@ -445,8 +537,6 @@ class PoissonClusterEffectPrior:
         return f"Prior on cluster effect for {self.partition.name} features:  (mean={self.config.mean.type.value}, variance={self.config.variance.type.value})\n"
 
 
-
-
 class ClusterEffectPrior:
 
     def __init__(
@@ -473,6 +563,7 @@ class ClusterEffectPrior:
 
     def get_setup_message(self):
         return "".join(prior.get_setup_message() for prior in self.partition_priors.values())
+
 
 class ConfoundingEffectsPrior:
 
@@ -509,7 +600,7 @@ class WeightsPrior:
 
     def __init__(
         self,
-        config: DirichletPriorConfig | dict[GroupName, DirichletPriorConfig],
+        config: CategoricalPriorConfig | dict[GroupName, CategoricalPriorConfig],
         shapes: ModelShapes,
     ):
         self.config = config
@@ -570,27 +661,30 @@ class ClusterPrior:
             with numpyro.plate("plate_objects_z", self.shapes.n_objects, dim=-1):
                 z_int = numpyro.sample("z_int", dist.Categorical(jnp.ones(K + 1) / (K + 1)))
                 z = jax.nn.one_hot(z_int, K+1)
-                numpyro.deterministic("z_raw", z)
+            numpyro.deterministic("z_raw", z)
+            numpyro.deterministic("z", z)
 
         elif self.prior_type is self.PriorType.DIRICHLET:
             if self.config.hierarchical:
                 c = numpyro.sample("z_concentration", dist.Uniform(0, 1))
                 concentration = jnp.full((self.shapes.n_clusters + 1, ), c)
             else:
+                # concentration = np.full((self.shapes.n_clusters + 1,), self.concentration)
                 concentration = self.concentration
 
-            with numpyro.plate("plate_objects_z", self.shapes.n_objects, dim=-2):
-                # z = numpyro.sample("z", dist.Dirichlet(concentration))
-                with numpyro.plate("plate_clusters_z", self.shapes.n_clusters + 1, dim=-1):
-                    z_raw = numpyro.sample("z_raw", dist.Gamma(concentration, 1.0))
+            with numpyro.plate("plate_objects_z", self.shapes.n_objects, dim=-1):
+                if self.config.use_parameter_transformation:
+                    z = dirichlet_from_latent("z", concentration)
+                else:
+                    z = numpyro.sample("z", dist.Dirichlet(concentration))
 
-                if self.config.cluster_mask:
-                    c = self.config.cluster_mask_concentration
-                    with numpyro.plate("plate_clusters_z", self.shapes.n_clusters + 1, dim=-1):
-                        shrinkage = numpyro.sample("cluster_mask", dist.Beta(c, c))
-                    z_raw *= shrinkage[None, :]
-
-                z = z_raw / z_raw.sum(axis=-1, keepdims=True)
+            # #     if self.config.cluster_mask:
+            # #         c = self.config.cluster_mask_concentration
+            # #         with numpyro.plate("plate_clusters_z", self.shapes.n_clusters + 1, dim=-1):
+            # #             shrinkage = numpyro.sample("cluster_mask", dist.Beta(c, c))
+            # #         z_raw *= shrinkage[None, :]
+            # #
+            # # z = z_raw / z_raw.sum(axis=-1, keepdims=True)
 
         elif self.prior_type is self.PriorType.LOGISTIC_NORMAL:
             if self.config.hierarchical:
@@ -601,28 +695,29 @@ class ClusterPrior:
 
             with numpyro.plate("plate_objects_z", self.shapes.n_objects, dim=-2):
                 with numpyro.plate("plate_clusters_z", self.shapes.n_clusters + 1, dim=-1):
-                    z_logit_unscaled = numpyro.sample("z_logit", dist.Normal(self.logi_norm_loc, 1.0))
-                    z_logit = z_logit_unscaled * scale
-                    z = jax.nn.softmax(z_logit, axis=-1)
+                    z_raw = numpyro.sample("z_raw", dist.Normal(self.logi_norm_loc, 1.0))
+
+            z_logit = z_raw * scale
+            z = jax.nn.softmax(z_logit, axis=-1)
 
         else:
             raise ValueError(f'Invalid prior type {self.prior_type} for cluster assignment.')
 
-        if self.config.stretch_and_clip:
-            s = self.config.stretch_factor
-            z_stretched = z.at[:, -1].multiply(s)
-            d = z_stretched[:, -1:] - z[:, -1:]
-            z_stretched = z_stretched.at[:, :-1] \
-                .subtract((z[:, :-1] / (jnp.sum(z[:, :-1], axis=-1, keepdims=True) + 1E6)) * d)
-
-            z_stretched = jnp.clip(z_stretched, 1E-9, 1 - 1E-9)
-
-            # Shouldn't be necessary, but renormalize for numerical stability
-            z_stretched = normalize(z_stretched, axis=-1)
-
-            z = z_stretched
-
-        numpyro.deterministic("z", z)
+        # if self.config.stretch_and_clip:
+        #     s = self.config.stretch_factor
+        #     z_stretched = z.at[:, -1].multiply(s)
+        #     d = z_stretched[:, -1:] - z[:, -1:]
+        #     z_stretched = z_stretched.at[:, :-1] \
+        #         .subtract((z[:, :-1] / (jnp.sum(z[:, :-1], axis=-1, keepdims=True) + 1E6)) * d)
+        #
+        #     z_stretched = jnp.clip(z_stretched, 1E-9, 1 - 1E-9)
+        #
+        #     # Shouldn't be necessary, but renormalize for numerical stability
+        #     z_stretched = normalize(z_stretched, axis=-1)
+        #
+        #     z = z_stretched
+        #
+        # numpyro.deterministic("z", z)
 
         return z
 
@@ -1059,6 +1154,41 @@ def update_weights(sample, caching: bool = True) -> NDArray[float]:
         cache.update_value(w_normed)
 
     return cache.value
+
+def dirichlet_from_latent(name: str, concentration: jnp.array, offset = None) -> NDArray[float]:
+    n_states = concentration.shape[-1]
+    n_states_latent = n_states - 1
+
+    # Sample from uniform distribution in latent space that spans wide enough to cover the tails
+    x_latent_distr = dist.Uniform(-50, 50).expand((n_states_latent,)).to_event()
+    x_latent = numpyro.sample(f"{name}_raw", x_latent_distr)
+
+    # Define a stick breaking transform to convert to real space
+    trans = StickBreakingTransform()
+
+    # If offset is provided, add it in latent space
+    if offset is not None:
+        offset_latent = trans.inv(offset)
+        x_latent += offset_latent
+
+    # Transform to probability simplex
+    x = trans(x_latent)
+
+    # Define the dirichlet distribution on probability simplex
+    x_distr = dist.Dirichlet(concentration)
+    prior_log_prob = x_distr.log_prob(x)
+
+    # Compute the correction factor to get the correct probability density on the simplex
+    prior_correction_factor = trans.log_abs_det_jacobian(x_latent, x) -  x_latent_distr.log_prob(x_latent)
+
+    # Add the corrected log probability as a factor
+    corrected_log_prob = prior_log_prob + prior_correction_factor
+    numpyro.factor(f"{name}_log_prob", corrected_log_prob)
+
+    # Add the sampled transformed value to the state
+    numpyro.deterministic(name, x)
+
+    return x
 
 
 if __name__ == '__main__':

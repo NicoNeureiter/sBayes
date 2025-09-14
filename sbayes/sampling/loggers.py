@@ -127,7 +127,7 @@ def write_samples(
             # Subset states for all confounding effects and place in data frames
             for i_c, conf in enumerate(data.confounders.values()):
                 conf_eff_df = samples_array_to_df(
-                    param_samples=samples[f"conf_effect_{i_c}_{partition.name}"],
+                    param_samples=samples[f"conf_effect_{conf.name}_{partition.name}"],
                     names=[conf.group_names, partition.names, state_names[:partition.n_states]],
                     prefix=conf.name)
                 all_conf_eff_dfs.append(conf_eff_df)
@@ -385,7 +385,6 @@ class OnlineSampleLogger(OnlineLogger):
     """The OnlineSampleLogger continually writes the samples to a pytables file (.h5)."""
 
     def __init__(self, *args, **kwargs):
-        self.logged_likelihood_array = None
         super().__init__(*args, **kwargs)
 
     def open(self):

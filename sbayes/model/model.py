@@ -16,7 +16,7 @@ from numpyro.infer.util import initialize_model, unconstrain_fn, constrain_fn
 
 from sbayes.model.model_shapes import ModelShapes
 from sbayes.model.prior import Prior, GeoPrior, GaussianConfoundingEffectsPrior, PoissonConfoundingEffectsPrior, \
-    PoissonClusterEffectPrior
+    PoissonClusterEffectPrior, dirichlet_from_latent
 from sbayes.config.config import ModelConfig
 from sbayes.load_data import Data, FeatureType, GenericTypeFeatures, CategoricalFeatures, GaussianFeatures, \
     PoissonFeatures
@@ -139,23 +139,14 @@ class Model:
         p_data_by_comp = jnp.zeros((n_flat_components, self.shapes.n_objects, partition.n_features, partition.n_states))
 
         # Sample and assign cluster effects
-        # cluster_effect = self.prior.cluster_effect_prior[p_name].get_numpyro_distr(self.n_clusters)
-        with numpyro.plate(f"plate_clusters_{p_name}", self.n_clusters, dim=-2):
-            with numpyro.plate(f"plate_features_{p_name}", partition.n_features, dim=-1):
-                cluster_effect_prior = dist.Dirichlet(self.prior.cluster_effect_prior[p_name].concentration_array)
-                cluster_effect = numpyro.sample(f"cluster_effect_{p_name}", cluster_effect_prior)
-                # shape: (n_clusters, n_features, n_states)
+        cluster_effect_pred = self.prior.cluster_effect_prior[p_name].get_data_dependent_contributions(mixture_weights[:self.n_clusters, :, partition.feature_indices])
+        cluster_effect = self.prior.cluster_effect_prior[p_name].get_numpyro_distr(self.n_clusters, cluster_effect_pred)
 
         p_data_by_comp = p_data_by_comp.at[:self.n_clusters].set(cluster_effect[:, None, :, :])
 
         # Sample and assign confounding effects
         for i_c, conf in enumerate(self.confounders.values()):
-            concentration = self.prior.confounding_effects_prior[conf.name][p_name].concentration_array
-            with numpyro.plate(f"plate_groups_{i_c}", conf.n_groups, dim=-2):
-                with numpyro.plate(f"plate_features_{i_c}_{p_name}", partition.n_features, dim=-1):
-                    conf_effect = numpyro.sample(f"conf_effect_{i_c}_{p_name}", dist.Dirichlet(concentration))
-                    # shape: (n_groups, n_features, n_states)
-
+            conf_effect = self.prior.confounding_effects_prior[conf.name][p_name].get_numpyro_distr()
             g = self.group_assignments[i_c]
             p_data_by_comp = p_data_by_comp.at[self.n_clusters + i_c].set(conf_effect[g, :, :])
 
@@ -296,7 +287,9 @@ class Model:
                     # Shape: [n_objects, n_features, n_components]
 
     def add_weights_prior(self, clusters):
-        w = numpyro.sample("w", dist.Dirichlet(self.w_prior_conc))
+        with numpyro.plate("plate_objects_w", self.shapes.n_features, dim=-1):
+            w = dirichlet_from_latent("w", self.w_prior_conc)
+        # w = numpyro.sample("w", dist.Dirichlet(self.w_prior_conc))
         # shape: (n_features, n_components)
 
         if self.config.prior.weights.varying_cluster_weights:

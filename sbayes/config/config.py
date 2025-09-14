@@ -271,12 +271,13 @@ class PoissonPriorConfig(BaseConfig):
             return PoissonPriorConfig.__attrdocs__.get(attr)
 
 
-class DirichletPriorConfig(BaseConfig):
+class CategoricalPriorConfig(BaseConfig):
 
     class Types(str, Enum):
         UNIFORM = "uniform"
         DIRICHLET = "dirichlet"
         SYMMETRIC_DIRICHLET = "symmetric_dirichlet"
+        LOGISTIC_NORMAL = "logistic_normal"
 
     type: Types = Types.UNIFORM
     """Type of prior distribution. Choose from: [uniform, dirichlet, symmetric_dirichlet]"""
@@ -288,8 +289,14 @@ class DirichletPriorConfig(BaseConfig):
     parameters: Optional[dict] = None
     """Parameters of the Dirichlet distribution. This or `file` is required if type=dirichlet."""
 
-    prior_concentration: Optional[float] = None
+    prior_concentration: Optional[PositiveFloat] = None
     """The concentration of the prior distribution. Required if type=symmetric_dirichlet."""
+
+    logistic_normal_scale: Optional[PositiveFloat] = None
+    """The scale of the logistic normal prior. Required if type=logistic_normal."""
+
+    use_parameter_transformation: bool = True
+    """If `true`, use a parameter transformation to improve mixing of the MCMC chain."""
 
     @model_validator(mode="before")
     @classmethod
@@ -333,7 +340,7 @@ class DirichletPriorConfig(BaseConfig):
     def get_attr_doc(cls, attr):
         doc = super().get_attr_doc(attr)
         if not doc:
-            return DirichletPriorConfig.__attrdocs__.get(attr)
+            return CategoricalPriorConfig.__attrdocs__.get(attr)
 
 
 class LogisticNormalPriorConfig(BaseConfig):
@@ -359,7 +366,7 @@ class ClusterPriorConfig(BaseConfig):
     hierarchical: bool = False
     """If `true`, use a hierarchical Dirichlet prior for the cluster assignment."""
 
-    dirichlet_config: Optional[DirichletPriorConfig] = None
+    dirichlet_config: Optional[CategoricalPriorConfig] = None
     """Configuration of the Dirichlet prior for the cluster assignment."""
 
     logistic_normal_config: Optional[LogisticNormalPriorConfig] = None
@@ -373,6 +380,9 @@ class ClusterPriorConfig(BaseConfig):
     cluster_mask: bool = False
     cluster_mask_concentration: PositiveFloat = 1.0
     """If `cluster_mask` is set, estimate a mask that fuzzily deactivates single clusters."""
+
+    use_parameter_transformation: bool = True
+    """If `true`, use a parameter transformation to improve mixing of the MCMC chain."""
 
     min: PositiveInt = 2
     """Minimum cluster size."""
@@ -444,7 +454,7 @@ class GeoPriorConfig(BaseConfig):
         return values
 
 
-class WeightsPriorConfig(DirichletPriorConfig):
+class WeightsPriorConfig(CategoricalPriorConfig):
     """Configuration of the prion on the weights of the mixture components."""
 
     varying_cluster_weights: bool = False
@@ -453,14 +463,14 @@ class WeightsPriorConfig(DirichletPriorConfig):
 
 class ConfoundingEffectConfig(BaseConfig):
     """Configuration of the prior on the parameters of the confounding-effects."""
-    categorical: DirichletPriorConfig | None = None
+    categorical: CategoricalPriorConfig | None = None
     gaussian: GaussianPriorConfig | None = None
     poisson: PoissonPriorConfig | None = None
 
 
 class ClusterEffectConfig(BaseConfig):
     """Configuration of the prior on the parameters of the cluster-effect."""
-    categorical: DirichletPriorConfig | None = None
+    categorical: CategoricalPriorConfig | None = None
     gaussian: GaussianPriorConfig | None = None
     poisson: PoissonPriorConfig | None = None
 
