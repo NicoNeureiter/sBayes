@@ -20,7 +20,7 @@ def get_svi_init_sample(model, model_args=(), model_kwargs=None, rng_key=None, s
     optimizer = Adam(3e-3)
 
     svi = SVI(model.get_model, guide, optimizer, loss=Trace_ELBO())
-    svi_result = svi.run(rng_key, svi_steps, progress_bar=False, *model_args, **model_kwargs)
+    svi_result = svi.run(rng_key, svi_steps, progress_bar=True, *model_args, **model_kwargs)
 
     # Return samples from the variational approximation
     init_sample = guide.sample_posterior(jax.random.PRNGKey(1), svi_result.params)
