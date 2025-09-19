@@ -179,17 +179,20 @@ class Model:
         variance_by_comp = jnp.zeros((n_flat_components, self.shapes.n_objects, partition.n_features))
 
         # Sample and assign cluster effects
+        cluster_effect_pred = self.prior.cluster_effect_prior[p_name].mean.get_data_dependent_contributions(mixture_weights[:self.n_clusters, :, partition.feature_indices])
+        cluster_mean = self.prior.cluster_effect_prior[p_name].mean.get_numpyro_distr(self.n_clusters, cluster_effect_pred)
+
         cluster_eff_prior = self.prior.cluster_effect_prior[partition.name]
         with numpyro.plate(f"plate_clusters_{p_name}", self.n_clusters, dim=-2):
             with numpyro.plate(f"plate_features_{p_name}", partition.n_features, dim=-1):
-                cluster_loc_dist = dist.Normal(cluster_eff_prior.mean.mu_0_array, cluster_eff_prior.mean.sigma_0_array)
-                cluster_loc = numpyro.sample(f"cluster_effect_{p_name}_mean", cluster_loc_dist)
+                # cluster_mean_dist = dist.Normal(cluster_eff_prior.mean.mu_0_array, cluster_eff_prior.mean.sigma_0_array)
+                # cluster_mean = numpyro.sample(f"cluster_effect_{p_name}_mean", cluster_mean_dist)
 
                 # cluster_scale_dist = dist.Exponential(rate=cluster_eff_prior.variance.rate)
                 cluster_scale_dist = cluster_eff_prior.variance.get_numpyro_distr()
                 cluster_scale = numpyro.sample(f"cluster_effect_{p_name}_variance", cluster_scale_dist)
 
-        mean_by_comp = mean_by_comp.at[:self.n_clusters].set(cluster_loc[:, None, :])
+        mean_by_comp = mean_by_comp.at[:self.n_clusters].set(cluster_mean[:, None, :])
         variance_by_comp = variance_by_comp.at[:self.n_clusters].set(cluster_scale[:, None, :])
 
         # Sample and assign confounding effects
