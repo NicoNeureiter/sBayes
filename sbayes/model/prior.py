@@ -10,7 +10,7 @@ import jax
 import jax.numpy as jnp
 import numpyro
 import numpyro.distributions as dist
-from numpyro.distributions.transforms import StickBreakingTransform
+from numpyro.distributions.transforms import StickBreakingTransform, AffineTransform
 from scipy.sparse.csgraph import minimum_spanning_tree, csgraph_from_dense
 from scipy.sparse import csr_matrix
 import libpysal as pysal
@@ -237,7 +237,6 @@ class CategoricalClusterEffectPrior:
         p_name = self.partition.name
 
         # clust_eff_offset = numpyro.param(f"clust_eff_offset_{p_name}", jnp.zeros_like(clust_eff_pred, dtype=jnp.float32))
-
         with numpyro.plate(f"plate_clusters_{p_name}_offset", n_clusters, dim=-2):
             with numpyro.plate(f"plate_features_{p_name}_offset", n_features, dim=-1):
                 if self.config.use_parameter_transformation:
@@ -335,6 +334,55 @@ class GaussianMeanPrior:
         valid_types = ', '.join(self.config.Types)
         return f'Invalid prior type {s} for {name} (choose from [{valid_types}]).'
 
+    def get_data_dependent_contributions(
+        self,
+        clusters_weights: jnp.array,  # shape: (n_clusters, n_objects, n_features)
+    ):
+        x = self.partition.values
+        # shape: (n_objects, n_features)
+
+        observation_counts = jnp.sum(clusters_weights, axis=1)
+        prec_0 = 1.0 / self.sigma_0_array
+        return (self.mu_0_array / prec_0 + jnp.sum(clusters_weights * x[None, :, :], axis=1)) / (prec_0 + observation_counts)
+
+    def get_numpyro_distr(
+        self,
+        n_clusters: int,
+        clust_eff_mean_pred: jnp.array,  # (n_clusters, n_features,)
+    ):
+        n_features = self.partition.n_features
+        p_name = self.partition.name
+
+        # The prior distribution is Normal with mean mu_0 and standard deviation sigma_0
+        mean_dist = dist.Normal(self.mu_0_array, self.sigma_0_array)
+
+        # Define the samples from this prior. Either transformed or directly...
+        if not self.config.use_parameter_transformation:
+            with numpyro.plate(f"plate_clusters_{p_name}", n_clusters, dim=-2):
+                with numpyro.plate(f"plate_features_{p_name}", n_features, dim=-1):
+                    mean = numpyro.sample(f"cluster_effect_{p_name}_mean", mean_dist)
+            return mean
+        else:
+            offset_dist = dist.Uniform(-1, 1)
+            with numpyro.plate(f"plate_clusters_{p_name}", n_clusters, dim=-2):
+                with numpyro.plate(f"plate_features_{p_name}", n_features, dim=-1):
+                    offset_latent = self.sigma_0_array * numpyro.sample(f"cluster_effect_{p_name}_mean_offset", offset_dist)
+
+            trans = AffineTransform(loc=0.0, scale=10.0)
+            offset = trans(offset_latent)
+
+            # Calculate the mean as sum of off
+            effect_mean = clust_eff_mean_pred + offset
+            numpyro.deterministic(f"cluster_effect_{p_name}_mean", effect_mean)
+
+            # Add actual prior probability as factor
+            prior_log_prob = mean_dist.log_prob(effect_mean)
+            prior_correction_factor = trans.log_abs_det_jacobian(offset_latent, offset) - offset_dist.log_prob(offset_latent)
+            corrected_log_prob = prior_log_prob + prior_correction_factor
+            numpyro.factor(f"cluster_effect_{p_name}_mean_log_prob", corrected_log_prob)
+
+            return effect_mean
+
 
 class GaussianVariancePrior:
 
@@ -375,6 +423,8 @@ class GaussianVariancePrior:
                 jnp.full(n_features, config.parameters['shape']),
                 jnp.full(n_features, config.parameters['rate']),
             ])
+        if config.types is config.Types.FIXED:
+            return jnp.full(n_features, config.parameters['value'])
 
         else:
             raise ValueError(self.invalid_prior_message(config.type))
@@ -397,6 +447,8 @@ class GaussianVariancePrior:
             raise NotImplementedError('InverseGamma prior not implemented.')
         elif typ is GaussianVariancePriorConfig.Types.GAMMA:
             return dist.Gamma(concentration=self.parameters[0], rate=self.parameters[1])
+        elif typ is GaussianVariancePriorConfig.Types.FIXED:
+            return dist.Delta(v=self.parameters)
 
 
 class GaussianConfoundingEffectsPrior:
@@ -673,7 +725,7 @@ class ClusterPrior:
                 concentration = self.concentration
 
             with numpyro.plate("plate_objects_z", self.shapes.n_objects, dim=-1):
-                if self.config.use_parameter_transformation:
+                if self.config.dirichlet_config.use_parameter_transformation:
                     z = dirichlet_from_latent("z", concentration)
                 else:
                     z = numpyro.sample("z", dist.Dirichlet(concentration))
@@ -1004,6 +1056,7 @@ def compute_diameter_based_geo_prior(
 
     return log_prior
 
+
 class SimulatedSigmoid:
 
     @staticmethod
@@ -1155,13 +1208,14 @@ def update_weights(sample, caching: bool = True) -> NDArray[float]:
 
     return cache.value
 
+
 def dirichlet_from_latent(name: str, concentration: jnp.array, offset = None) -> NDArray[float]:
     n_states = concentration.shape[-1]
     n_states_latent = n_states - 1
 
     # Sample from uniform distribution in latent space that spans wide enough to cover the tails
-    x_latent_distr = dist.Uniform(-50, 50).expand((n_states_latent,)).to_event()
-    x_latent = numpyro.sample(f"{name}_raw", x_latent_distr)
+    x_latent_distr = dist.Uniform(-40, 40).expand((n_states_latent,)).to_event()
+    x_latent = numpyro.sample(f"{name}_raw", x_latent_distr)  # * 50
 
     # Define a stick breaking transform to convert to real space
     trans = StickBreakingTransform()
@@ -1179,7 +1233,7 @@ def dirichlet_from_latent(name: str, concentration: jnp.array, offset = None) ->
     prior_log_prob = x_distr.log_prob(x)
 
     # Compute the correction factor to get the correct probability density on the simplex
-    prior_correction_factor = trans.log_abs_det_jacobian(x_latent, x) -  x_latent_distr.log_prob(x_latent)
+    prior_correction_factor = trans.log_abs_det_jacobian(x_latent, x) -  x_latent_distr.log_prob(x_latent)  # + jnp.log(50.)
 
     # Add the corrected log probability as a factor
     corrected_log_prob = prior_log_prob + prior_correction_factor
