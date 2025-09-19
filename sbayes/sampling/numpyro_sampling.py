@@ -69,7 +69,7 @@ def sample_nuts(
             # dense_mass=[("z_raw",)],
             find_heuristic_step_size=True,
             max_tree_depth=14,
-            target_accept_prob=0.75,
+            target_accept_prob=0.7,
         )
 
         # mcmc_warmup = MCMC(sampler=kernel, num_warmup=num_warmup, num_samples=num_samples,

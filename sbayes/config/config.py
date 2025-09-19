@@ -381,9 +381,6 @@ class ClusterPriorConfig(BaseConfig):
     cluster_mask_concentration: PositiveFloat = 1.0
     """If `cluster_mask` is set, estimate a mask that fuzzily deactivates single clusters."""
 
-    use_parameter_transformation: bool = True
-    """If `true`, use a parameter transformation to improve mixing of the MCMC chain."""
-
     min: PositiveInt = 2
     """Minimum cluster size."""
 
