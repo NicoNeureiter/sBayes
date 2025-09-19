@@ -278,12 +278,13 @@ class GaussianVariancePrior:
         n_features = self.partition.n_features
         if config.type is config.Types.EXPONENTIAL:
             return jnp.full(n_features, config.parameters['rate'])
-        if config.type is config.Types.GAMMA:
+        elif config.type is config.Types.GAMMA:
             return jnp.array([
                 jnp.full(n_features, config.parameters['shape']),
                 jnp.full(n_features, config.parameters['rate']),
             ])
-
+        elif config.types is config.Types.FIXED:
+            return jnp.full(n_features, config.parameters['value'])
         else:
             raise ValueError(self.invalid_prior_message(config.type))
 
@@ -305,7 +306,8 @@ class GaussianVariancePrior:
             raise NotImplementedError('InverseGamma prior not implemented.')
         elif typ is GaussianVariancePriorConfig.Types.GAMMA:
             return dist.Gamma(concentration=self.parameters[0], rate=self.parameters[1])
-
+        elif typ is GaussianVariancePriorConfig.Types.FIXED:
+            return dist.Delta(v=self.parameters)
 
 class GaussianConfoundingEffectsPrior:
 
