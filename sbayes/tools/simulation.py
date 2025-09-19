@@ -111,7 +111,7 @@ def read_parameters(base_path: Path, k: int = None,
          simulated and inferred parameters
      """
 
-    sims = os.listdir(base_path)
+    sims = filter(lambda s: s.startswith("sim_"), os.listdir(base_path))
 
     params = dict()
 
