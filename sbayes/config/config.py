@@ -457,6 +457,10 @@ class WeightsPriorConfig(CategoricalPriorConfig):
     varying_cluster_weights: bool = False
     """If `true`, the weight of the cluster component are allowed to vary across clusters."""
 
+    mask_prior_concentration_0: tuple = (1.0, 0.5)
+    mask_prior_concentration_1: tuple = (1.0, 0.5)
+    """The (alpha, beta) parameters of the Beta prior on the weight mask (if varying_cluster_weights)."""
+
 
 class ConfoundingEffectConfig(BaseConfig):
     """Configuration of the prior on the parameters of the confounding-effects."""

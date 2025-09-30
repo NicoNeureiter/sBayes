@@ -290,14 +290,15 @@ class Model:
                     # Shape: [n_objects, n_features, n_components]
 
     def add_weights_prior(self, clusters):
+        weights_config = self.config.prior.weights
         with numpyro.plate("plate_objects_w", self.shapes.n_features, dim=-1):
             w = dirichlet_from_latent("w", self.w_prior_conc)
         # w = numpyro.sample("w", dist.Dirichlet(self.w_prior_conc))
         # shape: (n_features, n_components)
 
-        if self.config.prior.weights.varying_cluster_weights:
-            c0 = numpyro.sample("w_cluster_concentration_0", dist.Gamma(2., 2.))
-            c1 = numpyro.sample("w_cluster_concentration_1", dist.Gamma(2., 2.))
+        if weights_config.varying_cluster_weights:
+            c0 = numpyro.sample("w_cluster_concentration_0", dist.Gamma(*weights_config.mask_prior_concentration_0))
+            c1 = numpyro.sample("w_cluster_concentration_1", dist.Gamma(*weights_config.mask_prior_concentration_1))
             with numpyro.plate("plate_clusters_w", self.n_clusters, dim=-2):
                 with numpyro.plate("plate_features_w", self.shapes.n_features, dim=-1):
                     # w_cluster = numpyro.sample("w_cluster", dist.Gamma(w[:, 0], 1))
@@ -312,7 +313,7 @@ class Model:
 
         # Multiply weights with `has_component` to mask out components that are not present in the group and normalize
         w_per_object = w.T[:, None, :] * self.has_component[:, :, None]
-        if self.config.prior.weights.varying_cluster_weights:
+        if weights_config.varying_cluster_weights:
             w_per_object = w_per_object.at[0].set(w_cluster_mixed)
         w_per_object = w_per_object / w_per_object.sum(axis=-3, keepdims=True)
         # shape: (n_components, n_objects, n_features)
