@@ -1214,8 +1214,8 @@ def dirichlet_from_latent(name: str, concentration: jnp.array, offset = None) ->
     n_states_latent = n_states - 1
 
     # Sample from uniform distribution in latent space that spans wide enough to cover the tails
-    x_latent_distr = dist.Uniform(-40, 40).expand((n_states_latent,)).to_event()
-    x_latent = numpyro.sample(f"{name}_raw", x_latent_distr)  # * 50
+    x_latent_distr = dist.Uniform(-200, 200).expand((n_states_latent,)).to_event()
+    x_latent = numpyro.sample(f"{name}_raw", x_latent_distr)
 
     # Define a stick breaking transform to convert to real space
     trans = StickBreakingTransform()
@@ -1233,7 +1233,7 @@ def dirichlet_from_latent(name: str, concentration: jnp.array, offset = None) ->
     prior_log_prob = x_distr.log_prob(x)
 
     # Compute the correction factor to get the correct probability density on the simplex
-    prior_correction_factor = trans.log_abs_det_jacobian(x_latent, x) -  x_latent_distr.log_prob(x_latent)  # + jnp.log(50.)
+    prior_correction_factor = trans.log_abs_det_jacobian(x_latent, x) -  x_latent_distr.log_prob(x_latent)
 
     # Add the corrected log probability as a factor
     corrected_log_prob = prior_log_prob + prior_correction_factor

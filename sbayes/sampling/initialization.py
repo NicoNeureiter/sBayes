@@ -1,7 +1,7 @@
 import warnings
 from functools import partial
 
-from numpyro.infer import SVI, Trace_ELBO, init_to_feasible, init_to_value, MCMC, NUTS
+from numpyro.infer import SVI, Trace_ELBO, init_to_feasible, init_to_value, MCMC, NUTS, init_to_mean
 from numpyro.infer.autoguide import AutoNormal, AutoDelta
 from numpyro.infer.util import log_density, unconstrain_fn, transform_fn
 from numpyro.optim import Adam
@@ -19,7 +19,8 @@ def get_svi_init_sample(model, model_args=(), model_kwargs=None, rng_key=None, s
 
     # init_loc = find_best_initial_sample(model, rng_key=rng_keys[0])
     # guide = AutoNormal(model.get_model, init_loc_fn=init_to_value(init_loc))
-    guide = AutoDelta(model.get_model)
+    # guide = AutoNormal(model.get_model, init_loc_fn=init_to_mean)
+    guide = AutoDelta(model.get_model, init_loc_fn=init_to_mean)
     optimizer = Adam(2e-3)
 
     svi = SVI(model.get_model, guide, optimizer, loss=Trace_ELBO())

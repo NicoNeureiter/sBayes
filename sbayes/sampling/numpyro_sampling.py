@@ -138,14 +138,14 @@ def sample_nuts(
 
             num_samples_done += samples["potential_energy"].shape[1]
 
-        samples = sample_logger.read_samples()
-
     else:
         mcmc.run(rng_key, extra_fields=("potential_energy",))
         samples = mcmc.get_samples(group_by_chain=True)
         samples["potential_energy"] = mcmc.get_extra_fields(group_by_chain=True)["potential_energy"]
         sample_logger.write_sample(samples)
         sample_logger.dump_state(mcmc.last_state)
+
+    samples = sample_logger.read_samples()
 
     return mcmc, samples
 
