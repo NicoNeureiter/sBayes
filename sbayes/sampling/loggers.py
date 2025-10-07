@@ -127,7 +127,7 @@ def write_samples(
             # Subset states for all confounding effects and place in data frames
             for i_c, conf in enumerate(data.confounders.values()):
                 conf_eff_df = samples_array_to_df(
-                    param_samples=samples[f"conf_effect_{i_c}_{partition.name}"],
+                    param_samples=samples[f"conf_effect_{conf.name}_{partition.name}"],
                     names=[conf.group_names, partition.names, state_names[:partition.n_states]],
                     prefix=conf.name)
                 all_conf_eff_dfs.append(conf_eff_df)
@@ -180,15 +180,17 @@ def write_samples(
         "potential_energy",
         "w_cluster_concentration_0",
         "w_cluster_concentration_1",
+        "w_cluster_concentration",
+        "w_concentration",
         "z_concentration",
         "z_stretch_0",
         "z_stretch_1",
-        "cluster_mask"
+        "cluster_mask",
     ]
     for param in optional_parameters:
         if param in samples:
             s = samples[param]
-            assert len(s.shape) <= 2
+            assert len(s.shape) <= 2, f"{param}: {s.shape}"
             if len(s.shape) == 1:
                 params_df[param] = s
             else:
@@ -385,7 +387,6 @@ class OnlineSampleLogger(OnlineLogger):
     """The OnlineSampleLogger continually writes the samples to a pytables file (.h5)."""
 
     def __init__(self, *args, **kwargs):
-        self.logged_likelihood_array = None
         super().__init__(*args, **kwargs)
 
     def open(self):

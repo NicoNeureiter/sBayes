@@ -1,7 +1,7 @@
 import warnings
 from functools import partial
 
-from numpyro.infer import SVI, Trace_ELBO, init_to_feasible, MCMC, NUTS
+from numpyro.infer import SVI, Trace_ELBO, init_to_feasible, init_to_value, MCMC, NUTS, init_to_mean
 from numpyro.infer.autoguide import AutoNormal, AutoDelta
 from numpyro.infer.util import log_density, unconstrain_fn, transform_fn
 from numpyro.optim import Adam
@@ -12,18 +12,22 @@ from tqdm import tqdm
 
 
 def get_svi_init_sample(model, model_args=(), model_kwargs=None, rng_key=None, svi_steps=100, num_chains=1):
+    rng_keys = jax.random.split(rng_key, 3)
+
     if model_kwargs is None:
         model_kwargs = {}
 
-    guide = AutoNormal(model.get_model, init_loc_fn=init_to_feasible)
-    # guide = AutoDelta(model.get_model)
-    optimizer = Adam(3e-3)
+    # init_loc = find_best_initial_sample(model, rng_key=rng_keys[0])
+    # guide = AutoNormal(model.get_model, init_loc_fn=init_to_value(init_loc))
+    # guide = AutoNormal(model.get_model, init_loc_fn=init_to_mean)
+    guide = AutoDelta(model.get_model, init_loc_fn=init_to_mean)
+    optimizer = Adam(2e-3)
 
     svi = SVI(model.get_model, guide, optimizer, loss=Trace_ELBO())
-    svi_result = svi.run(rng_key, svi_steps, progress_bar=False, *model_args, **model_kwargs)
+    svi_result = svi.run(rng_keys[1], svi_steps, progress_bar=True, *model_args, **model_kwargs)
 
     # Return samples from the variational approximation
-    init_sample = guide.sample_posterior(jax.random.PRNGKey(1), svi_result.params)
+    init_sample = guide.sample_posterior(rng_keys[2], svi_result.params)
 
     print(f"SVI sample has log-prob {log_density(model.get_model, model_args, model_kwargs, init_sample)[0]}")
 
@@ -94,9 +98,9 @@ def init_by_svi(site=None, svi_steps=30):
         return guide.sample_posterior(jax.random.PRNGKey(1), svi_result.params)
 
 
-def find_best_initial_sample(model, rng_key=None, num_samples=100):
+def find_best_initial_sample(model, rng_key=None, num_samples=50):
     """
-    Return the best initialization point based on prior samples with highest joint log prob.
+    Return the best initialization point based on prior samples with the highest joint log prob.
     """
     model_args = ()
     model_kwargs = {}

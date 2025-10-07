@@ -1212,24 +1212,6 @@ def timeit(units='s'):
     return timeit_decorator
 
 
-def get_permutations(n: int) -> Iterator[tuple[int]]:
-    return permutations(range(n))
-
-
-# def get_best_permutation(
-#         areas: NDArray[bool],  # shape = (n_areas, n_objects)
-#         prev_area_sum: NDArray[int],  # shape = (n_areas, n_objects)
-# ) -> tuple[int]:
-#     """Return a permutation of areas that would align the areas in the new sample with previous ones."""
-#
-#     def clustering_agreement(p):
-#         """In how many sites does permutation `p` match previous samples?"""
-#         return np.sum(prev_area_sum * areas[p, :])
-#
-#     all_permutations = get_permutations(areas.shape[0])
-#     return max(all_permutations, key=clustering_agreement)
-
-
 def get_best_permutation(
         areas: NDArray[bool],  # shape = (n_areas, n_objects)
         prev_area_sum: NDArray[int],  # shape = (n_areas, n_objects)
@@ -1237,6 +1219,10 @@ def get_best_permutation(
     """Return a permutation of areas that would align the areas in the new sample with previous ones."""
     cluster_agreement_matrix = np.matmul(prev_area_sum, areas.T)
     return linear_sum_assignment(cluster_agreement_matrix, maximize=True)[1]
+
+
+def cluster_agreement(a1, a2):
+    return np.matmul(a1, a2.T)
 
 
 # if scipy.__version__ >= '1.8.0':
