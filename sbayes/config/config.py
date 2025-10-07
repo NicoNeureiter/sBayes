@@ -461,6 +461,9 @@ class WeightsPriorConfig(CategoricalPriorConfig):
     mask_prior_concentration_1: tuple = (1.0, 0.5)
     """The (alpha, beta) parameters of the Beta prior on the weight mask (if varying_cluster_weights)."""
 
+    _hierarchical: bool = False
+    """Experimental option for a hierarchical prior on weights."""
+
 
 class ConfoundingEffectConfig(BaseConfig):
     """Configuration of the prior on the parameters of the confounding-effects."""

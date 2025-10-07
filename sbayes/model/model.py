@@ -291,10 +291,22 @@ class Model:
 
     def add_weights_prior(self, clusters):
         weights_config = self.config.prior.weights
-        with numpyro.plate("plate_objects_w", self.shapes.n_features, dim=-1):
-            w = dirichlet_from_latent("w", self.w_prior_conc)
-        # w = numpyro.sample("w", dist.Dirichlet(self.w_prior_conc))
+
+        if weights_config._hierarchical:
+            with numpyro.plate("plate_components_w_prior", self.shapes.n_components, dim=-1):
+                w_concentration = numpyro.sample("w_concentration", dist.Gamma(2., 2.))
+            with numpyro.plate("plate_objects_w", self.shapes.n_features, dim=-1):
+                w = dirichlet_from_latent("w", w_concentration, offset=normalize(w_concentration, axis=-1))
+        else:
+            with numpyro.plate("plate_objects_w", self.shapes.n_features, dim=-1):
+                w = dirichlet_from_latent("w", self.w_prior_conc)
+            # w = numpyro.sample("w", dist.Dirichlet(self.w_prior_conc))
         # shape: (n_features, n_components)
+
+
+        # Multiply weights with `has_component` to mask out components that are not present in the group and normalize
+        w_per_object = w.T[:, None, :] * self.has_component[:, :, None]
+        # shape: (n_components, n_objects, n_features)
 
         if weights_config.varying_cluster_weights:
             c0 = numpyro.sample("w_cluster_concentration_0", dist.Gamma(*weights_config.mask_prior_concentration_0))
@@ -304,20 +316,20 @@ class Model:
                     # w_cluster = numpyro.sample("w_cluster", dist.Gamma(w[:, 0], 1))
                     # cluster_factor = numpyro.sample("w_cluster_factor", dist.Gamma(concentration=c, rate=c))
                     cluster_factor = numpyro.sample("w_cluster_factor", dist.Beta(c1, c0))
+                    # mean_cluster_factor = c1 / (c0 + c1)
+                    # cluster_factor = dirichlet_from_latent("w_cluster_factor", jnp.stack([c0, c1], axis=-1))[..., 0] / mean_cluster_factor
 
             w_cluster = cluster_factor * w[:, 0]
             w_cluster_mixed = clusters @ w_cluster
             # shape: (n_objects, n_features)
 
-            # TODO: aggregating across cluster here and then splitting to get per_cluster_weights below feels redundant. Try to avoid this.
-
-        # Multiply weights with `has_component` to mask out components that are not present in the group and normalize
-        w_per_object = w.T[:, None, :] * self.has_component[:, :, None]
-        if weights_config.varying_cluster_weights:
+            # Update the weights
             w_per_object = w_per_object.at[0].set(w_cluster_mixed)
-        w_per_object = w_per_object / w_per_object.sum(axis=-3, keepdims=True)
-        # shape: (n_components, n_objects, n_features)
 
+        # Normalize weights_per_object
+        w_per_object = w_per_object / w_per_object.sum(axis=-3, keepdims=True)
+
+        # Flatten the weights into one array for all clusters and confounders
         clusters_normalized = clusters / self.has_component[0, :, None]                             # (objects, clusters)
         per_cluster_weights = clusters_normalized.T[:, :, None] * w_per_object[:1, :, :]            # (clusters, objects, features)
         mixture_weights = jnp.concat([per_cluster_weights, w_per_object[1:, :, :]], axis=0)  # (clusters+confounders, objects, features)

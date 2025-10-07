@@ -180,15 +180,17 @@ def write_samples(
         "potential_energy",
         "w_cluster_concentration_0",
         "w_cluster_concentration_1",
+        "w_cluster_concentration",
+        "w_concentration",
         "z_concentration",
         "z_stretch_0",
         "z_stretch_1",
-        "cluster_mask"
+        "cluster_mask",
     ]
     for param in optional_parameters:
         if param in samples:
             s = samples[param]
-            assert len(s.shape) <= 2
+            assert len(s.shape) <= 2, f"{param}: {s.shape}"
             if len(s.shape) == 1:
                 params_df[param] = s
             else:
