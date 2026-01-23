@@ -183,9 +183,13 @@ def write_samples(
         "w_cluster_concentration",
         "w_concentration",
         "z_concentration",
+        "z_concentration_nocluster",
         "z_stretch_0",
         "z_stretch_1",
         "cluster_mask",
+        "geoprior_scale",
+        "geoprior",
+        "geoprior_total_dist",
     ]
     for param in optional_parameters:
         if param in samples:

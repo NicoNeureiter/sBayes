@@ -98,6 +98,13 @@ class Model:
 
         self.sample_from_prior = config.sample_from_prior
 
+    def calibrate(self):
+        """Run any potential calibration procedures that are required before the MCMC run."""
+
+        # Estimate the normalization constant of the geo_prior for different `scale` values.
+        if self.prior.geo_prior.config.estimate_rate:
+            self.prior.geo_prior.calibrate(self.prior.cluster_prior)
+
     def get_model(self, no_clusters: bool = False):
         """Return the model function for the sBayes model."""
 

@@ -366,6 +366,9 @@ class ClusterPriorConfig(BaseConfig):
     hierarchical: bool = False
     """If `true`, use a hierarchical Dirichlet prior for the cluster assignment."""
 
+    estimate_size_prior: bool = False
+    """If `true`, estimate the probability for not being in a cluster using MCMC."""
+
     dirichlet_config: Optional[CategoricalPriorConfig] = None
     """Configuration of the Dirichlet prior for the cluster assignment."""
 
@@ -402,10 +405,12 @@ class GeoPriorConfig(BaseConfig):
     class AggregationStrategies(str, Enum):
         MEAN = "mean"
         SUM = "sum"
+        SUM_OF_MEAN = "sum_of_mean"
         MAX = "max"
 
     class ProbabilityFunction(str, Enum):
         EXPONENTIAL = "exponential"
+        GAMMA_EXPONENTIAL = "gamma_exponential"
         SQUARED_EXPONENTIAL = "squared_exponential"
         SIGMOID = "sigmoid"
 
@@ -424,8 +429,8 @@ class GeoPriorConfig(BaseConfig):
     """Source of the geographic costs used for cost_based geo-prior. Either `from_data`
     (derive geodesic distances from locations) or path to a CSV file."""
 
-    aggregation: AggregationStrategies = AggregationStrategies.MEAN
-    """Policy defining how costs of single edges are aggregated. Choose from: [mean, sum or max]."""
+    aggregation: AggregationStrategies = AggregationStrategies.SUM_OF_MEAN
+    """Policy defining how costs of single edges are aggregated. Choose from: [mean, sum, sum_of_mean or max]."""
 
     probability_function: ProbabilityFunction = ProbabilityFunction.EXPONENTIAL
     """Monotonic function that defines how aggregated costs are mapped to prior probabilities."""
@@ -440,6 +445,14 @@ class GeoPriorConfig(BaseConfig):
     skeleton: Skeleton = Skeleton.MST
     """The graph along which the costs are aggregated. Per default, the cost of edges on the minimum
      spanning tree (mst) are aggregated. Choose from: [mst, delaunay, diameter, complete_graph]"""
+
+    estimate_rate: bool = False
+    """If `true`, estimate the rate parameter of the geo-prior using MCMC."""
+
+    approx_norm_const: dict[str, int] = {
+        "grid_size": 40,
+        "steps_per_setting": 200,
+    }
 
     @model_validator(mode="before")
     @classmethod

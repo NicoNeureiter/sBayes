@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from functools import lru_cache
+from matplotlib import pyplot as plt
 from typing import Sequence, Callable
 import json
 
@@ -10,11 +11,12 @@ import jax
 import jax.numpy as jnp
 import numpyro
 import numpyro.distributions as dist
-from numpyro.distributions.transforms import StickBreakingTransform, AffineTransform
+from numpyro.distributions.transforms import StickBreakingTransform, AffineTransform, Transform
 from scipy.sparse.csgraph import minimum_spanning_tree, csgraph_from_dense
 from scipy.sparse import csr_matrix
 import libpysal as pysal
 
+from sbayes.model.geoprior import estimate_marginal_log_likelihood_curve
 from sbayes.model.model_shapes import ModelShapes
 from sbayes.util import dirichlet_logpdf, log_expit, FLOAT_TYPE, normalize_weights, EPS, normalize
 from sbayes.config.config import PriorConfig, CategoricalPriorConfig, GeoPriorConfig, ClusterPriorConfig, \
@@ -693,7 +695,8 @@ class ClusterPrior:
         elif self.prior_type is self.PriorType.DIRICHLET:
             self.concentration = parse_dirichlet_concentration(
                 config=self.config.dirichlet_config,
-                shape=(self.shapes.n_objects, self.shapes.n_clusters + 1),
+                # shape=(self.shapes.n_objects, self.shapes.n_clusters + 1),
+                shape=(self.shapes.n_clusters + 1,),
             )
         elif self.prior_type is self.PriorType.LOGISTIC_NORMAL:
             self.logi_norm_loc = self.config.logistic_normal_config.loc
@@ -703,9 +706,17 @@ class ClusterPrior:
 
     def get_setup_message(self):
         """Compile a set-up message for logging."""
-        return f'Prior on cluster assignment: {self.prior_type.value}\n'
+        msg = f'Prior on cluster assignment: {self.prior_type.value}\n'
+        if self.config.hierarchical:
+            msg += f'\tEstimate cluster prior concentration\n'
+        else:
+            msg += f'\tFixed cluster prior concentration at c={self.concentration[0]}\n'
+        if self.config.estimate_size_prior:
+            msg += f'\tEstimate non-cluster concentration.\n'
 
-    def get_numpyro_distr(self):
+        return msg
+
+    def get_numpyro_distr(self, allow_reparameterization=True):
         K = self.shapes.n_clusters
         if self.prior_type is self.PriorType.CATEGORICAL:
             with numpyro.plate("plate_objects_z", self.shapes.n_objects, dim=-1):
@@ -717,29 +728,27 @@ class ClusterPrior:
         elif self.prior_type is self.PriorType.DIRICHLET:
             if self.config.hierarchical:
                 c = numpyro.sample("z_concentration", dist.Uniform(0, 1))
+                # c = numpyro.sample("z_concentration", dist.Beta(4., 4.))
                 concentration = jnp.full((self.shapes.n_clusters + 1, ), c)
             else:
                 # concentration = np.full((self.shapes.n_clusters + 1,), self.concentration)
                 concentration = self.concentration
 
+            if self.config.estimate_size_prior:
+                # c_nocluster = numpyro.sample("z_concentration_nocluster", dist.Uniform(0, 1))
+                c_nocluster = numpyro.sample("z_concentration_nocluster", dist.Exponential(1.0))
+                # c_nocluster = numpyro.sample("z_concentration_nocluster", dist.LogNormal(0.0, 1.0))
+                concentration = concentration.at[-1].set(c_nocluster)
+
             with numpyro.plate("plate_objects_z", self.shapes.n_objects, dim=-1):
-                if self.config.dirichlet_config.use_parameter_transformation:
+                if allow_reparameterization and self.config.dirichlet_config.use_parameter_transformation:
                     z = dirichlet_from_latent("z", concentration)
                 else:
                     z = numpyro.sample("z", dist.Dirichlet(concentration))
 
-            # #     if self.config.cluster_mask:
-            # #         c = self.config.cluster_mask_concentration
-            # #         with numpyro.plate("plate_clusters_z", self.shapes.n_clusters + 1, dim=-1):
-            # #             shrinkage = numpyro.sample("cluster_mask", dist.Beta(c, c))
-            # #         z_raw *= shrinkage[None, :]
-            # #
-            # # z = z_raw / z_raw.sum(axis=-1, keepdims=True)
-
         elif self.prior_type is self.PriorType.LOGISTIC_NORMAL:
             if self.config.hierarchical:
                 scale = numpyro.sample("z_concentration", dist.LogNormal(0.0, 1.0))
-                # scale = jnp.full((self.shapes.n_clusters + 1, ), s)
             else:
                 scale = self.logi_norm_scale
 
@@ -784,6 +793,7 @@ class GeoPrior(object):
     AGGREGATORS: dict[str, Aggregator] = {
         AggrStrats.MEAN: np.mean,
         AggrStrats.SUM: np.sum,
+        AggrStrats.SUM_OF_MEAN: lambda x: np.sum(),
         AggrStrats.MAX: np.max,
     }
 
@@ -810,8 +820,7 @@ class GeoPrior(object):
 
         self.parse_attributes(config)
 
-        # x = network.dist_mat[network.adj_mat.nonzero()].mean()
-        self.mean_edge_length = compute_mst_distances(network.dist_mat).mean()
+        self._norm_const_interpolator: callable | None = None
 
     def parse_attributes(self, config: GeoPriorConfig):
         if self.prior_type is config.Types.COST_BASED:
@@ -826,21 +835,102 @@ class GeoPrior(object):
             self.prob_func_type = config.probability_function
             self.inflection_point = config.inflection_point
 
-    def get_probability_function(self) -> Callable[[float], float]:
+    def calibrate(self, cluster_prior: ClusterPrior):
+        self.cluster_prior = cluster_prior
+
+        def cost(z: jax.Array, scale: float):
+            clusters = z[..., :-1]                                          # (n_obj, n_clust)
+            cluster_size = jnp.sum(clusters, axis=-2)                       # (n_clust,)
+            clusters_normed = clusters / cluster_size[None, :]              # (n_obj, n_clust)
+
+            # Compute expected distance to a random language
+            # same_cluster_prob = clusters_normed @ clusters.T                # ()
+            # total_dist = jnp.sum(same_cluster_prob * self.cost_matrix)
+            if self.aggregation_policy is self.AggrStrats.MEAN:
+                same_cluster_prob = jnp.einsum("ik,jk->ijk", clusters_normed, clusters_normed)
+            elif self.aggregation_policy is self.AggrStrats.SUM_OF_MEAN:
+                same_cluster_prob = jnp.einsum("ik,jk->ijk", clusters_normed, clusters)
+            else:
+                raise ValueError(f'Invalid aggregation policy {self.aggregation_policy}.')
+
+            total_dist_per_cluster = jnp.sum(same_cluster_prob * self.cost_matrix[..., None], axis=(0,1))
+            c = self.probability_function(total_dist_per_cluster, scale)
+            return c
+
+        grid_size = self.config.approx_norm_const["grid_size"]
+        grid_min = 0.1 * self.config.rate
+        grid_max = 4.0 * self.config.rate
+        r_grid = jnp.linspace(grid_min**0.5, grid_max**0.5, grid_size) ** 2
+
+        self._norm_const_interpolator, _, _ = estimate_marginal_log_likelihood_curve(
+            base_prior=lambda : self.cluster_prior.get_numpyro_distr(allow_reparameterization=False),
+            log_g_fn=lambda z, s: cost(z, s),
+            # r_grid=r_grid[::-1],
+            r_grid=r_grid,
+            num_samples=self.config.approx_norm_const["steps_per_setting"],
+        )
+
+        # # Set up figure
+        # plt.figure(figsize=(10, 8))
+        #
+        # # Run ML estimation with different settings
+        # for num_samples in [10, 200]:
+        #     self._norm_const_interpolator, _, _ = estimate_marginal_log_likelihood_curve(
+        #         base_prior=lambda : self.cluster_prior.get_numpyro_distr(allow_reparameterization=False),
+        #         log_g_fn=lambda z, s: cost(z, s),
+        #         r_grid=r_grid,
+        #         num_samples=num_samples,
+        #     )
+        #     y = self.norm_const_function(r_grid)
+        #     y -= y[-1]
+        #     plt.plot(r_grid, y, lw=0.6, label=f'forw n_samples={num_samples}')
+        #     plt.scatter(r_grid, y, s=12, alpha=0.5)
+        #
+        #
+        # for num_samples in [10, 50]:
+        #     self._norm_const_interpolator, _, _ = estimate_marginal_log_likelihood_curve(
+        #         base_prior=lambda : self.cluster_prior.get_numpyro_distr(allow_reparameterization=False),
+        #         log_g_fn=lambda z, s: cost(z, s),
+        #         r_grid=r_grid[::-1],
+        #         num_samples=num_samples,
+        #     )
+        #     y = self.norm_const_function(r_grid)
+        #     y -= y[-1]
+        #     # plt.plot(r_grid, np.diff(self._norm_const_interpolator(r_grid), append=0.), lw=0.6, label=f'n_samples={num_samples}')
+        #     plt.plot(r_grid, y, lw=0.6, label=f'back n_samples={num_samples}')
+        #     plt.scatter(r_grid, y, s=12, alpha=0.5)
+        #
+        # # plt.xlim(None, 0.)
+        # plt.ylim(None, 0.)
+        # plt.legend()
+        # plt.show()
+        # exit()
+
+    def norm_const_function(self, scale):
+        return self._norm_const_interpolator(jnp.atleast_1d(scale))
+
+    def probability_function(self, x: float, scale: float) -> float:
+        x_agg = jnp.sum(x)
         if self.prob_func_type is GeoPriorConfig.ProbabilityFunction.EXPONENTIAL:
-            return lambda x: -x / self.scale  # == log(e**(-x/scale))
+            return -x_agg / scale              # == log(e**(-x/scale))
+        elif self.prob_func_type is GeoPriorConfig.ProbabilityFunction.GAMMA_EXPONENTIAL:
+            # Hierarchical model:
+            #   x_i | lambda_i ~ Exponential(rate=lambda_i)
+            #   lambda_i ~ Gamma(shape=alpha, rate=beta)
+            # Marginal for each x_i: p(x_i) = alpha * beta**alpha / (x_i + beta)**(alpha+1)
+            # Log-pdf (summed over elements of x):
+            alpha = 5.0
+            beta = scale * (alpha - 1.0)
+            # add small EPS for numerical stability
+            return jnp.sum(jnp.log(alpha) + alpha * jnp.log(beta) - (alpha + 1.0) * jnp.log(x + beta))
 
-        if self.prob_func_type is GeoPriorConfig.ProbabilityFunction.SQUARED_EXPONENTIAL:
-            return lambda x: -(x / self.scale)**2  # == log(e**(-(x/scale)**2))
-
+        elif self.prob_func_type is GeoPriorConfig.ProbabilityFunction.SQUARED_EXPONENTIAL:
+            return -(x_agg / scale)**2         # == log(e**(-(x/scale)**2))
         elif self.prob_func_type is GeoPriorConfig.ProbabilityFunction.SIGMOID:
-            # assert self.inflection_point is not None
             x0 = self.inflection_point
-            s = self.scale
-            return lambda x: log_expit(-(x - x0) / s) - log_expit(x0 / s)
-            # return lambda x: jnp.log(1E-100 + jax.scipy.special.expit(-(x - x0) / s))
+            return log_expit(-(x_agg - x0) / scale) - log_expit(x0 / scale)
+            # return jnp.log(1E-100 + jax.scipy.special.expit(-(x - x0) / s))
             # The last term `- log_expit(x0/s)` scales the sigmoid to be 1 at distance 0
-
         else:
             raise ValueError(f'Unknown probability_function `{self.prob_func_type}`')
 
@@ -856,7 +946,6 @@ class GeoPrior(object):
 
         n_objects, n_clusters = clusters.shape
         cluster_size = jnp.sum(clusters, axis=-2)
-        prob_func = self.get_probability_function()
 
         dist_mat = self.cost_matrix
 
@@ -867,8 +956,19 @@ class GeoPrior(object):
                 aggregated_distance += self.compute_fuzzy_mst_distance(cluster)
         elif self.config.skeleton is GeoPriorConfig.Skeleton.COMPLETE:
             clusters_normed = clusters / cluster_size[None, :]
-            same_cluster_prob = clusters_normed @ clusters.T  # Expected distance to a random language
-            aggregated_distance = jnp.sum(same_cluster_prob * dist_mat)
+
+            # same_cluster_prob = clusters_normed @ clusters.T  # Expected distance to a random language
+            # aggregated_distance = jnp.sum(same_cluster_prob * dist_mat)
+
+            if self.aggregation_policy is GeoPrior.AggrStrats.MEAN:
+                same_cluster_prob = jnp.einsum("ik,jk->ijk", clusters_normed, clusters_normed)
+            elif self.aggregation_policy is GeoPrior.AggrStrats.SUM:
+                same_cluster_prob = jnp.einsum("ik,jk->ijk", clusters, clusters)
+            elif self.aggregation_policy is GeoPrior.AggrStrats.SUM_OF_MEAN:
+                same_cluster_prob = jnp.einsum("ik,jk->ijk", clusters_normed, clusters)
+            else:
+                raise ValueError(f'Unknown aggregation policy `{self.aggregation_policy}`')
+            aggregated_distance = jnp.sum(same_cluster_prob * self.cost_matrix[..., None], axis=(0,1))
 
         elif self.config.skeleton == GeoPriorConfig.Skeleton.SPECTRAL:
             def get_spectrum(C):
@@ -896,8 +996,25 @@ class GeoPrior(object):
         #     else:
         #         raise ValueError('geo_prior must be either \"uniform\" or \"cost_based\".')
 
-        log_geo_priors = prob_func(aggregated_distance)
-        numpyro.factor('geo_prior', log_geo_priors)
+        if self.config.estimate_rate:
+            sigma = 1.0
+            # mu = jnp.log(self.config.rate) - sigma * sigma / 2
+            mu = jnp.log(self.config.rate)
+            log_scale = numpyro.sample("geoprior_log_scale", dist.Normal(mu, sigma))
+            # scale = numpyro.sample("geoprior_scale", dist.LogNormal(mu, sigma))
+            scale = jnp.exp(log_scale)
+            numpyro.deterministic("geoprior_scale", scale)
+            norm_const = self.norm_const_function(scale)
+        else:
+            scale = self.config.rate
+            norm_const = 1.0
+
+        log_geo_priors = self.probability_function(aggregated_distance, scale)
+        numpyro.factor("geoprior", log_geo_priors - norm_const)
+
+        numpyro.deterministic("geoprior_total_dist", aggregated_distance)
+        # for i_c in range(n_clusters):
+        #     numpyro.deterministic(f"geo_dist_cluster_{i_c}", aggregated_distance[i_c])
 
         return log_geo_priors
 
@@ -915,8 +1032,6 @@ class GeoPrior(object):
         core_mst = minimum_spanning_tree(C_core)
 
         return core_mst.sum()
-
-
 
     def compute_distances_along_skeleton(self, cluster):
         skeleton = self.config.skeleton
@@ -943,8 +1058,8 @@ class GeoPrior(object):
         msg = f'Geo-prior: {self.prior_type.value}\n'
         if self.prior_type is self.PriorTypes.COST_BASED:
             prob_fun = self.config["probability_function"]
-            msg += f'\tProbability function: {prob_fun}\n'
-            msg += f'\tAggregation policy: {self.aggregation_policy}\n'
+            msg += f'\tProbability function: {prob_fun.value}\n'
+            msg += f'\tAggregation policy: {self.aggregation_policy.value}\n'
             msg += f'\tScale: {self.scale}\n'
             if self.config['probability_function'] == 'sigmoid':
                 msg += f'\tInflection point: {self.config["inflection_point"]}\n'
@@ -952,6 +1067,8 @@ class GeoPrior(object):
                 msg += '\tCost-matrix inferred from geo-locations.\n'
             else:
                 msg += f'\tCost-matrix file: {self.config["costs"]}\n'
+        if self.config.estimate_rate:
+            msg += f'\tEstimating geo-prior rate: {self.config.approx_norm_const}\n'
 
         return msg
 
@@ -1207,31 +1324,412 @@ def update_weights(sample, caching: bool = True) -> NDArray[float]:
     return cache.value
 
 
-def dirichlet_from_latent(name: str, concentration: jnp.array, offset = None) -> NDArray[float]:
+class PowerTransform(Transform):
+    """A signed power transform: y = sign(x) * |x|^beta.
+
+    This transform expands or compresses regions around zero depending on beta:
+    - beta > 1: compresses values near zero, expands tails
+    - beta < 1: expands values near zero, compresses tails
+
+    For use with low-concentration Dirichlet priors, we want beta > 1 in the
+    forward direction (from raw latent to stick-breaking latent), which means
+    the inverse (beta < 1) expands the near-zero region in the raw space.
+    """
+
+    def __init__(self, beta: float = 2.0):
+        """
+        Args:
+            beta: The power exponent. Values > 1 compress near-zero regions
+                  in the forward direction.
+        """
+        self.beta = beta
+
+    def __call__(self, x):
+        """Forward transform: y = sign(x) * |x|^beta"""
+        return jnp.sign(x) * jnp.abs(x) ** self.beta
+
+    def _inverse(self, y):
+        """Inverse transform: x = sign(y) * |y|^(1/beta)"""
+        return jnp.sign(y) * jnp.abs(y) ** (1.0 / self.beta)
+
+    def log_abs_det_jacobian(self, x, y, intermediates=None):
+        """Log absolute determinant of the Jacobian.
+
+        For y = sign(x) * |x|^beta, we have dy/dx = beta * |x|^(beta-1)
+        3*x^2
+        The log determinant is: sum(log(beta) + (beta-1) * log(|x|))
+        """
+        # Add small epsilon to avoid log(0) at x=0
+        log_abs_x = jnp.log(jnp.abs(x) + 1e-10)
+        log_det_per_dim = jnp.log(self.beta) + (self.beta - 1) * log_abs_x
+        return jnp.sum(log_det_per_dim, axis=-1)
+
+    @property
+    def domain(self):
+        return dist.constraints.real_vector
+
+    @property
+    def codomain(self):
+        return dist.constraints.real_vector
+
+    def tree_flatten(self):
+        """Flatten the transform for JAX pytree compatibility."""
+        return (self.beta,), (("beta",),)
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, params):
+        """Unflatten the transform from JAX pytree format."""
+        (beta,) = params
+        return cls(beta=beta)
+
+
+class RadialPowerTransform(Transform):
+    """A radial power transform: y = z * ||z||^(beta-1).
+
+    This transform applies a power scaling to the radius (length) of the vector
+    while preserving its direction. This avoids axis-aligned artifacts that occur
+    with element-wise power transforms.
+
+    - beta > 1: compresses vectors near the origin, expands those far from origin
+    - beta < 1: expands vectors near the origin, compresses those far from origin
+
+    The transform maps: z -> z * r^(beta-1) where r = ||z||
+    Equivalently: the radius transforms as r -> r^beta while direction is preserved.
+    """
+
+    def __init__(self, beta: float = 2.0, eps: float = 1e-10):
+        """
+        Args:
+            beta: The power exponent for the radius.
+            eps: Small constant for numerical stability near origin.
+        """
+        self.beta = beta
+        self.eps = eps
+
+    def __call__(self, z):
+        """Forward transform: y = z * ||z||^(beta-1)"""
+        r = jnp.linalg.norm(z, axis=-1, keepdims=True)
+        # For numerical stability, use r + eps in the power
+        scale = (r + self.eps) ** (self.beta - 1)
+        return z * scale
+
+    def _inverse(self, y):
+        """Inverse transform: z = y * ||y||^(1/beta - 1)"""
+        r_y = jnp.linalg.norm(y, axis=-1, keepdims=True)
+        # r_y = r_z^beta, so r_z = r_y^(1/beta)
+        # scale factor: r_z / r_y = r_y^(1/beta) / r_y = r_y^(1/beta - 1)
+        scale = (r_y + self.eps) ** (1.0 / self.beta - 1)
+        return y * scale
+
+    def log_abs_det_jacobian(self, z, y, intermediates=None):
+        """Log absolute determinant of the Jacobian.
+
+        For the transform y = z * r^(beta-1) where r = ||z||:
+
+        The Jacobian matrix J has the form:
+            J_ij = d(y_i)/d(z_j) = r^(beta-1) * delta_ij + (beta-1) * r^(beta-3) * z_i * z_j
+
+        This is: J = r^(beta-1) * I + (beta-1) * r^(beta-3) * z z^T
+
+        Using the matrix determinant lemma for (aI + b*uv^T):
+            det(aI + b*uv^T) = a^(n-1) * (a + b*||u||^2)  when u=v
+
+        Here a = r^(beta-1), b = (beta-1)*r^(beta-3), ||z||^2 = r^2
+            det(J) = [r^(beta-1)]^(n-1) * [r^(beta-1) + (beta-1)*r^(beta-3)*r^2]
+                   = r^((beta-1)*(n-1)) * [r^(beta-1) + (beta-1)*r^(beta-1)]
+                   = r^((beta-1)*(n-1)) * r^(beta-1) * [1 + (beta-1)]
+                   = r^((beta-1)*n) * beta
+
+        So: log|det(J)| = n*(beta-1)*log(r) + log(beta)
+        """
+        n = z.shape[-1]
+        r = jnp.linalg.norm(z, axis=-1)
+        log_r = jnp.log(r + self.eps)
+        return n * (self.beta - 1) * log_r + jnp.log(self.beta)
+
+    @property
+    def domain(self):
+        return dist.constraints.real_vector
+
+    @property
+    def codomain(self):
+        return dist.constraints.real_vector
+
+    def tree_flatten(self):
+        """Flatten the transform for JAX pytree compatibility."""
+        return (self.beta, self.eps), (("beta", "eps"),)
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, params):
+        """Unflatten the transform from JAX pytree format."""
+        beta, eps = params
+        return cls(beta=beta, eps=eps)
+
+
+class ArcsinhTransform(Transform):
+    """Element-wise arcsinh transform: y = scale * arcsinh(x / scale).
+
+    This transform compresses the tails while remaining approximately linear near zero.
+    For |x| << scale: y ≈ x (identity)
+    For |x| >> scale: y ≈ scale * sign(x) * log(2|x|/scale) (logarithmic compression)
+
+    The scale parameter controls where the transition from linear to logarithmic occurs.
+    Smaller scale = more compression of tails.
+    """
+
+    def __init__(self, scale: float = 1.0):
+        """
+        Args:
+            scale: Controls the transition point between linear and log behavior.
+                   Smaller values compress more aggressively.
+        """
+        self.scale = scale
+
+    def __call__(self, x):
+        """Forward transform: y = scale * arcsinh(x / scale)"""
+        return self.scale * jnp.arcsinh(x / self.scale)
+
+    def _inverse(self, y):
+        """Inverse transform: x = scale * sinh(y / scale)"""
+        return self.scale * jnp.sinh(y / self.scale)
+
+    def log_abs_det_jacobian(self, x, y, intermediates=None):
+        """Log absolute determinant of the Jacobian.
+
+        For y_i = scale * arcsinh(x_i / scale):
+            dy_i/dx_i = 1 / sqrt(1 + (x_i/scale)^2)
+
+        Log det J = sum_i log(1 / sqrt(1 + (x_i/scale)^2))
+                  = -0.5 * sum_i log(1 + (x_i/scale)^2)
+        """
+        return -0.5 * jnp.sum(jnp.log(1 + (x / self.scale) ** 2), axis=-1)
+
+    @property
+    def domain(self):
+        return dist.constraints.real_vector
+
+    @property
+    def codomain(self):
+        return dist.constraints.real_vector
+
+    def tree_flatten(self):
+        """Flatten the transform for JAX pytree compatibility."""
+        return (self.scale,), (("scale",),)
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, params):
+        """Unflatten the transform from JAX pytree format."""
+        (scale,) = params
+        return cls(scale=scale)
+
+
+class RadialArcsinhTransform(Transform):
+    """Radial arcsinh transform: y = z * arcsinh(||z|| / scale) / (||z|| / scale).
+
+    This transform applies arcsinh compression to the radius while preserving direction.
+    It compresses the tails (large ||z||) while remaining approximately identity near origin.
+
+    For ||z|| << scale: y ≈ z (identity)
+    For ||z|| >> scale: y ≈ z * scale * log(2||z||/scale) / ||z|| (logarithmic compression)
+
+    The scale parameter controls where the transition from linear to logarithmic occurs.
+    """
+
+    def __init__(self, scale: float = 1.0, eps: float = 1e-10):
+        """
+        Args:
+            scale: Controls the transition point between linear and log behavior.
+            eps: Small constant for numerical stability near origin.
+        """
+        self.scale = scale
+        self.eps = eps
+
+    def __call__(self, z):
+        """Forward transform: y = z * arcsinh(r/scale) / (r/scale) where r = ||z||"""
+        r = jnp.linalg.norm(z, axis=-1, keepdims=True)
+        # For numerical stability near origin, use series expansion
+        # arcsinh(u)/u ≈ 1 - u^2/6 + ... for small u
+        u = r / self.scale
+        # Use the stable form: arcsinh(u)/u, handling u->0
+        ratio = jnp.where(
+            u > self.eps,
+            jnp.arcsinh(u) / (u + self.eps),
+            1.0 - u ** 2 / 6.0  # Taylor expansion for small u
+        )
+        return z * ratio
+
+    def _inverse(self, y):
+        """Inverse transform: find z such that y = z * arcsinh(||z||/scale) / (||z||/scale)
+
+        Since direction is preserved: z = y * ||z|| / ||y||
+        And ||y|| = ||z|| * arcsinh(||z||/scale) / (||z||/scale)
+        So we need to solve: ||y|| = arcsinh(r/scale) * scale, i.e., r = scale * sinh(||y||/scale)
+        """
+        r_y = jnp.linalg.norm(y, axis=-1, keepdims=True)
+        # r_z = scale * sinh(r_y / scale)
+        r_z = self.scale * jnp.sinh(r_y / self.scale)
+        # z = y * (r_z / r_y)
+        ratio = jnp.where(
+            r_y > self.eps,
+            r_z / (r_y + self.eps),
+            1.0  # Near origin, transform is identity
+        )
+        return y * ratio
+
+    def log_abs_det_jacobian(self, z, y, intermediates=None):
+        """Log absolute determinant of the Jacobian.
+
+        For y = z * f(r) where f(r) = arcsinh(r/s) / (r/s) and r = ||z||:
+
+        The Jacobian has the form:
+            J_ij = f(r) * delta_ij + f'(r) * z_i * z_j / r
+
+        Using the matrix determinant lemma:
+            det(J) = f(r)^(n-1) * (f(r) + f'(r) * r)
+
+        For f(r) = arcsinh(r/s) / (r/s) = s * arcsinh(r/s) / r:
+            f(r) = s * arcsinh(u) / r  where u = r/s
+            f'(r) = d/dr [s * arcsinh(r/s) / r]
+                  = s * [1/(s*sqrt(1+u^2)) * 1/r - arcsinh(u)/r^2]
+                  = 1/(r*sqrt(1+u^2)) - s*arcsinh(u)/r^2
+
+            f(r) + r*f'(r) = s*arcsinh(u)/r + 1/sqrt(1+u^2) - s*arcsinh(u)/r
+                           = 1/sqrt(1+u^2)
+
+        So: det(J) = f(r)^(n-1) * 1/sqrt(1+u^2)
+                   = [s*arcsinh(u)/r]^(n-1) / sqrt(1+u^2)
+
+        log|det(J)| = (n-1)*log(s*arcsinh(u)/r) - 0.5*log(1+u^2)
+                    = (n-1)*[log(s) + log(arcsinh(u)) - log(r)] - 0.5*log(1+u^2)
+        """
+        n = z.shape[-1]
+        r = jnp.linalg.norm(z, axis=-1)
+        u = r / self.scale
+
+        # Handle small r case where arcsinh(u)/u -> 1
+        log_arcsinh_u = jnp.where(
+            u > self.eps,
+            jnp.log(jnp.arcsinh(u) + self.eps),
+            jnp.log(u + self.eps) - u ** 2 / 6.0  # log(arcsinh(u)) ≈ log(u) for small u
+        )
+        log_r = jnp.log(r + self.eps)
+
+        log_det = (n - 1) * (jnp.log(self.scale) + log_arcsinh_u - log_r) - 0.5 * jnp.log(1 + u ** 2)
+
+        # For very small r, the transform is identity, so log_det -> 0
+        log_det = jnp.where(r > self.eps, log_det, 0.0)
+
+        return log_det
+
+    @property
+    def domain(self):
+        return dist.constraints.real_vector
+
+    @property
+    def codomain(self):
+        return dist.constraints.real_vector
+
+    def tree_flatten(self):
+        """Flatten the transform for JAX pytree compatibility."""
+        return (self.scale, self.eps), (("scale", "eps"),)
+
+    @classmethod
+    def tree_unflatten(cls, aux_data, params):
+        """Unflatten the transform from JAX pytree format."""
+        scale, eps = params
+        return cls(scale=scale, eps=eps)
+
+def compute_adaptive_beta(concentration: jnp.array, min_beta: float = 1.0, max_beta: float = 4.0) -> float:
+    """Compute an adaptive beta value based on the Dirichlet concentration parameter.
+
+    For very low concentration (sparse Dirichlet), we want higher beta to compress
+    the low-density interior region more aggressively. For moderate concentration,
+    we need less compression.
+
+    The scaling is based on the minimum concentration value:
+    - alpha_min >= 1.0: beta = min_beta (no extra compression needed)
+    - alpha_min -> 0: beta approaches max_beta
+
+    Args:
+        concentration: The Dirichlet concentration parameter array.
+        min_beta: Minimum beta value (for alpha >= 1).
+        max_beta: Maximum beta value (for very small alpha).
+
+    Returns:
+        Adaptive beta value.
+    """
+    alpha_min = jnp.min(concentration)
+
+    # Use a smooth transition: beta = min_beta + (max_beta - min_beta) * exp(-k * alpha_min)
+    # where k controls how quickly beta decreases as alpha increases
+    k = 3.0  # Decay rate
+    beta = min_beta + (max_beta - min_beta) * jnp.exp(-k * alpha_min)
+
+    return float(beta)
+
+
+def dirichlet_from_latent(
+    name: str,
+    concentration: jnp.array,
+    offset=None,
+    use_double_transform: bool = False,
+) -> NDArray[float]:
+    """Sample from a Dirichlet distribution using a latent space representation.
+
+    This function samples from a uniform distribution in a latent space and transforms
+    it to the probability simplex using a stick-breaking transform. Optionally, a
+    power transform can be applied before the stick-breaking transform to improve
+    sampling efficiency for low-concentration Dirichlet distributions.
+
+    Args:
+        name: The name for the numpyro sample site.
+        concentration: The Dirichlet concentration parameter array.
+        offset: Optional offset to add in latent space (on the simplex).
+        use_double_transform: If True, apply a radial arcsinh transform before stick-breaking to
+                improve sampling for low-concentration Dirichlet distributions.
+    Returns:
+        Sampled value on the probability simplex.
+    """
     n_states = concentration.shape[-1]
     n_states_latent = n_states - 1
 
     # Sample from uniform distribution in latent space that spans wide enough to cover the tails
     x_latent_distr = dist.Uniform(-200, 200).expand((n_states_latent,)).to_event()
-    x_latent = numpyro.sample(f"{name}_raw", x_latent_distr)
+    z = numpyro.sample(f"{name}_raw", x_latent_distr)
+    prior_correction_factor = -x_latent_distr.log_prob(z)
 
-    # Define a stick breaking transform to convert to real space
-    trans = StickBreakingTransform()
+    # Define transforms
+    stick_breaking = StickBreakingTransform()
+
+    if use_double_transform:
+        # Define the pre-transform with a fixed scale
+        pretransform = RadialArcsinhTransform(scale=5.)
+
+        # Apply radial arcsinh transform
+        x_latent = pretransform(z)
+
+        # Update the prior_concentration_factor to reflect 'squashing' by the transformation
+        jacobian_power = pretransform.log_abs_det_jacobian(z, x_latent)
+        prior_correction_factor += jacobian_power
+
+    else:
+        x_latent = z
 
     # If offset is provided, add it in latent space
     if offset is not None:
-        offset_latent = trans.inv(offset)
-        x_latent += offset_latent
+        offset_latent = stick_breaking.inv(offset)
+        x_latent = x_latent + offset_latent
 
     # Transform to probability simplex
-    x = trans(x_latent)
+    x = stick_breaking(x_latent)
 
     # Define the dirichlet distribution on probability simplex
     x_distr = dist.Dirichlet(concentration)
     prior_log_prob = x_distr.log_prob(x)
 
     # Compute the correction factor to get the correct probability density on the simplex
-    prior_correction_factor = trans.log_abs_det_jacobian(x_latent, x) -  x_latent_distr.log_prob(x_latent)
+    jacobian_stick = stick_breaking.log_abs_det_jacobian(x_latent, x)
+    prior_correction_factor += jacobian_stick
 
     # Add the corrected log probability as a factor
     corrected_log_prob = prior_log_prob + prior_correction_factor

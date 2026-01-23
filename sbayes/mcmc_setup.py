@@ -50,7 +50,7 @@ Warm-up: {mcmc_cfg.warmup.warmup_steps} steps''')
     def sample(
         self,
         resume: bool = False,
-        # run: int = 1,
+        run: int = 1,
     ):
         mcmc_config = self.config.mcmc
         results_config = self.config.results
@@ -60,10 +60,12 @@ Warm-up: {mcmc_cfg.warmup.warmup_steps} steps''')
         inference_mode = "MCMC"
         # inference_mode = "SVI"
 
-        # rng_key = random.PRNGKey(seed=124 * run)
-        rng_key = random.key(0)
+        rng_key = random.PRNGKey(seed=124 * run)
+        # rng_key = random.key(0)
 
-        sample_logger = OnlineSampleLogger(self.path_results / 'samples.h5', self.data, self.model, resume)
+        sample_logger = OnlineSampleLogger(self.path_results / f'samples_{run}.h5', self.data, self.model, resume)
+
+        self.model.calibrate()
 
         if inference_mode == "MCMC":
             # If resuming, read the initial sample from the samples.h5 file
@@ -113,22 +115,24 @@ Warm-up: {mcmc_cfg.warmup.warmup_steps} steps''')
                     pickle.dump(summary(samples, group_by_chain=True), f)
 
                 # Write results to sBayes results files (separate files for clusters and other parameters)
-                for i in range(mcmc_config.runs):
-                    samples_i = {k: v[i] for k, v in samples.items()}
-                    write_samples(
-                        run=i,
-                        base_path=self.path_results,
-                        samples=samples_i,
-                        data=self.data,
-                        model=self.model,
-                    )
+                assert mcmc_config.runs == 1
+                # for i in range(mcmc_config.runs):
+                # samples_i = {k: v[run] for k, v in samples.items()}
+                samples_i = {k: v[0] for k, v in samples.items()}
+                write_samples(
+                    run=run,
+                    base_path=self.path_results,
+                    samples=samples_i,
+                    data=self.data,
+                    model=self.model,
+                )
             else:
                 with open(self.path_results / f'samples.pkl', 'wb') as f:
                     pickle.dump(samples, f)
 
                 # Write results to sBayes results files (separate files for clusters and other parameters)
                     write_samples(
-                        run=0,
+                        run=run,
                         base_path=self.path_results,
                         samples=samples,
                         data=self.data,

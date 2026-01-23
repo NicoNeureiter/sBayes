@@ -68,7 +68,7 @@ def sample_nuts(
             init_strategy=init_to_value(values=s),
             # dense_mass=[("z_raw",)],
             find_heuristic_step_size=True,
-            max_tree_depth=14,
+            max_tree_depth=13,
             target_accept_prob=0.7,
         )
 
@@ -93,6 +93,7 @@ def sample_nuts(
         num_chains=num_chains,
         thinning=thinning,
         progress_bar=not split_runs,
+        chain_method="vectorized",
     )
 
     if init_sample:
@@ -389,7 +390,6 @@ def sample_svi(
         #                              decay_steps=2_000),
         clip_norm=10.0,
     )
-
 
     # Run SVI
     svi = SVI(model.get_model, guide, optimizer, loss=Trace_ELBO())
