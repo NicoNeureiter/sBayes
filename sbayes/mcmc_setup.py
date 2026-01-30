@@ -63,7 +63,7 @@ Warm-up: {mcmc_cfg.warmup.warmup_steps} steps''')
         rng_key = random.PRNGKey(seed=124 * run)
         # rng_key = random.key(0)
 
-        sample_logger = OnlineSampleLogger(self.path_results / f'samples_{run}.h5', self.data, self.model, resume)
+        sample_logger = OnlineSampleLogger(self.path_results, self.data, self.model, run, resume)
 
         self.model.calibrate()
 
@@ -108,10 +108,10 @@ Warm-up: {mcmc_cfg.warmup.warmup_steps} steps''')
             # align_clusters()
             # Write the raw numpyro samples and the mcmc summary to separate files
             if isinstance(sampler, numpyro.infer.mcmc.MCMC):
-                with open(self.path_results / f'samples.pkl', 'wb') as f:
+                with open(self.path_results / f'samples_{run}.pkl', 'wb') as f:
                     pickle.dump(samples, f)
 
-                with open(self.path_results / f'mcmc_summary.pkl', 'wb') as f:
+                with open(self.path_results / f'mcmc_summary_{run}.pkl', 'wb') as f:
                     pickle.dump(summary(samples, group_by_chain=True), f)
 
                 # Write results to sBayes results files (separate files for clusters and other parameters)
@@ -127,7 +127,7 @@ Warm-up: {mcmc_cfg.warmup.warmup_steps} steps''')
                     model=self.model,
                 )
             else:
-                with open(self.path_results / f'samples.pkl', 'wb') as f:
+                with open(self.path_results / f'samples_{run}.pkl', 'wb') as f:
                     pickle.dump(samples, f)
 
                 # Write results to sBayes results files (separate files for clusters and other parameters)

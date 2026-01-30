@@ -6,7 +6,6 @@ from pathlib import Path
 from itertools import product
 
 import numpy as np
-import numpyro.handlers
 import pandas as pd
 from numpyro.infer import log_likelihood
 import pickle
@@ -14,7 +13,7 @@ import tables
 
 from sbayes.load_data import Data, CategoricalFeatures, GaussianFeatures, PoissonFeatures, GenericTypeFeatures
 from sbayes.preprocessing import sample_categorical
-from sbayes.util import format_cluster_columns, get_best_permutation, normalize
+from sbayes.util import format_cluster_columns, get_best_permutation
 from sbayes.model import Model
 
 import warnings
@@ -328,13 +327,15 @@ class OnlineLogger:
 
     def __init__(
         self,
-        path: str,
+        base_path: str,
         data: Data,
         model: Model,
+        run: int,
         resume: bool,
     ):
-        self.path: Path = Path(path)
-        self.state_path = self.path.parent / "state.pkl"
+        self.base_path: Path = Path(base_path)
+        self.path: Path = self.base_path / f'samples_{run}.h5'
+        self.state_path = self.base_path / f'state_{run}.pkl'
         self.data: Data = data
         self.model: Model = model.__copy__()
 
