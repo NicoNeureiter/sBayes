@@ -790,13 +790,6 @@ class GeoPrior(object):
     PriorTypes = GeoPriorConfig.Types
     AggrStrats = GeoPriorConfig.AggregationStrategies
 
-    AGGREGATORS: dict[str, Aggregator] = {
-        AggrStrats.MEAN: np.mean,
-        AggrStrats.SUM: np.sum,
-        AggrStrats.SUM_OF_MEAN: lambda x: np.sum(),
-        AggrStrats.MAX: np.max,
-    }
-
     def __init__(
         self,
         config: GeoPriorConfig,
@@ -809,13 +802,11 @@ class GeoPrior(object):
         self.prior_type = config.type
 
         self.covariance = None
-        self.aggregator = None
         self.aggregation_policy = None
         self.prob_func_type = None
         self.scale = None
         self.inflection_point = None
         self.cached = None
-        self.aggregation = None
         self.linkage = None
 
         self.parse_attributes(config)
@@ -830,7 +821,6 @@ class GeoPrior(object):
             self.prior_type = self.PriorTypes.COST_BASED
             self.scale = config.rate
             self.aggregation_policy = config.aggregation
-            self.aggregator = self.AGGREGATORS[self.aggregation_policy]
 
             self.prob_func_type = config.probability_function
             self.inflection_point = config.inflection_point
@@ -869,42 +859,6 @@ class GeoPrior(object):
             r_grid=r_grid,
             num_samples=self.config.approx_norm_const["steps_per_setting"],
         )
-
-        # # Set up figure
-        # plt.figure(figsize=(10, 8))
-        #
-        # # Run ML estimation with different settings
-        # for num_samples in [10, 200]:
-        #     self._norm_const_interpolator, _, _ = estimate_marginal_log_likelihood_curve(
-        #         base_prior=lambda : self.cluster_prior.get_numpyro_distr(allow_reparameterization=False),
-        #         log_g_fn=lambda z, s: cost(z, s),
-        #         r_grid=r_grid,
-        #         num_samples=num_samples,
-        #     )
-        #     y = self.norm_const_function(r_grid)
-        #     y -= y[-1]
-        #     plt.plot(r_grid, y, lw=0.6, label=f'forw n_samples={num_samples}')
-        #     plt.scatter(r_grid, y, s=12, alpha=0.5)
-        #
-        #
-        # for num_samples in [10, 50]:
-        #     self._norm_const_interpolator, _, _ = estimate_marginal_log_likelihood_curve(
-        #         base_prior=lambda : self.cluster_prior.get_numpyro_distr(allow_reparameterization=False),
-        #         log_g_fn=lambda z, s: cost(z, s),
-        #         r_grid=r_grid[::-1],
-        #         num_samples=num_samples,
-        #     )
-        #     y = self.norm_const_function(r_grid)
-        #     y -= y[-1]
-        #     # plt.plot(r_grid, np.diff(self._norm_const_interpolator(r_grid), append=0.), lw=0.6, label=f'n_samples={num_samples}')
-        #     plt.plot(r_grid, y, lw=0.6, label=f'back n_samples={num_samples}')
-        #     plt.scatter(r_grid, y, s=12, alpha=0.5)
-        #
-        # # plt.xlim(None, 0.)
-        # plt.ylim(None, 0.)
-        # plt.legend()
-        # plt.show()
-        # exit()
 
     def norm_const_function(self, scale):
         return self._norm_const_interpolator(jnp.atleast_1d(scale))
@@ -956,9 +910,6 @@ class GeoPrior(object):
                 aggregated_distance += self.compute_fuzzy_mst_distance(cluster)
         elif self.config.skeleton is GeoPriorConfig.Skeleton.COMPLETE:
             clusters_normed = clusters / cluster_size[None, :]
-
-            # same_cluster_prob = clusters_normed @ clusters.T  # Expected distance to a random language
-            # aggregated_distance = jnp.sum(same_cluster_prob * dist_mat)
 
             if self.aggregation_policy is GeoPrior.AggrStrats.MEAN:
                 same_cluster_prob = jnp.einsum("ik,jk->ijk", clusters_normed, clusters_normed)
