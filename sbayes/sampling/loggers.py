@@ -189,6 +189,7 @@ def write_samples(
         "geoprior_scale",
         "geoprior",
         "geoprior_total_dist",
+        "highest_z_penalty",
     ]
     for param in optional_parameters:
         if param in samples:

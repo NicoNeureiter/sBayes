@@ -366,8 +366,11 @@ class ClusterPriorConfig(BaseConfig):
     hierarchical: bool = False
     """If `true`, use a hierarchical Dirichlet prior for the cluster assignment."""
 
-    estimate_size_prior: bool = False
+    estimate_no_cluster_concentration: bool = False
     """If `true`, estimate the probability for not being in a cluster using MCMC."""
+
+    no_cluster_concentration: float | None = None
+    """Concentration for the 'no cluster' component of the dirichlet distribution."""
 
     dirichlet_config: Optional[CategoricalPriorConfig] = None
     """Configuration of the Dirichlet prior for the cluster assignment."""
@@ -542,6 +545,17 @@ class ModelConfig(BaseConfig):
             if conf not in values['prior']['confounding_effects']:
                 raise NameError(f"Prior for the confounder \'{conf}\' is not defined in the config file.")
         return values
+
+
+    @model_validator(mode="after")
+    def deactivate_dirichlet_transform_when_sampling_from_prior(self):
+        """Ensure that priors are defined for each confounder."""
+        if self.sample_from_prior:
+            self.prior.cluster_effect.categorical.use_parameter_transformation = False
+            for conf_eff in self.prior.confounding_effects.values():
+                for conf_eff_grp in conf_eff.values():
+                    conf_eff_grp.categorical.use_parameter_transformation = False
+        return self
 
 
 class WarmupConfig(BaseConfig):

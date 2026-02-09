@@ -11,15 +11,18 @@ from jax.nn import softmax
 
 import numpyro
 import numpyro.distributions as dist
-from numpyro.distributions.transforms import StickBreakingTransform, ExpTransform
-from numpyro.infer.util import initialize_model, unconstrain_fn, constrain_fn
+from numpyro.infer.util import initialize_model, constrain_fn
 
 from sbayes.model.model_shapes import ModelShapes
-from sbayes.model.prior import Prior, GeoPrior, GaussianConfoundingEffectsPrior, PoissonConfoundingEffectsPrior, \
-    PoissonClusterEffectPrior, dirichlet_from_latent
+from sbayes.model.prior import (
+    Prior,
+    GaussianConfoundingEffectsPrior,
+    PoissonConfoundingEffectsPrior,
+    PoissonClusterEffectPrior,
+    dirichlet_from_latent,
+)
 from sbayes.config.config import ModelConfig
-from sbayes.load_data import Data, FeatureType, GenericTypeFeatures, CategoricalFeatures, GaussianFeatures, \
-    PoissonFeatures
+from sbayes.load_data import Data, CategoricalFeatures, GaussianFeatures, PoissonFeatures
 from sbayes.util import onehot_to_integer_encoding
 
 
@@ -97,6 +100,7 @@ class Model:
         # self.get_model = handlers.seed(self._get_model, rng_seed=0)
 
         self.sample_from_prior = config.sample_from_prior
+        self.allow_dirichlet_transform = not self.sample_from_prior
 
     def calibrate(self):
         """Run any potential calibration procedures that are required before the MCMC run."""
@@ -109,7 +113,7 @@ class Model:
         """Return the model function for the sBayes model."""
 
         # Add the cluster prior to the model
-        z = self.prior.cluster_prior.get_numpyro_distr()
+        z = self.prior.cluster_prior.get_numpyro_distr(allow_reparameterization=self.allow_dirichlet_transform)
 
         # `z` has a dummy "no-cluster" at the end, which we want to remove for most purposes
         clusters = z[..., :-1]
@@ -147,7 +151,7 @@ class Model:
 
         # Sample and assign cluster effects
         cluster_effect_pred = self.prior.cluster_effect_prior[p_name].get_data_dependent_contributions(mixture_weights[:self.n_clusters, :, partition.feature_indices])
-        cluster_effect = self.prior.cluster_effect_prior[p_name].get_numpyro_distr(self.n_clusters, cluster_effect_pred)
+        cluster_effect = self.prior.cluster_effect_prior[p_name].get_numpyro_distr(self.n_clusters, cluster_effect_pred, allow_reparameterization=self.allow_dirichlet_transform)
 
         p_data_by_comp = p_data_by_comp.at[:self.n_clusters].set(cluster_effect[:, None, :, :])
 
@@ -303,10 +307,16 @@ class Model:
             with numpyro.plate("plate_components_w_prior", self.shapes.n_components, dim=-1):
                 w_concentration = numpyro.sample("w_concentration", dist.Gamma(2., 2.))
             with numpyro.plate("plate_objects_w", self.shapes.n_features, dim=-1):
-                w = dirichlet_from_latent("w", w_concentration, offset=normalize(w_concentration, axis=-1))
+                if self.allow_dirichlet_transform:
+                    w = numpyro.sample("w", dist.Dirichlet(w_concentration))
+                else:
+                    w = dirichlet_from_latent("w", w_concentration, offset=normalize(w_concentration, axis=-1))
         else:
             with numpyro.plate("plate_objects_w", self.shapes.n_features, dim=-1):
-                w = dirichlet_from_latent("w", self.w_prior_conc)
+                if self.allow_dirichlet_transform:
+                    w = numpyro.sample("w", dist.Dirichlet(self.w_prior_conc))
+                else:
+                    w = dirichlet_from_latent("w", self.w_prior_conc)
             # w = numpyro.sample("w", dist.Dirichlet(self.w_prior_conc))
         # shape: (n_features, n_components)
 
@@ -316,15 +326,16 @@ class Model:
         # shape: (n_components, n_objects, n_features)
 
         if weights_config.varying_cluster_weights:
-            c0 = numpyro.sample("w_cluster_concentration_0", dist.Gamma(*weights_config.mask_prior_concentration_0))
-            c1 = numpyro.sample("w_cluster_concentration_1", dist.Gamma(*weights_config.mask_prior_concentration_1))
+            # c0 = numpyro.sample("w_cluster_concentration_0", dist.Gamma(*weights_config.mask_prior_concentration_0))
+            # c1 = numpyro.sample("w_cluster_concentration_1", dist.Gamma(*weights_config.mask_prior_concentration_1))
+            c0 = numpyro.sample("w_cluster_concentration_0", dist.Uniform(0, 1))
+            c1 = numpyro.sample("w_cluster_concentration_1", dist.Uniform(0, 1))
             with numpyro.plate("plate_clusters_w", self.n_clusters, dim=-2):
                 with numpyro.plate("plate_features_w", self.shapes.n_features, dim=-1):
-                    # w_cluster = numpyro.sample("w_cluster", dist.Gamma(w[:, 0], 1))
-                    # cluster_factor = numpyro.sample("w_cluster_factor", dist.Gamma(concentration=c, rate=c))
-                    cluster_factor = numpyro.sample("w_cluster_factor", dist.Beta(c1, c0))
-                    # mean_cluster_factor = c1 / (c0 + c1)
-                    # cluster_factor = dirichlet_from_latent("w_cluster_factor", jnp.stack([c0, c1], axis=-1))[..., 0] / mean_cluster_factor
+                    # cluster_factor = numpyro.sample("w_cluster_factor", dist.Beta(c1, c0))
+                    # cluster_factor = beta_from_latent("w_cluster_factor", c1, c0)
+                    cluster_factor_concentration = jnp.stack([c0, c1], axis=-1)
+                    cluster_factor = dirichlet_from_latent("w_cluster_factor", cluster_factor_concentration, offset=normalize(cluster_factor_concentration))[..., 0]
 
             w_cluster = cluster_factor * w[:, 0]
             w_cluster_mixed = clusters @ w_cluster

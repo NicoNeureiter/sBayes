@@ -173,12 +173,12 @@ class CategoricalConfoundingEffectsPrior:
             msg += f"\tPrior {self.config[group].type.value} for confounder {self.conf.name} in partition {self.partition.name} = {group}.\n"
         return msg
 
-    def get_numpyro_distr(self):
+    def get_numpyro_distr(self, allow_reparameterization: bool = True):
         p_name = self.partition.name
         c_name = self.conf.name
         with numpyro.plate(f"plate_groups_{c_name}_{p_name}", self.conf.n_groups, dim=-2):
             with numpyro.plate(f"plate_features_{c_name}_{p_name}", self.partition.n_features, dim=-1):
-                if self.use_parameter_transformation:
+                if allow_reparameterization and self.use_parameter_transformation:
                     conf_eff = dirichlet_from_latent(f"conf_effect_{c_name}_{p_name}", self.concentration_array)
                 else:
                     conf_eff_distr = dist.Dirichlet(self.concentration_array)
@@ -234,6 +234,7 @@ class CategoricalClusterEffectPrior:
         self,
         n_clusters: int,
         clust_eff_pred: jnp.array,  # (n_clusters, n_features, n_states)
+        allow_reparameterization: bool = False,
     ):
         n_features = self.partition.n_features
         p_name = self.partition.name
@@ -241,7 +242,7 @@ class CategoricalClusterEffectPrior:
         # clust_eff_offset = numpyro.param(f"clust_eff_offset_{p_name}", jnp.zeros_like(clust_eff_pred, dtype=jnp.float32))
         with numpyro.plate(f"plate_clusters_{p_name}_offset", n_clusters, dim=-2):
             with numpyro.plate(f"plate_features_{p_name}_offset", n_features, dim=-1):
-                if self.config.use_parameter_transformation:
+                if allow_reparameterization and self.config.use_parameter_transformation:
                     clust_eff = dirichlet_from_latent(
                         name=f"cluster_effect_{p_name}",
                         concentration=self.concentration,
@@ -711,12 +712,12 @@ class ClusterPrior:
             msg += f'\tEstimate cluster prior concentration\n'
         else:
             msg += f'\tFixed cluster prior concentration at c={self.concentration[0]}\n'
-        if self.config.estimate_size_prior:
+        if self.config.estimate_no_cluster_concentration:
             msg += f'\tEstimate non-cluster concentration.\n'
 
         return msg
 
-    def get_numpyro_distr(self, allow_reparameterization=True):
+    def get_numpyro_distr(self, allow_reparameterization: bool = True):
         K = self.shapes.n_clusters
         if self.prior_type is self.PriorType.CATEGORICAL:
             with numpyro.plate("plate_objects_z", self.shapes.n_objects, dim=-1):
@@ -734,15 +735,19 @@ class ClusterPrior:
                 # concentration = np.full((self.shapes.n_clusters + 1,), self.concentration)
                 concentration = self.concentration
 
-            if self.config.estimate_size_prior:
-                # c_nocluster = numpyro.sample("z_concentration_nocluster", dist.Uniform(0, 1))
-                c_nocluster = numpyro.sample("z_concentration_nocluster", dist.Exponential(1.0))
+            if self.config.estimate_no_cluster_concentration:
+                c_nocluster = numpyro.sample("z_concentration_nocluster", dist.Uniform(0, 1))
+                # c_nocluster = numpyro.sample("z_concentration_nocluster", dist.Exponential(1.0))
                 # c_nocluster = numpyro.sample("z_concentration_nocluster", dist.LogNormal(0.0, 1.0))
+            else:
+                c_nocluster = self.config.no_cluster_concentration
+
+            if c_nocluster is not None:
                 concentration = concentration.at[-1].set(c_nocluster)
 
             with numpyro.plate("plate_objects_z", self.shapes.n_objects, dim=-1):
                 if allow_reparameterization and self.config.dirichlet_config.use_parameter_transformation:
-                    z = dirichlet_from_latent("z", concentration)
+                    z = dirichlet_from_latent("z", concentration, offset=normalize(concentration))
                 else:
                     z = numpyro.sample("z", dist.Dirichlet(concentration))
 
@@ -777,6 +782,12 @@ class ClusterPrior:
         #     z = z_stretched
         #
         # numpyro.deterministic("z", z)
+
+
+        # # Penalty on clusters without a core
+        # highest_z_per_cluster = jnp.max(z, axis=-2)[:-1]
+        # highest_z_penalty = numpyro.sample("highest_z_penalty", dist.Uniform(0., 1000.))
+        # numpyro.factor("", -highest_z_penalty * jnp.abs(1 - highest_z_per_cluster))
 
         return z
 
@@ -848,8 +859,8 @@ class GeoPrior(object):
             return c
 
         grid_size = self.config.approx_norm_const["grid_size"]
-        grid_min = 0.1 * self.config.rate
-        grid_max = 4.0 * self.config.rate
+        grid_min = 0.2 * self.config.rate
+        grid_max = 3.0 * self.config.rate
         r_grid = jnp.linspace(grid_min**0.5, grid_max**0.5, grid_size) ** 2
 
         self._norm_const_interpolator, _, _ = estimate_marginal_log_likelihood_curve(
@@ -937,15 +948,6 @@ class GeoPrior(object):
             aggregated_distance = jnp.sum(average_max_distance(clusters, self.cost_matrix))
         else:
             raise ValueError(f'Unknown skeleton type `{self.config.skeleton}`')
-
-        # for i_c in range(n_clusters):
-        #     c = clusters[i_c]
-        #     if self.prior_type is self.PriorTypes.COST_BASED:
-        #         distances = self.compute_distances_along_skeleton(c)
-        #         agg_distance = self.aggregator(distances)
-        #         geo_prior += prob_func(agg_distance)
-        #     else:
-        #         raise ValueError('geo_prior must be either \"uniform\" or \"cost_based\".')
 
         if self.config.estimate_rate:
             sigma = 1.0
