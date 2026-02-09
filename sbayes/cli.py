@@ -44,8 +44,14 @@ def run_experiment(
 
 def runner(args):
     """A wrapper for `run_experiment` to make it callable using the pool.map interface."""
-    i_run, n_clusters, config, experiment_name, custom_settings, resume = args
-    # run_experiment(config, f"{experiment_name}/K{n_clusters}_{i_run}",
+    i_run, n_clusters, config, experiment_name, custom_settings, resume, use_gpu, num_cpus = args
+
+    # Set NumPyro platform in worker process (must be done before any JAX/NumPyro operations)
+    if use_gpu:
+        numpyro.set_platform('gpu')
+    else:
+        numpyro.set_platform('cpu')
+        numpyro.set_host_device_count(num_cpus)
 
     run_settings = deepcopy(custom_settings) if custom_settings else {}
     update_recursive(
@@ -73,6 +79,8 @@ def main(
         resume: bool = False,
         n_clusters: int | list[int] = None,
         i_run: int = None,
+        use_gpu: bool = False,
+        num_cpus: int = 1,
 ):
     # Initialize the experiment
     experiment = Experiment(
@@ -101,7 +109,7 @@ def main(
 
     # Define configurations for each distinct sBayes run that needs to be executed
     run_configurations = list(product(
-        i_run_range, n_clusters, [config], [experiment.experiment_name], [custom_settings], [resume]
+        i_run_range, n_clusters, [config], [experiment.experiment_name], [custom_settings], [resume], [use_gpu], [num_cpus]
     ))
 
     # Run all configurations sequentially or in parallel
@@ -188,13 +196,6 @@ def cli():
             filetypes=(("json files", ".json"), ("yaml files", ".yaml .yml"), ("all files", "*.*")),
         )
 
-    # Setting numpyro device based on CLI argument. Needs to be done before any numpyro commands.
-    if args.gpu:
-        numpyro.set_platform('gpu')
-    else:
-        numpyro.set_platform('cpu')
-        numpyro.set_host_device_count(args.numCPUs)
-
     main(
         config=config,
         experiment_name=args.name,
@@ -202,6 +203,8 @@ def cli():
         resume=args.resume,
         n_clusters=args.numClusters,
         i_run=args.runID,
+        use_gpu=args.gpu,
+        num_cpus=args.numCPUs,
     )
 
 
