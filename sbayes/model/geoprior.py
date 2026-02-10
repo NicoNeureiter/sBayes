@@ -131,6 +131,8 @@ def run_thermodynamic_integration(
 
         mcmc_state = mcmc.last_state
 
+        print(f"    [expected_deriv] {expected_deriv}")
+
     print("...General TI MCMC runs complete.")
 
     dlogc_dr_values = jnp.stack(derivative_expectations)
