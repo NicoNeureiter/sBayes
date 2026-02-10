@@ -148,11 +148,13 @@ class CategoricalConfoundingEffectsPrior:
         n_groups = len(self.group_names)
         self.concentration = {}
         self.concentration_array = np.zeros((n_groups, partition.n_features, partition.n_states), dtype=float)
-        default_config = config.get("<DEFAULT>", CategoricalPriorConfig())
+        default_config = config.get("<DEFAULT>", None)
         for i_g, group in enumerate(self.group_names):
             # If config is not provided for this group, use the default config
             if group not in config:
                 config[group] = default_config
+                if default_config is None:
+                    raise ValueError("Provide a confounding effects prior for every group or specify a default prior")
 
             # Parse the concentration parameters into the concentration dictionary
             self.concentration[group] = parse_dirichlet_concentration(
