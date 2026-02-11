@@ -326,15 +326,15 @@ class Model:
         # shape: (n_components, n_objects, n_features)
 
         if weights_config.varying_cluster_weights:
-            # c0 = numpyro.sample("w_cluster_concentration_0", dist.Gamma(*weights_config.mask_prior_concentration_0))
-            # c1 = numpyro.sample("w_cluster_concentration_1", dist.Gamma(*weights_config.mask_prior_concentration_1))
-            c0 = numpyro.sample("w_cluster_concentration_0", dist.Uniform(0, 1))
-            c1 = numpyro.sample("w_cluster_concentration_1", dist.Uniform(0, 1))
+            c0 = numpyro.sample("w_cluster_concentration_0", dist.Beta(*weights_config.mask_prior_concentration_0))
+            c1 = numpyro.sample("w_cluster_concentration_1", dist.Beta(*weights_config.mask_prior_concentration_1))
+            # c0 = numpyro.sample("w_cluster_concentration_0", dist.Uniform(0, 1))
+            # c1 = numpyro.sample("w_cluster_concentration_1", dist.Uniform(0, 1))
+            cluster_factor_concentration = jnp.stack([c0, c1], axis=-1)
             with numpyro.plate("plate_clusters_w", self.n_clusters, dim=-2):
                 with numpyro.plate("plate_features_w", self.shapes.n_features, dim=-1):
                     # cluster_factor = numpyro.sample("w_cluster_factor", dist.Beta(c1, c0))
                     # cluster_factor = beta_from_latent("w_cluster_factor", c1, c0)
-                    cluster_factor_concentration = jnp.stack([c0, c1], axis=-1)
                     cluster_factor = dirichlet_from_latent("w_cluster_factor", cluster_factor_concentration, offset=normalize(cluster_factor_concentration))[..., 0]
 
             w_cluster = cluster_factor * w[:, 0]

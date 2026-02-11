@@ -302,9 +302,7 @@ class CategoricalPriorConfig(BaseConfig):
     @classmethod
     def warn_when_using_default_type(cls, values):
         if "type" not in values:
-            warnings.warn(
-                f"No `type` defined for `{cls.__name__}`. Using `uniform` as a default."
-            )
+            warnings.warn(f"No `type` defined for `{cls.__name__}`. Using `uniform` as a default.")
         return values
 
     @model_validator(mode="after")
@@ -473,8 +471,8 @@ class WeightsPriorConfig(CategoricalPriorConfig):
     varying_cluster_weights: bool = False
     """If `true`, the weight of the cluster component are allowed to vary across clusters."""
 
-    mask_prior_concentration_0: tuple = (1.0, 0.5)
-    mask_prior_concentration_1: tuple = (1.0, 0.5)
+    mask_prior_concentration_0: tuple = (1, 1)
+    mask_prior_concentration_1: tuple = (1, 1)
     """The (alpha, beta) parameters of the Beta prior on the weight mask (if varying_cluster_weights)."""
 
     _hierarchical: bool = False
