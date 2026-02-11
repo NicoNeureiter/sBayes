@@ -114,7 +114,7 @@ def run_thermodynamic_integration(
     for i, r in enumerate(r_grid):
         print(f"  [TI {i + 1}/{len(r_grid)}] MCMC for r = {r:.3g}")
         mcmc = MCMC(kernel, num_samples=num_samples, **mcmc_args)
-        mcmc.post_warmup_state = mcmc_state
+        kernel._init_strategy = numpyro.infer.initialization.init_to_value(values=mcmc_state)
         mcmc.run(
             keys[i],
             r=r,
@@ -190,12 +190,16 @@ def estimate_marginal_log_likelihood_curve(
         rng_key, log_g_fn, base_prior, r_grid, num_samples, num_warmup,
     )
 
+    # Order grid and values to make grid ascending
+
     order = jnp.argsort(r_grid)
-    interpolator = RegularGridInterpolator((r_grid[order],), log_c_values[order])
-    # print(r_grid)
-    # print(interpolator(r_grid))
-    # print(log_c_values)
-    # exit()
+    r_grid = r_grid[order]
+    log_c_values = log_c_values[order]
+
+    # Ensure values end in 0
+    log_c_values -= log_c_values[-1]
+
+    interpolator = RegularGridInterpolator((r_grid,), log_c_values)
 
     return interpolator, dlogc_dr_values, log_c_values
 
