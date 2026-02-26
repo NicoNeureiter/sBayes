@@ -72,6 +72,7 @@ def write_samples(
 
             # Permute clusters
             clusters = clusters[permutation]
+            clusters_samples_cont[i, :, :-1] = clusters_samples_cont[i, :, :-1][:, permutation]
             for param_name in get_cluster_effect_names(partitions):
                 samples[param_name][i] = samples[param_name][i, permutation]
 
