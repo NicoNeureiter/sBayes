@@ -18,7 +18,7 @@ import libpysal as pysal
 
 from sbayes.model.geoprior import estimate_marginal_log_likelihood_curve
 from sbayes.model.model_shapes import ModelShapes
-from sbayes.util import dirichlet_logpdf, log_expit, FLOAT_TYPE, normalize_weights, EPS, normalize
+from sbayes.util import log_expit, FLOAT_TYPE, normalize_weights, EPS, normalize
 from sbayes.config.config import PriorConfig, CategoricalPriorConfig, GeoPriorConfig, ClusterPriorConfig, \
     ConfoundingEffectConfig, GaussianVariancePriorConfig, GaussianMeanPriorConfig, GaussianPriorConfig, \
     ClusterEffectConfig, PoissonPriorConfig
@@ -738,9 +738,9 @@ class ClusterPrior:
                 concentration = self.concentration
 
             if self.config.estimate_no_cluster_concentration:
-                c_nocluster = numpyro.sample("z_concentration_nocluster", dist.Uniform(0, 1))
+                # c_nocluster = numpyro.sample("z_concentration_nocluster", dist.Uniform(0, 1))
                 # c_nocluster = numpyro.sample("z_concentration_nocluster", dist.Exponential(1.0))
-                # c_nocluster = numpyro.sample("z_concentration_nocluster", dist.LogNormal(0.0, 1.0))
+                c_nocluster = numpyro.sample("z_concentration_nocluster", dist.LogNormal(0.0, 1.0))
             else:
                 c_nocluster = self.config.no_cluster_concentration
 
@@ -1210,55 +1210,6 @@ def compute_delaunay_distances(
         return np.zeros(1)
     else:
         return dists.tocsr()[dists.nonzero()]
-
-
-
-def compute_group_effect_prior(
-        group_effect: NDArray[float],  # shape: (n_features, n_states)
-        concentration: list[NDArray],  # shape: (n_applicable_states[f],) for f in features
-        applicable_states: list[NDArray],  # shape: (n_applicable_states[f],) for f in features
-) -> float:
-    """" This function evaluates the prior on probability vectors in a cluster or confounder group.
-    Args:
-        group_effect: The group effect for a confounder
-        concentration: List of Dirichlet concentration parameters.
-        applicable_states: List of available states per feature
-    Returns:
-        The prior log-pdf of the confounding effect for each feature
-    """
-    n_features, n_states = group_effect.shape
-
-    log_p = 0.0
-    for f in range(n_features):
-        states_f = applicable_states[f]
-        conf_group = group_effect[f, states_f]
-        log_p += dirichlet_logpdf(x=conf_group, alpha=concentration[f])
-
-    return log_p
-
-
-def compute_group_effect_prior_pointwise(
-        group_effect: NDArray[float],  # shape: (n_features, n_states)
-        concentration: list[NDArray],  # shape: (n_applicable_states[f],) for f in features
-        applicable_states: list[NDArray],  # shape: (n_applicable_states[f],) for f in features
-) -> NDArray[float]:
-    """" This function evaluates the prior on probability vectors in a cluster or confounder group.
-    Args:
-        group_effect: The group effect for a confounder
-        concentration: List of Dirichlet concentration parameters.
-        applicable_states: List of available states per feature
-    Returns:
-        The prior log-pdf of the confounding effect for each feature
-    """
-    n_features, n_states = group_effect.shape
-
-    p = np.zeros(n_features)
-    for f in range(n_features):
-        states_f = applicable_states[f]
-        conf_group = group_effect[f, states_f]
-        p[f] = dirichlet_logpdf(x=conf_group, alpha=concentration[f])
-
-    return p
 
 
 def update_weights(sample, caching: bool = True) -> NDArray[float]:
