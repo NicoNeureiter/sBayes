@@ -393,12 +393,12 @@ class PoissonRatePrior:
         return f'Invalid prior type {s} for {name} (choose from [{valid_types}]).'
 
     def get_numpyro_distr(self):
-        if isinstance(self.config, PoissonRatePrior):
+        if isinstance(self.config, PoissonPriorConfig):
             typ = self.config.type
         else:
             assert isinstance(self.config, dict), self.config
             typ = next(iter(self.config.values())).type
-            assert (all(v.variance.type == typ for v in self.config.values()))
+            #assert (all(v.variance.type == typ for v in self.config.values()))
 
         if typ is PoissonPriorConfig.Types.JEFFREYS:
             return dist.Exponential(rate=self.parameters)

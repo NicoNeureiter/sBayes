@@ -1,12 +1,11 @@
 from __future__ import annotations
-from typing import Sequence, TypeVar
+from typing import Sequence, TypeVar, List
 
 import numpy as np
 from numpy.typing import NDArray
 import pandas as pd
 
 from sbayes.util import PathLike, parse_cluster_columns
-
 
 TResults = TypeVar("TResults", bound="Results")
 
@@ -29,16 +28,26 @@ class Results:
         clusters: NDArray[bool],
         parameters: pd.DataFrame,
         burn_in: float = 0.1,
+        feature_names: List[str] = None,
+        confounder_names: List[str] = None
     ):
         clusters, parameters = self.drop_burnin(clusters, parameters, burn_in)
         self.clusters = clusters
         self.parameters = parameters
-
-        self.groups_by_confounders = self.get_groups_by_confounder(parameters.columns)
         self.cluster_names = self.get_cluster_names(parameters.columns)
 
         # Parse feature, state, family and area names
-        self.feature_names = extract_feature_names(parameters)
+        if feature_names is not None:
+            self.feature_names = feature_names
+        else:
+            self.feature_names = extract_feature_names(parameters)
+
+        if confounder_names is not None:
+            self.groups_by_confounders = confounder_names
+            self.get_groups_by_confounder(parameters.columns)
+        else:
+            self.groups_by_confounders = self.get_groups_by_confounder(parameters.columns)
+
         self.feature_states = [
             extract_state_names(parameters, prefix=f"areal_{self.cluster_names[0]}_{f}_")
             for f in self.feature_names
@@ -124,11 +133,15 @@ class Results:
         cls: type[TResults],
         clusters_path: PathLike,
         parameters_path: PathLike,
-        burn_in: float = 0.1
+        burn_in: float = 0.1,
+        feature_names: List[str] = None,
+        confounder_names: List[str] = None,
+
     ) -> TResults:
         clusters = cls.read_clusters(clusters_path)
         parameters = cls.read_stats(parameters_path)
-        return cls(clusters, parameters, burn_in=burn_in)
+        return cls(clusters, parameters, burn_in=burn_in,
+                   feature_names = feature_names, confounder_names = confounder_names)
 
     @staticmethod
     def drop_burnin(clusters, parameters, burn_in):

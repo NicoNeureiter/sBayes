@@ -158,6 +158,7 @@ def write_samples(
                 )
                 all_conf_eff_dfs.append(conf_eff_mean_df)
 
+
                 conf_eff_variance_df = samples_array_to_df(
                     param_samples=samples[f"conf_effect_{i_c}_{partition.name}_variance"],
                     names=[conf.group_names, partition.names],
@@ -166,9 +167,27 @@ def write_samples(
                 )
                 all_conf_eff_dfs.append(conf_eff_variance_df)
 
+        elif isinstance(partition, PoissonFeatures):
+            cluster_eff_rate_df = samples_array_to_df(
+                param_samples=samples[f'cluster_effect_{partition.name}_rate'],
+                names=[cluster_names, partition.names],
+                prefix='areal',
+                suffix='rate',
+            )
+            all_cluster_eff_dfs.append(cluster_eff_rate_df)
+
+            # Collect, reshape and place all confounding effects in data frames
+            for i_c, conf in enumerate(data.confounders.values()):
+                conf_eff_rate_df = samples_array_to_df(
+                    param_samples=samples[f"conf_effect_{i_c}_{partition.name}_rate"],
+                    names=[conf.group_names, partition.names],
+                    prefix=conf.name,
+                    suffix='rate'
+                )
+                all_conf_eff_dfs.append(conf_eff_rate_df)
+
         else:
-            print(partition)
-            raise NotImplementedError("Only categorical features are currently supported.")
+            raise NotImplementedError("Only categorical, gaussian and poisson features are currently supported.")
 
 
     # Add cluster and confounding effects to the data frame list

@@ -360,8 +360,9 @@ def plot_simulated_against_inferred(
     simulated: NDArray[np.floating],
     inferred: NDArray[np.floating],
     title: Optional[str] = None,
-    ax: Optional[plt.Axes] = None
-) -> None:
+    ax: Optional[plt.Axes] = None,
+    return_failed_sims: bool = False,
+) -> None | list:
     """
     Plot simulated values on the x-axis against inferred distributions on the y-axis.
 
@@ -374,9 +375,9 @@ def plot_simulated_against_inferred(
         inferred (NDArray[np.floating]): Array of shape (n, m), containing inferred distributions
         title (Optional[str]): Optional title for the plot
         ax (Optional[plt.Axes]): Matplotlib Axes to plot on. Defaults to current axis
-
+        return_failed_sims (bool): Whether to return the ids of failed simulations
     Returns:
-        None
+        None | failed simulations (list)
     """
     if ax is None:
         ax = plt.gca()
@@ -387,9 +388,11 @@ def plot_simulated_against_inferred(
 
     min_val = np.min([inferred.min(), simulated.min()])
     max_val = np.max([inferred.max(), simulated.max()])
-
+    failed_sims = []
     for i, sim in enumerate(simulated):
         color = 'lightgrey' if in_perc[i] else 'red'
+        if not in_perc[i]:
+            failed_sims.append(i)
         ax.plot([sim] * inferred.shape[1], inferred[i],
                 'o', markersize=1, alpha=0.1, color=color)
 
@@ -410,4 +413,10 @@ def plot_simulated_against_inferred(
 
     if title:
         ax.set_title(title)
+
+    if return_failed_sims:
+        return failed_sims
+    else:
+        return None
+
 
