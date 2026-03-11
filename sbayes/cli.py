@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import warnings
 from copy import deepcopy
 from itertools import product
@@ -48,8 +49,10 @@ def runner(args):
 
     # Set NumPyro platform in worker process (must be done before any JAX/NumPyro operations)
     if use_gpu:
+        os.environ['JAX_PLATFORMS'] = 'cuda,cpu'
         numpyro.set_platform('gpu')
     else:
+        os.environ["JAX_PLATFORMS"] = "cpu"
         numpyro.set_platform('cpu')
         numpyro.set_host_device_count(num_cpus)
 
@@ -195,6 +198,15 @@ def cli():
             initialdir="..",
             filetypes=(("json files", ".json"), ("yaml files", ".yaml .yml"), ("all files", "*.*")),
         )
+
+    # Setting numpyro device based on CLI argument. Needs to be done before any numpyro commands.
+    if args.gpu:
+        os.environ['JAX_PLATFORMS'] = 'cuda,cpu'
+        numpyro.set_platform('gpu')
+    else:
+        os.environ['JAX_PLATFORMS'] = 'cpu'
+        numpyro.set_platform('cpu')
+        numpyro.set_host_device_count(args.numCPUs)
 
     main(
         config=config,
