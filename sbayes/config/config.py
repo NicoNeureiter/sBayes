@@ -471,12 +471,15 @@ class WeightsPriorConfig(CategoricalPriorConfig):
     varying_cluster_weights: bool = False
     """If `true`, the weight of the cluster component are allowed to vary across clusters."""
 
-    mask_prior_concentration_0: tuple = (1, 1)
-    mask_prior_concentration_1: tuple = (1, 1)
+    mask_prior_concentration_0: tuple = (4.0, 8.0)
+    mask_prior_concentration_1: tuple = (4.0, 8.0)
     """The (alpha, beta) parameters of the Beta prior on the weight mask (if varying_cluster_weights)."""
 
-    _hierarchical: bool = False
+    hierarchical: bool = True
     """Experimental option for a hierarchical prior on weights."""
+
+    concentration_prior: tuple[float, float] = (8.0, 8.0)
+    """The (shape, rate) parameters of the Gamma prior on hierarchical weight concentrations."""
 
 
 class ConfoundingEffectConfig(BaseConfig):
