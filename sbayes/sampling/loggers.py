@@ -176,21 +176,36 @@ def write_samples(
 
     params_df = pd.concat(param_dfs_list, axis=1)
 
+    # Add log_posterior (= -potential_energy) to params_df
+    assert "potential_energy" in samples, "'potential_energy' always needs to be logged in sampler"
+    params_df["log_posterior"] = samples["potential_energy"]
+
+    # Add total log_likelihood to params_df (computed from pointwise likelihoods)
+    if not model.config.sample_from_prior:
+        likelihoods_by_partition_stats = log_likelihood(model.get_model, samples)
+        likelihoods_flat_stats = np.empty((n_samples,) + data.features.all_features.shape)
+        for p in data.features.partitions:
+            likelihoods_flat_stats[:, :, p.feature_indices] = likelihoods_by_partition_stats[f"x_{p.name}"]
+        # Zero out missing values before summing
+        likelihoods_flat_stats[:, data.features.missing] = 0.0
+        params_df["log_likelihood"] = likelihoods_flat_stats.sum(axis=(-1, -2))
+
+        # Add log_prior = log_posterior - log_likelihood
+        params_df["log_prior"] = params_df["log_posterior"] - params_df["log_likelihood"]
+
     optional_parameters = [
-        "potential_energy",
         "w_cluster_concentration_0",
         "w_cluster_concentration_1",
         "w_cluster_concentration",
         "w_concentration",
         "z_concentration",
         "z_concentration_nocluster",
-        "z_stretch_0",
-        "z_stretch_1",
         "cluster_mask",
         "geoprior_scale",
         "geoprior",
         "geoprior_total_dist",
         "highest_z_penalty",
+        "z0_stretch_factor",
     ]
     for param in optional_parameters:
         if param in samples:
@@ -222,10 +237,7 @@ def write_samples(
 
     # Write pointwise likelihoods to file
     if not model.config.sample_from_prior:
-        likelihoods_by_partition = log_likelihood(model.get_model, samples)
-        likelihoods_flat = np.empty((n_samples,) + data.features.all_features.shape)
-        for p in data.features.partitions:
-            likelihoods_flat[:, :, p.feature_indices] = likelihoods_by_partition[f"x_{p.name}"]
+        likelihoods_flat = likelihoods_flat_stats
 
         # Create the likelihood array
         with tables.open_file(base_path / f'likelihood_K{n_clusters}_{run}.h5', mode="w") as lh_file:
