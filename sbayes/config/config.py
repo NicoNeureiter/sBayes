@@ -475,7 +475,7 @@ class WeightsPriorConfig(CategoricalPriorConfig):
     mask_prior_concentration_1: tuple = (4.0, 8.0)
     """The (alpha, beta) parameters of the Beta prior on the weight mask (if varying_cluster_weights)."""
 
-    hierarchical: bool = True
+    hierarchical: bool = False
     """Experimental option for a hierarchical prior on weights."""
 
     concentration_prior: tuple[float, float] = (8.0, 8.0)
