@@ -271,12 +271,13 @@ class PoissonPriorConfig(BaseConfig):
             return PoissonPriorConfig.__attrdocs__.get(attr)
 
 
-class DirichletPriorConfig(BaseConfig):
+class CategoricalPriorConfig(BaseConfig):
 
     class Types(str, Enum):
         UNIFORM = "uniform"
         DIRICHLET = "dirichlet"
         SYMMETRIC_DIRICHLET = "symmetric_dirichlet"
+        LOGISTIC_NORMAL = "logistic_normal"
 
     type: Types = Types.UNIFORM
     """Type of prior distribution. Choose from: [uniform, dirichlet, symmetric_dirichlet]"""
@@ -288,16 +289,20 @@ class DirichletPriorConfig(BaseConfig):
     parameters: Optional[dict] = None
     """Parameters of the Dirichlet distribution. This or `file` is required if type=dirichlet."""
 
-    prior_concentration: Optional[float] = None
+    prior_concentration: Optional[PositiveFloat] = None
     """The concentration of the prior distribution. Required if type=symmetric_dirichlet."""
+
+    logistic_normal_scale: Optional[PositiveFloat] = None
+    """The scale of the logistic normal prior. Required if type=logistic_normal."""
+
+    use_parameter_transformation: bool = True
+    """If `true`, use a parameter transformation to improve mixing of the MCMC chain."""
 
     @model_validator(mode="before")
     @classmethod
     def warn_when_using_default_type(cls, values):
         if "type" not in values:
-            warnings.warn(
-                f"No `type` defined for `{cls.__name__}`. Using `uniform` as a default."
-            )
+            warnings.warn(f"No `type` defined for `{cls.__name__}`. Using `uniform` as a default.")
         return values
 
     @model_validator(mode="after")
@@ -333,7 +338,7 @@ class DirichletPriorConfig(BaseConfig):
     def get_attr_doc(cls, attr):
         doc = super().get_attr_doc(attr)
         if not doc:
-            return DirichletPriorConfig.__attrdocs__.get(attr)
+            return CategoricalPriorConfig.__attrdocs__.get(attr)
 
 
 class LogisticNormalPriorConfig(BaseConfig):
@@ -359,7 +364,13 @@ class ClusterPriorConfig(BaseConfig):
     hierarchical: bool = False
     """If `true`, use a hierarchical Dirichlet prior for the cluster assignment."""
 
-    dirichlet_config: Optional[DirichletPriorConfig] = None
+    estimate_no_cluster_concentration: bool = False
+    """If `true`, estimate the probability for not being in a cluster using MCMC."""
+
+    no_cluster_concentration: float | None = None
+    """Concentration for the 'no cluster' component of the dirichlet distribution."""
+
+    dirichlet_config: Optional[CategoricalPriorConfig] = None
     """Configuration of the Dirichlet prior for the cluster assignment."""
 
     logistic_normal_config: Optional[LogisticNormalPriorConfig] = None
@@ -395,10 +406,12 @@ class GeoPriorConfig(BaseConfig):
     class AggregationStrategies(str, Enum):
         MEAN = "mean"
         SUM = "sum"
+        SUM_OF_MEAN = "sum_of_mean"
         MAX = "max"
 
     class ProbabilityFunction(str, Enum):
         EXPONENTIAL = "exponential"
+        GAMMA_EXPONENTIAL = "gamma_exponential"
         SQUARED_EXPONENTIAL = "squared_exponential"
         SIGMOID = "sigmoid"
 
@@ -417,8 +430,8 @@ class GeoPriorConfig(BaseConfig):
     """Source of the geographic costs used for cost_based geo-prior. Either `from_data`
     (derive geodesic distances from locations) or path to a CSV file."""
 
-    aggregation: AggregationStrategies = AggregationStrategies.MEAN
-    """Policy defining how costs of single edges are aggregated. Choose from: [mean, sum or max]."""
+    aggregation: AggregationStrategies = AggregationStrategies.SUM_OF_MEAN
+    """Policy defining how costs of single edges are aggregated. Choose from: [mean, sum, sum_of_mean or max]."""
 
     probability_function: ProbabilityFunction = ProbabilityFunction.EXPONENTIAL
     """Monotonic function that defines how aggregated costs are mapped to prior probabilities."""
@@ -434,6 +447,14 @@ class GeoPriorConfig(BaseConfig):
     """The graph along which the costs are aggregated. Per default, the cost of edges on the minimum
      spanning tree (mst) are aggregated. Choose from: [mst, delaunay, diameter, complete_graph]"""
 
+    estimate_rate: bool = False
+    """If `true`, estimate the rate parameter of the geo-prior using MCMC."""
+
+    approx_norm_const: dict[str, int] = {
+        "grid_size": 40,
+        "steps_per_setting": 200,
+    }
+
     @model_validator(mode="before")
     @classmethod
     def validate_geo_prior_parameters(cls, values):
@@ -444,23 +465,33 @@ class GeoPriorConfig(BaseConfig):
         return values
 
 
-class WeightsPriorConfig(DirichletPriorConfig):
+class WeightsPriorConfig(CategoricalPriorConfig):
     """Configuration of the prion on the weights of the mixture components."""
 
     varying_cluster_weights: bool = False
     """If `true`, the weight of the cluster component are allowed to vary across clusters."""
 
+    mask_prior_concentration_0: tuple = (4.0, 8.0)
+    mask_prior_concentration_1: tuple = (4.0, 8.0)
+    """The (alpha, beta) parameters of the Beta prior on the weight mask (if varying_cluster_weights)."""
+
+    hierarchical: bool = False
+    """Experimental option for a hierarchical prior on weights."""
+
+    concentration_prior: tuple[float, float] = (8.0, 8.0)
+    """The (shape, rate) parameters of the Gamma prior on hierarchical weight concentrations."""
+
 
 class ConfoundingEffectConfig(BaseConfig):
     """Configuration of the prior on the parameters of the confounding-effects."""
-    categorical: DirichletPriorConfig | None = None
+    categorical: CategoricalPriorConfig | None = None
     gaussian: GaussianPriorConfig | None = None
     poisson: PoissonPriorConfig | None = None
 
 
 class ClusterEffectConfig(BaseConfig):
     """Configuration of the prior on the parameters of the cluster-effect."""
-    categorical: DirichletPriorConfig | None = None
+    categorical: CategoricalPriorConfig | None = None
     gaussian: GaussianPriorConfig | None = None
     poisson: PoissonPriorConfig | None = None
 
@@ -515,6 +546,17 @@ class ModelConfig(BaseConfig):
             if conf not in values['prior']['confounding_effects']:
                 raise NameError(f"Prior for the confounder \'{conf}\' is not defined in the config file.")
         return values
+
+
+    @model_validator(mode="after")
+    def deactivate_dirichlet_transform_when_sampling_from_prior(self):
+        """Ensure that priors are defined for each confounder."""
+        if self.sample_from_prior:
+            self.prior.cluster_effect.categorical.use_parameter_transformation = False
+            for conf_eff in self.prior.confounding_effects.values():
+                for conf_eff_grp in conf_eff.values():
+                    conf_eff_grp.categorical.use_parameter_transformation = False
+        return self
 
 
 class WarmupConfig(BaseConfig):
@@ -601,6 +643,12 @@ class MCMCConfig(BaseConfig):
 
     initialization_strategy: Literal["SVI", "heuristic"] = "SVI"
     """How to generate an initial sample for the MCMC chain. Choose from: [SVI, heuristic]."""
+
+    svi_guide: Literal["AutoDelta", "AutoNormal"] = "AutoDelta"
+    """Guide family used for SVI-based initialization."""
+
+    svi_steps: PositiveInt = 5_000
+    """Number of optimization steps for SVI-based initialization."""
 
     warmup: WarmupConfig = Field(default_factory=WarmupConfig)
     mc3: MC3Config = Field(default_factory=MC3Config)

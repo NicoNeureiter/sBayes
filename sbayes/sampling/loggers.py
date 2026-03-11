@@ -6,7 +6,6 @@ from pathlib import Path
 from itertools import product
 
 import numpy as np
-import numpyro.handlers
 import pandas as pd
 from numpyro.infer import log_likelihood
 import pickle
@@ -14,7 +13,7 @@ import tables
 
 from sbayes.load_data import Data, CategoricalFeatures, GaussianFeatures, PoissonFeatures, GenericTypeFeatures
 from sbayes.preprocessing import sample_categorical
-from sbayes.util import format_cluster_columns, get_best_permutation, normalize
+from sbayes.util import format_cluster_columns, get_best_permutation
 from sbayes.model import Model
 
 import warnings
@@ -73,6 +72,7 @@ def write_samples(
 
             # Permute clusters
             clusters = clusters[permutation]
+            clusters_samples_cont[i, :, :-1] = clusters_samples_cont[i, :, :-1][:, permutation]
             for param_name in get_cluster_effect_names(partitions):
                 samples[param_name][i] = samples[param_name][i, permutation]
 
@@ -127,7 +127,7 @@ def write_samples(
             # Subset states for all confounding effects and place in data frames
             for i_c, conf in enumerate(data.confounders.values()):
                 conf_eff_df = samples_array_to_df(
-                    param_samples=samples[f"conf_effect_{i_c}_{partition.name}"],
+                    param_samples=samples[f"conf_effect_{conf.name}_{partition.name}"],
                     names=[conf.group_names, partition.names, state_names[:partition.n_states]],
                     prefix=conf.name)
                 all_conf_eff_dfs.append(conf_eff_df)
@@ -195,19 +195,41 @@ def write_samples(
 
     params_df = pd.concat(param_dfs_list, axis=1)
 
+    # Add log_posterior (= -potential_energy) to params_df
+    assert "potential_energy" in samples, "'potential_energy' always needs to be logged in sampler"
+    params_df["log_posterior"] = samples["potential_energy"]
+
+    # Add total log_likelihood to params_df (computed from pointwise likelihoods)
+    if not model.config.sample_from_prior:
+        likelihoods_by_partition_stats = log_likelihood(model.get_model, samples)
+        likelihoods_flat_stats = np.empty((n_samples,) + data.features.all_features.shape)
+        for p in data.features.partitions:
+            likelihoods_flat_stats[:, :, p.feature_indices] = likelihoods_by_partition_stats[f"x_{p.name}"]
+        # Zero out missing values before summing
+        likelihoods_flat_stats[:, data.features.missing] = 0.0
+        params_df["log_likelihood"] = likelihoods_flat_stats.sum(axis=(-1, -2))
+
+        # Add log_prior = log_posterior - log_likelihood
+        params_df["log_prior"] = params_df["log_posterior"] - params_df["log_likelihood"]
+
     optional_parameters = [
-        "potential_energy",
         "w_cluster_concentration_0",
         "w_cluster_concentration_1",
+        "w_cluster_concentration",
+        "w_concentration",
         "z_concentration",
-        "z_stretch_0",
-        "z_stretch_1",
-        "cluster_mask"
+        "z_concentration_nocluster",
+        "cluster_mask",
+        "geoprior_scale",
+        "geoprior",
+        "geoprior_total_dist",
+        "highest_z_penalty",
+        "z0_stretch_factor",
     ]
     for param in optional_parameters:
         if param in samples:
             s = samples[param]
-            assert len(s.shape) <= 2
+            assert len(s.shape) <= 2, f"{param}: {s.shape}"
             if len(s.shape) == 1:
                 params_df[param] = s
             else:
@@ -234,10 +256,7 @@ def write_samples(
 
     # Write pointwise likelihoods to file
     if not model.config.sample_from_prior:
-        likelihoods_by_partition = log_likelihood(model.get_model, samples)
-        likelihoods_flat = np.empty((n_samples,) + data.features.all_features.shape)
-        for p in data.features.partitions:
-            likelihoods_flat[:, :, p.feature_indices] = likelihoods_by_partition[f"x_{p.name}"]
+        likelihoods_flat = likelihoods_flat_stats
 
         # Create the likelihood array
         with tables.open_file(base_path / f'likelihood_K{n_clusters}_{run}.h5', mode="w") as lh_file:
@@ -341,13 +360,15 @@ class OnlineLogger:
 
     def __init__(
         self,
-        path: str,
+        base_path: str,
         data: Data,
         model: Model,
+        run: int,
         resume: bool,
     ):
-        self.path: Path = Path(path)
-        self.state_path = self.path.parent / "state.pkl"
+        self.base_path: Path = Path(base_path)
+        self.path: Path = self.base_path / f'samples_{run}.h5'
+        self.state_path = self.base_path / f'state_{run}.pkl'
         self.data: Data = data
         self.model: Model = model.__copy__()
 
@@ -404,7 +425,6 @@ class OnlineSampleLogger(OnlineLogger):
     """The OnlineSampleLogger continually writes the samples to a pytables file (.h5)."""
 
     def __init__(self, *args, **kwargs):
-        self.logged_likelihood_array = None
         super().__init__(*args, **kwargs)
 
     def open(self):

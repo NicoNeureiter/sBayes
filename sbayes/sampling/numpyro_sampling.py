@@ -18,6 +18,7 @@ from numpyro.infer.util import initialize_model
 from numpyro.optim import Adam
 
 from sbayes.model import Model
+from sbayes.sampling.estimate_mass_matrix import fix_inv_mass_matrix_diag
 from sbayes.sampling.initialization import get_svi_init_sample, find_best_initial_sample
 from sbayes.sampling.loggers import OnlineSampleLogger
 from sbayes.util import timeit
@@ -31,9 +32,12 @@ def get_model_dims(model, rng_key):
     dim = sum(p.size for p in init_params.z.values())
     return dim
 
-def get_model_shapes(model, rng_key):
-    init_params, _, _, _ = initialize_model(rng_key, model)
+def get_model_shapes(model):
+    init_params, _, _, _ = initialize_model(random.key(0), model)
     return {k: v.size for k, v in init_params.z.items()}
+
+def get_state_shapes(state):
+    return {k: v.shape for k, v in state.z.items()}
 
 
 @timeit('s')
@@ -48,25 +52,18 @@ def sample_nuts(
     init_sample: dict = None,
     init_strategy: str = "SVI",
     sample_logger: OnlineSampleLogger = None,
+    svi_guide: str = "AutoDelta",
+    svi_steps: int = 4000,
 ):
-
-    # dense_mass = []
-    # # for i in range(model.n_clusters):
-    # dense_mass.append(
-    #     (f"z_logit",) + tuple(f"cluster_effect_{p.name}" for p in model.partitions)
-    # )
-    # dense_mass.append(("w",))
-    #
-    # # for i, conf in enumerate(model.data.confounders.values()):
-    # #     for p in model.partitions:
-    # #         dense_mass.append([f"conf_effect_{i}_{p.name}"])
-    #
-    # print(dense_mass)
-
     # Generate an initial sample using SVI
     if init_sample is None:
         if init_strategy == "SVI":
-            s = get_svi_init_sample(model, rng_key=rng_key, svi_steps=1000)
+            s = get_svi_init_sample(
+                model,
+                rng_key=rng_key,
+                svi_steps=svi_steps,
+                guide_name=svi_guide,
+            )
         elif init_strategy == "heuristic":
             s = find_best_initial_sample(model, rng_key=rng_key)
         else:
@@ -76,35 +73,22 @@ def sample_nuts(
         kernel = NUTS(
             model.get_model,
             init_strategy=init_to_value(values=s),
-            # dense_mass=dense_mass,
-            # step_size=0.02,
+            # dense_mass=[("z_raw",)],
             find_heuristic_step_size=True,
-            # adapt_step_size=False,
-            # max_tree_depth=9,
-            # target_accept_prob=0.85,
+            max_tree_depth=13,
+            target_accept_prob=0.7,
         )
 
+        # mcmc_warmup = MCMC(sampler=kernel, num_warmup=num_warmup, num_samples=num_samples,
+        #                    num_chains=num_chains, thinning=thinning, progress_bar=False)
+        # rng_key, subkey = random.split(rng_key, 2)
+        # mcmc_warmup.warmup(rng_key=subkey)
+        # imm = fix_inv_mass_matrix_diag(mcmc_warmup.post_warmup_state.adapt_state.inverse_mass_matrix,
+        #                                model, get_state_shapes(mcmc_warmup.post_warmup_state))
+        # kernel = NUTS(model.get_model, init_strategy=init_to_value(values=s), inverse_mass_matrix=imm,
+        #               adapt_mass_matrix=False, find_heuristic_step_size=True)
     else:
         kernel = NUTS(model.get_model)
-
-    # # MC3 kernel
-    # # def make_nuts_kernel(model_fn, *args, **kwargs):
-    # #     # return tfp_kernels.NoUTurnSampler(model_fn, step_size=1.0)
-    # #     return tfp.mcmc.HamiltonianMonteCarlo(
-    # #         target_log_prob_fn=model_fn,
-    # #         step_size=200 / jnp.sqrt(0.5 ** jnp.arange(4)[..., None]),
-    # #         num_leapfrog_steps=jnp.asarray(10),
-    # #     )
-    # #
-    # # kernel = tfp_kernels.ReplicaExchangeMC(
-    # #     model=model.get_model,
-    # #     inverse_temperatures=0.95 ** jnp.arange(4, dtype=jnp.float32),
-    # #     make_kernel_fn=make_nuts_kernel,
-    # # )
-    # kernel = tfp_kernels.MetropolisAdjustedLangevinAlgorithm(
-    #     model=model.get_model,
-    #     step_size=.1,
-    # )
 
     num_writes = num_samples // write_interval
     split_runs = num_writes >= 2
@@ -116,7 +100,9 @@ def sample_nuts(
         num_chains=num_chains,
         thinning=thinning,
         progress_bar=not split_runs,
+        chain_method="vectorized",
     )
+
     if init_sample:
         mcmc.post_warmup_state = mcmc_state = init_sample
     else:
@@ -160,14 +146,14 @@ def sample_nuts(
 
             num_samples_done += samples["potential_energy"].shape[1]
 
-        samples = sample_logger.read_samples()
-
     else:
         mcmc.run(rng_key, extra_fields=("potential_energy",))
         samples = mcmc.get_samples(group_by_chain=True)
         samples["potential_energy"] = mcmc.get_extra_fields(group_by_chain=True)["potential_energy"]
         sample_logger.write_sample(samples)
         sample_logger.dump_state(mcmc.last_state)
+
+    samples = sample_logger.read_samples()
 
     return mcmc, samples
 
@@ -247,15 +233,16 @@ def sample_nuts_with_annealing(
 ):
     post_warmup_state = None
 
+    warmup_mcmc = MCMC(
+        sampler=NUTS(lambda: model.get_tempered_model(temperature=temp)),
+        num_warmup=50,
+        num_samples=1,
+        num_chains=num_chains,
+        progress_bar=False,
+    )
     # for temp in [16, 8, 4, 2, 1]:
     for temp in [8, 4, 2, 1]:
-        warmup_mcmc = MCMC(
-            sampler=NUTS(lambda : model.get_tempered_model(temperature=temp)),
-            num_warmup=50,
-            num_samples=1,
-            num_chains=num_chains,
-            progress_bar=False,
-        )
+        warmup_mcmc.sampler = NUTS(lambda : model.get_tempered_model(temperature=temp))
         warmup_mcmc.post_warmup_state = post_warmup_state
         warmup_mcmc.warmup(rng_key)
         post_warmup_state = warmup_mcmc.last_state
@@ -410,7 +397,6 @@ def sample_svi(
         #                              decay_steps=2_000),
         clip_norm=10.0,
     )
-
 
     # Run SVI
     svi = SVI(model.get_model, guide, optimizer, loss=Trace_ELBO())
@@ -601,4 +587,3 @@ def logistic_multivariate_normal(name: str, loc, covariance_matrix):
         dist.MultivariateNormal(loc, covariance_matrix),
         transforms=[StickBreakingTransform()],
     ))
-

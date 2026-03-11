@@ -5,7 +5,6 @@ import pickle
 import time
 
 from jax import random
-from numpy.typing import NDArray
 import numpyro
 from numpyro.diagnostics import summary
 
@@ -14,12 +13,10 @@ from sbayes.sampling.loggers import write_samples, OnlineSampleLogger
 from sbayes.experiment_setup import Experiment
 from sbayes.load_data import Data
 from sbayes.sampling.numpyro_sampling import sample_nuts, sample_svi
+from sbayes.tools.realign_clusters_within_run import align_clusters
 
 
 class MCMCSetup:
-
-    swap_matrix: NDArray[int] = None
-    last_swap_matrix_save: int = 0
 
     def __init__(self, data: Data, experiment: Experiment):
         self.data = data
@@ -53,7 +50,7 @@ Warm-up: {mcmc_cfg.warmup.warmup_steps} steps''')
     def sample(
         self,
         resume: bool = False,
-        # run: int = 1,
+        run: int = 1,
     ):
         mcmc_config = self.config.mcmc
         results_config = self.config.results
@@ -63,10 +60,12 @@ Warm-up: {mcmc_cfg.warmup.warmup_steps} steps''')
         inference_mode = "MCMC"
         # inference_mode = "SVI"
 
-        # rng_key = random.PRNGKey(seed=124 * run)
-        rng_key = random.key(0)
+        rng_key = random.PRNGKey(seed=124 * run)
+        # rng_key = random.key(0)
 
-        sample_logger = OnlineSampleLogger(self.path_results / 'samples.h5', self.data, self.model, resume)
+        sample_logger = OnlineSampleLogger(self.path_results, self.data, self.model, run, resume)
+
+        self.model.calibrate()
 
         if inference_mode == "MCMC":
             # If resuming, read the initial sample from the samples.h5 file
@@ -77,12 +76,10 @@ Warm-up: {mcmc_cfg.warmup.warmup_steps} steps''')
                 initial_sample = None
 
             # sampler, samples = sample_nuts_with_annealing(
-            #     model=self.model,
             sampler, samples = sample_nuts(
                 model=self.model,
                 num_warmup=mcmc_config.warmup.warmup_steps,
                 num_samples=mcmc_config.steps,
-                # num_chains=1,  # NN: Could be configurable, but I don't see a clear advantage over parallel runs
                 num_chains=mcmc_config.runs,
                 rng_key=rng_key,
                 write_interval=results_config.write_interval,
@@ -90,6 +87,8 @@ Warm-up: {mcmc_cfg.warmup.warmup_steps} steps''')
                 init_sample=initial_sample,
                 init_strategy=mcmc_config.initialization_strategy,
                 sample_logger=sample_logger,
+                svi_guide=mcmc_config.svi_guide,
+                svi_steps=mcmc_config.svi_steps,
             )
 
         elif inference_mode == "SVI":
@@ -97,11 +96,9 @@ Warm-up: {mcmc_cfg.warmup.warmup_steps} steps''')
                 model=self.model,
                 num_warmup=mcmc_config.warmup.warmup_steps,
                 num_samples=mcmc_config.samples,
-                # num_chains=1,  # NN: Could be configurable, but I don't see a clear advantage over parallel runs
                 num_chains=mcmc_config.runs,
                 rng_key=rng_key,
                 thinning=mcmc_config.steps // mcmc_config.samples,
-                # show_inference_summary=show_inference_summary,
                 # guide=get_manual_guide(self.model),
             )
         else:
@@ -110,31 +107,34 @@ Warm-up: {mcmc_cfg.warmup.warmup_steps} steps''')
         self.logger.info("Writing samples to disk")
 
         if not results_config.samples_file_only:
+            # align_clusters()
             # Write the raw numpyro samples and the mcmc summary to separate files
             if isinstance(sampler, numpyro.infer.mcmc.MCMC):
-                with open(self.path_results / f'samples.pkl', 'wb') as f:
+                with open(self.path_results / f'samples_{run}.pkl', 'wb') as f:
                     pickle.dump(samples, f)
 
-                with open(self.path_results / f'mcmc_summary.pkl', 'wb') as f:
+                with open(self.path_results / f'mcmc_summary_{run}.pkl', 'wb') as f:
                     pickle.dump(summary(samples, group_by_chain=True), f)
 
                 # Write results to sBayes results files (separate files for clusters and other parameters)
-                for i in range(mcmc_config.runs):
-                    samples_i = {k: v[i] for k, v in samples.items()}
-                    write_samples(
-                        run=i,
-                        base_path=self.path_results,
-                        samples=samples_i,
-                        data=self.data,
-                        model=self.model,
-                    )
+                assert mcmc_config.runs == 1
+                # for i in range(mcmc_config.runs):
+                # samples_i = {k: v[run] for k, v in samples.items()}
+                samples_i = {k: v[0] for k, v in samples.items()}
+                write_samples(
+                    run=run,
+                    base_path=self.path_results,
+                    samples=samples_i,
+                    data=self.data,
+                    model=self.model,
+                )
             else:
-                with open(self.path_results / f'samples.pkl', 'wb') as f:
+                with open(self.path_results / f'samples_{run}.pkl', 'wb') as f:
                     pickle.dump(samples, f)
 
                 # Write results to sBayes results files (separate files for clusters and other parameters)
                     write_samples(
-                        run=0,
+                        run=run,
                         base_path=self.path_results,
                         samples=samples,
                         data=self.data,

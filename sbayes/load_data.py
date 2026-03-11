@@ -134,8 +134,9 @@ class CategoricalFeatures(GenericTypeFeatures):
 
     """Integer representation of categorical features."""
 
-    state_names: NDArray[StateName]         # (n_features, n_states)
+    state_names: NDArray[StateName]                 # (n_features, n_states)
     state_names_dict: dict[FeatureName, NDArray[StateName]]
+    _binarized: NDArray[StateName] | None = None    # (n_objects, n_features, n_states)
 
     NA: int = -1
 
@@ -222,9 +223,10 @@ class CategoricalFeatures(GenericTypeFeatures):
 
     def to_binary(self):
         """Convert to binary one-hot encoding."""
-        binarized = np.eye(self.n_states, dtype=bool)[self.values]
-        binarized[self.na_values, :] = False
-        return binarized
+        if self._binarized is None:
+            self._binarized = np.eye(self.n_states, dtype=bool)[self.values]
+            self._binarized[self.na_values, :] = False
+        return self._binarized
 
 class GaussianFeatures(GenericTypeFeatures):
     """Features that are continuous measurements following a Gaussian distribution."""
