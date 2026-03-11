@@ -5,7 +5,7 @@ from copy import deepcopy
 import unittest
 
 from sbayes.cli import main as sbayes_main
-from sbayes.simulation import main as simulation_main
+from sbayes.tools.simulation import main as simulation_main
 
 
 class TestExperiment(unittest.TestCase):
