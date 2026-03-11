@@ -87,6 +87,8 @@ Warm-up: {mcmc_cfg.warmup.warmup_steps} steps''')
                 init_sample=initial_sample,
                 init_strategy=mcmc_config.initialization_strategy,
                 sample_logger=sample_logger,
+                svi_guide=mcmc_config.svi_guide,
+                svi_steps=mcmc_config.svi_steps,
             )
 
         elif inference_mode == "SVI":

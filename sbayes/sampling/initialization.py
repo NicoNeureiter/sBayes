@@ -3,64 +3,172 @@ from functools import partial
 
 from numpyro.infer import SVI, Trace_ELBO, init_to_feasible, init_to_value, MCMC, NUTS, init_to_mean
 from numpyro.infer.autoguide import AutoNormal, AutoDelta
-from numpyro.infer.util import log_density, unconstrain_fn, transform_fn
+from numpyro.infer.util import log_density
+from numpyro.infer.util import initialize_model
 from numpyro.optim import Adam
+from numpyro import handlers
 import jax
 import jax.numpy as jnp
 from numpyro.util import find_stack_level
 from tqdm import tqdm
 
 
-def get_svi_init_sample(model, model_args=(), model_kwargs=None, rng_key=None, svi_steps=100, num_chains=1):
-    rng_keys = jax.random.split(rng_key, 3)
+def _sample_has_nans(sample):
+    """Check whether any values in the sample dictionary contain NaN."""
+    return any(jnp.any(jnp.isnan(v)) for v in sample.values())
 
+
+def _sample_has_infs(sample):
+    """Check whether any values in the sample dictionary contain Inf."""
+    return any(jnp.any(jnp.isinf(v)) for v in sample.values())
+
+
+def _validate_init_sample(model, init_sample, model_args=(), model_kwargs=None, rng_key=None):
+    """Validate that the init sample can be used by NUTS without crashing.
+
+    This performs the same checks that NUTS initialization does internally:
+    1. Check for NaN/Inf in sample values
+    2. Check that log_density is finite
+    3. Try the actual NUTS initialization path to catch validation errors
+       (e.g. Unit distribution rejects NaN log_factor)
+    """
     if model_kwargs is None:
         model_kwargs = {}
 
-    # init_loc = find_best_initial_sample(model, rng_key=rng_keys[0])
-    # guide = AutoNormal(model.get_model, init_loc_fn=init_to_value(init_loc))
-    # guide = AutoNormal(model.get_model, init_loc_fn=init_to_mean)
-    guide = AutoDelta(model.get_model, init_loc_fn=init_to_mean)
-    optimizer = Adam(2e-3)
+    # Check 1: NaN in sample values
+    if _sample_has_nans(init_sample):
+        return False, "NaN values in the init sample"
 
-    svi = SVI(model.get_model, guide, optimizer, loss=Trace_ELBO())
-    svi_result = svi.run(rng_keys[1], svi_steps, progress_bar=True, *model_args, **model_kwargs)
+    # Check 2: Inf in sample values
+    if _sample_has_infs(init_sample):
+        return False, "Inf values in the init sample"
 
-    # Return samples from the variational approximation
-    init_sample = guide.sample_posterior(rng_keys[2], svi_result.params)
+    # Check 3: log-density is finite
+    try:
+        log_prob = log_density(model.get_model, model_args, model_kwargs, init_sample)[0]
+        if jnp.isnan(log_prob) or jnp.isinf(log_prob):
+            return False, f"non-finite log-probability ({log_prob})"
+    except Exception as e:
+        return False, f"log_density raised {type(e).__name__}: {e}"
 
-    print(f"SVI sample has log-prob {log_density(model.get_model, model_args, model_kwargs, init_sample)[0]}")
+    # Check 4: Try actual NUTS initialization to catch validation errors
+    # (e.g. numpyro.factor with NaN log_factor that passes log_density but fails validate_args)
+    if rng_key is not None:
+        try:
+            initialize_model(
+                rng_key,
+                model.get_model,
+                model_args=model_args,
+                model_kwargs=model_kwargs,
+                init_strategy=init_to_value(values=init_sample),
+            )
+        except Exception as e:
+            return False, f"initialize_model raised {type(e).__name__}: {e}"
 
-    return init_sample
+    return True, None
 
-    # def init_fn(site):
-    #     if (site["type"] == "sample"
-    #         and not site["is_observed"]
-    #         and not site["fn"].support.is_discrete
-    #     ):
-    #         print(site)
-    #         exit()
-    #         return samples[site["name"]]
-    #     # if site["name"] in samples:
-    #     #     return samples[site["name"]]
-    #     # raise ValueError(f"Unknown site name: {site['name']}")
-    #
-    # return init_fn
 
-    # samples = []
-    # for i in range(num_chains):
-    #     s = guide.sample_posterior(jax.random.PRNGKey(1), svi_result.params)
-    #     s = unconstrain_fn(model.get_model, (), {}, s)
-    #     samples.append(s)
-    #
-    # # stack samples into a single dictionary
-    # samples = {k: jnp.stack([s[k] for s in samples]) for k in samples[0]}
-    #
-    # # samples = guide.sample_posterior(jax.random.PRNGKey(1), svi_result.params)
-    # # for key, value in samples.items():
-    # #     samples[key] = jnp.broadcast_to(value, (num_chains,) + value.shape)
-    #
-    # return samples
+def _get_fixed_site_values(model):
+    """Get the prior mean values for sites that should be held fixed during SVI.
+
+    Returns a dict mapping site name -> fixed value, only for sites that actually
+    exist in the model. Sites are fixed during SVI when gradient-based optimization
+    is counterproductive for them (e.g. because they interact pathologically with
+    other parameters that start far from their posterior values).
+    """
+    fixed = {}
+    if hasattr(model, 'prior') and hasattr(model.prior, 'geo_prior'):
+        geo_cfg = model.prior.geo_prior.config
+        if getattr(geo_cfg, 'estimate_rate', False):
+            fixed["geoprior_log_scale"] = jnp.log(jnp.array(geo_cfg.rate, dtype=jnp.float32))
+    return fixed
+
+
+def get_svi_init_sample(
+    model,
+    model_args=(),
+    model_kwargs=None,
+    rng_key=None,
+    svi_steps=100,
+    max_retries=3,
+    guide_name: str = "AutoDelta",
+):
+    if model_kwargs is None:
+        model_kwargs = {}
+
+    learning_rates = [2e-3, 1e-3, 5e-4]
+
+    # Determine which sites to hold fixed during SVI and their values
+    fixed_values = _get_fixed_site_values(model)
+    if fixed_values:
+        svi_model_fn = handlers.condition(model.get_model, data=fixed_values)
+    else:
+        svi_model_fn = model.get_model
+
+    heuristic_init = None
+    # try:
+    #     heuristic_init = find_best_initial_sample(model, rng_key=rng_key)
+    # except Exception as e:
+    #     warnings.warn(f"Failed to compute heuristic init for SVI: {e}. Falling back to init_to_mean.")
+
+    for attempt in range(max_retries):
+        rng_keys = jax.random.split(rng_key, 4)
+
+        lr = learning_rates[min(attempt, len(learning_rates) - 1)]
+
+        if heuristic_init is not None:
+            init_loc_fn = init_to_value(values={k: v for k, v in heuristic_init.items() if k not in fixed_values})
+        else:
+            init_loc_fn = init_to_mean
+
+        if guide_name == "AutoDelta":
+            guide = AutoDelta(svi_model_fn, init_loc_fn=init_loc_fn)
+        elif guide_name == "AutoNormal":
+            guide = AutoNormal(svi_model_fn, init_loc_fn=init_loc_fn)
+        else:
+            raise ValueError(f"Unknown SVI guide: {guide_name}")
+        optimizer = Adam(lr)
+
+        svi = SVI(svi_model_fn, guide, optimizer, loss=Trace_ELBO())
+        svi_result = svi.run(rng_keys[1], svi_steps, progress_bar=True, *model_args, **model_kwargs)
+
+        # Check if SVI diverged
+        if not jnp.isfinite(svi_result.losses[-1]):
+            warnings.warn(
+                f"SVI attempt {attempt + 1}/{max_retries} diverged with {guide_name} "
+                f"(final loss = {svi_result.losses[-1]}). Retrying with learning rate {lr / 2:.1e}..."
+            )
+            rng_key = rng_keys[0]  # Use a different key for the next attempt
+            continue
+
+        # Return samples from the variational approximation
+        init_sample = guide.sample_posterior(rng_keys[2], svi_result.params)
+
+        # Add the fixed site values back into the sample for MCMC initialization
+        init_sample.update(fixed_values)
+
+        # Comprehensive validation of the init sample
+        valid, reason = _validate_init_sample(
+            model, init_sample, model_args, model_kwargs, rng_key=rng_keys[3]
+        )
+        if not valid:
+            warnings.warn(
+                f"SVI attempt {attempt + 1}/{max_retries} with {guide_name} failed validation: {reason}. "
+                f"Retrying with learning rate {lr / 2:.1e}..."
+            )
+            rng_key = rng_keys[0]
+            continue
+
+        log_prob = log_density(model.get_model, model_args, model_kwargs, init_sample)[0]
+        print(f"SVI ({guide_name}) sample has log-prob {log_prob}")
+        return init_sample
+
+    # All SVI attempts failed – fall back to heuristic initialization
+    warnings.warn(
+        f"All {max_retries} SVI attempts failed for guide {guide_name}. Falling back to heuristic initialization."
+    )
+    return find_best_initial_sample(model, rng_key=rng_key)
+
 
 
 def init_by_svi(site=None, svi_steps=30):

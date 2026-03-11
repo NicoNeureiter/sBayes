@@ -641,6 +641,12 @@ class MCMCConfig(BaseConfig):
     initialization_strategy: Literal["SVI", "heuristic"] = "SVI"
     """How to generate an initial sample for the MCMC chain. Choose from: [SVI, heuristic]."""
 
+    svi_guide: Literal["AutoDelta", "AutoNormal"] = "AutoDelta"
+    """Guide family used for SVI-based initialization."""
+
+    svi_steps: PositiveInt = 5_000
+    """Number of optimization steps for SVI-based initialization."""
+
     warmup: WarmupConfig = Field(default_factory=WarmupConfig)
     mc3: MC3Config = Field(default_factory=MC3Config)
 

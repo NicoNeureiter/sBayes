@@ -52,11 +52,19 @@ def sample_nuts(
     init_sample: dict = None,
     init_strategy: str = "SVI",
     sample_logger: OnlineSampleLogger = None,
+    svi_guide: str = "AutoDelta",
+    svi_steps: int = 4000,
 ):
     # Generate an initial sample using SVI
     if init_sample is None:
         if init_strategy == "SVI":
             s = get_svi_init_sample(model, rng_key=rng_key, svi_steps=4_000)
+            s = get_svi_init_sample(
+                model,
+                rng_key=rng_key,
+                svi_steps=svi_steps,
+                guide_name=svi_guide,
+            )
         elif init_strategy == "heuristic":
             s = find_best_initial_sample(model, rng_key=rng_key)
         else:
@@ -580,4 +588,3 @@ def logistic_multivariate_normal(name: str, loc, covariance_matrix):
         dist.MultivariateNormal(loc, covariance_matrix),
         transforms=[StickBreakingTransform()],
     ))
-
