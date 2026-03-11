@@ -58,7 +58,6 @@ def sample_nuts(
     # Generate an initial sample using SVI
     if init_sample is None:
         if init_strategy == "SVI":
-            s = get_svi_init_sample(model, rng_key=rng_key, svi_steps=4_000)
             s = get_svi_init_sample(
                 model,
                 rng_key=rng_key,

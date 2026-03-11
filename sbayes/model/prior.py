@@ -861,8 +861,8 @@ class GeoPrior(object):
             return c
 
         grid_size = self.config.approx_norm_const["grid_size"]
-        grid_min = 0.2 * self.config.rate
-        grid_max = 3.0 * self.config.rate
+        grid_min = self.config.rate / 8.0
+        grid_max = self.config.rate * 4.0
         r_grid = jnp.linspace(grid_min**0.5, grid_max**0.5, grid_size) ** 2
 
         self._norm_const_interpolator, _, _ = estimate_marginal_log_likelihood_curve(
@@ -873,8 +873,14 @@ class GeoPrior(object):
             num_samples=self.config.approx_norm_const["steps_per_setting"],
         )
 
+        # Store the grid bounds for clamping in norm_const_function
+        self._norm_const_grid_min = float(jnp.min(r_grid))
+        self._norm_const_grid_max = float(jnp.max(r_grid))
+
     def norm_const_function(self, scale):
-        return self._norm_const_interpolator(jnp.atleast_1d(scale))
+        # Clamp scale to interpolation grid bounds to avoid NaN from out-of-bounds extrapolation
+        scale_clamped = jnp.clip(jnp.atleast_1d(scale), self._norm_const_grid_min, self._norm_const_grid_max)
+        return self._norm_const_interpolator(scale_clamped)
 
     def probability_function(self, x: float, scale: float) -> float:
         x_agg = jnp.sum(x)
@@ -1335,15 +1341,12 @@ class RadialPowerTransform(Transform):
         The Jacobian matrix J has the form:
             J_ij = d(y_i)/d(z_j) = r^(beta-1) * delta_ij + (beta-1) * r^(beta-3) * z_i * z_j
 
-        This is: J = r^(beta-1) * I + (beta-1) * r^(beta-3) * z z^T
-
         Using the matrix determinant lemma for (aI + b*uv^T):
             det(aI + b*uv^T) = a^(n-1) * (a + b*||u||^2)  when u=v
 
         Here a = r^(beta-1), b = (beta-1)*r^(beta-3), ||z||^2 = r^2
             det(J) = [r^(beta-1)]^(n-1) * [r^(beta-1) + (beta-1)*r^(beta-3)*r^2]
                    = r^((beta-1)*(n-1)) * [r^(beta-1) + (beta-1)*r^(beta-1)]
-                   = r^((beta-1)*(n-1)) * r^(beta-1) * [1 + (beta-1)]
                    = r^((beta-1)*n) * beta
 
         So: log|det(J)| = n*(beta-1)*log(r) + log(beta)
