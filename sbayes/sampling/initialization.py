@@ -80,7 +80,7 @@ def _get_fixed_site_values(model):
     if hasattr(model, 'prior') and hasattr(model.prior, 'geo_prior'):
         geo_cfg = model.prior.geo_prior.config
         if getattr(geo_cfg, 'estimate_rate', False):
-            fixed["geoprior_log_scale"] = jnp.log(jnp.array(geo_cfg.rate, dtype=jnp.float32))
+            fixed["geoprior_log_scale"] = jnp.log(2 * jnp.array(geo_cfg.rate, dtype=jnp.float32))
     return fixed
 
 
