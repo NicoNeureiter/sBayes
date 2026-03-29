@@ -377,9 +377,11 @@ class ClusterPriorConfig(BaseConfig):
     """Configuration of the Logistic Normal prior for the cluster assignment."""
 
     stretch_and_clip: bool = False
-    stretch_factor: PositiveFloat = 1.0
-    """If stretch_and_clip, stretch the 'no cluster' component up by the stretch_factor 
+    """If `stretch_and_clip`, stretch the 'no cluster' component up by the `stretch_factor`
     and clip the resulting cluster assignment vector back to the probability simplex."""
+
+    stretch_factor: PositiveFloat = 1.0
+    """Factor by which to stretch the 'no cluster' component of the cluster prior."""
 
     cluster_mask: bool = False
     cluster_mask_concentration: PositiveFloat = 1.0
