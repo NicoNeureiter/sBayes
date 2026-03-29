@@ -749,9 +749,9 @@ class ClusterPrior:
 
             with numpyro.plate("plate_objects_z", self.shapes.n_objects, dim=-1):
                 if allow_reparameterization and self.config.dirichlet_config.use_parameter_transformation:
-                    z = dirichlet_from_latent("z", concentration, offset=normalize(concentration))
+                    z = dirichlet_from_latent("z_unstretched", concentration, offset=normalize(concentration))
                 else:
-                    z = numpyro.sample("z", dist.Dirichlet(concentration))
+                    z = numpyro.sample("z_unstretched", dist.Dirichlet(concentration))
 
         elif self.prior_type is self.PriorType.LOGISTIC_NORMAL:
             if self.config.hierarchical:
@@ -769,26 +769,28 @@ class ClusterPrior:
         else:
             raise ValueError(f'Invalid prior type {self.prior_type} for cluster assignment.')
 
-        # if self.config.stretch_and_clip:
-        #     s = self.config.stretch_factor
-        #     z_stretched = z.at[:, -1].multiply(s)
-        #     d = z_stretched[:, -1:] - z[:, -1:]
-        #     z_stretched = z_stretched.at[:, :-1] \
-        #         .subtract((z[:, :-1] / (jnp.sum(z[:, :-1], axis=-1, keepdims=True) + 1E6)) * d)
-        #
-        #     z_stretched = jnp.clip(z_stretched, 1E-9, 1 - 1E-9)
-        #
-        #     # Shouldn't be necessary, but renormalize for numerical stability
-        #     z_stretched = normalize(z_stretched, axis=-1)
-        #
-        #     z = z_stretched
-        #
-        # numpyro.deterministic("z", z)
+        if self.config.stretch_and_clip:
+            # s = self.config.stretch_factor
+            s = 1 + numpyro.sample("z0_stretch_factor", dist.Exponential(1.))
+            z_stretched = z.at[:, -1].multiply(s)
+            d = z_stretched[:, -1:] - z[:, -1:]
+            z_stretched = z_stretched.at[:, :-1] \
+                .subtract((z[:, :-1] / (jnp.sum(z[:, :-1], axis=-1, keepdims=True) + 1E6)) * d)
 
+            z_stretched = jnp.clip(z_stretched, 1E-9, 1 - 1E-9)
+
+            # Shouldn't be necessary, but renormalize for numerical stability
+            z_stretched = normalize(z_stretched, axis=-1)
+
+            z = z_stretched
+
+        numpyro.deterministic("z", z)
 
         # # Penalty on clusters without a core
         # highest_z_per_cluster = jnp.max(z, axis=-2)[:-1]
-        # highest_z_penalty = numpyro.sample("highest_z_penalty", dist.Uniform(0., 1000.))
+        # # highest_z_distr = dist.Beta(1.0, 0.2)
+        # # numpyro.factor("highest_z_penalty", highest_z_distr.log_prob(highest_z_per_cluster))
+        # highest_z_penalty = numpyro.sample("highest_z_penalty", dist.LogNormal(np.log(1.0), 1.))
         # numpyro.factor("", -highest_z_penalty * jnp.abs(1 - highest_z_per_cluster))
 
         return z
