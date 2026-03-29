@@ -42,7 +42,7 @@ def ask_more_files():
 
 
 def ask_confounders(col_names):
-    selected_confounders = []  # List to store user-selected confounders
+    selected_confounders = []
 
     def submit():
         for k, v in confounders_vars.items():
@@ -51,20 +51,43 @@ def ask_confounders(col_names):
         root.quit()
 
     root = tk.Tk()
-    root.geometry("400x800")
-    frame = tk.LabelFrame(root, text="Select all confounder columns")
-    frame.pack()
+    root.title("Select Confounders")
 
+    screen_height = root.winfo_screenheight()
+    win_height = min(800, screen_height - 100)
+    root.geometry(f"400x{win_height}")
+
+    # Scrollable frame for checkboxes
+    container = tk.Frame(root)
+    container.pack(fill="both", expand=True, padx=10, pady=10)
+
+    canvas = tk.Canvas(container, height=win_height - 80)  # explicit height
+    scrollbar = tk.Scrollbar(container, orient="vertical", command=canvas.yview)
+    scroll_frame = tk.Frame(canvas)
+
+    scroll_frame.bind(
+        "<Configure>",
+        lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+    )
+
+    canvas.create_window((0, 0), window=scroll_frame, anchor="nw")
+    canvas.configure(yscrollcommand=scrollbar.set)
+
+    scrollbar.pack(side="right", fill="y")  # pack scrollbar BEFORE canvas
+    canvas.pack(side="left", fill="both", expand=True)
+
+    # Checkboxes inside scrollable frame
     confounders_vars = {}
-
     for c in col_names:
         confounders_vars[c] = tk.IntVar(root)
-        tk.Checkbutton(frame, text=c, width=200, variable=confounders_vars[c], onvalue=1, offvalue=0, anchor="w").pack()
+        tk.Checkbutton(scroll_frame, text=c, variable=confounders_vars[c],
+                       onvalue=1, offvalue=0, anchor="w").pack(fill="x")
 
+    # --- Submit button always at the bottom ---
     submit_button = tk.Button(root, text="Submit", command=submit)
-    submit_button.pack()
-    root.mainloop()
+    submit_button.pack(pady=10)
 
+    root.mainloop()
     return selected_confounders
 
 
@@ -81,7 +104,7 @@ def collect_feature_states(features_path):
     # Ask users for the names of the confounders
     confounder_columns = ask_confounders(features.columns)
     features = features.drop(confounder_columns, axis=1)
-    features = features.applymap(normalize_str)
+    features = features.map(normalize_str)
     return {f: set(features[f].dropna().unique()) for f in features.columns}
 
 
@@ -176,15 +199,21 @@ def guess_feature_type(f):
 
 def main(args):
     # CLI
-    parser = argparse.ArgumentParser(description="Tool to extract feature states from sBayes data files.")
-    parser.add_argument("--input", nargs="*", type=Path, help="The input CSV files")
-    parser.add_argument("--output", nargs="?", type=Path, help="The output YAML file")
-
+    parser = argparse.ArgumentParser(description="Tool to extract feature types from sBayes data files.")
+    parser.add_argument("--input", nargs="*", type=Path, help="The input features.csv file(s)")
+    parser.add_argument("--output", nargs="?", type=Path, help="The output feature_types.yaml file")
+    parser.add_argument("--excludeColumns", nargs="*", type=str,
+                        help="Column names to exclude (e.g., confounders).")
     args = parser.parse_args(args)
     csv_paths = args.input
+    exclude_columns = args.excludeColumns
 
     # GUI
-    if (csv_paths is None) or (len(csv_paths) == 0):
+    gui_required = (csv_paths is None
+                    or exclude_columns is None)
+
+    # GUI
+    if gui_required:
         tk.Tk().withdraw()
 
         # Ask the user for input files
