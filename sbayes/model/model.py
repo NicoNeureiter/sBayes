@@ -305,20 +305,25 @@ class Model:
 
         if weights_config.hierarchical:
             with numpyro.plate("plate_components_w_prior", self.shapes.n_components, dim=-1):
-                w_concentration = numpyro.sample("w_concentration", dist.Gamma(*weights_config.concentration_prior))
-            with numpyro.plate("plate_objects_w", self.shapes.n_features, dim=-1):
-                if self.allow_dirichlet_transform:
-                    w = numpyro.sample("w", dist.Dirichlet(w_concentration))
-                else:
-                    w = dirichlet_from_latent("w", w_concentration, offset=normalize(w_concentration, axis=-1))
+                # Sample from Gamma distribution: raw_conc ~ Gamma(shape, rate)
+                raw_conc = numpyro.sample(
+                    "w_concentration_raw",
+                    dist.Gamma(weights_config.concentration_prior.shape,
+                               weights_config.concentration_prior.rate)
+                )
+                # Apply the lower bound (offset): w_concentration = offset + raw_conc
+                w_concentration = weights_config.concentration_prior.offset + raw_conc
+            numpyro.deterministic("w_concentration", w_concentration)
         else:
-            with numpyro.plate("plate_objects_w", self.shapes.n_features, dim=-1):
-                if self.allow_dirichlet_transform:
-                    w = numpyro.sample("w", dist.Dirichlet(self.w_prior_conc))
-                else:
-                    w = dirichlet_from_latent("w", self.w_prior_conc)
-            # w = numpyro.sample("w", dist.Dirichlet(self.w_prior_conc))
-        # shape: (n_features, n_components)
+            w_concentration = self.w_prior_conc
+
+
+        with numpyro.plate("plate_objects_w", self.shapes.n_features, dim=-1):
+            if self.allow_dirichlet_transform:
+                w = numpyro.sample("w", dist.Dirichlet(w_concentration))
+            else:
+                w = dirichlet_from_latent("w",  w_concentration, offset=normalize(w_concentration, axis=-1))
+        # w.shape: (n_features, n_components)
 
 
         # Multiply weights with `has_component` to mask out components that are not present in the group and normalize
@@ -326,12 +331,18 @@ class Model:
         # shape: (n_components, n_objects, n_features)
 
         if weights_config.varying_cluster_weights:
-            c0 = numpyro.sample("w_cluster_concentration_0", dist.Gamma(*weights_config.mask_prior_concentration_0))
-            c1 = numpyro.sample("w_cluster_concentration_1", dist.Gamma(*weights_config.mask_prior_concentration_1))
-            cluster_factor_concentration = jnp.stack([c0, c1], axis=-1)
+            # Sample cluster weight factor concentrations from Gamma with configurable offsets.
+            factor_conc_cfg = weights_config.cluster_weight_factor_concentration
+            w_cluster_factor_c_distr = dist.Gamma(factor_conc_cfg.shape, factor_conc_cfg.rate)
+            w_cluster_factor_c_raw = numpyro.sample(
+                "w_cluster_factor_c_raw", w_cluster_factor_c_distr.expand((2,)).to_event(1)
+            )
+            w_cluster_factor_c = w_cluster_factor_c_raw + factor_conc_cfg.offset
+            numpyro.deterministic("w_cluster_factor_c", w_cluster_factor_c)
+
             with numpyro.plate("plate_clusters_w", self.n_clusters, dim=-2):
                 with numpyro.plate("plate_features_w", self.shapes.n_features, dim=-1):
-                    cluster_factor = dirichlet_from_latent("w_cluster_factor", cluster_factor_concentration, offset=normalize(cluster_factor_concentration))[..., 1]
+                    cluster_factor = dirichlet_from_latent("w_cluster_factor", w_cluster_factor_c, offset=normalize(w_cluster_factor_c))[..., 1]
 
             w_cluster = cluster_factor * w[:, 0]
             w_cluster_mixed = clusters @ w_cluster

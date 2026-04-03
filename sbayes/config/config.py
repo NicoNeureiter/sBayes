@@ -467,21 +467,58 @@ class GeoPriorConfig(BaseConfig):
         return values
 
 
+class GammaDistributionConfig(BaseConfig):
+    """Shifted Gamma prior: offset + Gamma(shape, rate)."""
+
+    shape: PositiveFloat
+    """Shape parameter (α) of the Gamma distribution."""
+
+    rate: PositiveFloat
+    """Rate parameter (β) of the Gamma distribution. Higher values concentrate the distribution."""
+
+    offset: NonNegativeFloat = 0.0
+    """Lower bound / shift."""
+
+    @property
+    def mean(self) -> float:
+        """Prior mean."""
+        return self.offset + self.shape / self.rate
+
+
 class WeightsPriorConfig(CategoricalPriorConfig):
-    """Configuration of the prion on the weights of the mixture components."""
+    """Prior settings for mixture weights."""
 
     varying_cluster_weights: bool = False
-    """If `true`, the weight of the cluster component are allowed to vary across clusters."""
-
-    mask_prior_concentration_0: tuple = (4.0, 8.0)
-    mask_prior_concentration_1: tuple = (4.0, 8.0)
-    """The (alpha, beta) parameters of the Beta prior on the weight mask (if varying_cluster_weights)."""
+    """Allow cluster weights to vary across clusters."""
 
     hierarchical: bool = False
-    """Experimental option for a hierarchical prior on weights."""
+    """Use a hierarchical prior on weights."""
 
-    concentration_prior: tuple[float, float] = (8.0, 8.0)
-    """The (shape, rate) parameters of the Gamma prior on hierarchical weight concentrations."""
+    concentration_prior: GammaDistributionConfig | tuple[float, float] = Field(
+        default_factory=lambda: GammaDistributionConfig(shape=8.0, rate=8.0)
+    )
+    """Prior for the hierarchical concentration."""
+
+    cluster_weight_factor_concentration: GammaDistributionConfig | tuple[float, float] = Field(
+        default_factory=lambda: GammaDistributionConfig(shape=4.0, rate=8.0)
+    )
+    """Gamma prior on the concentration of the per-cluster weight scaling factor (if varying_cluster_weights)."""
+
+    @model_validator(mode='before')
+    @classmethod
+    def convert_tuple_to_gamma_config(cls, values):
+        """Allow 2-tuples as Gamma parameters."""
+
+        # Convert tuples to GammaDistributionConfig dicts
+        for key in ['concentration_prior', 'cluster_weight_factor_concentration']:
+            if key in values:
+                prior = values[key]
+                if isinstance(prior, (tuple, list)):
+                    if len(prior) == 2:
+                        values[key] = {'shape': prior[0], 'rate': prior[1], 'offset': 0.0}
+                    elif len(prior) == 3:
+                        values[key] = {'shape': prior[0], 'rate': prior[1], 'offset': prior[2]}
+        return values
 
 
 class ConfoundingEffectConfig(BaseConfig):

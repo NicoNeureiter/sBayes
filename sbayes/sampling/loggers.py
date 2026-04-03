@@ -213,9 +213,7 @@ def write_samples(
         params_df["log_prior"] = params_df["log_posterior"] - params_df["log_likelihood"]
 
     optional_parameters = [
-        "w_cluster_concentration_0",
-        "w_cluster_concentration_1",
-        "w_cluster_concentration",
+        "w_cluster_factor_c",
         "w_concentration",
         "z_concentration",
         "z_concentration_nocluster",
