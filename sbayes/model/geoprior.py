@@ -183,7 +183,7 @@ def estimate_marginal_log_likelihood_curve(
         Estimated log c(r) values.
     """
     if rng_key is None:
-        rng_key = random.PRNGKey(np.random.randint(2 ** 32))
+        rng_key = random.PRNGKey(np.random.randint(2 ** 31, dtype=np.uint32))
 
     # Bias grid toward small r (square transform) for better resolution near 0
     dlogc_dr_values, log_c_values = run_thermodynamic_integration(
