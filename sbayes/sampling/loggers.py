@@ -8,6 +8,7 @@ from itertools import product
 import numpy as np
 import pandas as pd
 from numpyro.infer import log_likelihood
+from numpyro import handlers
 import pickle
 import tables
 
@@ -201,7 +202,7 @@ def write_samples(
 
     # Add total log_likelihood to params_df (computed from pointwise likelihoods)
     if not model.config.sample_from_prior:
-        likelihoods_by_partition_stats = log_likelihood(model.get_model, samples)
+        likelihoods_by_partition_stats = log_likelihood(handlers.seed(model.get_model, 0), samples)
         likelihoods_flat_stats = np.empty((n_samples,) + data.features.all_features.shape)
         for p in data.features.partitions:
             likelihoods_flat_stats[:, :, p.feature_indices] = likelihoods_by_partition_stats[f"x_{p.name}"]
