@@ -1,11 +1,14 @@
 from __future__ import annotations
+
+import warnings
+from pathlib import Path
 from typing import Sequence, TypeVar, List
 
 import numpy as np
 from numpy.typing import NDArray
 import pandas as pd
 
-from sbayes.util import PathLike, parse_cluster_columns
+from sbayes.util import PathLike
 
 TResults = TypeVar("TResults", bound="Results")
 
@@ -16,8 +19,9 @@ class Results:
     Class for reading, storing, summarizing results of a sBayes analysis.
 
     Attributes:
-        clusters (NDArray[bool]): Array containing samples of clusters.
+        clusters (NDArray[float]): Array containing samples of clusters.
             shape: (n_clusters, n_samples, n_objects)
+            For legacy text input this is binary; for .npy input this is continuous.
         parameters (pd.DataFrame): Data-frame containing sample information about parameters
                                    and likelihood, prior and posterior probabilities.
         groups_by_confounders (dict[str, list[str]): A list of groups for each confounder.
@@ -25,7 +29,7 @@ class Results:
 
     def __init__(
         self,
-        clusters: NDArray[bool],
+        clusters: NDArray[float],
         parameters: pd.DataFrame,
         burn_in: float = 0.1,
         feature_names: List[str] = None,
@@ -157,42 +161,46 @@ class Results:
         return clusters, parameters
 
     @staticmethod
-    def read_clusters_from_str(clusters_samples: str) -> NDArray[bool]:  # shape: (n_clusters, n_samples, n_objects)
-        clusters_list = []
-        # This makes len(result) = number of clusters (flipped array)
+    def read_clusters(txt_path: PathLike, subsample_interval: int = 1) -> NDArray[float]:  # shape: (n_clusters, n_samples, n_sites)
+        """Read the cluster samples from the text or .npy file at `txt_path` and return as a
+        numpy array.
 
-        # Split the sample
-        # len(byte_results) equals the number of samples
-        byte_results = clusters_samples.split("\n")
+        For .npy input, the shape is expected to be (n_samples, n_sites, n_clusters + 1),
+        where the last component is the not-assigned probability.
+        """
+        path = Path(txt_path)
 
-        # Get the number of clusters
-        n_clusters = len(byte_results[0].split("\t"))
+        # Use .npy if it exists
+        if path.suffix == ".txt":
+            if path.with_suffix(".npy").exists():
+                path = path.with_suffix(".npy")
 
-        # Append empty arrays to result, so that len(result) = n_clusters
-        for i in range(n_clusters):
-            clusters_list.append([])
+        if path.suffix == ".npy":
+            clusters = np.load(path)
+            if clusters.ndim != 3:
+                raise ValueError(
+                    f"Expected a 3D array in {path}, got shape {clusters.shape}."
+                )
+            if subsample_interval > 1:
+                clusters = clusters[::subsample_interval, :, :]
+            if clusters.shape[2] < 2:
+                raise ValueError(
+                    f"Expected at least 2 components (including not-assigned) in {path}, "
+                    f"got shape {clusters.shape}."
+                )
+            clusters = clusters[..., :-1]
+            # clusters = sample_categorical(clusters, binary_encoding=True)[:, :, :-1]
+            clusters = np.transpose(clusters, (2, 0, 1)).astype(float, copy=False)
+        else:
+            with open(txt_path, "r") as f_sample:
+                samples_list = [
+                    [list(c) for c in line.split('\t')]
+                    for line in f_sample.read().split("\n")[::subsample_interval]
+                    if line.strip()
+                ]
+                clusters = np.array(samples_list, dtype=int).astype(bool).transpose((1, 0, 2))
 
-        # Process each sample
-        for sample in byte_results:
-            if len(sample) == 0:
-                continue
-
-            # Parse each sample
-            parsed_sample = parse_cluster_columns(sample)
-            # shape: (n_clusters, n_objects)
-
-            # Add each item in parsed_area_columns to the corresponding array in result
-            for j in range(len(parsed_sample)):
-                clusters_list[j].append(parsed_sample[j])
-
-        return np.array(clusters_list, dtype=bool)
-
-    @staticmethod
-    def read_clusters(txt_path: PathLike) -> NDArray[bool]:  # shape: (n_clusters, n_samples, n_objects)
-        """Read the cluster samples from the text file at `txt_path` and return as a
-                boolean numpy array."""
-        with open(txt_path, "r") as f_sample:
-            return Results.read_clusters_from_str("".join(f_sample.readlines()))
+        return clusters
 
     @staticmethod
     def read_stats(txt_path: PathLike, subsample_interval: int = 1, use_pyarrow=True) -> pd.DataFrame:
