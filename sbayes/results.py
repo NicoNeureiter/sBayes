@@ -134,12 +134,13 @@ class Results:
         clusters_path: PathLike,
         parameters_path: PathLike,
         burn_in: float = 0.1,
+        subsample_interval: int = 1,
         feature_names: List[str] = None,
         confounder_names: List[str] = None,
 
     ) -> TResults:
-        clusters = cls.read_clusters(clusters_path)
-        parameters = cls.read_stats(parameters_path)
+        clusters = cls.read_clusters(clusters_path, subsample_interval=subsample_interval)
+        parameters = cls.read_stats(parameters_path, subsample_interval=subsample_interval)
         return cls(clusters, parameters, burn_in=burn_in,
                    feature_names = feature_names, confounder_names = confounder_names)
 
@@ -194,13 +195,28 @@ class Results:
             return Results.read_clusters_from_str("".join(f_sample.readlines()))
 
     @staticmethod
-    def read_stats(txt_path: PathLike) -> pd.DataFrame:
+    def read_stats(txt_path: PathLike, subsample_interval: int = 1, use_pyarrow=True) -> pd.DataFrame:
         """Read stats for results files (<experiment_path>/stats_<scenario>.txt).
 
         Args:
             txt_path: path to results file
+            subsample_interval: subsample the rows in the csv files in this interval.
+                The default (1) includes all rows.
         """
-        return pd.read_csv(txt_path, delimiter="\t")
+        read_args = {"delimiter": "\t"}
+        if subsample_interval > 1:
+            read_args["skiprows"] = lambda i: i % subsample_interval != 0,
+            use_pyarrow = False  # Pyarrow currently does not support skiprows
+
+        if use_pyarrow:
+            try:
+                return pd.read_csv(txt_path, delimiter="\t", engine="pyarrow", **read_args)
+            except Exception as e:
+                warnings.warn(str(e))
+                return Results.read_stats(txt_path, subsample_interval, use_pyarrow=False)
+        else:
+            return pd.read_csv(txt_path, delimiter="\t", engine="python", **read_args)
+
 
     @staticmethod
     def read_dictionary(dataframe, search_key):
