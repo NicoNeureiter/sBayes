@@ -343,12 +343,14 @@ class Results:
             # Skip if not a weights column
             if not key.startswith("w_"):
                 continue
+            if key.startswith("w_concentration_"):
+                continue
 
             # Second part of key in weights columns defines the confounder name
             _, conf, _ = key.split("_", maxsplit=2)
 
             # Skip areal effects
-            if conf == "areal":
+            if conf in ["areal", "cluster"]:
                 continue
 
             # Skip already added
