@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import logging
 from abc import abstractmethod
 from pathlib import Path
@@ -14,7 +15,7 @@ import tables
 
 from sbayes.load_data import Data, CategoricalFeatures, GaussianFeatures, PoissonFeatures, GenericTypeFeatures
 from sbayes.preprocessing import sample_categorical
-from sbayes.util import format_cluster_columns, get_best_permutation
+from sbayes.util import get_best_permutation
 from sbayes.model import Model
 
 import warnings
@@ -42,7 +43,7 @@ def get_cluster_effect_names(partitions: list[GenericTypeFeatures]) -> list[str]
         else:
             raise ValueError("Only categorical partitions are currently supported.")
 
-    return []
+    return names
 
 
 def write_samples(
@@ -236,50 +237,94 @@ def write_samples(
                     params_df[f"{param}_{i}"] = s[:, i]
 
 
-    clusters_path = base_path / f'clusters_K{n_clusters}_{run}.txt'
-    clusters_continuous_path = base_path / f'clusters_K{n_clusters}_{run}.npy'
-    params_path = base_path / f'stats_K{n_clusters}_{run}.txt'
+    params_path = base_path / f'stats_K{n_clusters}_{run}.tsv'
 
-    # Write clusters file
-    with open(clusters_path, "w") as clusters_file:
-        for clusters in clusters_samples:
-            row = format_cluster_columns(clusters)
-            clusters_file.write(row + "\n")
-
-    # Write continuous cluster assignment file
-    np.save(clusters_continuous_path, clusters_samples_cont)
-
-    # Write params file
+    # Write params file (TSV for Tracer compatibility)
     with open(params_path, "w") as params_file:
         params_df.to_csv(params_file, sep='\t', index=False)
 
-    # Write pointwise likelihoods to file
-    if not model.config.sample_from_prior:
-        likelihoods_flat = likelihoods_flat_stats
+    # Write metadata (and optionally likelihood) into the samples h5 file
+    samples_h5_path = base_path / f'samples_{run}.h5'
+    metadata = _build_h5_metadata(data, cluster_names, feature_names, component_names)
 
-        # Create the likelihood array
-        with tables.open_file(base_path / f'likelihood_K{n_clusters}_{run}.h5', mode="w") as lh_file:
-            logged_likelihood_array = lh_file.create_earray(
-                where=lh_file.root,
+    with tables.open_file(samples_h5_path, mode="a") as h5_file:
+        h5_file.root._v_attrs.metadata = json.dumps(metadata)
+
+        if not model.config.sample_from_prior:
+            likelihoods_flat = likelihoods_flat_stats
+
+            # Create /derived group if it doesn't exist
+            if "/derived" not in h5_file:
+                h5_file.create_group(h5_file.root, "derived")
+
+            lh_filters = tables.Filters(
+                complevel=9, complib="blosc:zlib", bitshuffle=True, fletcher32=True
+            )
+            h5_file.create_carray(
+                where=h5_file.root.derived,
                 name="likelihood",
                 obj=likelihoods_flat.reshape(n_samples, -1),
                 atom=tables.Float64Col(),
-                filters=tables.Filters(
-                    complevel=9, complib="blosc:zlib", bitshuffle=True, fletcher32=True
-                ),
-                shape=(0, n_objects * data.features.n_features),
+                filters=lh_filters,
             )
-            logged_likelihood_array.close()
-
-            na_array = lh_file.create_carray(
-                where=lh_file.root,
+            h5_file.create_carray(
+                where=h5_file.root.derived,
                 name="na_values",
                 obj=data.features.missing.ravel(),
                 atom=tables.BoolCol(),
                 filters=tables.Filters(complevel=9, fletcher32=True),
-                shape=(n_objects * data.features.n_features,),
             )
-            na_array.close()
+
+
+def _build_h5_metadata(data: Data, cluster_names, feature_names, component_names) -> dict:
+    """Build metadata dict to store as an h5 attribute for Results.from_h5()."""
+    partition_meta = []
+    for partition in data.features.partitions:
+        p_meta = {"feature_names": list(partition.names)}
+
+        if isinstance(partition, CategoricalFeatures):
+            p_meta["type"] = "categorical"
+            p_meta["state_names"] = [f"s{s}" for s in range(partition.n_states)]
+            p_meta["cluster_effect_keys"] = [f"cluster_effect_{partition.name}"]
+            p_meta["confounder_effect_keys"] = {
+                conf.name: [f"conf_effect_{conf.name}_{partition.name}"]
+                for conf in data.confounders.values()
+            }
+        elif isinstance(partition, GaussianFeatures):
+            p_meta["type"] = "gaussian"
+            p_meta["state_names"] = ["mean", "variance"]
+            p_meta["cluster_effect_keys"] = [
+                f"cluster_effect_{partition.name}_mean",
+                f"cluster_effect_{partition.name}_variance",
+            ]
+            p_meta["confounder_effect_keys"] = {
+                conf.name: [
+                    f"conf_effect_{i_c}_{partition.name}_mean",
+                    f"conf_effect_{i_c}_{partition.name}_variance",
+                ]
+                for i_c, conf in enumerate(data.confounders.values())
+            }
+        elif isinstance(partition, PoissonFeatures):
+            p_meta["type"] = "poisson"
+            p_meta["state_names"] = ["rate"]
+            p_meta["cluster_effect_keys"] = [f"cluster_effect_{partition.name}_rate"]
+            p_meta["confounder_effect_keys"] = {
+                conf.name: [f"conf_effect_{i_c}_{partition.name}_rate"]
+                for i_c, conf in enumerate(data.confounders.values())
+            }
+
+        partition_meta.append(p_meta)
+
+    return {
+        "cluster_names": list(cluster_names),
+        "feature_names": list(feature_names),
+        "component_names": list(component_names),
+        "confounders": {
+            conf.name: list(conf.group_names)
+            for conf in data.confounders.values()
+        },
+        "partitions": partition_meta,
+    }
 
 
 def samples_array_to_df(
@@ -446,33 +491,28 @@ class OnlineSampleLogger(OnlineLogger):
             return
 
         for param_name, param_value in sample.items():
-            # Create the likelihood array
-            n_chains, n_samples, *param_dims = param_value.shape
+            # Squeeze the chain dimension (always 1) to get (n_samples, *param_dims)
+            squeezed = np.array(param_value)[0]
+            n_samples, *param_dims = squeezed.shape
             self.file.create_earray(
                 where=self.file.root,
                 name=param_name,
-                atom=numpy_to_tables_dtype(np.array(param_value).dtype),
+                atom=numpy_to_tables_dtype(squeezed.dtype),
                 filters=tables.Filters(complevel=5),
-                shape=(n_chains, 0, *param_dims),
+                shape=(0, *param_dims),
             )
 
     def _write_sample(self, sample: dict, **write_args):
-        # n_new_samples = write_args.get("n_new_samples", 1)
         for param_name, param_values in sample.items():
-            # Write the new samples to the file
-            self.file.root[param_name].append(np.array(param_values))
+            # Squeeze the chain dimension (axis 0) before writing
+            self.file.root[param_name].append(np.array(param_values)[0])
         self.file.flush()
 
     def read_samples(self) -> dict[str, np.ndarray]:
         """Read the samples from the HDF file and return them as a dictionary."""
         samples = {}
         for param in self.file.root:
-            # Swap axes from (n_samples, n_chains,...) to (n_chains, n_samples, ...)
-            param_array = np.array(param).swapaxes(0, 1)
-
-            # Place the paramter samples in the dictionary
-            samples[param._v_name] = param_array
-
+            samples[param._v_name] = np.array(param)
         return samples
 
 if __name__ == '__main__':
