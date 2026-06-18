@@ -44,6 +44,7 @@ class Results:
         sample_id: NDArray[int] = None,
         log_posterior: NDArray[float] = None,
         log_likelihood: NDArray[float] = None,
+        likelihood_pointwise: NDArray[float] = None,
         parameters: pd.DataFrame = None,
     ):
         self.clusters = clusters
@@ -65,6 +66,10 @@ class Results:
             self.prior = log_posterior - log_likelihood
         else:
             self.prior = None
+
+        # Per-observation log-likelihoods; shape (n_samples, n_obs), NAs excluded.
+        # Only available when loaded from the new h5 format that includes derived/likelihood.
+        self.likelihood_pointwise = likelihood_pointwise
 
         # Legacy: raw parameters DataFrame (set by from_csv_files for align tools)
         self.parameters = parameters
@@ -150,6 +155,10 @@ class Results:
         if all(r.likelihood is not None for r in results_list):
             log_likelihood = np.concatenate([r.likelihood for r in results_list])
 
+        likelihood_pointwise = None
+        if all(r.likelihood_pointwise is not None for r in results_list):
+            likelihood_pointwise = np.concatenate([r.likelihood_pointwise for r in results_list])
+
         parameters = None
         if all(r.parameters is not None for r in results_list):
             parameters = pd.concat([r.parameters for r in results_list], ignore_index=True)
@@ -166,6 +175,7 @@ class Results:
             sample_id=np.arange(clusters.shape[1]),
             log_posterior=log_posterior,
             log_likelihood=log_likelihood,
+            likelihood_pointwise=likelihood_pointwise,
             parameters=parameters,
         )
 
@@ -215,6 +225,7 @@ class Results:
                 sample_id=r.sample_id,
                 log_posterior=r.posterior,
                 log_likelihood=r.likelihood,
+                likelihood_pointwise=r.likelihood_pointwise,
             ))
 
         return aligned
@@ -286,14 +297,18 @@ class Results:
                 log_posterior = arr
 
             log_likelihood = None
+            likelihood_pointwise = None
             if 'derived' in f.root._v_children:
                 derived = f.root._v_children['derived']
                 if 'likelihood' in derived._v_children:
                     lh = np.array(derived._v_children['likelihood'])
                     if 'na_values' in derived._v_children:
                         na = np.array(derived._v_children['na_values'])
-                        lh[:, na] = 0.0
-                    log_likelihood = lh.sum(axis=1)
+                        lh_valid = lh[:, ~na]
+                    else:
+                        lh_valid = lh
+                    likelihood_pointwise = lh_valid
+                    log_likelihood = lh_valid.sum(axis=1)
 
         # Apply burn-in and subsampling
         n_total = z.shape[0]
@@ -316,6 +331,8 @@ class Results:
             log_posterior = log_posterior[indices]
         if log_likelihood is not None:
             log_likelihood = log_likelihood[indices]
+        if likelihood_pointwise is not None:
+            likelihood_pointwise = likelihood_pointwise[indices]
 
         # Cluster matching
         if do_match_clusters:
@@ -359,6 +376,7 @@ class Results:
             sample_id=np.arange(len(indices)),
             log_posterior=log_posterior,
             log_likelihood=log_likelihood,
+            likelihood_pointwise=likelihood_pointwise,
         )
 
     # ----------------------------------------------------------------
