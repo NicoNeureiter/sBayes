@@ -3,8 +3,10 @@
 import os
 import unittest
 
+from pathlib import Path
 from sbayes.tools import extract_feature_states
 
+TEST_DIR = Path(__file__).parent
 
 class TestExctactFeatureStates(unittest.TestCase):
 
@@ -12,9 +14,9 @@ class TestExctactFeatureStates(unittest.TestCase):
 
     def test_extract_feature_states(self):
 
-        input_path = 'test/test_files/features.csv'
-        output_path = 'test/test_files/feature_states.csv'
-        expected_output_path = 'test/test_files/feature_states_expected.csv'
+        input_path = TEST_DIR / 'test_files' / 'features.csv'
+        output_path = TEST_DIR / 'test_files' / 'feature_states.csv'
+        expected_output_path = TEST_DIR / 'test_files' / 'feature_states_expected.csv'
 
         extract_feature_states.main(['--input', input_path,
                                      '--output', output_path])

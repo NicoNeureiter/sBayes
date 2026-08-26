@@ -774,10 +774,17 @@ class SettingsForLinguists(BaseConfig):
 
 class SBayesConfig(BaseConfig):
 
-    data: DataConfig
+    data: Optional[DataConfig]
     model: ModelConfig
     mcmc: MCMCConfig
     results: ResultsConfig = Field(default_factory=ResultsConfig)
+    simulation: bool = False
+
+    @model_validator(mode="after")
+    def validate_data(self):
+        if not self.simulation and self.data is None:
+            raise ValueError("A `data` block is required for non-simulation analyses.")
+        return self
 
     @classmethod
     def from_config_file(

@@ -28,6 +28,8 @@ class Experiment:
         custom_settings: dict | None = None,
         log: bool = True,
         i_run: int = 0,
+        create_experiment_folder: bool = True,
+        copy_config: bool = True
     ):
 
         # Naming and shaming
@@ -40,19 +42,26 @@ class Experiment:
         self.config = SBayesConfig.from_config_file(config_file, custom_settings)
 
         # Set results path
-        self.path_results = self.init_results_directory(self.config, self.experiment_name)
+        self.path_results = None
+        if create_experiment_folder:
+            self.path_results = self.init_results_directory(self.config, self.experiment_name)
 
         # Print the initial log message
         if log:
             # Initialize the logger
             self.logger = self.init_logger()
             self.log_experiment()
+        else:
+            self.logger = logging.getLogger(__name__)
+            self.logger.addHandler(logging.NullHandler())
 
         # Copy the config file to the results-directory
-        shutil.copy(
-            src=config_file,
-            dst=self.path_results / os.path.basename(config_file)
-        )
+        if copy_config and self.path_results is not None:
+            shutil.copy(
+                src=config_file,
+                dst=self.path_results / os.path.basename(config_file)
+            )
+
 
     def init_results_directory(self, config: SBayesConfig, experiment_name: str) -> Path:
         """Create subdirectory for this experiment, add it to the logger and the return path."""

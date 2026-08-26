@@ -1,9 +1,13 @@
 """ Setup of the MCMC process """
 from __future__ import annotations
 
+import pickle
 import time
 
 from jax import random
+import numpyro
+from numpyro.diagnostics import summary
+
 from sbayes.model import Model
 from sbayes.sampling.loggers import write_samples, OnlineSampleLogger
 from sbayes.experiment_setup import Experiment
@@ -22,13 +26,16 @@ class MCMCSetup:
         self.model = Model(data=self.data, config=self.config.model)
 
         # Set the results directory based on the number of clusters
-        self.path_results = experiment.path_results / f'K{self.model.n_clusters}'
-        self.path_results.mkdir(exist_ok=True)
+        if experiment.path_results is not None:
+            self.path_results = experiment.path_results / f'K{self.model.n_clusters}'
+            self.path_results.mkdir(exist_ok=True)
+
+        else:
+            self.path_results = None
 
         # Samples
         self.sampler = None
         self.samples = None
-
         self.logger = experiment.logger
 
         self.t_start = None
@@ -103,14 +110,39 @@ Warm-up: {mcmc_cfg.warmup.warmup_steps} steps''')
         self.logger.info("Writing samples to disk")
 
         if not results_config.samples_file_only:
-            # Write results to sBayes results files (stats TSV + likelihood into samples h5)
-            write_samples(
-                run=run,
-                base_path=self.path_results,
-                samples=samples,
-                data=self.data,
-                model=self.model,
-            )
+            # align_clusters()
+            # Write the raw numpyro samples and the mcmc summary to separate files
+            if isinstance(sampler, numpyro.infer.mcmc.MCMC):
+                with open(self.path_results / f'samples_{run}.pkl', 'wb') as f:
+                    pickle.dump(samples, f)
+
+                with open(self.path_results / f'mcmc_summary_{run}.pkl', 'wb') as f:
+                    pickle.dump(summary(samples, group_by_chain=True), f)
+
+                # Write results to sBayes results files (separate files for clusters and other parameters)
+                #assert mcmc_config.runs == 1
+                # for i in range(mcmc_config.runs):
+                # samples_i = {k: v[run] for k, v in samples.items()}
+                samples_i = {k: v[0] for k, v in samples.items()}
+                write_samples(
+                    run=run,
+                    base_path=self.path_results,
+                    samples=samples_i,
+                    data=self.data,
+                    model=self.model,
+                )
+            else:
+                with open(self.path_results / f'samples_{run}.pkl', 'wb') as f:
+                    pickle.dump(samples, f)
+
+                # Write results to sBayes results files (separate files for clusters and other parameters)
+                    write_samples(
+                        run=run,
+                        base_path=self.path_results,
+                        samples=samples,
+                        data=self.data,
+                        model=self.model,
+                    )
 
         sample_logger.close()
 

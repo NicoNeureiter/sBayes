@@ -513,6 +513,26 @@ class Data:
     def from_experiment(cls: Type[S], experiment: Experiment) -> S:
         return cls.from_config(experiment.config, logger=experiment.logger)
 
+    @classmethod
+    def from_simulation(cls,
+                        features_csv: pd.DataFrame,
+                        feature_types: dict,
+                        config: SBayesConfig,
+                        logger=None) -> S:
+
+        """Create Data directly from in-memory structures, without file I/O."""
+        objects, features, confounders = parse_features(
+            data=features_csv,
+            feature_types=feature_types,
+            confounder_names=config.model.confounders,
+        )
+        return cls(
+            objects=objects,
+            features=features,
+            confounders=confounders,
+            logger=logger
+        )
+
     @staticmethod
     def log_loading(logger):
         logger.info("\n")
@@ -539,50 +559,32 @@ class Data:
 #         states=...,
 #     )
 
-
-def read_features_from_csv(
-    data_path: PathLike,
+def parse_features(
+    data: pd.DataFrame,
+    feature_types: dict,
     confounder_names: list[ConfounderName],
-    feature_types_path: PathLike = None,
-    feature_states_path: PathLike = None,
     logger: Optional[Logger] = None,
 ) -> (Objects, Features, dict[ConfounderName, Confounder]):
-    """This is a helper function to import data (objects, features, confounders) from a csv file
+    """Parse features, objects and confounders from in-memory structures.
+
+    Core parsing logic shared between file-based loading and simulation.
+
     Args:
-        data_path: path to the data csv file.
-        feature_states_path: path to the feature states csv file.
-        groups_by_confounder: dict mapping confounder name to list of corresponding groups
+        data: DataFrame containing objects, features and confounders.
+        feature_types: Dict mapping feature name to type and states.
+        confounder_names: List of confounder names.
         logger: A Logger instance for writing log messages.
 
     Returns:
         The parsed data objects (objects, features and confounders).
     """
-    # Load the data and features-states
-    data = read_data_csv(data_path)
-    if feature_types_path:
-        with open(feature_types_path, "r") as f:
-            yaml_loader = yaml.YAML(typ='safe')
-            feature_types = yaml_loader.load(f)
-
-    elif feature_states_path:
-        feature_types = {}
-        feature_states = read_data_csv(feature_states_path)
-        for f_name, f_states in feature_states.items():
-            feature_types[f_name] = {
-                "type": "categorical",
-                "states": f_states.dropna().tolist(),
-            }
-
-    else:
-        raise ValueError("Either `feature_types_path` or `feature_states_path` must be provided.")
-
     features = Features.from_dataframes(data, feature_types)
     objects = Objects.from_dataframe(data)
+
     confounders = OrderedDict()
     for c in confounder_names:
         confounders[c] = Confounder.from_dataframe(data=data, confounder_name=c)
 
-    # Check whether all columns in the data
     for c in data.columns:
         if c not in ["id", "name", "x", "y", *confounder_names, *feature_types]:
             raise ValueError(
@@ -591,8 +593,47 @@ def read_features_from_csv(
             )
 
     if logger:
-        logger.info(f"{objects.n_objects} objects with {features.n_features} features read from {data_path}.")
+        logger.info(f"{objects.n_objects} objects with {features.n_features} features.")
         for p in features.partitions:
             logger.info(f"{p.name}: {p.n_features} feature(s) with {p.na_number} NA value(s).")
 
     return objects, features, confounders
+
+
+def read_features_from_csv(
+    data_path: PathLike,
+    confounder_names: list[ConfounderName],
+    feature_types_path: PathLike = None,
+    feature_states_path: PathLike = None,
+    logger: Optional[Logger] = None,
+) -> (Objects, Features, dict[ConfounderName, Confounder]):
+    """Import data (objects, features, confounders) from a CSV file.
+
+    Args:
+        data_path: Path to the data CSV file.
+        feature_types_path: Path to the feature types YAML file.
+        feature_states_path: Path to the feature states CSV file.
+        confounder_names: List of confounder names.
+        logger: A Logger instance for writing log messages.
+
+    Returns:
+        The parsed data objects (objects, features and confounders).
+    """
+    data = read_data_csv(data_path)
+
+    if feature_types_path:
+        with open(feature_types_path, "r") as f:
+            yaml_loader = yaml.YAML(typ='safe')
+            feature_types = yaml_loader.load(f)
+    elif feature_states_path:
+        feature_types = {}
+        feature_states = read_data_csv(feature_states_path)
+        for f_name, f_states in feature_states.items():
+            feature_types[f_name] = {
+                "type": "categorical",
+                "states": f_states.dropna().tolist(),
+            }
+    else:
+        raise ValueError("Either `feature_types_path` or `feature_states_path` must be provided.")
+
+    return parse_features(data, feature_types, confounder_names, logger)
