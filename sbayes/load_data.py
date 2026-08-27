@@ -1,19 +1,20 @@
 """ Imports the real world data """
 from __future__ import annotations
 
-from enum import Enum
-
-import pyproj
-from dataclasses import dataclass, field
-from logging import Logger
-from collections import OrderedDict
-from typing import Literal, Optional, TypeVar, Type, Iterator
-
-import pandas as pd
-import numpy as np
-from numpy.typing import NDArray
 import jax.numpy as jnp
+import numpy as np
+import pandas as pd
+import pyproj
+
+from abc import ABC, abstractmethod
+from collections import OrderedDict
+from dataclasses import dataclass, field
+from enum import Enum
+from jax import Array
+from logging import Logger
+from numpy.typing import NDArray
 from scipy.special import logit
+from typing import Literal, Optional, Type, Iterator, Self
 
 try:
     import ruamel.yaml as yaml
@@ -21,247 +22,266 @@ except ImportError:
     import ruamel_yaml as yaml
 
 from sbayes.preprocessing import ComputeNetwork, read_geo_cost_matrix
-from sbayes.util import PathLike, read_data_csv, encode_states, EPS
+from sbayes.util import PathLike, read_data_csv, EPS
 from sbayes.config.config import SBayesConfig
 from sbayes.experiment_setup import Experiment
 
-# Type variables and constants for better readability
-S = TypeVar('S')  # Self type
-ObjectName = TypeVar('ObjectName', bound=str)
-ObjectID = TypeVar('ObjectID', bound=str)
-FeatureName = TypeVar('FeatureName', bound=str)
-StateName = TypeVar('StateName', bound=str)
-ConfounderName = TypeVar('ConfounderName', bound=str)
-GroupName = TypeVar('GroupName', bound=str)
+# Type variables for better readability
+ObjectName = str
+ObjectID = str
+FeatureName = str
+StateName = str
+ConfounderName = str
+GroupName = str
 
 
 @dataclass
 class Objects:
+    """A set of objects, each describing one sample (a language, person, state, ...)
+    with an ID, name and location.
 
-    """Container class for a set of objects. Each object describes one sample (a language,
-    person, state,...) which has an ID, name and location."""
+    Attributes:
+        id: Object IDs, one per object.
+        locations: Object coordinates, shape (n_objects, 2).
+        names: Object names, one per object.
+        indices: Integer index of each object (0, ..., n_objects-1), shape (n_objects,).
+    """
 
     id: list[ObjectID]
-    locations: NDArray[float]  # shape: (n_objects, 2)
+
+    # todo: locations assumed here
+    locations: NDArray[np.float64]           # shape: (n_objects, 2)
     names: list[ObjectName]
-    indices: NDArray[int] = field(init=False)  # shape: (n_objects,)
+    indices: NDArray[np.int_] = field(init=False)  # shape: (n_objects,)
 
-    def __post_init__(self):
-        setattr(self, 'indices', np.arange(self.n_objects))
-
-    def __getitem__(self, key) -> list | NDArray:
-        return getattr(self, key)
-
-    _indices: NDArray[int] = None
+    def __post_init__(self) -> None:
+        self.indices = np.arange(self.n_objects)
 
     @property
-    def n_objects(self):
+    def n_objects(self) -> int:
         return len(self.id)
 
-    def __len__(self):
+    def __len__(self) -> int:
         return len(self.id)
 
     @classmethod
-    def from_dataframe(cls: Type[S], data: pd.DataFrame) -> S:
-        n_objects = data.shape[0]
+    def from_dataframe(cls, data: pd.DataFrame) -> Self:
+        """Build an Objects instance from a data CSV DataFrame.
+
+        Args:
+            data: DataFrame with required columns `id`, `x`, `y`, and optional `name`.
+
+        Returns:
+            The parsed Objects.
+
+        Raises:
+            KeyError: If any of the required columns `id`, `x`, `y` is missing.
+        """
         try:
-            x = data["x"]
-            y = data["y"]
-            id_ext = data["id"].tolist()
+            ids = data["id"].tolist()
+            # todo: locations assumed here
+            locations = data[["x", "y"]].to_numpy(dtype=float)
         except KeyError:
-            raise KeyError("The csv must contain columns `x`, `y` and `id`")
+            raise KeyError("The data CSV must contain columns `id`, `x` and `y`.")
 
-        locations = np.zeros((n_objects, 2))
-        for i in range(n_objects):
-            # Define location tuples
-            locations[i, 0] = float(x[i])
-            locations[i, 1] = float(y[i])
-
-        objects_dict = {
-            "locations": locations,
-            "id": id_ext,
-            "names": list(data.get("name", id_ext)),
-        }
-        return cls(**objects_dict)
+        names = list(data.get("name", ids))
+        return cls(id=ids, locations=locations, names=names) # type: ignore[assignment]
 
 
-class GenericTypeFeatures:
+class GenericTypeFeatures(ABC):
 
     """Super class for features of a specific type."""
 
-    values: jnp.array                               # shape: (n_objects, n_features)
-    feature_indices: jnp.array                      # shape: (n_features,)
-    names: NDArray[FeatureName]                     # shape: (n_features,)
-    na_values: NDArray[bool]                        # shape: (n_objects, n_features)
+    values: Array                                   # shape: (n_objects, n_features)
+    feature_indices: Array                          # shape: (n_features,)
+    names: NDArray                     # shape: (n_features,)
+    na_values: NDArray[np.bool_]                        # shape: (n_objects, n_features)
 
-    # For caching the feature values assigned to each confounder group
-    _confounder_features: dict[ConfounderName, NDArray[bool]]
-
-    def __init__(self, values: NDArray[bool], feature_indices: NDArray[bool], names: NDArray[FeatureName], na_values: NDArray[bool]):
+    def __init__(self, values: NDArray,
+                 feature_indices: NDArray[np.int_],
+                 names: NDArray,
+                 na_values: NDArray[np.bool_]):
         self.values = jnp.array(values)
         self.feature_indices = jnp.array(feature_indices)
         self.names = names
         self.na_values = na_values
-        self._confounder_features = {}
 
     @property
     def n_objects(self) -> int:
+        """The number of objects"""
         return self.values.shape[0]
 
     @property
     def n_features(self) -> int:
+        """The number of features"""
         return self.values.shape[1]
 
     @property
-    def na_number(self) -> int:
+    def na_number(self) -> np.int64:
+        """The number of NA values"""
         return np.sum(self.na_values)
 
-    def get_confounder_features(self, confounder: Confounder) -> jnp.array:
-        if confounder.name in self._confounder_features:
-            return self._confounder_features[confounder.name]
-        else:
-            group_assignments = confounder.group_assignment
-            conf_features = self.values[:, self.feature_indices]
-            self._confounder_features[confounder.name] = conf_features
-            return conf_features
-
     @property
-    def name(self):
-        raise NotImplementedError
+    @abstractmethod
+    def name(self) -> str:
+        """A short label identifying this feature type (e.g. 'Gaussian')."""
+        ...
 
 
 class CategoricalFeatures(GenericTypeFeatures):
+    """Integer representation of categorical features.
 
-    """Integer representation of categorical features."""
+    Each feature value is an integer index into that feature's list of states.
+    Missing values are stored as the NA sentinel (`NA = -1`).
+    """
 
-    state_names: NDArray[StateName]                 # (n_features, n_states)
-    state_names_dict: dict[FeatureName, NDArray[StateName]]
-    _binarized: NDArray[StateName] | None = None    # (n_objects, n_features, n_states)
-
+    state_names: NDArray            # shape: (n_features, n_states)
+    state_names_dict: dict[str, NDArray]
     NA: int = -1
 
-    def __init__(self, values: NDArray[bool], feature_indices: NDArray[bool], names: NDArray[FeatureName],
-                 na_values: NDArray[bool], state_names: NDArray[StateName]):
+    def __init__(
+        self,
+        values: NDArray[np.int_],
+        feature_indices: NDArray[np.int_],
+        names: NDArray,
+        na_values: NDArray[np.bool_],
+        state_names: NDArray,
+    ):
         super().__init__(values, feature_indices, names, na_values)
         self.state_names = state_names
         self.state_names_dict = {f: state_names[i] for i, f in enumerate(self.names)}
+        self._binarized: NDArray[np.bool_] | None = None
 
-
-    @classmethod
-    def from_dataframes(
-        cls: Type[S],
-        data: pd.DataFrame,
-        feature_types: dict[str, dict],
-    ) -> S:
-
-        # Retrieve all categorical features
-        categorical_columns = [k for k, v in feature_types.items() if v['type'] == "categorical"]
-        categorical_data = data.loc[:, categorical_columns]
-        feature_states = dict((c, feature_types[c]['states']) for c in categorical_columns)
-
-        if categorical_data.empty:
-            return None
-        else:
-            categorical_features_dict = encode_states(categorical_data, feature_states)
-            # return Feature class consisting of all binarised categorical features
-            return cls(**categorical_features_dict)
 
     @classmethod
     def create_partitions_by_nstates(
-        cls: Type[S],
+        cls,
         data: pd.DataFrame,
-        feature_types: dict[str,
-        dict],
-        na_string: str = ''
-    ) -> list[S]:
-        features_by_states = {}
+        feature_types: dict[str, dict],
+        na_string: str = "",
+    ) -> list[Self] | None:
+        """Split categorical features into partitions grouped by number of states.
+
+        Categorical features with the same number of states are collected into
+        one partition (a single CategoricalFeatures instance), because features
+        with different numbers of states cannot share a value array. State names
+        are mapped to integer indices; missing values are mapped to the NA
+        sentinel (`cls.NA`).
+
+        Args:
+            data: DataFrame of feature columns (metadata columns already excluded).
+            feature_types: Mapping from feature name to its type and states.
+            na_string: Placeholder that missing values are filled with before
+                mapping. Must not collide with a real state name.
+
+        Returns:
+            One CategoricalFeatures partition per distinct number of states.
+            Empty if there are no categorical features.
+        """
         names = data.columns.to_numpy()
-        data = data.fillna(na_string)  # TODO: check whether this makes sense. Stop parsing NAs on read instead?
+        data = data.fillna(na_string)  # TODO: revisit NA handling — stop parsing NAs on read instead?
         data_int = np.empty(data.shape, dtype=int)
         na_values = np.zeros(data.shape, dtype=bool)
+
+        features_by_states: dict[int, list[int]] = {}
         for i_f, f_name in enumerate(data.columns):
             ft = feature_types[f_name]
-            if ft['type'] == "categorical":
-                n_states = len(ft['states'])
-                if n_states not in features_by_states:
-                    features_by_states[n_states] = []
-                features_by_states[n_states].append(i_f)
+            if ft["type"] != "categorical":
+                continue
 
-                # Define a mapping from state names to integer indices
-                state_mapping = {state: i for i, state in enumerate(ft['states']) if state != na_string}
-                state_mapping[na_string] = cls.NA
+            states = ft["states"]
+            n_states = len(states)
+            features_by_states.setdefault(n_states, []).append(i_f)
 
-                # Apply the mapping to the data of this feature
-                data_int[:, i_f] = list(map(state_mapping.get, data.iloc[:, i_f]))
+            # Map state names to integer indices; the NA placeholder maps to cls.NA
+            state_mapping = {state: i for i, state in enumerate(states) if state != na_string}
+            state_mapping[na_string] = cls.NA
 
-                # Collect NA values
-                na_values[:, i_f] = data_int[:, i_f] == cls.NA
+            column = data.iloc[:, i_f]
+            unknown = set(column) - set(state_mapping)
+            if unknown:
+                raise ValueError(
+                    f"Feature '{f_name}' contains values not declared in its states "
+                    f"{states}: {sorted(unknown)}."
+                )
+            data_int[:, i_f] = column.map(state_mapping).to_numpy()
+            na_values[:, i_f] = data_int[:, i_f] == cls.NA
 
         partitions = []
         for n_states, feature_indices in features_by_states.items():
-            names_partition = names[feature_indices]
-            state_names = np.array([feature_types[f]['states'] for f in names_partition])
-            partition_features = data_int[:, feature_indices]
-            partition = cls(
-                values=partition_features,
+            partitions.append(cls(
+                values=data_int[:, feature_indices],
                 feature_indices=np.array(feature_indices),
-                names=names_partition,
+                names=names[feature_indices],
                 na_values=na_values[:, feature_indices],
-                state_names=state_names
-            )
-            partitions.append(partition)
+                state_names=np.array([feature_types[f]["states"] for f in names[feature_indices]]),
+            ))
 
         return partitions
 
     @property
     def n_states(self) -> int:
+        """The number of states shared by all features in this partition."""
         return self.state_names.shape[1]
 
     @property
-    def name(self):
+    def name(self) -> str:
+        """The name of the partition."""
         return f"Categorical[{self.n_states}]"
 
-    def to_binary(self):
-        """Convert to binary one-hot encoding."""
-        if self._binarized is None:
-            self._binarized = np.eye(self.n_states, dtype=bool)[self.values]
-            self._binarized[self.na_values, :] = False
-        return self._binarized
+    def to_binary(self) -> NDArray[np.bool_]:
+        """Return a one-hot (binary) encoding of the feature values.
+
+        The result has shape (n_objects, n_features, n_states); NA positions are
+        all-False across the state axis. The encoding is computed once and cached.
+
+        Returns:
+            Boolean one-hot array; do not mutate (it is cached and returned by reference).
+        """
+        binarized = self._binarized
+        if binarized is None:
+            binarized = np.eye(self.n_states, dtype=bool)[self.values]
+            binarized[self.na_values, :] = False
+            self._binarized = binarized
+        return binarized
+
 
 class GaussianFeatures(GenericTypeFeatures):
     """Features that are continuous measurements following a Gaussian distribution."""
 
     @classmethod
     def from_dataframes(
-        cls: Type[S],
+        cls,
         data: pd.DataFrame,
         feature_types: dict[str, dict],
-    ) -> S:
+    ) -> Self | None:
+        """Build Gaussian features from the columns typed 'gaussian'.
 
-        # Retrieve all gaussian features
-        gaussian_indices = np.array([
-            i for i, f in enumerate(data.columns)
-            if feature_types[f]['type'] == "gaussian"
-        ])
+        Args:
+            data: DataFrame of feature columns (metadata columns already excluded).
+            feature_types: Mapping from feature name to its type and states.
 
-        if len(gaussian_indices) == 0:
-            # No gaussian features found
+        Returns:
+            A GaussianFeatures instance, or None if there are no Gaussian features.
+        """
+        indices, names = select_columns_of_type(data, feature_types, "gaussian")
+
+        if len(indices) == 0:
             return None
 
-        gaussian_data = data.iloc[:, gaussian_indices]
-        gaussian_names = gaussian_data.columns.to_numpy()
-        gaussian_features = gaussian_data.to_numpy(dtype=float, na_value=np.nan)
+        gaussian_data = data.iloc[:, indices]
+        values = gaussian_data.to_numpy(dtype=float, na_value=np.nan)
 
-        # return Feature class consisting of all gaussian features
         return cls(
-            values=gaussian_features,
-            feature_indices=gaussian_indices,
-            names=gaussian_names,
-            na_values=np.isnan(gaussian_features),
+            values=values,
+            feature_indices=indices,
+            names=gaussian_data.columns.to_numpy(),
+            na_values=np.isnan(values),
         )
 
     @property
-    def name(self):
+    def name(self) -> str:
+        """The name of the feature type"""
         return "Gaussian"
 
 
@@ -270,64 +290,79 @@ class PoissonFeatures(GenericTypeFeatures):
 
     @classmethod
     def from_dataframes(
-            cls: Type[S],
-            data: pd.DataFrame,
-            feature_types: dict[str, dict],
-    ) -> S:
-        # Retrieve all Poisson features
-        poisson_columns = [k for k, v in feature_types.items() if v['type'] == "poisson"]
-        poisson_data = data.loc[:, poisson_columns]
-        if poisson_data.empty:
+        cls,
+        data: pd.DataFrame,
+        feature_types: dict[str, dict],
+    ) -> Self | None:
+        """Build Poisson features from the columns typed 'poisson'.
+
+        Args:
+            data: DataFrame of feature columns (metadata columns already excluded).
+            feature_types: Mapping from feature name to its type and states.
+
+        Returns:
+            A PoissonFeatures instance, or None if there are no Poisson features.
+        """
+        indices, names = select_columns_of_type(data, feature_types, "poisson")
+        if len(indices) == 0:
             return None
-        else:
 
-            poisson_features_dict = dict(
-                values=poisson_data.to_numpy(dtype=float),
-                feature_indices=data.columns.get_indexer(poisson_columns),
-                names=np.asarray(poisson_columns),
-                na_values=np.isnan(poisson_data.to_numpy(dtype=float))
-            )
-
-            # return Feature class consisting of all poisson features
-            return cls(**poisson_features_dict)
+        values = data.iloc[:, indices].to_numpy(dtype=float)
+        return cls(
+            values=values,
+            feature_indices=indices,
+            names=names,
+            na_values=np.isnan(values),
+        )
 
     @property
-    def name(self):
+    def name(self) -> str:
+        """The name of the feature type"""
         return "Poisson"
 
 
-class LogitNormalFeatures(GenericTypeFeatures):
+# todo: logit normal was silently dead.
+class LogitNormalFeatures(GaussianFeatures):
+    """Features that are proportions in (0, 1), modelled as Gaussian after a
+    logit transform.
 
-    """Features that are percentages following a logit-normal distribution."""
+    The raw proportions are logit-transformed at load time, mapping (0, 1) to the
+    real line, after which they are handled exactly like Gaussian features.
+    Values of exactly 0 or 1 are nudged by machine epsilon to avoid infinities.
+    """
 
     @classmethod
     def from_dataframes(
-            cls: Type[S],
-            data: pd.DataFrame,
-            feature_types: dict[str, dict],
-    ) -> S:
-        # Retrieve all Poisson features
-        logit_normal_columns = [k for k, v in feature_types.items() if v['type'] == "logit-normal"]
-        logit_normal_data = data.loc[:, logit_normal_columns]
-        if logit_normal_data.empty:
+        cls,
+        data: pd.DataFrame,
+        feature_types: dict[str, dict],
+    ) -> Self | None:
+        """Build logit-normal features from the columns typed 'logitnormal'.
+
+        Args:
+            data: DataFrame of feature columns (metadata columns already excluded).
+            feature_types: Mapping from feature name to its type and states.
+
+        Returns:
+            A LogitNormalFeatures instance, or None if there are no logit-normal
+            features.
+        """
+        indices, names = select_columns_of_type(data, feature_types, "logitnormal")
+        if len(indices) == 0:
             return None
-        else:
-            values = logit_normal_data.to_numpy(dtype=float, na_value=np.nan)
-
-            # Adding machine epsilon to 0 and subtract it from 1 avoids -inf/inf in logit transform
-            values = np.where(values == 0.0, EPS, values)
-            values = np.where(values == 1.0, values-EPS, values)
-
-            logit_values = logit(values)
-
-            logit_normal_features_dict = dict(values=logit_values,
-                                              names=np.asarray(logit_normal_columns))
-
-            # return Feature class consisting of all logit-normal features
-            return cls(**logit_normal_features_dict)
+        values = data.iloc[:, indices].to_numpy(dtype=float, na_value=np.nan)
+        values = np.where(values == 0.0, EPS, values)
+        values = np.where(values == 1.0, values - EPS, values)
+        return cls(
+            values=logit(values),
+            feature_indices=indices,
+            names=names,
+            na_values=np.isnan(values),   # NA from pre-transform values
+        )
 
     @property
-    def name(self):
+    def name(self) -> str:
+        """The name of the feature type"""
         return "LogitNormal"
 
 
@@ -538,6 +573,30 @@ class Data:
         logger.info("\n")
         logger.info("DATA IMPORT")
         logger.info("##########################################")
+
+
+def select_columns_of_type(
+    data: pd.DataFrame,
+    feature_types: dict[str, dict],
+    type_name: str,
+) -> tuple[NDArray[np.int_], NDArray]:
+    """Find the columns of a given feature type in the data.
+
+    Args:
+        data: DataFrame of feature columns.
+        feature_types: Mapping from feature name to its type and states.
+        type_name: The feature type to select (e.g. "gaussian", "poisson").
+
+    Returns:
+        A tuple of (indices, names): the integer positions of the matching
+        columns in `data`, and their names. Both are empty if no column matches.
+    """
+    indices = np.array([
+        i for i, f in enumerate(data.columns)
+        if feature_types[f]["type"] == type_name
+    ], dtype=int)
+    names = data.columns.to_numpy()[indices]
+    return indices, names
 
 
 # @dataclass(frozen=True)
