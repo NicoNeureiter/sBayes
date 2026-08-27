@@ -1,0 +1,41 @@
+# Configuration for sBayes simulation.
+# n_clusters and confounders are shared with the sBayes model config (config.yaml) used for inference.
+# n_clusters may deliberately differ between simulation and inference.
+
+# Path to the sBayes model config used for inference
+config_path: config.yaml
+
+simulation:
+
+    # The number of objects (e.g., languages) to simulate
+    objects: 20
+
+    # The number of clusters to simulate (ground truth)
+    # May differ from clusters in config.yaml (inference)
+    clusters: 1
+
+    # The number of datasets to generate from the prior
+    datasets: 1
+
+    # Random seed for reproducibility
+    seed: 0
+
+    # Spatial range for object locations (in central Europe, away from the ocean)
+    x_min: 8.0
+    x_max: 20.0
+    y_min: 46.0
+    y_max: 54.0
+
+    # The number of features per feature type
+    # For categorical features, the key is categorical_<n_states>
+    features:
+        categorical_2: 5
+        categorical_3: 5
+
+    # Confounders and number of groups per confounder
+    # Must match the confounders defined in config.yaml
+    confounders:
+        confounder_1: 2
+
+    output:
+        path: ../data
