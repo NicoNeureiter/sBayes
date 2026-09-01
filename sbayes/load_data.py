@@ -14,14 +14,14 @@ from jax import Array
 from logging import Logger
 from numpy.typing import NDArray
 from scipy.special import logit
-from typing import Literal, Optional, Type, Iterator, Self
+from typing import Literal, Self
 
 try:
     import ruamel.yaml as yaml
 except ImportError:
     import ruamel_yaml as yaml
 
-from sbayes.preprocessing import ComputeNetwork, read_geo_cost_matrix
+from sbayes.network import Network, parse_geo_cost_matrix
 from sbayes.util import PathLike, read_data_csv, EPS
 from sbayes.config.config import SBayesConfig
 from sbayes.experiment_setup import Experiment
@@ -88,6 +88,24 @@ class Objects:
         return cls(id=ids, locations=locations, names=names) # type: ignore[assignment]
 
 
+class FeatureType(str, Enum):
+    """The feature types supported by sBayes.
+
+    A string enum: each member equals its string value (e.g.
+    ``FeatureType.gaussian == "gaussian"``), so members compare directly against
+    the type strings read from a config file, while code referencing the members
+    stays typo-proof.
+    """
+
+    categorical = "categorical"
+    gaussian = "gaussian"
+    poisson = "poisson"
+    logitnormal = "logitnormal"
+
+    def __str__(self) -> str:
+        return self.value
+
+
 class GenericTypeFeatures(ABC):
 
     """Super class for features of a specific type."""
@@ -135,6 +153,7 @@ class CategoricalFeatures(GenericTypeFeatures):
     Missing values are stored as the NA sentinel (`NA = -1`).
     """
 
+    FEATURE_TYPE = FeatureType.categorical
     state_names: NDArray            # shape: (n_features, n_states)
     state_names_dict: dict[str, NDArray]
     NA: int = -1
@@ -159,7 +178,7 @@ class CategoricalFeatures(GenericTypeFeatures):
         data: pd.DataFrame,
         feature_types: dict[str, dict],
         na_string: str = "",
-    ) -> list[Self] | None:
+    ) -> list[Self]:
         """Split categorical features into partitions grouped by number of states.
 
         Categorical features with the same number of states are collected into
@@ -186,7 +205,7 @@ class CategoricalFeatures(GenericTypeFeatures):
         features_by_states: dict[int, list[int]] = {}
         for i_f, f_name in enumerate(data.columns):
             ft = feature_types[f_name]
-            if ft["type"] != "categorical":
+            if ft["type"] != cls.FEATURE_TYPE:
                 continue
 
             states = ft["states"]
@@ -248,6 +267,7 @@ class CategoricalFeatures(GenericTypeFeatures):
 
 class GaussianFeatures(GenericTypeFeatures):
     """Features that are continuous measurements following a Gaussian distribution."""
+    FEATURE_TYPE = FeatureType.gaussian
 
     @classmethod
     def from_dataframes(
@@ -264,7 +284,7 @@ class GaussianFeatures(GenericTypeFeatures):
         Returns:
             A GaussianFeatures instance, or None if there are no Gaussian features.
         """
-        indices, names = select_columns_of_type(data, feature_types, "gaussian")
+        indices, names = select_columns_of_type(data, feature_types, cls.FEATURE_TYPE)
 
         if len(indices) == 0:
             return None
@@ -287,6 +307,7 @@ class GaussianFeatures(GenericTypeFeatures):
 
 class PoissonFeatures(GenericTypeFeatures):
     """Features that are count variables following a Poisson distribution."""
+    FEATURE_TYPE = FeatureType.poisson
 
     @classmethod
     def from_dataframes(
@@ -303,7 +324,7 @@ class PoissonFeatures(GenericTypeFeatures):
         Returns:
             A PoissonFeatures instance, or None if there are no Poisson features.
         """
-        indices, names = select_columns_of_type(data, feature_types, "poisson")
+        indices, names = select_columns_of_type(data, feature_types, cls.FEATURE_TYPE)
         if len(indices) == 0:
             return None
 
@@ -321,7 +342,6 @@ class PoissonFeatures(GenericTypeFeatures):
         return "Poisson"
 
 
-# todo: logit normal was silently dead.
 class LogitNormalFeatures(GaussianFeatures):
     """Features that are proportions in (0, 1), modelled as Gaussian after a
     logit transform.
@@ -330,6 +350,7 @@ class LogitNormalFeatures(GaussianFeatures):
     real line, after which they are handled exactly like Gaussian features.
     Values of exactly 0 or 1 are nudged by machine epsilon to avoid infinities.
     """
+    FEATURE_TYPE = FeatureType.logitnormal
 
     @classmethod
     def from_dataframes(
@@ -347,7 +368,7 @@ class LogitNormalFeatures(GaussianFeatures):
             A LogitNormalFeatures instance, or None if there are no logit-normal
             features.
         """
-        indices, names = select_columns_of_type(data, feature_types, "logitnormal")
+        indices, names = select_columns_of_type(data, feature_types, cls.FEATURE_TYPE)
         if len(indices) == 0:
             return None
         values = data.iloc[:, indices].to_numpy(dtype=float, na_value=np.nan)
@@ -367,6 +388,17 @@ class LogitNormalFeatures(GaussianFeatures):
 
 
 class Features:
+    """Container for all features of an analysis, grouped into type-specific partitions.
+
+    Attributes:
+        all_features: The full feature DataFrame, shape (n_objects, n_features).
+        partitions: Type-specific feature partitions (categorical split by n_states).
+        names: All feature names, shape (n_features,).
+        missing: Boolean mask of missing values, shape (n_objects, n_features).
+        na_number: Total count of missing values.
+        n_objects: Number of objects.
+        n_features: Total number of features across all partitions.
+    """
 
     all_features: pd.DataFrame  # shape: (n_objects, n_features)
     partitions: list[GenericTypeFeatures]
@@ -385,82 +417,109 @@ class Features:
         # Keep number of objects and features as attributes
         self.n_objects, self.n_features = self.all_features.shape
 
-        # Some consistency checks
-        assert all(p.n_objects == self.n_objects for p in self.partitions)
-        assert sum(p.n_features for p in self.partitions) == self.n_features
+        # Consistency checks
+        if not all(p.n_objects == self.n_objects for p in self.partitions):
+            raise ValueError("Not all partitions have the same number of objects.")
+
+        n_partition_features = sum(p.n_features for p in self.partitions)
+        if n_partition_features != self.n_features:
+            raise ValueError(
+                f"Partitions cover {n_partition_features} features but the data "
+                f"has {self.n_features}."
+            )
 
     def categorical_partitions(self):
+        """Categorical partitions across all partitions."""
         return [p for p in self.partitions if isinstance(p, CategoricalFeatures)]
 
     @classmethod
-    def from_dataframes(
-        cls: Type[S],
-        data: pd.DataFrame,
-        feature_types: dict[str, dict],
-    ) -> S:
-        # Features are sorted by their order in the `data` CSV file. Use feature_types to exclude metadata columns.
-        feature_names = [s for s in data.columns if s in feature_types]
+    def from_dataframes(cls, data, feature_types) -> Self:
+        """Build a Features container from a data DataFrame and feature-type spec.
 
-        # Create a dataframe that excludes metadata columns
+        Metadata columns (those not in feature_types) are excluded. Categorical
+        features are split into partitions by number of states; each continuous
+        feature type forms at most one partition.
+
+        Args:
+            data: The full data DataFrame (features + metadata columns).
+            feature_types: Mapping from feature name to its type and states.
+
+        Returns:
+            A Features container holding all typed partitions.
+        """
+        # Keep only feature columns, in their CSV order
+        feature_names = [c for c in data.columns if c in feature_types]
         all_features = data.loc[:, feature_names]
 
-        # Collect partitions containing
-        partitions = []
-        # Retrieve and one-hot encode all categorical features
-        categorical_partitions = CategoricalFeatures.create_partitions_by_nstates(all_features, feature_types)
-        partitions += categorical_partitions
+        # Categorical features partition by number of states
+        partitions: list[GenericTypeFeatures] = list(
+            CategoricalFeatures.create_partitions_by_nstates(all_features, feature_types)
+        )
 
-        # Retrieve all Gaussian features
-        gaussian_features = GaussianFeatures.from_dataframes(all_features, feature_types)
-        if gaussian_features:
-            partitions.append(gaussian_features)
+        # Each continuous type forms at most one partition
+        for feature_cls in (GaussianFeatures, PoissonFeatures, LogitNormalFeatures):
+            features = feature_cls.from_dataframes(all_features, feature_types)
+            if features is not None:
+                partitions.append(features)
 
-        # Retrieve all Poisson features
-        poisson_features = PoissonFeatures.from_dataframes(all_features, feature_types)
-        if poisson_features:
-            partitions.append(poisson_features)
-
-        # Retrieve all logit-normal features
-        logit_normal_features = LogitNormalFeatures.from_dataframes(all_features, feature_types)
-        if logit_normal_features:
-            partitions.append(logit_normal_features)
-
-        # return Feature class consisting of all different types of features
         return cls(all_features=all_features, partitions=partitions)
+
 
 @dataclass
 class Confounder:
+    """A confounder assigning objects to groups (e.g. language families).
+
+    Attributes:
+        name: The confounder's name.
+        group_assignment: Boolean membership matrix, shape (n_groups, n_objects).
+        group_names: Names of the groups, shape (n_groups,).
+    """
 
     name: str
-    group_assignment: NDArray[bool]         # shape: (n_groups, n_objects)
-    group_names: list[GroupName]            # shape: (n_groups,)
+    group_assignment: NDArray[np.bool_]     # shape: (n_groups, n_objects)
+    group_names: list[str]                  # shape: (n_groups,)
 
-    def any_group(self) -> NDArray[bool]:  # shape: (n_groups,)
+    def any_group(self) -> NDArray[np.bool_]:
+        """For each object, whether it belongs to any group of this confounder.
+
+        Objects with a missing confounder value belong to no group (all False).
+
+        Returns:
+            Boolean array of shape (n_objects,).
+        """
         return np.any(self.group_assignment, axis=0)
 
     @property
     def n_groups(self) -> int:
+        """Number of groups in this confounder."""
         return len(self.group_names)
 
     @classmethod
-    def from_dataframe(
-        cls: Type[S],
-        data: pd.DataFrame,
-        confounder_name: ConfounderName,
-    ) -> S:
+    def from_dataframe(cls, data: pd.DataFrame, confounder_name: str) -> Self:
+        """Build a Confounder from a data DataFrame.
+
+        If the data has no column for this confounder, it is assumed to apply
+        uniformly to all objects (a single group "<ALL>"). Objects with a
+        missing value for the confounder are assigned to no group.
+
+        Args:
+            data: The data DataFrame.
+            confounder_name: Name of the confounder (and of its column, if present).
+
+        Returns:
+            The parsed Confounder.
+        """
         n_objects = data.shape[0]
 
-        if confounder_name not in data:
-            # If there is no column specifying the group assignment for the confounder, it
-            # is assumed to apply to all objects in the same way.
+        if confounder_name not in data.columns:
             group_assignment = np.ones((1, n_objects), dtype=bool)
             group_names = ["<ALL>"]
         else:
-            group_names_by_obj = data[confounder_name]
-            group_names = list(np.unique(group_names_by_obj.dropna()))
+            group_by_object = data[confounder_name]
+            group_names = list(np.unique(group_by_object.dropna()))
             group_assignment = np.zeros((len(group_names), n_objects), dtype=bool)
             for i_g, name_g in enumerate(group_names):
-                group_assignment[i_g, np.where(group_names_by_obj == name_g)] = True
+                group_assignment[i_g] = (group_by_object == name_g).to_numpy()
 
         return cls(
             name=confounder_name,
@@ -469,63 +528,58 @@ class Confounder:
         )
 
 
-class FeatureType(str, Enum):
-
-    categorical = "categorical"
-    gaussian = "gaussian"
-    poisson = "poisson"
-    logitnormal = "logitnormal"
-
-    @classmethod
-    def values(cls) -> Iterator[FeatureType | str]:
-        return iter(cls)
-
-
 class Data:
+    """Container and loading logic for the data of an sBayes analysis.
 
-    """Container and loading functionality for different types of data involved in a
-    sBayes analysis.
+    Attributes:
+        objects: The objects (locations, ids, names).
+        features: The features, grouped into type-specific partitions.
+        confounders: Named confounders, each assigning objects to groups.
+        crs: The coordinate reference system for object locations.
+        geo_cost_matrix: Pairwise geographic costs between objects.
+        network: The spatial network built from object locations.
+        logger: Logger used during loading (likely cleared afterwards).
     """
 
     objects: Objects
     features: Features
     confounders: OrderedDict[str, Confounder]
-    crs: Optional[pyproj.CRS]
-    geo_cost_matrix: Optional[NDArray[float]]
-    network: ComputeNetwork
-    logger: Logger
+    crs: pyproj.CRS | None
+    geo_cost_matrix: NDArray[np.float64] | None
+    network: Network
+    logger: Logger | None
 
     def __init__(
         self,
         objects: Objects,
         features: Features,
         confounders: OrderedDict[str, Confounder],
-        projection: Optional[str] = "epsg:4326",
+        projection: str | None = "epsg:4326",
         geo_costs: Literal["from_data"] | PathLike = "from_data",
-        logger: Logger = None,
+        logger: Logger | None = None,
     ):
         self.objects = objects
         self.features = features
         self.confounders = confounders
         self.logger = logger
 
+        # NOTE: location-dependent — for optional-locations feature, guard this block
         self.crs = pyproj.CRS(projection)
-        self.network = ComputeNetwork(self.objects, crs=self.crs)
-
+        self.network = Network.from_objects(self.objects, crs=self.crs)
         if geo_costs == "from_data":
             self.geo_cost_matrix = self.network.dist_mat
         else:
-            self.geo_cost_matrix = read_geo_cost_matrix(
-                object_names=self.objects.id, file=geo_costs, logger=self.logger
+            self.geo_cost_matrix = parse_geo_cost_matrix(
+                object_names=self.objects.id,
+                file=geo_costs,
+                logger=self.logger
             )
 
-
     @classmethod
-    def from_config(cls: Type[S], config: SBayesConfig, logger=None) -> S:
+    def from_config(cls, config: SBayesConfig, logger: Logger | None = None) -> Self:
+        """Load Data from the files referenced in a config."""
         if logger:
             cls.log_loading(logger)
-
-        # Load objects, features, confounders
         objects, features, confounders = read_features_from_csv(
             data_path=config.data.features,
             feature_types_path=config.data.feature_types,
@@ -533,8 +587,6 @@ class Data:
             confounder_names=config.model.confounders,
             logger=logger,
         )
-
-        # Create a Data object using __init__
         return cls(
             objects=objects,
             features=features,
@@ -545,17 +597,19 @@ class Data:
         )
 
     @classmethod
-    def from_experiment(cls: Type[S], experiment: Experiment) -> S:
+    def from_experiment(cls, experiment: Experiment) -> Self:
+        """Load Data from an experiment's config and logger."""
         return cls.from_config(experiment.config, logger=experiment.logger)
 
     @classmethod
-    def from_simulation(cls,
-                        features_csv: pd.DataFrame,
-                        feature_types: dict,
-                        config: SBayesConfig,
-                        logger=None) -> S:
-
-        """Create Data directly from in-memory structures, without file I/O."""
+    def from_simulation(
+        cls,
+        features_csv: pd.DataFrame,
+        feature_types: dict,
+        config: SBayesConfig,
+        logger: Logger | None = None,
+    ) -> Self:
+        """Create Data from in-memory structures, without file I/O."""
         objects, features, confounders = parse_features(
             data=features_csv,
             feature_types=feature_types,
@@ -565,27 +619,30 @@ class Data:
             objects=objects,
             features=features,
             confounders=confounders,
-            logger=logger
+            projection=config.data.projection,   # respect config, not silent default
+            geo_costs=config.model.prior.geo.costs,
+            logger=logger,
         )
 
     @staticmethod
-    def log_loading(logger):
+    def log_loading(logger: Logger) -> None:
+        """Write the data-import header to the log."""
         logger.info("\n")
         logger.info("DATA IMPORT")
-        logger.info("##########################################")
+        logger.info("#" * 42)
 
 
 def select_columns_of_type(
     data: pd.DataFrame,
     feature_types: dict[str, dict],
-    type_name: str,
+    feature_type: FeatureType,
 ) -> tuple[NDArray[np.int_], NDArray]:
     """Find the columns of a given feature type in the data.
 
     Args:
         data: DataFrame of feature columns.
         feature_types: Mapping from feature name to its type and states.
-        type_name: The feature type to select (e.g. "gaussian", "poisson").
+        feature_type: The feature type to select.
 
     Returns:
         A tuple of (indices, names): the integer positions of the matching
@@ -593,37 +650,18 @@ def select_columns_of_type(
     """
     indices = np.array([
         i for i, f in enumerate(data.columns)
-        if feature_types[f]["type"] == type_name
+        if feature_types[f]["type"] == feature_type
     ], dtype=int)
     names = data.columns.to_numpy()[indices]
     return indices, names
 
 
-# @dataclass(frozen=True)
-# class PriorCounts:
-#     counts: NDArray[int]
-#     states: list[...]
-#
-#     def __getitem__(self, key: str):
-#         return getattr(self, key)
-#
-#
-# def parse_prior_counts(
-#     counts: dict[FeatureName, dict[StateName, int]],
-#     features: Features,
-# ) -> PriorCounts:
-#     ...
-#     return PriorCounts(
-#         counts=...,
-#         states=...,
-#     )
-
 def parse_features(
     data: pd.DataFrame,
     feature_types: dict,
-    confounder_names: list[ConfounderName],
-    logger: Optional[Logger] = None,
-) -> (Objects, Features, dict[ConfounderName, Confounder]):
+    confounder_names: list[str],
+    logger: Logger | None = None,
+) -> tuple[Objects, Features, OrderedDict[str, Confounder]]:
     """Parse features, objects and confounders from in-memory structures.
 
     Core parsing logic shared between file-based loading and simulation.
@@ -661,12 +699,16 @@ def parse_features(
 
 def read_features_from_csv(
     data_path: PathLike,
-    confounder_names: list[ConfounderName],
-    feature_types_path: PathLike = None,
-    feature_states_path: PathLike = None,
-    logger: Optional[Logger] = None,
-) -> (Objects, Features, dict[ConfounderName, Confounder]):
+    confounder_names: list[str],
+    feature_types_path: PathLike | None = None,
+    feature_states_path: PathLike | None = None,
+    logger: Logger | None = None,
+) -> tuple[Objects, Features, OrderedDict[str, Confounder]]:
     """Import data (objects, features, confounders) from a CSV file.
+
+    Exactly one of `feature_types_path` or `feature_states_path` must be given.
+    `feature_types_path` (YAML) supports all feature types; `feature_states_path`
+    (CSV) is a categorical-only legacy format.
 
     Args:
         data_path: Path to the data CSV file.

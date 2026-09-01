@@ -18,8 +18,8 @@ class TestExctactFeatureStates(unittest.TestCase):
         output_path = TEST_DIR / 'test_files' / 'feature_states.csv'
         expected_output_path = TEST_DIR / 'test_files' / 'feature_states_expected.csv'
 
-        extract_feature_states.main(['--input', input_path,
-                                     '--output', output_path])
+        extract_feature_states.main(['--input', str(input_path),
+                                     '--output', str(output_path)])
 
         with open(output_path, 'r') as output_file:
             output = output_file.read()

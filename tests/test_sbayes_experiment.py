@@ -3,10 +3,14 @@
 from __future__ import annotations
 from copy import deepcopy
 import unittest
+import jax.random as random
 
 from sbayes.cli import main as sbayes_main
-from sbayes.tools.simulation import main as simulation_main
+from sbayes.simulate.config import load_config
+from sbayes.simulate.simulator import Simulator
 
+SIMULATE_CONFIG_PATH = "experiments/simulation/config_simulate.yaml"
+RNG_SEED = 0
 
 class TestExperiment(unittest.TestCase):
 
@@ -25,22 +29,16 @@ class TestExperiment(unittest.TestCase):
     }
 
     @staticmethod
-    def test_mobility_simulation_and_run():
-        """Test whether 1) mobility simulation is running without errors and 2) mobility
-        behaviour analysis on simulated data is running without errors."""
+    def test_simulation_and_run():
+        """Simulation and subsequent inference run without errors on simulated data."""
+        sim_config = load_config(SIMULATE_CONFIG_PATH)
+        sim = Simulator(sim_config)
+        sim.prepare_simulation()
+        sim.simulate(random.PRNGKey(RNG_SEED))
+        sim.write_simulation(write_parameters=False)
+        sim.infer()
+        print("Simulation and inference passed\n")
 
-        simulation_main(
-            "experiments/mobility_behaviour/simulation/config_simulation.json"
-        )
-        print("Mobility simulation passed\n")
-
-        custom_settings = deepcopy(TestExperiment.CUSTOM_SETTINGS)
-        sbayes_main(
-            config="experiments/mobility_behaviour/config.yaml",
-            custom_settings=custom_settings,
-            experiment_name="test_mobility_run",
-        )
-        print("Mobility analysis passed\n")
 
     @staticmethod
     def test_south_america_run():
@@ -52,6 +50,7 @@ class TestExperiment(unittest.TestCase):
             experiment_name="test_south_america_run",
         )
         print("South america analysis passed\n")
+
 
     @staticmethod
     def test_custom_settings_as_args():
@@ -84,3 +83,4 @@ class TestExperiment(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+svi

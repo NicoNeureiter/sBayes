@@ -131,28 +131,7 @@ def get_neighbours(cluster, already_in_cluster, adjacency_matrix, indirection=0)
     return np.logical_and(reachable, ~already_in_cluster)
 
 
-def compute_delaunay(locations):
-    """Computes the Delaunay triangulation between a set of point locations
 
-    Args:
-        locations (np.array): a set of locations
-            shape (n_objects, n_spatial_dims = 2)
-    Returns:
-        (np.array) sparse matrix of Delaunay triangulation
-            shape (n_edges, n_edges)
-    """
-    n = len(locations)
-
-    if n < 4:
-        # scipy's Delaunay triangulation fails for <3. Return a fully connected graph:
-        return csr_matrix(1-np.eye(n, dtype=int))
-
-    delaunay = spatial.Delaunay(locations, qhull_options="QJ Pp")
-
-    indptr, indices = delaunay.vertex_neighbor_vertices
-    data = np.ones_like(indices)
-
-    return csr_matrix((data, indices, indptr), shape=(n, n))
 
 
 def gabriel_graph_from_delaunay(delaunay, locations):
@@ -278,45 +257,6 @@ def range_like(a):
     return list(range(len(a)))
 
 
-# Encoding
-def encode_states(features_raw, feature_types: dict):
-    # Define shapes
-    n_features = len(feature_types)
-    n_states = max(len(v['states']) for v in feature_types.values())
-
-    # Initialize arrays and counts
-    # features_bin = np.zeros(features_bin_shape, dtype=bool)
-    features_int = np.zeros_like(features_raw, dtype=INT_TYPE)
-
-    applicable_states = np.zeros((n_features, n_states), dtype=bool)
-
-    # # Binary vectors used for encoding
-    # one_hot = np.eye(n_states, dtype=bool)
-
-    for f_idx, (f_name, f_type) in enumerate(feature_types.items()):
-        # Define applicable states for feature f
-        f_states = f_type['states']
-        applicable_states[f_idx, :len(f_states)] = True
-
-        # Map external to internal states for feature f
-        name_to_index = {f: i  for i, f in enumerate(f_states)}
-        f_enc = features_raw[f_name].map(name_to_index)
-
-        # Binarize features
-        f_applicable = ~f_enc.isna().to_numpy()
-        f_enc_applicable = f_enc[f_applicable].astype(INT_TYPE)
-
-        # features_bin[f_applicable, f_idx] = one_hot[f_enc_applicable]
-        features_int[f_applicable, f_idx] = f_enc_applicable
-
-    features = {
-        'values': features_int,
-        'states': applicable_states,
-        'state_names': [ft['states'] for ft in feature_types.values()],
-    }
-
-    return features
-
 
 def normalize_str(s: str) -> str:
     if pd.isna(s):
@@ -335,20 +275,7 @@ def read_data_csv(csv_path: PathLike) -> pd.DataFrame:
         return data.applymap(normalize_str)
 
 
-def read_costs_from_csv(file: str, logger=None):
-    """This is a helper function to read the cost matrix from a csv file
-        Args:
-            file: file location of the csv file
-            logger: Logger objects for printing info message.
 
-        Returns:
-            pd.DataFrame: cost matrix
-        """
-
-    data = pd.read_csv(file, dtype=str, index_col=0)
-    if logger:
-        logger.info(f"Geographical cost matrix read from {file}.")
-    return data
 
 
 def scale_counts(counts, scale_to, prior_inheritance=False):
@@ -744,6 +671,45 @@ def normalize_weights(
 
     # Broadcast the normalized weights per pattern to the objects where the patterns appeared using pattern_inv
     return w_per_pattern[pattern_inv]
+
+
+# # TODO: temporary home - sample_categorical is not a general utility.
+# #   Move to sbayes/simulate/ or delete once its callers are confirmed.
+EYES = {}
+
+def sample_categorical(p, binary_encoding=False):
+    """Sample from a (multidimensional) categorical distribution. The
+    probabilities for every category are given by `p`
+
+    Args:
+        p (np.array): Array defining the probabilities of every category at
+            every site of the output array. The last axis defines the categories
+            and should sum up to 1.
+            shape: (*output_dims, n_states)
+        binary_encoding(bool): Return samples in binary encoding?
+    Returns
+        np.array: Samples of the categorical distribution.
+            shape: output_dims
+                or
+            shape: (output_dims, n_states)
+    """
+    *output_dims, n_states = p.shape
+
+    assert np.all(p >= 0)
+
+    cdf = np.cumsum(p, axis=-1)
+    assert np.allclose(cdf[..., -1], 1.)
+    cdf /= cdf[..., [-1]]
+    z = np.random.random(output_dims + [1])
+
+    samples = np.argmax(z < cdf, axis=-1)
+    if binary_encoding:
+        if n_states not in EYES:
+            EYES[n_states] = np.eye(n_states, dtype=bool)
+        eye = EYES[n_states]
+        return eye[samples]
+    else:
+        return samples
 
 
 if __name__ == "__main__":
