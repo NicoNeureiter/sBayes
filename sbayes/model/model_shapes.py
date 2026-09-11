@@ -1,8 +1,5 @@
 from __future__ import annotations
-
 from dataclasses import dataclass
-
-from numpy.typing import NDArray
 
 
 @dataclass
@@ -14,9 +11,12 @@ class ModelShapes:
     n_groups: dict[str, int]
 
     @property
-    def n_components(self):
+    def n_components(self) -> int:
+        """Number of mixture components per object: the cluster and each confounder."""
         return self.n_confounders + 1
 
-    def __getitem__(self, key):
-        """Getter for backwards compatibility with dict-notation."""
-        return getattr(self, key)
+    @property
+    def n_components_expanded(self) -> int:
+        """Number of mixture components after expanding the single cluster component
+        into one component per cluster: `n_clusters + n_confounders`."""
+        return self.n_clusters + self.n_confounders

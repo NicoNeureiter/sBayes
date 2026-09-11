@@ -6,7 +6,7 @@ import json
 
 from enum import Enum
 from pathlib import Path
-from pydantic import model_validator, BaseModel, Field
+from pydantic import model_validator, BaseModel, Field, ConfigDict
 from pydantic import PositiveInt, PositiveFloat, NonNegativeFloat, NonNegativeInt
 from pydantic.types import PathType
 from pydantic_core import core_schema, PydanticCustomError
@@ -69,6 +69,8 @@ class BaseConfig(BaseModel, extra='forbid'):
 
     """The base class for all config classes. This inherits from pydantic.BaseModel and
     configures settings that should be shared across all setting classes."""
+
+    model_config = ConfigDict(extra="forbid", validate_assignment=True)
 
     def __getitem__(self, key: str):
         """Allow dict-style access to config fields (raises AttributeError if unknown)."""
@@ -154,13 +156,12 @@ class GaussianMeanPriorConfig(TypedPriorConfig):
     """Configuration of the prior on the mean of a normal distribution"""
 
     class Types(str, Enum):
-        IMPROPER_UNIFORM = "improper_uniform"
         GAUSSIAN = "gaussian"
 
-    DEFAULT_TYPE_NAME: ClassVar[str] = Types.IMPROPER_UNIFORM.value
+    DEFAULT_TYPE_NAME: ClassVar[str] = Types.GAUSSIAN.value
 
-    type: Types = Types.IMPROPER_UNIFORM
-    """Type of prior distribution (`improper_uniform` or `gaussian`)."""
+    type: Types = Types.GAUSSIAN
+    """Type of prior distribution (`gaussian`)."""
 
     file: Optional[RelativeFilePath] = None
     """Path to the parameters of the Gaussian distribution."""
@@ -215,11 +216,15 @@ class GaussianVariancePriorConfig(BaseConfig):
         if not isinstance(values, dict):
             return values
 
-        if values.get("type") == cls.Types.INV_GAMMA:
+        prior_type = values.get("type")
+        needs_parameters = (cls.Types.INV_GAMMA, cls.Types.EXPONENTIAL,
+                            cls.Types.GAMMA, cls.Types.FIXED)
+
+        if prior_type in needs_parameters:
             if (values.get("file") is None) and (values.get("parameters") is None):
                 raise ValueError(
                     f"Provide `file` or `parameters` for `{cls.__name__}` of type "
-                    f"`{cls.Types.INV_GAMMA.value}`."
+                    f"`{prior_type}`."
                 )
         return values
 
@@ -235,8 +240,9 @@ class PoissonPriorConfig(TypedPriorConfig):
     """Configuration of the prior on the rate parameter of a Poisson distribution"""
 
     class Types(str, Enum):
-        JEFFREYS = "jeffreys"
         GAMMA = "gamma"
+        JEFFREYS = "jeffreys"
+
 
     DEFAULT_TYPE_NAME: ClassVar[str] = Types.JEFFREYS.value
 
@@ -378,6 +384,21 @@ class ClusterPriorConfig(BaseConfig):
     max: PositiveInt = 10000
     """Maximum cluster size (currently not enforced, see TODO below)."""
 
+    @model_validator(mode="after")
+    def validate_type_specific_config(self) -> Self:
+        """Ensure that the config section required by the chosen prior type is present."""
+        required = {
+            self.Types.DIRICHLET: ("dirichlet_config", self.dirichlet_config),
+            self.Types.LOGISTIC_NORMAL: ("logistic_normal_config", self.logistic_normal_config),
+        }
+        if self.type in required:
+            name, value = required[self.type]
+            if value is None:
+                raise ValueError(
+                    f"A `{self.type.value}` cluster prior requires a `{name}` section."
+                )
+        return self
+
     # NN: min and max bounds are tricky to enforce with continuous assignments and are
     # currently ignored by the model.
     # TODO: Discuss if there is demand and how it could be implemented.
@@ -432,7 +453,7 @@ class GeoPriorConfig(TypedPriorConfig):
     """Value where the sigmoid probability function reaches 0.5. Required if type=cost_based
     and probability_function=sigmoid."""
 
-    skeleton: Skeleton = Skeleton.MST
+    skeleton: Skeleton = Skeleton.COMPLETE
     """The graph along which the costs are aggregated. Per default, the cost of edges on the minimum
      spanning tree (mst) are aggregated. Choose from: [mst, delaunay, diameter, complete_graph]"""
 
@@ -446,6 +467,18 @@ class GeoPriorConfig(TypedPriorConfig):
     the resolution of the parameter grid (`grid_size`) and the number of Monte Carlo
     steps per grid point (`steps_per_setting`)."""
 
+    @model_validator(mode="after")
+    def validate_skeleton(self) -> Self:
+        """Reject skeleton types that are not implemented."""
+        if self.skeleton is self.Skeleton.MST:
+            raise ValueError(
+                "The `mst` skeleton is not supported: the minimum spanning tree cannot "
+                "be computed on fuzzy cluster assignments."
+                f"Use `{self.skeleton.COMPLETE.value}`, `{self.skeleton.SPECTRAL.value}` or "
+                f"`{self.skeleton.DIAMETER.value}` instead."
+            )
+        return self
+    
     @model_validator(mode="before")
     @classmethod
     def validate_geo_prior_parameters(cls, values: Any) -> Any:
@@ -608,7 +641,7 @@ class ModelConfig(BaseConfig):
         if not isinstance(values, dict):
             return values
 
-        prior = values.get("prior")
+        prior = values.get('confounders', [])
         if not isinstance(prior, dict):
             # `prior` is missing or already a PriorConfig instance: leave the required-
             # field check to pydantic and the PriorConfig validators.
@@ -624,18 +657,26 @@ class ModelConfig(BaseConfig):
 
     @model_validator(mode="after")
     def deactivate_dirichlet_transform_when_sampling_from_prior(self) -> Self:
-        """When sampling from the prior, disable the categorical parameter transformation.
+        """Disable the categorical parameter transformation when sampling from the prior.
 
-        Configs without a categorical prior are skipped, since the transformation only
-        applies to categorical effects.
+        The transformation is not supported in this mode, so an explicit setting is
+        overridden with a warning.
         """
-        if self.sample_from_prior:
-            if self.prior.cluster_effect.categorical is not None:
-                self.prior.cluster_effect.categorical.use_parameter_transformation = False
-            for conf_eff in self.prior.confounding_effects.values():
-                for conf_eff_grp in conf_eff.values():
-                    if conf_eff_grp.categorical is not None:
-                        conf_eff_grp.categorical.use_parameter_transformation = False
+        if not self.sample_from_prior:
+            return self
+
+        categorical_priors = [self.prior.cluster_effect.categorical]
+        for conf_eff in self.prior.confounding_effects.values():
+            categorical_priors.extend(grp.categorical for grp in conf_eff.values())
+
+        for prior in categorical_priors:
+            if prior is not None and prior.use_parameter_transformation:
+                warnings.warn(
+                    "`use_parameter_transformation` is not supported when sampling "
+                    "from the prior. Disabling it."
+                )
+                prior.use_parameter_transformation = False
+
         return self
 
 

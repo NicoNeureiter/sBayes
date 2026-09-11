@@ -14,7 +14,7 @@ from jax import Array
 from logging import Logger
 from numpy.typing import NDArray
 from scipy.special import logit
-from typing import Literal, Self
+from typing import ClassVar, Literal, Self
 
 try:
     import ruamel.yaml as yaml
@@ -112,8 +112,11 @@ class GenericTypeFeatures(ABC):
 
     values: Array                                   # shape: (n_objects, n_features)
     feature_indices: Array                          # shape: (n_features,)
-    names: NDArray                     # shape: (n_features,)
-    na_values: NDArray[np.bool_]                        # shape: (n_objects, n_features)
+    names: NDArray                                  # shape: (n_features,)
+    na_values: NDArray[np.bool_]                    # shape: (n_objects, n_features)
+
+    FEATURE_TYPE: ClassVar[FeatureType]
+    """The feature type this class handles. Must be set by every subclass."""
 
     def __init__(self, values: NDArray,
                  feature_indices: NDArray[np.int_],
@@ -407,6 +410,7 @@ class Features:
         self.all_features = all_features
         self.partitions = partitions
 
+
         # Derive feature names attribute
         self.names = np.array(all_features.columns)
 
@@ -561,6 +565,7 @@ class Data:
         self.objects = objects
         self.features = features
         self.confounders = confounders
+        self.validate_confounders()
         self.logger = logger
 
         # NOTE: location-dependent — for optional-locations feature, guard this block
@@ -631,6 +636,29 @@ class Data:
         logger.info("DATA IMPORT")
         logger.info("#" * 42)
 
+    def validate_confounders(self) -> None:
+        """Check that the confounders group the objects as required by the model.
+
+        Every object must belong to a group of at least one confounder, since an object
+        outside every group has no mixture component to draw its features from.
+        """
+        for name, conf in self.confounders.items():
+            if not conf.any_group().any():
+                raise ValueError(
+                    f"No object is assigned to a group of confounder '{name}'. Remove "
+                    f"the confounder, or omit the column entirely to define a single "
+                    f"universal group."
+                )
+
+        in_any_group = np.any(
+            [conf.any_group() for conf in self.confounders.values()], axis=0
+        )
+        if not in_any_group.all():
+            missing = [self.objects.id[i] for i in np.flatnonzero(~in_any_group)]
+            raise ValueError(
+                f"Objects {missing} belong to no group of any confounder. Every object "
+                f"must be assigned to a group of at least one confounder."
+            )
 
 def select_columns_of_type(
     data: pd.DataFrame,
@@ -738,3 +766,4 @@ def read_features_from_csv(
         raise ValueError("Either `feature_types_path` or `feature_states_path` must be provided.")
 
     return parse_features(data, feature_types, confounder_names, logger)
+
