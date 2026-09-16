@@ -10,7 +10,7 @@ from pathlib import Path
 from pydantic import PositiveInt
 
 from sbayes.experiment_setup import Experiment
-from sbayes.util import PathLike, update_recursive
+from sbayes.util import PathLike, update_recursive, default_experiment_name
 from sbayes.load_data import Data
 from sbayes.mcmc_setup import MCMCSetup
 from typing import NamedTuple
@@ -149,6 +149,12 @@ def main(
         num_cpus: Number of CPU devices for parallel chains.
     """
     # Read run and cluster settings from the config (logging off — this is planning only)
+
+    if resume and experiment_name is None:
+        raise ValueError("Resuming requires the name of the experiment to resume (--name).")
+
+    experiment_name = default_experiment_name()
+
     experiment = Experiment(
         config_file=config,
         experiment_name=experiment_name,

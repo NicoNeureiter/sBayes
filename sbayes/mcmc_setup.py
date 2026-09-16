@@ -1,6 +1,7 @@
 """ Setup of the MCMC process """
 from __future__ import annotations
 
+import numpy as np
 import time
 
 from jax import random
@@ -9,7 +10,7 @@ from sbayes.model import Model
 from sbayes.sampling.loggers import write_samples, OnlineSampleLogger
 from sbayes.experiment_setup import Experiment
 from sbayes.load_data import Data
-from sbayes.sampling.numpyro_sampling import sample_nuts, sample_svi
+from sbayes.sampling.numpyro_sampling import sample_nuts
 
 
 class MCMCSetup:
@@ -67,50 +68,44 @@ class MCMCSetup:
         rng_key = random.PRNGKey(mcmc_config.seed + run)
         t_start = time.time()
 
-        sample_logger = OnlineSampleLogger(
-            self.path_results, self.data, self.model, run, resume
-        )
+        if mcmc_config.inference_mode is MCMCConfig.InferenceMode.SVI:
+            raise NotImplementedError(
+                "SVI inference is not implemented: `sample_svi` has not been updated "
+                "for the current model. Use `inference_mode: mcmc`."
+            )
+        if mcmc_config.inference_mode is not MCMCConfig.InferenceMode.MCMC:
+            raise ValueError(f"Unknown inference mode: {mcmc_config.inference_mode}")
+
         self.model.calibrate()
 
-        if mcmc_config.inference_mode == MCMCConfig.InferenceMode.MCMC:
+        with OnlineSampleLogger(self.path_results, run, resume) as sample_logger:
             if resume:
-                # TODO: open() is only called when resuming - verify the non-resume path
-                #   opens the file lazily (see sampling/loggers.py).
+                # The file has to be open for the samples to be read back at the end
                 sample_logger.open()
-                initial_sample = sample_logger.load_state()
+                initial_state = sample_logger.load_state()
             else:
-                initial_sample = None
+                initial_state = None
 
             samples = sample_nuts(
                 model=self.model,
                 num_warmup=mcmc_config.warmup.warmup_steps,
                 num_samples=mcmc_config.steps,
-                # TODO: cli.py already loops over runs - verify num_chains=1 is intended.
+                # One chain per run; cli.py loops over runs
                 num_chains=1,
                 rng_key=rng_key,
                 write_interval=results_config.write_interval,
                 thinning=mcmc_config.steps // mcmc_config.samples,
-                init_sample=initial_sample,
+                init_state=initial_state,
                 init_strategy=mcmc_config.initialization_strategy,
                 sample_logger=sample_logger,
                 svi_guide=mcmc_config.svi_guide,
                 svi_steps=mcmc_config.svi_steps,
             )
 
-        elif mcmc_config.inference_mode == MCMCConfig.InferenceMode.SVI:
-            samples = sample_svi(
-                model=self.model,
-                num_samples=mcmc_config.samples,
-                rng_key=rng_key,
-            )
-
-        else:
-            raise ValueError(f"Unknown inference mode: {mcmc_config.inference_mode}")
-
-        self.logger.info("Writing samples to disk")
-
         if not results_config.samples_file_only:
+            self.logger.info("Writing samples to disk")
             # Write results to sBayes results files (stats TSV + likelihood into samples h5)
+            np.random.seed(mcmc_config.seed + run)
             write_samples(
                 run=run,
                 base_path=self.path_results,
@@ -118,10 +113,6 @@ class MCMCSetup:
                 data=self.data,
                 model=self.model,
             )
-
-        # TODO: close() is not protected against exceptions above. Fix by making
-        #   OnlineSampleLogger a context manager (see sampling/loggers.py).
-        sample_logger.close()
 
         runtime = time.time() - t_start
         self.logger.info(f"Runtime: {runtime:.2f} seconds")

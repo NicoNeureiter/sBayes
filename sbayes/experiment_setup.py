@@ -5,7 +5,7 @@ import shutil
 from datetime import datetime
 from pathlib import Path
 
-from sbayes.util import set_experiment_name, PathLike
+from sbayes.util import default_experiment_name, PathLike
 from sbayes.config.config import SBayesConfig
 
 class Experiment:
@@ -50,7 +50,7 @@ class Experiment:
                 file into the results directory for reproducibility.
         """
         # Resolve the experiment name (generate one if not provided)
-        self.experiment_name = experiment_name or set_experiment_name()
+        self.experiment_name: str = experiment_name or default_experiment_name()
         self.i_run = i_run
 
         # Load, merge overrides, and validate the config
