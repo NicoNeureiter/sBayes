@@ -1,8 +1,11 @@
 import pytest
 
 from pathlib import Path
+
+from sbayes.experiment_setup import Experiment
 from sbayes.load_data import Data
 from sbayes.config.config import SBayesConfig, ModelConfig
+from sbayes.mcmc_setup import MCMCSetup
 from sbayes.model.model import Model
 
 TEST_DATA = Path(__file__).parent / "data"
