@@ -1,291 +1,312 @@
-import os
+"""Guess the feature types of sBayes data files and write them to a feature_types.yaml.
+
+Usage:
+    python -m sbayes.tools.guess_feature_types --input features.csv --output feature_types.yaml --excludeColumns family
+
+Arguments that are not given on the command line are asked for in dialogs. Pass
+`--excludeColumns` without values to exclude no columns without opening a dialog.
+"""
+from __future__ import annotations
+
 import argparse
-import tkinter as tk
-
-import pandas as pd
-try:
-    import ruamel.yaml as yaml
-except ImportError:
-    import ruamel_yaml as yaml
-
+import math
+import sys
+import warnings
 from pathlib import Path
-from tkinter import filedialog, messagebox, simpledialog
+from typing import Callable, Collection, Sequence, TypeVar
 
-from sbayes.util import normalize_str, read_data_csv
-
-ORDER_STATES = True
-'''bool: Whether to order the features states alphabetically'''
-
-
-def select_open_file(default_dir='.'):
-    path = filedialog.askopenfilename(
-        title='Select a data file in CSV format.',
-        initialdir=default_dir,
-        filetypes=(('csv files', '*.csv'), ('all files', '*.*'))
-    )
-    return path
+from ruamel.yaml import YAML
+from sbayes.load_data import FeatureType
+from sbayes.tools._dialogs import LazyRoot, ask_save_file
+from sbayes.util import PathLike, read_data_csv
 
 
-def select_save_file(default_dir='.', default_name='feature_types.yaml'):
-    path = filedialog.asksaveasfile(
-        title='Select an output file in YAML format.',
-        initialdir=default_dir,
-        initialfile=default_name,
-        filetypes=(('YAML files', '*.yaml'), ('all files', '*.*'))
-    )
-    return path
+T = TypeVar("T")
+REQUIRED_COLUMNS = ("id",)
+METADATA_COLUMNS = ("id", "name", "x", "y")
 
 
-def ask_more_files():
-    MsgBox = tk.messagebox.askquestion('Additional data files', 'Would you like to add more data files?')
-    return MsgBox == 'yes'
+# --- Core ----------------------------------------------------------------------------
+
+def read_feature_columns(csv_path: PathLike) -> list[str]:
+    """Return the names of all non-metadata columns in a data file.
+
+    Raises:
+        ValueError: if a required column is missing.
+    """
+    data = read_data_csv(csv_path)
+    _check_required_columns(data.columns, csv_path)
+    return [c for c in data.columns if c not in METADATA_COLUMNS]
 
 
-def ask_confounders(col_names):
-    selected_confounders = []
+def collect_feature_states(
+    csv_path: PathLike, exclude_columns: Collection[str] = ()
+) -> dict[str, set[str]]:
+    """Collect the observed (non-missing) states of every feature in a data file.
 
-    def submit():
-        for k, v in confounders_vars.items():
-            if v.get() == 1:
-                selected_confounders.append(k)
-        root.quit()
+    Args:
+        csv_path: the data file
+        exclude_columns: non-feature columns to skip, e.g. confounders
 
-    root = tk.Tk()
-    root.title("Select Confounders")
+    Returns:
+        The set of observed states per feature.
 
-    screen_height = root.winfo_screenheight()
-    win_height = min(800, screen_height - 100)
-    root.geometry(f"400x{win_height}")
+    Raises:
+        ValueError: if a required column is missing or an excluded column does not exist.
+    """
+    data = read_data_csv(csv_path)
+    _check_required_columns(data.columns, csv_path)
 
-    # Scrollable frame for checkboxes
-    container = tk.Frame(root)
+    unknown = set(exclude_columns) - set(data.columns)
+    if unknown:
+        raise ValueError(f"Excluded columns not found in {csv_path}: {sorted(unknown)}")
+
+    skip = set(METADATA_COLUMNS) | set(exclude_columns)
+    return {
+        str(c): {str(v) for v in data[c].dropna()}
+        for c in data.columns
+        if c not in skip
+    }
+
+
+def merge_feature_states(
+    per_file: dict[PathLike, dict[str, set[str]]],
+) -> dict[str, set[str]]:
+    """Combine the feature states of several data files.
+
+    Raises:
+        ValueError: if the files do not contain the same features.
+    """
+    merged: dict[str, set[str]] = {}
+    for path, states in per_file.items():
+        if merged and merged.keys() != states.keys():
+            raise ValueError(
+                f"Features do not match between the input files:\n"
+                f"\tMissing in {path}: {sorted(merged.keys() - states.keys())}\n"
+                f"\tOnly in {path}: {sorted(states.keys() - merged.keys())}"
+            )
+        for feature, values in states.items():
+            merged.setdefault(feature, set()).update(values)
+    return merged
+
+
+def guess_feature_type(states: Collection[str]) -> FeatureType:
+    """Guess the type of a feature from its observed states.
+
+    - categorical: non-numeric states, or only the values 0 and 1
+    - poisson: non-negative integer values
+    - logitnormal: numbers between 0 and 1 (inclusive), at least one not an integer
+    - gaussian: any other numbers
+
+    Integer values are recognised regardless of formatting, so `3` and `3.0` are
+    treated the same.
+
+    Args:
+        states: the observed, non-missing states. Must not be empty.
+    """
+    if not states:
+        raise ValueError("Cannot guess the type of a feature without observed states.")
+
+    floats = _parse_all(states, float)
+    if floats is None or not all(math.isfinite(v) for v in floats):
+        return FeatureType.categorical
+
+    ints = [int(v) for v in floats] if all(v.is_integer() for v in floats) else None
+    if ints is not None:
+        if set(ints) <= {0, 1}:
+            return FeatureType.categorical
+        return FeatureType.poisson if min(ints) >= 0 else FeatureType.gaussian
+
+    if all(0 <= v <= 1 for v in floats):
+        return FeatureType.logitnormal
+    return FeatureType.gaussian
+
+
+def describe_feature(states: Collection[str]) -> dict:
+    """Build the feature_types.yaml entry for one feature.
+
+    Categorical features list their states in alphabetical order; numeric features
+    give the observed range.
+    """
+    feature_type = guess_feature_type(states)
+
+    if feature_type is FeatureType.categorical:
+        return {"type": feature_type.value, "states": sorted(states)}
+
+    values = [float(s) for s in states]
+    if feature_type is FeatureType.poisson:
+        values = [int(v) for v in values]
+    return {"type": feature_type.value, "states": {"min": min(values), "max": max(values)}}
+
+
+def build_feature_types(feature_states: dict[str, set[str]]) -> dict[str, dict]:
+    """Build the feature_types.yaml content for all features.
+
+    Raises:
+        ValueError: if a feature has no observed values. sBayes cannot load such
+            features, so they must be removed from the data.
+    """
+    empty = [f for f, states in feature_states.items() if not states]
+    if empty:
+        raise ValueError(
+            f"Features without any observed values: {empty}. "
+            f"Remove these columns from the data."
+        )
+
+    feature_types = {f: describe_feature(states) for f, states in feature_states.items()}
+
+    single_state = [
+        f for f, entry in feature_types.items()
+        if entry["type"] == FeatureType.categorical.value and len(entry["states"]) < 2
+    ]
+    if single_state:
+        warnings.warn(f"Categorical features with only one observed state: {single_state}")
+
+    return feature_types
+
+
+def write_feature_types(feature_types: dict[str, dict], output_path: PathLike) -> None:
+    """Write the feature types to a YAML file."""
+    yml = YAML()
+    yml.indent(mapping=2, sequence=4, offset=2)
+    yml.default_flow_style = False
+    with open(output_path, "w", encoding="utf-8") as f:
+        yml.dump(feature_types, f)
+
+
+def _check_required_columns(columns: Collection[str], csv_path: PathLike) -> None:
+    missing = [c for c in REQUIRED_COLUMNS if c not in columns]
+    if missing:
+        raise ValueError(f"Required columns {missing} missing in {csv_path}.")
+
+
+def _parse_all(states: Collection[str], cast: Callable[[str], T]) -> list[T] | None:
+    """Convert all states with `cast`, or return None if any of them fails."""
+    try:
+        return [cast(s) for s in states]
+    except ValueError:
+        return None
+
+
+# --- GUI -----------------------------------------------------------------------------
+# tkinter is imported lazily so that the command-line path works without Tk.
+
+def ask_input_files(root: LazyRoot) -> list[Path]:
+    """Ask for one or more data files, possibly from several directories."""
+    from tkinter import filedialog, messagebox
+
+    paths: list[Path] = []
+    directory = "."
+    while True:
+        selected = filedialog.askopenfilenames(
+            parent=root.get(),
+            title="Select data files in CSV format.",
+            initialdir=directory,
+            filetypes=(("CSV files", "*.csv"), ("All files", "*.*")),
+        )
+        if selected:
+            paths.extend(Path(p) for p in selected)
+            directory = str(paths[-1].parent)
+        if not messagebox.askyesno(
+            "Additional data files", "Would you like to add more data files?",
+            parent=root.get(),
+        ):
+            return paths
+
+
+def ask_confounders(root: LazyRoot, columns: Sequence[str]) -> list[str] | None:
+    """Ask which columns are confounders. Returns None if the dialog is closed."""
+    import tkinter as tk
+
+    parent = root.get()
+    window = tk.Toplevel(parent)
+    window.title("Select confounders")
+    height = min(800, window.winfo_screenheight() - 100)
+    window.geometry(f"400x{height}")
+
+    result: list[str] | None = None
+    variables = {c: tk.BooleanVar(window) for c in columns}
+
+    def submit() -> None:
+        nonlocal result
+        result = [c for c, var in variables.items() if var.get()]
+        window.destroy()
+
+    # Pack the button first so it stays visible when the list is long
+    tk.Button(window, text="Submit", command=submit).pack(side="bottom", pady=10)
+
+    container = tk.Frame(window)
     container.pack(fill="both", expand=True, padx=10, pady=10)
-
-    canvas = tk.Canvas(container, height=win_height - 80)  # explicit height
+    canvas = tk.Canvas(container)
     scrollbar = tk.Scrollbar(container, orient="vertical", command=canvas.yview)
-    scroll_frame = tk.Frame(canvas)
-
-    scroll_frame.bind(
-        "<Configure>",
-        lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
-    )
-
-    canvas.create_window((0, 0), window=scroll_frame, anchor="nw")
+    frame = tk.Frame(canvas)
+    frame.bind("<Configure>", lambda e: canvas.configure(scrollregion=canvas.bbox("all")))
+    canvas.create_window((0, 0), window=frame, anchor="nw")
     canvas.configure(yscrollcommand=scrollbar.set)
-
-    scrollbar.pack(side="right", fill="y")  # pack scrollbar BEFORE canvas
+    scrollbar.pack(side="right", fill="y")
     canvas.pack(side="left", fill="both", expand=True)
 
-    # Checkboxes inside scrollable frame
-    confounders_vars = {}
-    for c in col_names:
-        confounders_vars[c] = tk.IntVar(root)
-        tk.Checkbutton(scroll_frame, text=c, variable=confounders_vars[c],
-                       onvalue=1, offvalue=0, anchor="w").pack(fill="x")
+    for c, var in variables.items():
+        tk.Checkbutton(frame, text=c, variable=var, anchor="w").pack(fill="x")
 
-    # --- Submit button always at the bottom ---
-    submit_button = tk.Button(root, text="Submit", command=submit)
-    submit_button.pack(pady=10)
-
-    root.mainloop()
-    return selected_confounders
+    window.protocol("WM_DELETE_WINDOW", window.destroy)
+    parent.wait_window(window)
+    return result
 
 
-def collect_feature_states(features_path):
+# --- Entry point ---------------------------------------------------------------------
 
-    features = read_data_csv(features_path)
-
-    metadata_columns = ['id', 'name', 'x', 'y']
-    for column in metadata_columns:
-        if column not in features.columns:
-            raise ValueError(f'Required column \'{column}\' missing in file {features_path}.')
-    features = features.drop(metadata_columns, axis=1)
-
-    # Ask users for the names of the confounders
-    confounder_columns = ask_confounders(features.columns)
-    features = features.drop(confounder_columns, axis=1)
-    features = features.map(normalize_str)
-    return {f: set(features[f].dropna().unique()) for f in features.columns}
-
-
-def dict_to_df(d):
-    # Count maximum number of values (i.e. number of rows in df)
-    n_rows = max(len(values) for values in d.values())
-
-    # Make a dictionary of lists, padded to n_rows
-    d_padded = {}
-    for k, values in d.items():
-        d_padded[k] = list(values) + [None]*(n_rows - len(values))
-
-    return pd.DataFrame(d_padded)
+def parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Guess the feature types of sBayes data files and write a feature_types.yaml."
+    )
+    parser.add_argument("--input", nargs="+", type=Path,
+                        help="The input features CSV file(s). Asked for in a dialog if omitted.")
+    parser.add_argument("--output", type=Path,
+                        help="The output YAML file. Asked for in a dialog if omitted.")
+    parser.add_argument("--excludeColumns", nargs="*",
+                        help="Non-feature columns to exclude, e.g. confounders. Asked for in a "
+                             "dialog if omitted; pass the flag without values to exclude nothing.")
+    return parser.parse_args(argv)
 
 
-def is_number(s):
-    """Helper function to check if a string is a number
-    :param s: string to check
-    :return(bool) is s a number
-    """
+def main(argv: Sequence[str] | None = None) -> None:
+    args = parse_args(argv)
+    input_paths: list[Path] | None = args.input
+    output_path: Path | None = args.output
+    exclude_columns: list[str] | None = args.excludeColumns
+
+    root = LazyRoot()
     try:
-        float(s)
-        return True
-    except ValueError:
-        return False
+        if input_paths is None:
+            input_paths = ask_input_files(root)
+            if not input_paths:
+                sys.exit("No input files selected.")
+
+        if exclude_columns is None:
+            exclude_columns = ask_confounders(root, read_feature_columns(input_paths[0]))
+            if exclude_columns is None:
+                sys.exit("Cancelled.")
+
+        feature_states = merge_feature_states(
+            {p: collect_feature_states(p, exclude_columns) for p in input_paths}
+        )
+        feature_types = build_feature_types(feature_states)
+
+        if output_path is None:
+            output_path = ask_save_file(
+                root, "Select an output file in YAML format.",
+                [("YAML files", "*.yaml")], default_name="feature_types.yaml",
+                directory=input_paths[0].parent,
+            )
+            if output_path is None:
+                sys.exit("No output file selected.")
+    finally:
+        root.destroy()
+
+    write_feature_types(feature_types, output_path)
+    print(f"Wrote the types of {len(feature_types)} features to {output_path}")
 
 
-def is_integer(s):
-    """Helper function to check if a string is an integer
-    :param s: string to check
-    :return(bool) is s an integer?
-    """
-    try:
-        int(s)
-        return True
-    except ValueError:
-        return False
-
-
-def is_binary_integer(s):
-    """Helper function to check if a string is a binary integer
-    :param s: string to check
-    :return(bool) is s a binary integer?
-    """
-    try:
-        if int(s) == 0 or int(s) == 1:
-            return True
-        else:
-            return False
-    except ValueError:
-        return False
-
-
-def is_percentage(s):
-    """Helper function to check if a string is a percentage
-    :param s: string to check
-    :return(bool) is s an integer
-    """
-    try:
-        if 0 < float(s) < 1:
-            return True
-        else:
-            return False
-    except ValueError:
-        return False
-
-
-def guess_feature_type(f):
-    """ Guesses the type of the features in f
-    categorical: observations belong to two or more categories
-    gaussian: observations are continuous measurements
-    poisson: observations are count variables
-    logit-normal: observations are percentages
-    :param f: feature vector
-    :return type guess for each feature vector
-    """
-    if not all(is_number(o) for o in f):
-        type_guess = "categorical"
-    else:
-        if all(is_integer(o) for o in f):
-            if all(is_binary_integer(o) for o in f):
-                type_guess = "categorical"
-            else:
-                type_guess = "poisson"
-        else:
-            if all(is_percentage(o) for o in f):
-                type_guess = "logit-normal"
-            else:
-                type_guess = "gaussian"
-    return type_guess
-
-
-def main(args):
-    # CLI
-    parser = argparse.ArgumentParser(description="Tool to extract feature types from sBayes data files.")
-    parser.add_argument("--input", nargs="*", type=Path, help="The input features.csv file(s)")
-    parser.add_argument("--output", nargs="?", type=Path, help="The output feature_types.yaml file")
-    parser.add_argument("--excludeColumns", nargs="*", type=str,
-                        help="Column names to exclude (e.g., confounders).")
-    args = parser.parse_args(args)
-    csv_paths = args.input
-    exclude_columns = args.excludeColumns
-
-    # GUI
-    gui_required = (csv_paths is None
-                    or exclude_columns is None)
-
-    # GUI
-    if gui_required:
-        tk.Tk().withdraw()
-
-        # Ask the user for input files
-        csv_paths = []
-        current_directory = '.'
-        more_files = True
-        while more_files:
-            new_path = select_open_file(default_dir=current_directory)
-            if new_path == '':
-                # Skip when user presses cancel
-                pass
-            else:
-                csv_paths.append(new_path)
-                current_directory = os.path.dirname(new_path)
-
-            more_files = ask_more_files()
-
-    else:
-        # If input paths are provided through CLI, use the first path as the current directory
-        current_directory = os.path.dirname(csv_paths[0])
-
-    # Read all input files and collect all states for each feature
-    feature_states = None
-    for path in csv_paths:
-        new_feature_states = collect_feature_states(path)
-
-        if feature_states is None:
-            feature_states = new_feature_states
-        else:
-            if set(feature_states.keys()) != set(new_feature_states.keys()):
-                out = '\nFeatures do not match between the different input files:'
-                out += '\n\tPreviously loaded features: \t %s' % sorted(feature_states.keys())
-                out += '\n\tFeatures in %s: \t %s' % (path, sorted(new_feature_states.keys()))
-                out += '\n\tPreviously loaded, but missing in %s: \t %s' % (path, sorted(set(feature_states.keys()) - set(new_feature_states.keys())))
-                out += '\n\tPresent in %s, but missing in previous files : \t %s' % (path, sorted(set(new_feature_states.keys()) - set(feature_states.keys())))
-                raise ValueError(out)
-
-            for f in feature_states.keys():
-                feature_states[f].update(new_feature_states[f])
-
-    # Remove NAs and order states alphabetically (if ´ORDER_STATES´ is set)
-    for f in feature_states.copy():
-        # if np.nan in feature_states[f]:
-        #     feature_states[f].remove(np.nan)
-
-        if ORDER_STATES:
-            feature_states[f] = sorted(feature_states[f])
-        # Guess the type of each feature
-        type_guess = guess_feature_type(feature_states[f])
-
-        # Return the type and the applicable states / range of states
-        if type_guess == "categorical":
-            feature_states[f] = dict(type=type_guess, states=feature_states[f])
-        elif type_guess == "poisson":
-            int_features = [int(s) for s in feature_states[f]]
-            feature_states[f] = dict(type=type_guess, states=dict(min=min(int_features), max=max(int_features)))
-        else:
-            float_features = [float(s) for s in feature_states[f]]
-            feature_states[f] = dict(type=type_guess, states=dict(min=min(float_features), max=max(float_features)))
-
-    # Ask user for the output file and save the feature_states there
-    if args.output:
-        output_path = args.output
-    else:
-        output_path = select_save_file(default_dir=current_directory)
-
-    yml = yaml.YAML()
-    yml.indent(offset=2)
-    yml.default_flow_style = False
-    yml.dump(feature_states, output_path)
-
-
-if __name__ == '__main__':
-    import sys
-    main(sys.argv[1:])
+if __name__ == "__main__":
+    main()
