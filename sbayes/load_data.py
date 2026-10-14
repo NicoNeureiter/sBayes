@@ -13,8 +13,10 @@ from enum import Enum
 from jax import Array
 from logging import Logger
 from numpy.typing import NDArray
+from ruamel.yaml import YAML
 from scipy.special import logit
 from typing import ClassVar, Literal, Self
+
 
 try:
     import ruamel.yaml as yaml
@@ -767,3 +769,17 @@ def read_features_from_csv(
 
     return parse_features(data, feature_types, confounder_names, logger)
 
+
+def write_feature_types(feature_types: dict[str, dict], path: PathLike) -> None:
+    """Write feature types to a YAML file, in the format the loader reads.
+
+    Args:
+        feature_types: the type and states per feature name, e.g.
+            {"f_1": {"type": "categorical", "states": ["s0", "s1"]}}
+        path: the file to write, usually `feature_types.yaml`
+    """
+    yml = YAML()
+    yml.indent(mapping=2, sequence=4, offset=2)
+    yml.default_flow_style = False
+    with open(path, "w", encoding="utf-8") as f:
+        yml.dump(feature_types, f)

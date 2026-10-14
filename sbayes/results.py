@@ -7,6 +7,8 @@ import tables
 import warnings
 
 from functools import partial
+
+from jaxlib.mlir._mlir_libs._mlir.ir import NoneType
 from numpy.typing import NDArray
 from pathlib import Path
 from sbayes.util import PathLike, sample_categorical, get_best_permutation
@@ -356,14 +358,15 @@ class Results:
             }
 
             log_posterior: NDArray[np.float64] | None = None
-            if "potential_energy" in f.root:
-                log_posterior = read("potential_energy")
-
             log_likelihood: NDArray[np.float64] | None = None
             likelihood_pointwise: NDArray[np.float64] | None = None
 
             if "derived" in f.root:
                 derived = f.get_node(f.root, "derived")
+
+                if "log_posterior" in derived:
+                    log_posterior = np.array(f.get_node(derived, "log_posterior"))
+
                 if "likelihood" in derived:
                     likelihood = np.array(f.get_node(derived, "likelihood"))
                     if "na_values" in derived:
@@ -372,6 +375,17 @@ class Results:
 
                     likelihood_pointwise = likelihood
                     log_likelihood = likelihood.sum(axis=1)
+
+            if log_posterior is None and "potential_energy" in f.root:
+                # Some older files may only the sampler's potential, which lives in
+                # unconstrained space and is therefore not comparable to
+                # `log_likelihood`; `log_prior` derived from it is meaningless.
+                warnings.warn(
+                    f"{h5_path} has no `/derived/log_posterior`. Falling back to "
+                    f"`potential_energy`, which is not a log posterior: the log "
+                    f"densities of this run cannot be compared or decomposed."
+                )
+                log_posterior = read("potential_energy")
 
         # Apply burn-in and subsampling. Indexing with `indices` copies, so the arrays
         # can be permuted by `match_clusters` below.
