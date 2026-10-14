@@ -17,8 +17,9 @@ from sbayes.experiment_setup import Experiment
 from sbayes.load_data import Data
 from sbayes.mcmc_setup import MCMCSetup
 from sbayes.model.model import Model
+from sbayes.results import Results
 from sbayes.sampling.loggers import (
-    OnlineSampleLogger, samples_array_to_df, write_samples,
+    OnlineSampleLogger, samples_array_to_df, write_samples
 )
 
 TEST_DATA = Path(__file__).parent / "data"
@@ -196,14 +197,17 @@ def test_short_mcmc_run(build_model, tmp_path):
     assert not jnp.allclose(z[0], z[-1])
 
 
-def test_mcmc_setup_run(tmp_path):
-    """A short run through MCMCSetup samples and writes its results."""
+@pytest.fixture(scope="module")
+def completed_run(tmp_path_factory):
+    """Run a short analysis through MCMCSetup and return its results directory."""
+    results_path = tmp_path_factory.mktemp("mcmc_run")
+
     with Experiment(
         config_file=TEST_DATA / "config.yaml",
         experiment_name="test",
         custom_settings={
             "mcmc": {"steps": 20, "samples": 10, "warmup": {"warmup_steps": 10}},
-            "results": {"path": str(tmp_path)},
+            "results": {"path": str(results_path)},
         },
         log=False,
     ) as experiment:
@@ -211,9 +215,45 @@ def test_mcmc_setup_run(tmp_path):
         setup = MCMCSetup(data=data, experiment=experiment)
         setup.sample(run=0)
 
-    results_dir = setup.path_results
-    assert results_dir.is_dir()
+    return setup.path_results
 
-    written = list(results_dir.iterdir())
-    assert written, f"no results were written to {results_dir}"
+
+def test_mcmc_setup_run(completed_run):
+    """A short run through MCMCSetup samples and writes its results."""
+    assert completed_run.is_dir()
+
+    written = list(completed_run.iterdir())
+    assert written, f"no results were written to {completed_run}"
     assert any(f.suffix == ".h5" for f in written), [f.name for f in written]
+
+
+def test_samples_file_holds_the_joint_log_density(completed_run):
+    """The samples file carries the log posterior, so `from_h5` need not fall back.
+
+    Without `/derived/log_posterior`, `Results.from_h5` reverts to `potential_energy`,
+    which is the unconstrained potential and not comparable to the likelihood.
+    """
+    with tables.open_file(str(completed_run / "samples_0.h5")) as f:
+        assert "/derived/log_posterior" in f
+        assert "/derived/likelihood" in f
+
+
+def test_results_densities_are_consistent(completed_run):
+    """`Results.from_h5` returns a posterior, a likelihood and a prior.
+
+    All three are in constrained space, so the prior is what remains after removing
+    the likelihood from the posterior — and all three are negative for this model.
+    """
+    results = Results.from_h5(completed_run / "samples_0.h5", burn_in=0)
+
+    assert results.posterior is not None
+    assert results.likelihood is not None
+
+    assert np.isfinite(results.posterior).all()
+    assert (results.likelihood < 0).all()
+    assert (results.prior < 0).all()
+    np.testing.assert_allclose(
+        results.posterior, results.likelihood + results.prior, rtol=1e-5
+    )
+
+
