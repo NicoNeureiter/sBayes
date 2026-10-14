@@ -15,8 +15,7 @@ import warnings
 from pathlib import Path
 from typing import Callable, Collection, Sequence, TypeVar
 
-from ruamel.yaml import YAML
-from sbayes.load_data import FeatureType
+from sbayes.load_data import FeatureType, write_feature_types
 from sbayes.tools._dialogs import LazyRoot, ask_save_file
 from sbayes.util import PathLike, read_data_csv
 
@@ -163,15 +162,6 @@ def build_feature_types(feature_states: dict[str, set[str]]) -> dict[str, dict]:
         warnings.warn(f"Categorical features with only one observed state: {single_state}")
 
     return feature_types
-
-
-def write_feature_types(feature_types: dict[str, dict], output_path: PathLike) -> None:
-    """Write the feature types to a YAML file."""
-    yml = YAML()
-    yml.indent(mapping=2, sequence=4, offset=2)
-    yml.default_flow_style = False
-    with open(output_path, "w", encoding="utf-8") as f:
-        yml.dump(feature_types, f)
 
 
 def _check_required_columns(columns: Collection[str], csv_path: PathLike) -> None:
