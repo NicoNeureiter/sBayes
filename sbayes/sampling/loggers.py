@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import jax
+import jax.numpy as jnp
 import json
 import logging
 import numpy as np
@@ -9,8 +11,10 @@ import tables
 import warnings
 
 from itertools import product
+from jax.typing import ArrayLike
 from numpyro import handlers
 from numpyro.infer import log_likelihood
+from numpyro.infer.util import log_density
 from pathlib import Path
 from sbayes.load_data import Data, CategoricalFeatures, GaussianFeatures, PoissonFeatures, GenericTypeFeatures
 from sbayes.model import Model
@@ -23,52 +27,67 @@ logger = logging.getLogger(__name__)
 # Suppress warnings from PyTables about natural names
 warnings.simplefilter("ignore", category=tables.NaturalNameWarning)
 
+def density_params(samples: dict[str, np.ndarray]) -> dict[str, np.ndarray]:
+    """Return the sample entries to substitute when evaluating a density.
 
-def get_cluster_names(n_clusters: int) -> list[str]:
-    """Create the names of the clusters, as used in the results files.
+    Everything the model declares is substituted, so that nothing is re-drawn; only
+    the sampler's own diagnostics are left out.
+    """
+    return {k: v for k, v in samples.items() if k != "potential_energy"}
+
+
+def joint_log_density(model: Model, samples: dict[str, np.ndarray]) -> np.ndarray:
+    """Compute the joint log density of every sample, in constrained space.
+
+    Returns log p(theta) + log p(x | theta), which is comparable to the pointwise
+    likelihood written alongside it. This is not `-potential_energy`: the
+    sampler's potential lives in unconstrained space and includes the log Jacobian of
+    the transforms, which varies from sample to sample.
 
     Args:
-        n_clusters: the number of clusters in the model
+        model: the model the samples were drawn from
+        samples: the samples, with a leading sample axis, as drawn — before any cluster
+            permutation, which would leave `z` and the cluster effects inconsistent
 
     Returns:
-        One name per cluster, of the form `a0`, `a1`, ... (`a` for "area", the earlier
-        term for a cluster).
+        One log density per sample. shape: (n_samples,)
     """
-    return [f"a{i}" for i in range(n_clusters)]
+    seeded = handlers.seed(model.get_model, 0)
+    params = density_params(samples)
+
+    def one_sample(sample: dict[str, ArrayLike]) -> jnp.ndarray:
+        return log_density(seeded, (), {}, sample)[0]
+
+    return np.asarray(jax.vmap(one_sample)(params), dtype=np.float64)
 
 
-def get_cluster_effect_names(partitions: list[GenericTypeFeatures]) -> list[str]:
-    """Create the names of the cluster effect parameters, one or two per partition.
+def pointwise_log_likelihood(
+    model: Model, data: Data, samples: dict[str, np.ndarray], n_samples: int
+) -> np.ndarray:
+    """Compute the log likelihood of every observation in every sample.
 
-    The names must match the sample sites created by the `Model.add_partition_*`
-    methods: Gaussian features have a mean and a variance, Poisson features a rate, and
-    categorical features a single set of state probabilities.
+    Missing values are set to zero, so that summing over the last two axes gives the
+    log likelihood of a sample.
 
     Args:
-        partitions: the feature partitions of the data
+        model: the model the samples were drawn from
+        data: the data the model was fitted to
+        samples: the samples, as drawn — before any cluster permutation
+        n_samples: the number of samples
 
     Returns:
-        The parameter names, in the order of `partitions`.
-
-    Raises:
-        ValueError: if a partition has an unsupported feature type.
+        The pointwise log likelihoods. shape: (n_samples, n_objects, n_features)
     """
-    names = []
-    for p in partitions:
-        # Note: LogitNormalFeatures subclasses GaussianFeatures and is handled by the
-        # Gaussian branch.
-        if isinstance(p, CategoricalFeatures):
-            names.append(f"cluster_effect_{p.name}")
-        elif isinstance(p, GaussianFeatures):
-            names.append(f"cluster_effect_{p.name}_mean")
-            names.append(f"cluster_effect_{p.name}_variance")
-        elif isinstance(p, PoissonFeatures):
-            names.append(f"cluster_effect_{p.name}_rate")
-        else:
-            raise ValueError(
-                f"Partition type {type(p).__name__} is not supported."
-            )
-    return names
+    likelihoods_by_partition = log_likelihood(handlers.seed(model.get_model, 0), samples)
+
+    likelihoods_flat = np.empty((n_samples,) + data.features.all_features.shape)
+    for partition in data.features.partitions:
+        likelihoods_flat[:, :, partition.feature_indices] = (
+            likelihoods_by_partition[f"x_{partition.name}"]
+        )
+
+    likelihoods_flat[:, data.features.missing] = 0.0
+    return likelihoods_flat
 
 
 def write_samples(
@@ -104,6 +123,16 @@ def write_samples(
 
     # Cast all parameters from jax.numpy to numpy
     samples = {k: np.array(v) for k, v in samples.items()}
+
+    # The densities are evaluated here, before the cluster permutation below: that
+    # permutes the cluster effects but leaves `z` as it is, so afterwards the two no
+    # longer describe the same parameter point. Both are invariant to the permutation
+    # itself, so the values apply to the permuted samples as well.
+    log_posterior = joint_log_density(model, samples)
+
+    likelihoods_flat = None
+    if not model.config.sample_from_prior:
+        likelihoods_flat = pointwise_log_likelihood(model, data, samples, n_samples)
 
     if match_clusters:
         # Cluster labels are arbitrary, so the clusters of each sample are permuted to
@@ -228,32 +257,16 @@ def write_samples(
 
     params_df = pd.concat(param_dfs_list, axis=1)
 
-    # `potential_energy` is the negative log-posterior and is always requested from the
-    # sampler, but may be missing when the samples come from an older results file.
-    if "potential_energy" in samples:
-        params_df["log_posterior"] = samples["potential_energy"]
-    else:
-        params_df["log_posterior"] = np.nan
-
-    # The pointwise likelihood, also written into the samples file below
-    likelihoods_flat = None
-    if not model.config.sample_from_prior:
-        likelihoods_by_partition = log_likelihood(
-            handlers.seed(model.get_model, 0), samples
-        )
-        likelihoods_flat = np.empty((n_samples,) + data.features.all_features.shape)
-        for p in partitions:
-            likelihoods_flat[:, :, p.feature_indices] = (
-                likelihoods_by_partition[f"x_{p.name}"]
-            )
-
-        # Zero out missing values before summing
-        likelihoods_flat[:, data.features.missing] = 0.0
-
+    params_df["log_posterior"] = log_posterior
+    if likelihoods_flat is not None:
         params_df["log_likelihood"] = likelihoods_flat.sum(axis=(-1, -2))
         params_df["log_prior"] = (
             params_df["log_posterior"] - params_df["log_likelihood"]
         )
+
+    # The sampler's own diagnostic, in unconstrained space — not the log posterior
+    if "potential_energy" in samples:
+        params_df["potential_energy"] = samples["potential_energy"]
 
     # Parameters that are only sampled under some settings
     optional_parameters = [
@@ -296,10 +309,20 @@ def write_samples(
     with tables.open_file(str(samples_h5_path), mode="a") as h5_file:
         h5_file.set_node_attr(h5_file.root, "metadata", json.dumps(metadata))
 
-        if likelihoods_flat is not None:
-            if "/derived" not in h5_file:
-                h5_file.create_group(h5_file.root, "derived")
+        if "/derived" not in h5_file:
+            h5_file.create_group(h5_file.root, "derived")
 
+        # The joint log density, so that `Results.from_h5` does not have to recompute
+        # it or fall back to `potential_energy`
+        h5_file.create_carray(
+            where=h5_file.root.derived,
+            name="log_posterior",
+            obj=log_posterior,
+            atom=tables.Float64Col(),
+            filters=tables.Filters(complevel=9, fletcher32=True),
+        )
+
+        if likelihoods_flat is not None:
             # noinspection PyTypeChecker
             # `bitshuffle` requires a blosc-family compressor
             lh_filters = tables.Filters(
@@ -320,6 +343,51 @@ def write_samples(
                 filters=tables.Filters(complevel=9, fletcher32=True),
             )
 
+def get_cluster_names(n_clusters: int) -> list[str]:
+    """Create the names of the clusters, as used in the results files.
+
+    Args:
+        n_clusters: the number of clusters in the model
+
+    Returns:
+        One name per cluster, of the form `a0`, `a1`, ... (`a` for "area", the earlier
+        term for a cluster).
+    """
+    return [f"a{i}" for i in range(n_clusters)]
+
+
+def get_cluster_effect_names(partitions: list[GenericTypeFeatures]) -> list[str]:
+    """Create the names of the cluster effect parameters, one or two per partition.
+
+    The names must match the sample sites created by the `Model.add_partition_*`
+    methods: Gaussian features have a mean and a variance, Poisson features a rate, and
+    categorical features a single set of state probabilities.
+
+    Args:
+        partitions: the feature partitions of the data
+
+    Returns:
+        The parameter names, in the order of `partitions`.
+
+    Raises:
+        ValueError: if a partition has an unsupported feature type.
+    """
+    names = []
+    for p in partitions:
+        # Note: LogitNormalFeatures subclasses GaussianFeatures and is handled by the
+        # Gaussian branch.
+        if isinstance(p, CategoricalFeatures):
+            names.append(f"cluster_effect_{p.name}")
+        elif isinstance(p, GaussianFeatures):
+            names.append(f"cluster_effect_{p.name}_mean")
+            names.append(f"cluster_effect_{p.name}_variance")
+        elif isinstance(p, PoissonFeatures):
+            names.append(f"cluster_effect_{p.name}_rate")
+        else:
+            raise ValueError(
+                f"Partition type {type(p).__name__} is not supported."
+            )
+    return names
 
 def _build_h5_metadata(
     data: Data,
