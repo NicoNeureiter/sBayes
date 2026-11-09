@@ -4,11 +4,12 @@ import pandas as pd
 from jax import Array, random
 from numpyro.infer import Predictive
 from sbayes.load_data import Experiment, Data, write_feature_types
-from sbayes.config.config import DataConfig
 from sbayes.mcmc_setup import MCMCSetup
 from sbayes.model import Model
 from sbayes.simulate.io import (prepare_output_folders, write_simulated_data,
                                 write_simulated_parameters)
+from string import ascii_uppercase
+
 
 from sbayes.simulate.config import SimulateConfigFile, get_feature_types, feature_types_by_name
 
@@ -45,8 +46,9 @@ class Simulator:
         """Build the model to simulate from.
 
         Creates the object, confounder and feature structure of the data to simulate,
-        then builds the sBayes model on it with `sample_from_prior` enabled, so that
-        sampling draws from the prior rather than fitting anything.
+        then builds the sBayes model on it in simulation mode: `sample_from_prior` so
+        that the parameters come from their priors, and `simulate_observations` so that
+        the observation sites stay latent and `Predictive` draws the features.
         """
 
         sim_config = self.config.inf_config.model_copy(deep=True)
@@ -66,18 +68,20 @@ class Simulator:
             logger=None,
         )
         self.data = data
-        self.model = Model(data=data, config=sim_config.model)
+        self.model = Model(data=data, config=sim_config.model, simulate_observations=True)
 
 
     def create_feature_structure(self, rng: np.random.Generator) -> pd.DataFrame:
         """Build the data frame that the simulated features are written into.
 
-        Objects get an id, a name and random coordinates, and are assigned to a random
-        group of every confounder. The feature columns are created empty; they are
-        filled with values drawn from the prior in `write_simulation`.
+        Objects get an id, a name and random coordinates. Confounder groups are
+        assigned in a fixed rotation, so that the groups are balanced to within one
+        object and identical across replicates. The feature columns are created empty;
+        they are filled with values drawn from the prior in `write_simulation`.
 
         Args:
-            rng: the random generator, seeded from the simulation config
+            rng: the random generator, seeded from the simulation config. Used for the
+                coordinates only; the group assignment is deterministic.
 
         Returns:
             One row per object, with the metadata, confounder and empty feature columns.
@@ -102,11 +106,17 @@ class Simulator:
                     f"Confounder '{confounder}' has {n_groups} groups but only "
                     f"{n_objects} objects are simulated."
                 )
-            # Assign each group at least once, so that no group stays empty
-            group_indices = np.concatenate([
-                np.arange(n_groups), rng.integers(n_groups, size=n_objects - n_groups)
-            ])
-            columns[confounder] = [f"group_{i}" for i in rng.permutation(group_indices)]
+            if n_groups > len(ascii_uppercase):
+                raise ValueError(
+                    f"Confounder '{confounder}' has {n_groups} groups, but group "
+                    f"labels are single letters (at most {len(ascii_uppercase)})."
+                )
+            # A fixed rotation keeps the groups balanced and reproducible. Random
+            # assignment can leave a group small by chance, which weakens the
+            # confounder's identifiability for no reason.
+            columns[confounder] = [
+                f"group_{ascii_uppercase[i % n_groups]}" for i in range(n_objects)
+            ]
 
         for feature in feature_types_by_name(simulation.features):
             columns[feature] = [None] * n_objects
@@ -169,6 +179,8 @@ class Simulator:
         simulation = self.config.simulation
         output_path = simulation.output.path
 
+        output_path.mkdir(parents=True, exist_ok=True)
+
         if write_data:
             write_feature_types(self.feature_types, output_path / "feature_types.yaml")
 
@@ -199,8 +211,11 @@ class Simulator:
                 )
 
 
-    def infer(self) -> None:
+    def infer(self, sample_from_prior: bool = False) -> None:
         """Run inference on every simulated data set.
+
+        Args:
+            sample_from_prior: whether to sample from the prior for the no-data inference check
 
         Runs the sampler on each data set and cluster count in the sBayes config, so
         the inferred parameters can be compared against the simulated ground truth.
@@ -209,6 +224,7 @@ class Simulator:
 
             <output>/sim_{s}/results/simK{simulated}/K{inferred}/
 
+        A single data set has no `sim_{s}` level and goes directly into `<output>`.
         Raises:
             RuntimeError: if `write_simulation` has not written the data sets.
         """
@@ -231,23 +247,23 @@ class Simulator:
 
             # Keep the results of a data set next to the data they were inferred from
             results_path = features_path.parent.parent / "results"
-
             for k in clusters:
                 experiment = Experiment(
                     config_file=self.config.config_path,
                     # The ground truth; the inferred k becomes the folder below this one
                     experiment_name=f"simK{simulation.clusters}",
+                    custom_settings={
+                        "results": {"path": str(results_path)},
+                        "data": {
+                            "features": str(features_path),
+                            "feature_types": str(simulation_path / "feature_types.yaml"),
+                        },
+                        "model": {"clusters": k, "sample_from_prior": sample_from_prior},
+                        "mcmc": {"runs": 1},  # one chain per run; the loop below runs them
+                    },
                     log=True,
                     copy_config=False,
                 )
-                experiment.config.results.path = results_path
-                experiment.config.data = DataConfig(
-                    features=features_path,
-                    feature_types=simulation_path / "feature_types.yaml",
-                )
-                experiment.config.model.clusters = k
-                experiment.config.model.sample_from_prior = False
-                experiment.config.mcmc.runs = 1  # one chain per run; the loop below runs them
 
                 data = Data.from_experiment(experiment)
                 mcmc = MCMCSetup(data, experiment)

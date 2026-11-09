@@ -1,10 +1,11 @@
 import numpy as np
 import pandas as pd
 
+from numpyro import handlers
 from pathlib import Path
 from sbayes.load_data import Data, CategoricalFeatures, GenericTypeFeatures
 from sbayes.model import Model
-from sbayes.sampling.loggers import write_samples
+from sbayes.sampling.loggers import write_samples, OnlineSampleLogger
 from typing import Sequence
 
 
@@ -60,13 +61,22 @@ def write_simulated_parameters(
         model: the model the sample was drawn from
         base_path: the folder to write the parameter files to
     """
+
+    params = {
+        k: v[None] for k, v in sample.items()
+        if not k.startswith("x_") and 0 not in np.shape(v)
+    }
+
+    with OnlineSampleLogger(base_path=base_path, run=0, resume=False) as sample_logger:
+        sample_logger.write_sample(params)
+
     write_samples(
         run=0,
         base_path=base_path,
         samples=sample,
         data=data,
         model=model,
-        match_clusters=False,  # a prior sample has nothing to match against
+        match_clusters=False,
     )
 
 

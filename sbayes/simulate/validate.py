@@ -26,13 +26,13 @@ if TYPE_CHECKING:
 
 
 class Paths(NamedTuple):
-    """The sample files of the simulated ground truth and of the inference on it."""
+    """The result files of one simulated data set."""
 
     simulated: Path
-    """`sim_{i}/sim_params/samples_0.h5`, the parameters the data were drawn from."""
+    """The samples file holding the simulated ground truth."""
 
-    inferred: Path
-    """`sim_{i}/results/simK{simulated}/K{k}/samples_0.h5`, the inferred samples."""
+    inferred: list[Path]
+    """One samples file per inferred chain. Empty if the inference has not run."""
 
 
 class SimulationComparison(NamedTuple):
@@ -87,14 +87,25 @@ def read_simulations(
     comparisons: dict[str, SimulationComparison] = {}
     for sim_folder in sim_folders:
         paths = build_result_paths(sim_folder, simulated_k, k)
-        if not paths.simulated.exists() or not paths.inferred.exists():
-            missing = [str(p) for p in paths if not p.exists()]
+        if not paths.simulated.exists() or not paths.inferred:
+            missing = []
+            if not paths.simulated.exists():
+                missing.append(str(paths.simulated))
+            if not paths.inferred:
+                missing.append(f"inference results for K{k}")
             warnings.warn(f"Skipping {sim_folder.name}, missing: {missing}")
             continue
 
         # The simulated side holds one sample, so there is nothing to match it against
         simulated = Results.from_h5(paths.simulated, burn_in=0, do_match_clusters=False)
-        inferred = Results.from_h5(paths.inferred, burn_in=burn_in)
+
+        # Each chain labels its clusters independently, so they are aligned
+        chains = [Results.from_h5(path, burn_in=burn_in) for path in paths.inferred]
+        inferred = (
+            chains[0] if len(chains) == 1
+            else Results.concatenate(Results.align_results_list(chains))
+        )
+
         comparisons[sim_folder.name] = SimulationComparison(
             simulated=simulated, inferred=align_to_simulation(simulated, inferred)
         )
@@ -111,12 +122,31 @@ def build_result_paths(sim_folder: Path, simulated_k: int, k: int) -> Paths:
         k: the number of clusters used for inference
 
     Returns:
-        The two samples files.
+        The paths to the simulated and inferred files.
     """
     return Paths(
         simulated=sim_folder / "sim_params" / "samples_0.h5",
-        inferred=sim_folder / "results" / f"simK{simulated_k}" / f"K{k}" / "samples_0.h5",
+        inferred=inference_chain_paths(sim_folder, simulated_k, k),
     )
+
+
+def inference_chain_paths(sim_folder: Path, simulated_k: int, k: int) -> list[Path]:
+    """Find the samples files of every chain inferred for one data set.
+
+    Args:
+        sim_folder: the folder of the data set, e.g. `<output>/sim_0`
+        simulated_k: the number of clusters the data were simulated with
+        k: the number of clusters used for inference
+
+    Returns:
+        One path per chain, ordered by run index. Empty if the inference has not run.
+    """
+    inference_dir = sim_folder / "results" / f"simK{simulated_k}" / f"K{k}"
+    if not inference_dir.is_dir():
+        return []
+
+    paths = inference_dir.glob("samples_*.h5")
+    return sorted(paths, key=lambda p: int(p.stem.removeprefix("samples_")))
 
 
 def find_simulation_folders(base_path: Path) -> list[Path]:
