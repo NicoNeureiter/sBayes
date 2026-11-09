@@ -17,7 +17,10 @@ def prior_dict() -> dict:
         "confounding_effects": {},
         "cluster_effect": {},
         "geo": {},
-        "cluster_assignment": {"type": "dirichlet"},
+        "cluster_assignment": {
+            "type": "dirichlet",
+            "dirichlet_config": {"type": "uniform"},
+        },
         "weights": {},
     }
 

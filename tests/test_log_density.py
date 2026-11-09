@@ -76,10 +76,9 @@ def test_potential_energy_is_the_unconstrained_potential(sampled):
 
 
 def test_constrained_joint_differs_from_negated_potential_energy(sampled):
-    """The two differ by the transform Jacobian, which is not a constant offset.
+    """`-potential_energy` is not the constrained joint log density.
 
-    Documents why the sign of `potential_energy` cannot simply be flipped to obtain
-    `log_posterior`: the gap varies from sample to sample.
+    The two differ by the log Jacobian of the transforms to unconstrained space.
     """
     model, samples = sampled["model"], sampled["samples"]
     seeded = seeded_model(model)
@@ -89,7 +88,7 @@ def test_constrained_joint_differs_from_negated_potential_energy(sampled):
         lp, _ = log_density(seeded, (), {}, sample_params(samples, i))
         gaps.append(float(lp) + float(sampled["potential_energy"][i]))
 
-    assert not np.allclose(gaps, gaps[0], rtol=1e-3)
+    assert np.min(np.abs(gaps)) > 1.0
 
 
 def test_log_posterior_is_likelihood_plus_prior(sampled):

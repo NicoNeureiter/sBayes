@@ -6,10 +6,9 @@ import numpyro
 import pytest
 
 from jax import random
+from numpyro import handlers
 from pydantic import ValidationError
-
-from sbayes.config.config import SBayesConfig
-from sbayes.load_data import CategoricalFeatures, Data
+from sbayes.load_data import CategoricalFeatures
 from sbayes.model.model import Model, normalize, NO_GROUP
 
 COST_BASED_GEO = {
@@ -54,6 +53,40 @@ def test_normalize():
     assert np.allclose(normalize(x).sum(axis=-1), 1.0)
 
 
+def test_weights_for_an_object_outside_every_cluster(build_model):
+    """An object fully in the no-cluster slot must not produce NaN weights.
+
+    `has_component[CLUSTER_COMPONENT]` is then zero, so the cluster memberships are
+    normalized by zero. The floor in `add_weights_prior` keeps that finite.
+    """
+    model = build_model()
+    n_objects, n_clusters = model.shapes.n_objects, model.shapes.n_clusters
+
+    clusters = jnp.full((n_objects, n_clusters), 1.0 / (n_clusters + 1))
+    clusters = clusters.at[0].set(0.0)
+    has_component = jnp.concatenate(
+        [clusters.sum(axis=-1)[None, :], model._has_confounder_component], axis=0
+    )
+
+    weights = handlers.seed(model.add_weights_prior, random.PRNGKey(0))(
+        clusters, has_component
+    )
+    assert jnp.isfinite(weights).all()
+
+
+def test_weights_for_an_object_in_no_component(build_model):
+    """The second floor holds even for a state `validate_confounders` rules out."""
+    model = build_model()
+    n_objects, n_clusters = model.shapes.n_objects, model.shapes.n_clusters
+
+    clusters = jnp.zeros((n_objects, n_clusters))
+    has_component = jnp.zeros((model.shapes.n_components, n_objects))
+
+    weights = handlers.seed(model.add_weights_prior, random.PRNGKey(0))(
+        clusters, has_component
+    )
+    assert jnp.isfinite(weights).all()
+
 def test_get_model_traces(data, config):
     """Every feature type produces a likelihood site, with the expected shapes."""
 
@@ -91,6 +124,7 @@ def test_mst_skeleton_is_rejected(build_model):
     """The `mst` skeleton is not supported for fuzzy cluster assignments."""
     with pytest.raises(ValidationError, match="mst"):
         build_model({"model": {"prior": {"geo": COST_BASED_GEO | {"skeleton": "mst"}}}})
+
 
 def test_generate_initial_params_writes_existing_sites(data, config):
     """The empirical initialization must write to sites that exist in the model.

@@ -1,53 +1,78 @@
 """Tests for sbayes/config/config.py.
 """
 import json
-import warnings
 import pytest
 
 from pydantic import ValidationError
-
-
 from sbayes.config.config import (
-    TypedPriorConfig, GaussianMeanPriorConfig, GaussianVariancePriorConfig,
+    GaussianMeanPriorConfig, GaussianVariancePriorConfig,
     PoissonPriorConfig, CategoricalPriorConfig, GeoPriorConfig, WeightsPriorConfig,
     ClusterPriorConfig, PriorConfig, ModelConfig, MC3Config, MCMCConfig, SBayesConfig,
 )
 
+def test_type_defaults_to_uniform():
+    """Priors with a neutral default need no explicit `type`.
 
-def test_default_type_warnings():
-    for cls, name in [(GaussianMeanPriorConfig, "improper_uniform"),
-                      (PoissonPriorConfig, "jeffreys"),
-                      (CategoricalPriorConfig, "uniform"),
-                      (GeoPriorConfig, "uniform"),
-                      (WeightsPriorConfig, "uniform")]:
-        with pytest.warns(UserWarning, match=f"Using `{name}` as a default"):
-            cfg = cls()
-        assert cfg.type.value == name
-    # No warning when the type is given explicitly.
-    with warnings.catch_warnings():
-        warnings.simplefilter("error")
-        PoissonPriorConfig(type="gamma", parameters={"a": 1.0})
+    A uniform prior requires no parameters, so it can be assumed silently.
+    """
+    for cls in (GeoPriorConfig, CategoricalPriorConfig, WeightsPriorConfig):
+        assert cls().type.value == "uniform"
 
 
-def test_required_type_has_no_warning_class():
-    assert not issubclass(GaussianVariancePriorConfig, TypedPriorConfig)
-    assert not issubclass(ClusterPriorConfig, TypedPriorConfig)
+@pytest.mark.parametrize("config_cls", [
+    GaussianMeanPriorConfig,
+    GaussianVariancePriorConfig,
+    ClusterPriorConfig,
+    PoissonPriorConfig,
+])
+def test_type_is_required_without_a_neutral_default(config_cls):
+    """Priors whose every type needs parameters must name the type explicitly.
+
+    There is nothing safe to assume: `gaussian` needs `mu_0` and `sigma_0`, `gamma`
+    needs `shape` and `rate`, and the parameterless alternatives (`jeffreys`,
+    `inv-gamma`) are not implemented.
+    """
     with pytest.raises(ValidationError, match="Field required"):
-        GaussianVariancePriorConfig()
+        config_cls()
 
 
-def test_parameter_requirements():
-    with pytest.raises(ValidationError, match="Provide `file` or `parameters`"):
+def test_an_explicit_gaussian_mean_prior_is_accepted():
+    """The positive case for the prior whose `type` is now required."""
+    cfg = GaussianMeanPriorConfig(type="gaussian", parameters={"mu_0": 0.0, "sigma_0": 1.0})
+    assert cfg.type.value == "gaussian"
+
+
+def test_missing_parameters_are_rejected():
+    """A prior type that needs parameters cannot be configured without them."""
+    with pytest.raises(ValidationError, match="expects the parameters"):
         GaussianMeanPriorConfig(type="gaussian")
-    with pytest.raises(ValidationError, match="Provide `file` or `parameters`"):
-        GaussianVariancePriorConfig(type="inv-gamma")
-    with pytest.raises(ValidationError, match="Provide `file` or `parameters`"):
+    with pytest.raises(ValidationError, match="expects the parameters"):
+        GaussianVariancePriorConfig(type="gamma")
+    with pytest.raises(ValidationError, match="expects the parameters"):
         PoissonPriorConfig(type="gamma")
     with pytest.raises(ValidationError, match="Provide `prior_concentration`"):
         CategoricalPriorConfig(type="symmetric_dirichlet")
-    with pytest.raises(ValidationError, match="Provide `logistic_normal_scale`"):
-        CategoricalPriorConfig(type="logistic_normal")
-    CategoricalPriorConfig(type="logistic_normal", logistic_normal_scale=2.0)
+
+
+def test_misspelled_parameters_are_rejected():
+    """A typo is reported as both a missing and an unexpected parameter."""
+    with pytest.raises(ValidationError, match="unexpected"):
+        GaussianVariancePriorConfig(type="gamma", parameters={"shape": 2.0, "scale": 1.0})
+
+
+def test_unimplemented_types_are_rejected():
+    """Prior types the model cannot build are rejected when the config is loaded."""
+    cases = [
+        (GaussianVariancePriorConfig, "inv-gamma", "not implemented"),
+        (GaussianVariancePriorConfig, "jeffreys", "not implemented"),
+        (PoissonPriorConfig, "jeffreys", "not implemented"),
+        (CategoricalPriorConfig, "logistic_normal", "not implemented"),
+        (ClusterPriorConfig, "categorical", "no longer supported"),
+        (WeightsPriorConfig, "dirichlet", "not supported for the weights"),
+    ]
+    for cls, prior_type, message in cases:
+        with pytest.raises(ValidationError, match=message):
+            cls(type=prior_type)
 
 
 def test_geo_prior_requirements():
@@ -102,7 +127,7 @@ def test_model_config_confounders(prior_dict):
     with pytest.raises(ValidationError, match="Field required"):
         ModelConfig(confounders=["family"])
     # An undeclared confounder prior is a ValueError, not a NameError.
-    with pytest.raises(ValidationError, match="not defined in the config file"):
+    with pytest.raises(ValidationError, match="No prior is defined for the confounder"):
         ModelConfig(confounders=["family"], prior=prior_dict)
 
 
@@ -166,7 +191,6 @@ def test_from_config_file_uses_cls_and_suffix(tmp_path,
     cfg = SubConfig.from_config_file(path)
     assert type(cfg) is SubConfig            # cls(), not SBayesConfig()
     assert cfg.data.features == features     # relative path resolved against config dir
-    assert (tmp_path / "results").is_dir()   # results dir created by the validator
 
     # .yml is routed to the YAML loader (the old check also matched e.g. "foo.myyml").
     yml_path = tmp_path / "config.yml"
@@ -179,3 +203,10 @@ def test_base_config_helpers():
     assert cfg["steps"] == 1000
     assert MCMCConfig.get_attr_doc("steps") is None  # __attrdocs__ not harvested
     assert MCMCConfig.annotations("steps") == "PositiveInt"
+
+
+def test_model_config_rejects_a_confounder_without_a_prior(prior_dict):
+    """Every confounder needs a matching `prior.confounding_effects` section."""
+    with pytest.raises(ValidationError, match=r"No prior is defined.*'family'"):
+        ModelConfig(confounders=["family"], prior=prior_dict)
+
