@@ -7,13 +7,11 @@ import tables
 import warnings
 
 from functools import partial
-
-from jaxlib.mlir._mlir_libs._mlir.ir import NoneType
 from numpy.typing import NDArray
 from pathlib import Path
-from sbayes.util import PathLike, sample_categorical, get_best_permutation
+from sbayes.util import PathLike, get_best_permutation
 from scipy.optimize import linear_sum_assignment
-from typing import Sequence, Callable, Self, Any
+from typing import Sequence, Callable, Literal, Self, Any
 
 # Column names used for the log-probabilities, in order of preference. Earlier versions
 # of sBayes wrote the columns without the `log_` prefix.
@@ -50,7 +48,7 @@ class Results:
 
     def __init__(
         self,
-        clusters: NDArray[np.float64],
+        clusters: NDArray,
         weights: dict[str, NDArray],
         areal_effect: dict[str, dict[str, NDArray]],
         confounding_effects: dict[str, dict[str, dict[str, NDArray]]],
@@ -408,12 +406,11 @@ class Results:
         if likelihood_pointwise is not None:
             likelihood_pointwise = likelihood_pointwise[indices]
 
+        clusters = np.transpose(z[:, :, :-1], (0, 2, 1)).astype(np.float64)
+
         if do_match_clusters:
             # Permutes `z` and the cluster effects in place
-            match_clusters(z, cluster_effect_arrays)
-
-        # shape: (n_clusters, n_samples, n_objects)
-        clusters = np.transpose(z[..., :-1], (2, 0, 1)).astype(float, copy=False)
+            match_clusters(clusters, z, cluster_effect_arrays)
 
         feature_to_states = {}
         for p in partitions:
@@ -680,19 +677,25 @@ class Results:
         skip_rows = None
         if subsample_interval > 1:
             skip_rows = lambda i: i > 0 and (i - 1) % subsample_interval != 0
-            # The pyarrow engine does not support `ski_prows` callables
+            # The pyarrow engine does not support `skiprows` callables
             use_pyarrow = False
 
         if use_pyarrow:
             try:
                 return pd.read_csv(path, delimiter="\t", engine="pyarrow")
+
+            except ImportError:
+                pass
+
             except Exception as e:
                 warnings.warn(
-                    f"Could not read {path} with the pyarrow engine "
-                    f"({type(e).__name__}: {e}). Falling back to the python engine."
+                    f"Could not read '{path.name}' with the pyarrow engine "
+                    f"({type(e).__name__}: {e}). Falling back to the default engine."
                 )
 
-        return pd.read_csv(path, delimiter="\t", engine="python", skiprows=skip_rows)
+        # The python engine is only needed for the `skiprows` callable
+        engine: Literal["c", "python"] = "python" if skip_rows is not None else "c"
+        return pd.read_csv(path, delimiter="\t", engine=engine, skiprows=skip_rows)
 
 
     @staticmethod
@@ -767,7 +770,8 @@ class Results:
 # ----------------------------------------------------------------
 
 def match_clusters(
-    z: NDArray[np.float64],
+    clusters: NDArray,
+    z: NDArray,
     cluster_effect_arrays: dict[str, NDArray],
 ) -> None:
     """Align the cluster labels across samples, in place.
@@ -777,29 +781,26 @@ def match_clusters(
     samples before it, so that a label means the same thing throughout the chain.
 
     Args:
+        clusters: the cluster memberships, permuted in place.
+            shape: (n_samples, n_clusters, n_objects)
         z: the cluster assignments, with the not-assigned component last. Permuted in
             place. shape: (n_samples, n_objects, n_clusters + 1)
         cluster_effect_arrays: the cluster effect parameters, permuted in place. Each of
             shape (n_samples, n_clusters, ...)
     """
-    # Discretize the assignments, so that clusters can be matched by their overlap
-    clusters_binary = sample_categorical(z, binary_encoding=True)[:, :, :-1]
-    # (n_samples, n_objects, n_clusters) -> (n_samples, n_clusters, n_objects)
-    clusters_binary = clusters_binary.transpose(0, 2, 1)
-
     # Running total of the assignments seen so far, which each sample is matched against
-    clusters_sum = np.zeros(clusters_binary.shape[1:], dtype=int)
+    clusters_sum = np.zeros(clusters.shape[1:], dtype=float)
 
-    for i in range(len(clusters_binary)):
-        permutation = get_best_permutation(clusters_binary[i], clusters_sum)
+    for i in range(len(clusters)):
+        permutation = get_best_permutation(clusters[i], clusters_sum)
 
         if not np.all(permutation == np.arange(len(permutation))):
-            clusters_binary[i] = clusters_binary[i][permutation]
+            clusters[i] = clusters[i][permutation]
             z[i, :, :-1] = z[i, :, :-1][:, permutation]
             for effect_array in cluster_effect_arrays.values():
                 effect_array[i] = effect_array[i][permutation]
 
-        clusters_sum += clusters_binary[i]
+        clusters_sum += clusters[i]
 
 
 def _build_effect_dict(

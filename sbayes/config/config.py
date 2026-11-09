@@ -23,7 +23,6 @@ except ImportError:
 
 
 class RelativePathType(PathType):
-
     """Pydantic path type that resolves relative paths against `BASE_DIR`.
 
     `BASE_DIR` is global class state, set once per config load in
@@ -48,14 +47,15 @@ class RelativePathType(PathType):
 
     @staticmethod
     def validate_directory(path: Path, _: core_schema.ValidationInfo) -> Path:
-        # Note: this validator has a side effect - it creates the directory if it does
-        # not exist yet, so that output directories do not have to be prepared by hand.
+        # Output directories are created by whoever writes to them, see
+        # `Experiment.__init__`. A path that does not exist yet is therefore valid; only
+        # a path that exists and is not a directory is an error.
         path = RelativePathType.fix_path(path)
-        path.mkdir(parents=True, exist_ok=True)
-        if path.is_dir():
-            return path
-        else:
-            raise PydanticCustomError('path_not_directory', 'Path does not point to a directory')
+        if path.exists() and not path.is_dir():
+            raise PydanticCustomError(
+                'path_not_directory', 'Path exists but is not a directory'
+            )
+        return path
 
 
 RelativeFilePath = Annotated[Path, RelativePathType('file')]
@@ -66,7 +66,6 @@ RelativeDirectoryPath = Annotated[Path, RelativePathType('dir')]
 
 
 class BaseConfig(BaseModel, extra='forbid'):
-
     """The base class for all config classes. This inherits from pydantic.BaseModel and
     configures settings that should be shared across all setting classes."""
 
@@ -129,60 +128,80 @@ class BaseConfig(BaseModel, extra='forbid'):
 
 """ ===== PRIOR CONFIGS ===== """
 
-class TypedPriorConfig(BaseConfig):
 
-    """Base class for prior configs whose `type` field has a default value.
+def check_prior_parameters(
+    config_name: str,
+    prior_type: Enum,
+    parameters: Optional[Dict[str, float]],
+    file: Optional[Path],
+    required: tuple[str, ...],
+) -> None:
+    """Check that the parameters a prior type needs are given inline and complete.
 
-    Subclasses must declare a `type` field with a default and set
-    `DEFAULT_TYPE_NAME` to the value of that default. Configs where `type` is
-    required (no default) should inherit from `BaseConfig` instead and rely on
-    pydantic's own required-field validation.
+    Only the categorical priors read their parameters from a file (see
+    `parse_custom_concentration` in `model/prior.py`); the Gaussian and Poisson priors
+    index `config.parameters` directly, so a `file` would fail there with a TypeError.
+
+    Args:
+        config_name: the config class, used in the error message
+        prior_type: the prior type, used in the error message
+        parameters: the parameters given in the config
+        file: the parameter file given in the config, which is not supported here
+        required: the parameter names the model reads for this type
+
+    Raises:
+        ValueError: if a file is given, or a parameter is missing or unexpected.
     """
+    if file is not None:
+        raise ValueError(
+            f"`file` is not supported for `{config_name}`: only categorical priors "
+            f"read their parameters from a file. Provide `parameters` instead."
+        )
 
-    DEFAULT_TYPE_NAME: ClassVar[str]
+    given = set(parameters or {})
+    missing = sorted(set(required) - given)
+    unexpected = sorted(given - set(required))
+    if missing or unexpected:
+        raise ValueError(
+            f"`{config_name}` of type `{prior_type.value}` expects the parameters "
+            f"{sorted(required)}"
+            + (f"; missing: {missing}" if missing else "")
+            + (f"; unexpected: {unexpected}" if unexpected else "")
+        )
 
-    @model_validator(mode="before")
-    @classmethod
-    def warn_when_using_default_type(cls, values):
-        if isinstance(values, dict) and "type" not in values:
-            warnings.warn(
-                f"No `type` defined for `{cls.__name__}`. "
-                f"Using `{cls.DEFAULT_TYPE_NAME}` as a default."
-            )
-        return values
 
-
-class GaussianMeanPriorConfig(TypedPriorConfig):
+class GaussianMeanPriorConfig(BaseConfig):
     """Configuration of the prior on the mean of a normal distribution"""
 
     class Types(str, Enum):
         GAUSSIAN = "gaussian"
 
-    DEFAULT_TYPE_NAME: ClassVar[str] = Types.GAUSSIAN.value
-
-    type: Types = Types.GAUSSIAN
+    type: Types   # required: every supported type needs parameters
     """Type of prior distribution (`gaussian`)."""
 
     file: Optional[RelativeFilePath] = None
-    """Path to the parameters of the Gaussian distribution."""
+    """Not supported: provide `parameters` instead."""
 
     parameters: Optional[Dict[str, float]] = None
-    """Parameters of the Gaussian distribution."""
+    """Parameters of the Gaussian distribution: `mu_0` and `sigma_0`."""
 
-    @model_validator(mode="before")
-    @classmethod
-    def validate_gaussian_parameters(cls, values: Any) -> Any:
-        """A `gaussian` prior requires either a parameter file or explicit parameters."""
-        if not isinstance(values, dict):
-            return values
+    REQUIRED_PARAMETERS: ClassVar[Dict[str, tuple[str, ...]]] = {
+        Types.GAUSSIAN.value: ("mu_0", "sigma_0"),
+    }
+    """The parameters the model reads for each prior type."""
 
-        if values.get("type") == cls.Types.GAUSSIAN:
-            if (values.get("file") is None) and (values.get("parameters") is None):
-                raise ValueError(
-                    f"Provide `file` or `parameters` for `{cls.__name__}` of type "
-                    f"`{cls.Types.GAUSSIAN.value}`."
-                )
-        return values
+    @model_validator(mode="after")
+    def validate_gaussian_parameters(self) -> Self:
+        """Check that the parameters of the prior on the mean are present.
+
+        `GaussianMeanPrior.parse_group_prior` reads `mu_0` and `sigma_0` from
+        `parameters`.
+        """
+        check_prior_parameters(
+            type(self).__name__, self.type, self.parameters, self.file,
+            self.REQUIRED_PARAMETERS[self.type.value],
+        )
+        return self
 
 
 class GaussianVariancePriorConfig(BaseConfig):
@@ -196,37 +215,45 @@ class GaussianVariancePriorConfig(BaseConfig):
         EXPONENTIAL = "exponential"
 
     type: Types
-    """Type of prior distribution (`jeffreys`, `inv-gamma`, `gamma`, `fixed` or
-    `exponential`)."""
+    """Type of prior distribution (`jeffreys`, `gamma`, `fixed` or `exponential`).
+    `inv-gamma` and `jeffreys` are not implemented yet."""
 
     file: Optional[RelativeFilePath] = None
-    """Path to the parameters of the variance prior distribution."""
+    """Not supported: provide `parameters` instead."""
 
     parameters: Optional[Dict[str, float]] = None
-    """Parameters of the variance prior distribution."""
+    """Parameters of the variance prior distribution, see `REQUIRED_PARAMETERS`."""
 
-    @model_validator(mode="before")
-    @classmethod
-    def validate_variance_parameters(cls, values: Any) -> Any:
-        """An `inv-gamma` prior requires either a parameter file or explicit parameters.
+    REQUIRED_PARAMETERS: ClassVar[Dict[str, tuple[str, ...]]] = {
+        Types.EXPONENTIAL.value: ("rate",),
+        Types.GAMMA.value: ("shape", "rate"),
+        Types.FIXED.value: ("value",),
+    }
+    """The parameters the model reads for each implemented prior type."""
 
-        TODO: `gamma`, `fixed` and `exponential` most likely require parameters as
-          well - confirm against `model/prior.py` and extend this check accordingly.
+    # Note: this validator is defined first so that an unimplemented type is reported
+    # as such, rather than as a missing parameter.
+    @model_validator(mode="after")
+    def validate_type_is_implemented(self) -> Self:
+        """Reject the variance priors that the model does not implement yet."""
+        if self.type in (self.Types.INV_GAMMA, self.Types.JEFFREYS):
+            raise ValueError(
+                f"The `{self.type.value}` prior on the Gaussian variance is not "
+                f"implemented yet. Use `gamma`, `exponential` or `fixed`."
+            )
+        return self
+
+    @model_validator(mode="after")
+    def validate_variance_parameters(self) -> Self:
+        """Check that the parameters of the chosen variance prior are present.
+
+        `GaussianVariancePrior.parse_group_prior` reads these from `parameters`.
         """
-        if not isinstance(values, dict):
-            return values
-
-        prior_type = values.get("type")
-        needs_parameters = (cls.Types.INV_GAMMA, cls.Types.EXPONENTIAL,
-                            cls.Types.GAMMA, cls.Types.FIXED)
-
-        if prior_type in needs_parameters:
-            if (values.get("file") is None) and (values.get("parameters") is None):
-                raise ValueError(
-                    f"Provide `file` or `parameters` for `{cls.__name__}` of type "
-                    f"`{prior_type}`."
-                )
-        return values
+        check_prior_parameters(
+            type(self).__name__, self.type, self.parameters, self.file,
+            self.REQUIRED_PARAMETERS[self.type.value],
+        )
+        return self
 
 
 class GaussianPriorConfig(BaseConfig):
@@ -236,42 +263,54 @@ class GaussianPriorConfig(BaseConfig):
     variance: GaussianVariancePriorConfig
 
 
-class PoissonPriorConfig(TypedPriorConfig):
+class PoissonPriorConfig(BaseConfig):
     """Configuration of the prior on the rate parameter of a Poisson distribution"""
 
     class Types(str, Enum):
         GAMMA = "gamma"
         JEFFREYS = "jeffreys"
 
-
-    DEFAULT_TYPE_NAME: ClassVar[str] = Types.JEFFREYS.value
-
-    type: Types = Types.JEFFREYS
-    """Type of prior distribution (`jeffreys` or `gamma`)."""
+    type: Types
+    """Type of prior distribution (`gamma`). `jeffreys` is not implemented yet, so
+    there is no default and the type has to be given explicitly."""
 
     file: Optional[RelativeFilePath] = None
-    """Path to the parameters of the Gamma distribution."""
+    """Not supported: provide `parameters` instead."""
 
     parameters: Optional[Dict[str, float]] = None
-    """Parameters of the Gamma distribution."""
+    """Parameters of the Gamma distribution: `shape` and `rate`."""
 
-    @model_validator(mode="before")
-    @classmethod
-    def validate_gamma_parameters(cls, values: Any) -> Any:
-        """A `gamma` prior requires either a parameter file or explicit parameters."""
-        if not isinstance(values, dict):
-            return values
+    REQUIRED_PARAMETERS: ClassVar[Dict[str, tuple[str, ...]]] = {
+        Types.GAMMA.value: ("shape", "rate"),
+    }
+    """The parameters the model reads for each implemented prior type."""
 
-        if values.get("type") == cls.Types.GAMMA:
-            if (values.get("file") is None) and (values.get("parameters") is None):
-                raise ValueError(
-                    f"Provide `file` or `parameters` for `{cls.__name__}` of type "
-                    f"`{cls.Types.GAMMA.value}`."
-                )
-        return values
+    # Note: this validator is defined first so that an unimplemented type is reported
+    # as such, rather than as a missing parameter.
+    @model_validator(mode="after")
+    def validate_type_is_implemented(self) -> Self:
+        """Reject the Jeffreys prior, which the model does not implement yet."""
+        if self.type is self.Types.JEFFREYS:
+            raise ValueError(
+                "The `jeffreys` prior on the Poisson rate is not implemented yet. "
+                "Use `gamma`."
+            )
+        return self
+
+    @model_validator(mode="after")
+    def validate_gamma_parameters(self) -> Self:
+        """Check that the parameters of the Gamma prior are present.
+
+        `PoissonRatePrior.parse_group_prior` reads `shape` and `rate` from `parameters`.
+        """
+        check_prior_parameters(
+            type(self).__name__, self.type, self.parameters, self.file,
+            self.REQUIRED_PARAMETERS[self.type.value],
+        )
+        return self
 
 
-class CategoricalPriorConfig(TypedPriorConfig):
+class CategoricalPriorConfig(BaseConfig):
     """Configuration of the prior on the state probabilities of a categorical feature."""
 
     class Types(str, Enum):
@@ -280,10 +319,9 @@ class CategoricalPriorConfig(TypedPriorConfig):
         SYMMETRIC_DIRICHLET = "symmetric_dirichlet"
         LOGISTIC_NORMAL = "logistic_normal"
 
-    DEFAULT_TYPE_NAME: ClassVar[str] = Types.UNIFORM.value
-
     type: Types = Types.UNIFORM
-    """Type of prior distribution. Choose from: [uniform, dirichlet, symmetric_dirichlet]"""
+    """Type of prior distribution. Choose from: [uniform, dirichlet,
+    symmetric_dirichlet]. `logistic_normal` is not implemented yet."""
 
     file: Optional[RelativeFilePath] = None
     """Path to parameters of the Dirichlet distribution (YAML or JSON format).
@@ -296,7 +334,8 @@ class CategoricalPriorConfig(TypedPriorConfig):
     """The concentration of the prior distribution. Required if type=symmetric_dirichlet."""
 
     logistic_normal_scale: Optional[PositiveFloat] = None
-    """The scale of the logistic normal prior. Required if type=logistic_normal."""
+    """The scale of the logistic normal prior. Will be required once
+    `logistic_normal` is implemented."""
 
     use_parameter_transformation: bool = True
     """If `true`, use a parameter transformation to improve mixing of the MCMC chain."""
@@ -320,11 +359,10 @@ class CategoricalPriorConfig(TypedPriorConfig):
                 )
 
         elif self.type == self.Types.LOGISTIC_NORMAL:
-            if self.logistic_normal_scale is None:
-                raise ValueError(
-                    f"Provide `logistic_normal_scale` for `{cls_name}` of type "
-                    f"`{self.type.value}`."
-                )
+            raise ValueError(
+                f"The `{self.type.value}` prior in `{cls_name}` is not implemented "
+                f"yet. Use `uniform`, `dirichlet` or `symmetric_dirichlet`."
+            )
 
         return self
 
@@ -348,7 +386,8 @@ class ClusterPriorConfig(BaseConfig):
         LOGISTIC_NORMAL = "logistic_normal"
 
     type: Types
-    """Type of prior distribution. Choose from: [categorical, dirichlet or logit_normal]."""
+    """Type of prior distribution. Choose from: [dirichlet, logistic_normal].
+    `categorical` is an outdated model and no longer supported."""
 
     hierarchical: bool = False
     """If `true`, use a hierarchical Dirichlet prior for the cluster assignment."""
@@ -369,9 +408,6 @@ class ClusterPriorConfig(BaseConfig):
     """If `stretch_and_clip`, stretch the 'no cluster' component up by the `stretch_factor`
     and clip the resulting cluster assignment vector back to the probability simplex."""
 
-    stretch_factor: PositiveFloat = 1.0
-    """Factor by which to stretch the 'no cluster' component of the cluster prior."""
-
     cluster_mask: bool = False
     """If `true`, estimate a mask that fuzzily deactivates single clusters."""
 
@@ -383,6 +419,25 @@ class ClusterPriorConfig(BaseConfig):
 
     max: PositiveInt = 10000
     """Maximum cluster size (currently not enforced, see TODO below)."""
+
+    @classmethod
+    def deprecated_attributes(cls) -> list[str]:
+        return ["stretch_factor"]
+
+    @model_validator(mode="after")
+    def validate_type_is_supported(self) -> Self:
+        """Reject the categorical cluster prior, which is an outdated model.
+
+        It assigns each object to exactly one cluster with a hard one-hot vector, which
+        is not differentiable and can therefore not be sampled by NUTS.
+        """
+        if self.type is self.Types.CATEGORICAL:
+            raise ValueError(
+                "The `categorical` cluster prior is no longer supported: its hard "
+                "cluster assignments are not differentiable and cannot be sampled by "
+                "NUTS. Use `dirichlet` or `logistic_normal`."
+            )
+        return self
 
     @model_validator(mode="after")
     def validate_type_specific_config(self) -> Self:
@@ -399,12 +454,30 @@ class ClusterPriorConfig(BaseConfig):
                 )
         return self
 
+    @model_validator(mode="after")
+    def validate_dirichlet_config(self) -> Self:
+        """Reject a custom `dirichlet` prior on the cluster assignment.
+
+        The concentration of the cluster prior is one value per cluster rather than per
+        feature and state, so `ClusterPrior` builds it without feature names and a
+        custom `dirichlet` prior cannot be mapped onto it.
+        """
+        dirichlet_config = self.dirichlet_config
+        if (dirichlet_config is not None
+                and dirichlet_config.type is CategoricalPriorConfig.Types.DIRICHLET):
+            raise ValueError(
+                "A `dirichlet` type in `dirichlet_config` is not supported for the "
+                "cluster assignment: its concentration is defined per cluster, not per "
+                "feature and state. Use `uniform` or `symmetric_dirichlet`."
+            )
+        return self
+
     # NN: min and max bounds are tricky to enforce with continuous assignments and are
     # currently ignored by the model.
     # TODO: Discuss if there is demand and how it could be implemented.
 
 
-class GeoPriorConfig(TypedPriorConfig):
+class GeoPriorConfig(BaseConfig):
     """Configuration of the geo-prior."""
 
     class Types(str, Enum):
@@ -429,8 +502,6 @@ class GeoPriorConfig(TypedPriorConfig):
         DIAMETER = "diameter"  # i.e. the longest shortest path between two nodes
         COMPLETE = "complete_graph"
         SPECTRAL = "spectral"
-
-    DEFAULT_TYPE_NAME: ClassVar[str] = Types.UNIFORM.value
 
     type: Types = Types.UNIFORM
     """Type of prior distribution. Choose from: [uniform, cost_based]."""
@@ -478,28 +549,28 @@ class GeoPriorConfig(TypedPriorConfig):
                 f"`{self.skeleton.DIAMETER.value}` instead."
             )
         return self
-    
-    @model_validator(mode="before")
-    @classmethod
-    def validate_geo_prior_parameters(cls, values: Any) -> Any:
-        """Ensure that the parameters required by the chosen geo-prior are present."""
-        if not isinstance(values, dict):
-            return values
 
-        if values.get("type") == cls.Types.COST_BASED:
-            if values.get("rate") is None:
-                raise ValueError(
-                    f"Field `rate` is required for geo-prior of type "
-                    f"`{cls.Types.COST_BASED.value}`."
-                )
-            if (values.get("probability_function") == cls.ProbabilityFunction.SIGMOID
-                    and values.get("inflection_point") is None):
-                raise ValueError(
-                    f"Field `inflection_point` is required for geo-prior of type "
-                    f"`{cls.Types.COST_BASED.value}` with probability function "
-                    f"`{cls.ProbabilityFunction.SIGMOID.value}`."
-                )
-        return values
+    @model_validator(mode="after")
+    def validate_geo_prior_parameters(self) -> Self:
+        """Ensure that the parameters required by the chosen geo-prior are present."""
+        if self.type is not self.Types.COST_BASED:
+            return self
+
+        if self.rate is None:
+            raise ValueError(
+                f"Field `rate` is required for a geo-prior of type "
+                f"`{self.type.value}`."
+            )
+
+        if (self.probability_function is self.ProbabilityFunction.SIGMOID
+                and self.inflection_point is None):
+            raise ValueError(
+                f"Field `inflection_point` is required for a geo-prior of type "
+                f"`{self.type.value}` with probability function "
+                f"`{self.ProbabilityFunction.SIGMOID.value}`."
+            )
+
+        return self
 
 
 class GammaDistributionConfig(BaseConfig):
@@ -573,6 +644,23 @@ class WeightsPriorConfig(CategoricalPriorConfig):
             values = {**values, **converted}  # don't mutate the caller's dict
         return values
 
+    @model_validator(mode="before")
+    @classmethod
+    def reject_dirichlet_type(cls, values: Any) -> Any:
+        """Reject a custom `dirichlet` prior on the weights.
+
+        The weights have one concentration value per feature and component rather than
+        per feature and state, so `WeightsPrior` builds the concentration without
+        feature names and a custom `dirichlet` prior cannot be mapped onto it.
+        """
+        if isinstance(values, dict) and values.get("type") == cls.Types.DIRICHLET:
+            raise ValueError(
+                "The `dirichlet` prior is not supported for the weights: its "
+                "concentration is defined per feature and state, while the weights "
+                "need one value per component. Use `uniform` or `symmetric_dirichlet`."
+            )
+        return values
+
 
 class ConfoundingEffectConfig(BaseConfig):
     """Configuration of the prior on the parameters of the confounding-effects."""
@@ -634,26 +722,26 @@ class ModelConfig(BaseConfig):
     def deprecated_attributes(cls) -> list[str]:
         return ["sample_source"]
 
-    @model_validator(mode="before")
-    @classmethod
-    def validate_confounder_priors(cls, values: Any) -> Any:
-        """Ensure that a prior is defined for each confounder."""
-        if not isinstance(values, dict):
-            return values
+    @model_validator(mode="after")
+    def validate_confounder_priors(self) -> Self:
+        """Ensure that a prior is defined for each confounder, and vice versa."""
+        defined = set(self.prior.confounding_effects)
 
-        prior = values.get('confounders', [])
-        if not isinstance(prior, dict):
-            # `prior` is missing or already a PriorConfig instance: leave the required-
-            # field check to pydantic and the PriorConfig validators.
-            return values
+        missing = [c for c in self.confounders if c not in defined]
+        if missing:
+            raise ValueError(
+                f"No prior is defined for the confounder(s) {missing}. Add a "
+                f"`prior.confounding_effects` section for each confounder."
+            )
 
-        confounding_effects = prior.get("confounding_effects") or {}
-        for conf in values.get("confounders") or []:
-            if conf not in confounding_effects:
-                raise ValueError(
-                    f"Prior for the confounder '{conf}' is not defined in the config file."
-                )
-        return values
+        unused = sorted(defined - set(self.confounders))
+        if unused:
+            warnings.warn(
+                f"The config defines priors for {unused}, which are not listed in "
+                f"`confounders`. They will be ignored."
+            )
+
+        return self
 
     @model_validator(mode="after")
     def deactivate_dirichlet_transform_when_sampling_from_prior(self) -> Self:
@@ -681,7 +769,6 @@ class ModelConfig(BaseConfig):
 
 
 class WarmupConfig(BaseConfig):
-
     """Configuration of the warm-up phase in the MCMC chain."""
 
     warmup_steps: PositiveInt = 50000
@@ -692,7 +779,6 @@ class WarmupConfig(BaseConfig):
 
 
 class MC3Config(BaseConfig):
-
     """Configuration of Metropolis-Coupled Markov Chain Monte Carlo (MC3) parameters."""
 
     activate: bool = False
@@ -786,7 +872,7 @@ class MCMCConfig(BaseConfig):
     inference_mode: InferenceMode = InferenceMode.MCMC
     """The inference algorithm to use (`mcmc` or `svi`)."""
 
-    seed: NonNegativeInt = Field(default_factory=lambda: secrets.randbelow(2**31))
+    seed: NonNegativeInt = Field(default_factory=lambda: secrets.randbelow(2 ** 31))
     """Random seed for reproducible runs. If not set, a random seed is drawn per run."""
 
     @classmethod
@@ -810,7 +896,6 @@ class MCMCConfig(BaseConfig):
 
 
 class DataConfig(BaseConfig):
-
     """Information on the data for an sBayes analysis."""
 
     features: RelativeFilePath
@@ -842,7 +927,6 @@ class DataConfig(BaseConfig):
 
 
 class ResultsConfig(BaseConfig):
-
     """Information on where and how results are written."""
 
     # Note: the default is resolved against `RelativePathType.BASE_DIR` at instantiation
@@ -874,7 +958,6 @@ class ResultsConfig(BaseConfig):
 
 
 class SBayesConfig(BaseConfig):
-
     """Top-level configuration of an sBayes analysis."""
 
     data: Optional[DataConfig] = None
@@ -901,7 +984,7 @@ class SBayesConfig(BaseConfig):
 
     @classmethod
     def from_config_file(
-        cls, path: PathLike, custom_settings: Optional[dict] = None
+            cls, path: PathLike, custom_settings: Optional[dict] = None
     ) -> Self:
         """Create an instance of SBayesConfig from a YAML or JSON config file."""
 

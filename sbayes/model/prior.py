@@ -16,7 +16,7 @@ from sbayes.load_data import Data, GroupName, StateName, FeatureName, Confounder
 from sbayes.model.reparameterization import dirichlet_from_latent
 from sbayes.model.geo_prior import GeoPrior
 from sbayes.model.model_shapes import ModelShapes
-from sbayes.util import  FLOAT_TYPE, normalize
+from sbayes.util import FLOAT_TYPE, normalize, EPS
 
 from typing import Sequence, TypeVar
 
@@ -24,6 +24,16 @@ T = TypeVar("T")
 
 DEFAULT_GROUP = "<DEFAULT>"
 """Key of the fallback prior config, used for groups without their own config."""
+
+MIN_CLUSTER_PROBABILITY = 1e-9
+"""Smallest cluster membership kept by `_stretch_and_clip`, so that `log(p)` stays
+finite. Not machine epsilon: this is a modelling floor, not a precision limit."""
+
+MEAN_OFFSET_IN_PRIOR_SDS = 10.0
+"""Half-width of the reparameterized offset on a cluster mean, in prior standard
+deviations. A cluster mean further than this from the data-dependent prediction has
+zero prior support and cannot be reached by the sampler."""
+
 
 def resolve_group_configs(
     config: dict[GroupName, T],
@@ -583,6 +593,7 @@ class GaussianMeanPrior:
                 the offset when the effect is reparameterized
             allow_reparameterization: if False, the Gaussian is sampled directly rather
                 than through an affine reparameterization
+
         Returns:
             The mean per cluster and feature. shape: (n_clusters, n_features)
         """
@@ -599,18 +610,21 @@ class GaussianMeanPrior:
         offset_dist = dist.Uniform(-1, 1)
         with numpyro.plate(f"plate_clusters_{p_name}", n_clusters, dim=-2):
             with numpyro.plate(f"plate_features_{p_name}", self.partition.n_features, dim=-1):
-                offset_latent = self.sigma_0_array * numpyro.sample(
+                offset_latent = numpyro.sample(
                     f"cluster_effect_{p_name}_mean_offset", offset_dist
                 )
 
-        # Widen the offset to +-10 prior standard deviations
-        trans = AffineTransform(loc=0.0, scale=10.0)
+        # Widen the unit offset to +-MEAN_OFFSET_IN_PRIOR_SDS prior standard deviations.
+        # The prior standard deviation is applied inside the transform,
+        trans = AffineTransform(
+            loc=0.0, scale=MEAN_OFFSET_IN_PRIOR_SDS * self.sigma_0_array
+        )
         offset = trans(offset_latent)
         effect_mean = clust_eff_mean_pred + offset
         numpyro.deterministic(f"cluster_effect_{p_name}_mean", effect_mean)
 
         # The latent parameterization is uniform, so the actual prior density has to be
-        # added explicitly, corrected for the transform and the latent's own density.
+        # added explicitly
         prior_log_prob = mean_dist.log_prob(effect_mean)
         prior_correction_factor = (
             trans.log_abs_det_jacobian(offset_latent, offset)
@@ -622,7 +636,6 @@ class GaussianMeanPrior:
         )
 
         return jnp.asarray(effect_mean)
-
 
 class GaussianVariancePrior:
     """The prior on the variance for Gaussian features."""
@@ -1161,10 +1174,10 @@ class ClusterPrior:
     def _stretch_and_clip(z: jnp.ndarray) -> jnp.ndarray:
         """Inflate the no-cluster component and rescale the clusters accordingly.
 
-        The no-cluster probability is multiplied by a sampled factor `s >= 1` and the
-        added mass is subtracted from the cluster components, proportionally to their
-        current size. The result is clipped away from 0 and 1 and renormalized, so that
-        it stays a valid simplex.
+        The no-cluster probability is multiplied by a factor `s >= 1`, drawn per sample
+        rather than configured, and the added mass is subtracted from the cluster
+        components, proportionally to their current size. The result is clipped away
+        from 0 and 1 and renormalised, so that it stays a valid simplex.
 
         This shifts the prior towards smaller clusters without changing the relative
         weights of the clusters themselves.
@@ -1179,13 +1192,18 @@ class ClusterPrior:
         s = 1 + numpyro.sample("z0_stretch_factor", dist.Exponential(1.0))
         z_stretched = z.at[:, -1].multiply(s)
 
-        # Subtract the added no-cluster mass from the clusters, proportionally
+        # Subtract the added no-cluster mass from the clusters, proportionally. The
+        # floor only affects objects that are almost entirely outside every cluster.
         d = z_stretched[:, -1:] - z[:, -1:]
-        cluster_share = z[:, :-1] / (jnp.sum(z[:, :-1], axis=-1, keepdims=True) + 1E-6)
+        cluster_share = z[:, :-1] / jnp.maximum(
+            jnp.sum(z[:, :-1], axis=-1, keepdims=True), EPS
+        )
         z_stretched = z_stretched.at[:, :-1].subtract(cluster_share * d)
 
-        z_stretched = jnp.clip(z_stretched, 1E-9, 1 - 1E-9)
+        # The lower bound keeps every component positive; no upper bound is needed,
+        z_stretched = jnp.maximum(z_stretched, MIN_CLUSTER_PROBABILITY)
         return normalize(z_stretched, axis=-1)
+
 
     def get_numpyro_distr(self, allow_reparameterization: bool = False) -> jnp.ndarray:
         """Sample the cluster assignment of each object.

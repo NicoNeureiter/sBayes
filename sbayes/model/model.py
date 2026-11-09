@@ -20,10 +20,17 @@ from sbayes.model.prior import (
     dirichlet_from_latent,
 )
 from sbayes.util import onehot_to_integer_encoding, FLOAT_TYPE, EPS
+from typing import Literal
+
 
 
 NO_GROUP = -1
 CLUSTER_COMPONENT = 0
+
+ObservationMode = Literal["observe", "simulate", "omit"]
+"""What the model does with the observation sites: condition on them, draw them
+(simulation), or leave them out entirely (prior sampling)."""
+
 
 def indent(text, amount, ch=' '):
     padding = amount * ch
@@ -59,11 +66,12 @@ class Model:
 
     """
 
-    def __init__(self, data: Data, config: ModelConfig) -> None:
+    def __init__(self, data: Data, config: ModelConfig, simulate_observations: bool = False) -> None:
         """
         Args:
             data: the data the model is fitted to
             config: the model configuration, for a single number of clusters
+            simulate_observations: whether to simulate observations
         """
         if not isinstance(config.clusters, int):
             raise ValueError(
@@ -88,6 +96,11 @@ class Model:
             n_groups={name: conf.n_groups for name, conf in self.confounders.items()},
         )
 
+        self.observations: ObservationMode = (
+            "simulate" if simulate_observations
+            else "omit" if config.sample_from_prior
+            else "observe"
+        )
 
         # Initialise the prior
         self.prior = Prior(shapes=self.shapes, config=self.config.prior, data=data)
@@ -200,6 +213,7 @@ class Model:
             cluster_effect_pred,
             allow_reparameterization=self.allow_reparameterization,
         )
+
         p_data_by_comp = p_data_by_comp.at[:n_clusters].set(cluster_effect[:, None, :, :])
 
         # Sample and assign confounding effects
@@ -209,6 +223,10 @@ class Model:
             # effect here. They are masked out by `has_component` in the mixture weights.
             g = self.group_assignments[i_c]
             p_data_by_comp = p_data_by_comp.at[n_clusters + i_c].set(conf_effect[g, :, :])
+
+        if self.observations == "omit":
+            # No likelihood under prior sampling.
+            return
 
         # Define mixture likelihood (k: component, i: object, f: feature, s: state)
         # Adding EPS makes log(p) finite everywhere, so the gradient exists.
@@ -223,7 +241,7 @@ class Model:
                     numpyro.sample(
                         f"x_{p_name}",
                         dist.Categorical(probs=p_data_mixed),
-                        obs=None if self.config.sample_from_prior else partition.values,
+                        obs=None if self.observations == "simulate" else partition.values
                     )
 
     def add_partition_gaussian(
@@ -302,6 +320,10 @@ class Model:
             mean_by_comp = mean_by_comp.at[n_clusters + i_c].set(conf_eff_mean[g, :])
             variance_by_comp = variance_by_comp.at[n_clusters + i_c].set(conf_eff_variance[g, :])
 
+        if self.observations == "omit":
+            # No likelihood under prior sampling.
+            return
+
         # Move the component axis last, as expected by MixtureSameFamily
         # shape: (n_objects, partition.n_features, n_clusters+n_confounders)
         with numpyro.plate(f"plate_objects_lh_{p_name}", self.shapes.n_objects, dim=-2):
@@ -320,7 +342,7 @@ class Model:
                                 scale=variance_by_comp.transpose((1, 2, 0)) ** 0.5,
                             ),
                         ),
-                        obs=None if self.config.sample_from_prior else partition.values,
+                        obs=None if self.observations == "simulate" else partition.values,
                     ) # Shape: [n_objects, n_features, n_components]
 
     def add_partition_poisson(
@@ -375,6 +397,10 @@ class Model:
             g = self.group_assignments[i_c]
             rate_by_comp = rate_by_comp.at[n_clusters + i_c].set(conf_eff_rate[g, :])
 
+        if self.observations == "omit":
+            # No likelihood under prior sampling.
+            return
+
         # Move the component axis last, as expected by MixtureSameFamily
         # shape: (n_objects, partition.n_features, n_clusters+n_confounders)
         with numpyro.plate(f"plate_objects_lh_{p_name}", self.shapes.n_objects, dim=-2):
@@ -391,7 +417,7 @@ class Model:
                                 rate=rate_by_comp.transpose((1, 2, 0))
                             ),
                         ),
-                        obs=None if self.config.sample_from_prior else partition.values,
+                        obs=None if self.observations == "simulate" else partition.values,
                     )
 
     def add_weights_prior(

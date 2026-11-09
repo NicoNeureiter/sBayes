@@ -150,10 +150,12 @@ def main(
     """
     # Read run and cluster settings from the config (logging off — this is planning only)
 
-    if resume and experiment_name is None:
-        raise ValueError("Resuming requires the name of the experiment to resume (--name).")
-
-    experiment_name = default_experiment_name()
+    if experiment_name is None:
+        if resume:
+            raise ValueError(
+                "Resuming requires the name of the experiment to resume (--name)."
+            )
+        experiment_name = default_experiment_name()
 
     experiment = Experiment(
         config_file=config,

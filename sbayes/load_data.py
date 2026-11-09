@@ -626,8 +626,8 @@ class Data:
             objects=objects,
             features=features,
             confounders=confounders,
-            projection=config.data.projection,   # respect config, not silent default
-            geo_costs=config.model.prior.geo.costs,
+            projection=config.data.projection if config.data else "epsg:4326",
+            geo_costs="from_data",
             logger=logger,
         )
 
