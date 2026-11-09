@@ -1,5 +1,5 @@
 [build-system]
-requires = ["setuptools", "cython", "wheel"]
+requires = ["setuptools", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
@@ -8,38 +8,27 @@ version = "1.1"
 description = "MCMC algorithms to identify spatial cluster in the presence of confounding effects."
 authors = [
     {name = "Nico Neureiter", email = "nico.neureiter@bsse.ethz.ch"},
-    {name = "Peter Ranacher", email = "peter.ranacher@geo.uzh.ch"},
+    {name = "Peter Ranacher", email = "peter.ranacher@gmail.com"},
 ]
 readme = "README.md"
 keywords = ["Bayesian inference", "clustering", "linguistics"]
 license = {file = "LICENSE"}
-requires-python = ">=3.8"
+requires-python = ">=3.11"
 dependencies = [
-    "descartes",
-    "geopandas",
-    "matplotlib",
     "numpy",
-    "pandas",
-    "pyproj",
+    "pandas>=2.1",
     "scipy",
-    "seaborn",
-    "cartopy",
-    "typing_extensions",
+    "pyproj",
     "tables",
     "pydantic>=2",
     "ruamel.yaml",
     "unidecode",
-    "psutil",
-    "numba",
-    "libpysal",
     "jax",
     "numpyro",
-    "arviz",
 ]
 
 [project.optional-dependencies]
-modelComparison = []
-gui = ["tkinter"]
+tools = ["arviz>=1", "matplotlib", "seaborn"]
 
 [project.urls]
 Source = "https://github.com/derpetermann/sBayes"
@@ -49,12 +38,19 @@ Documentation = "https://github.com/derpetermann/sBayes/blob/devel/documentation
 where = ["."]
 include = ["sbayes*"]
 
+[tool.pytest.ini_options]
+filterwarnings = [
+    "ignore:object name is not a valid Python identifier:tables.exceptions.NaturalNameWarning",
+]
+
 [tool.setuptools.package-data]
 maps = ["*.geojson"]
 
 [project.scripts]
 sbayes = "sbayes.cli:cli"
-sbayesPlot = "sbayes.plot:cli"
-sbayesAlignClusters = "sbayes.tools.align_clusters:main"
 sbayesELPD = "sbayes.tools.elpd:cli"
-sbayesSubsample = "sbayes.tools.subsample:cli"
+sbayesGuessFeatureTypes = "sbayes.tools.guess_feature_types:main"
+sbayesEstimatePrior = "sbayes.tools.estimate_empirical_prior:main"
+sbayesMigrateResults = "sbayes.tools.migrate_results:cli"
+sbayesFindCorrelatedFeatures = "sbayes.tools.find_correlated_features:main"
+sbayesConvertPriorCounts = "sbayes.tools.convert_prior_csv_to_json:main"
