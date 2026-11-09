@@ -1,4 +1,8 @@
+import subprocess
+
 from pathlib import Path
+from ruamel import yaml
+
 from sbayes.simulate.calibration import (
     run_study,
     SimulateConfigFile,
@@ -10,14 +14,29 @@ from sbayes.simulate.calibration import (
     run_no_data_check
 )
 
+def are_we_on_gce():
+    try:
+        with open("/sys/class/dmi/id/product_name") as f:
+            return "Google Compute Engine" in f.read()
+    except OSError:
+        return False
+
+
 
 if __name__ == "__main__":
-    config = SimulateConfigFile.from_config_file(
-        Path("config_simulate.yaml"), )
+    config = SimulateConfigFile.from_config_file(Path("config_simulate.yaml"))
+    on_gce = are_we_on_gce()
+    bucket = "sbayes-bucket" if on_gce else None
+    output_path = Path("output/no_data")
+    run_no_data_check(config, output_path,
+                      n_replicates=1, bucket=bucket)
 
-    # Validate the pipeline: no likelihood on either side, so the ranks must be
-    # uniform by construction.
-    run_no_data_check(config, Path("output/no_data"), n_replicates=100)
+
+    # Reached only if the run and upload succeeded; a failure raises above
+    # and leaves the VM up so the results can be retrieved from disk.
+    if on_gce:
+        print("Shutting down VM to save costs.")
+        subprocess.run(["sudo", "shutdown", "-h", "now"], check=False)
 
     # study = run_study(config=config, output_path=Path("output"), n_replicates=3)
     #

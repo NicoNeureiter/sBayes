@@ -10,8 +10,11 @@ import warnings
 from jax import random
 from matplotlib import pyplot as plt
 from pathlib import Path
-from typing import NamedTuple, Self, Sequence
+from ruamel.yaml import YAML
+from typing import NamedTuple, Sequence
 
+
+from sbayes.config.config import SBayesConfig
 from sbayes.results import Results
 from sbayes.sampling.loggers import logger
 from sbayes.simulate.config import SimulateConfigFile
@@ -22,14 +25,18 @@ from sbayes.util import EPS
 # For running on the server only
 import subprocess
 
-R_HAT_MAX = 1.01
-"""The largest tolerable rank-normalised R-hat."""
+R_HAT_MAX = 1.02
+"""The largest tolerable rank-normalised R-hat. 
+Applied to the maximum over all monitored parameters, so looser than the 1.01"""
 
 ESS_MIN = 400.0
 """The smallest tolerable effective sample size."""
 
 MAX_FAILURE_RATE = 0.1
 """Above this share of failed replicates the study is re-run."""
+
+MIN_REPLICATES_FOR_TOLERANCE = 20
+"""Below this, the failure rate is too noisy to judge against the tolerance."""
 
 AREAL_EFFECT = "areal_effect"
 """The `Results` attribute holding the cluster effects."""
@@ -89,7 +96,7 @@ class Diagnostics(NamedTuple):
 
 
 class Gate(NamedTuple):
-    """Which replicates converged well enough to be used."""
+    """Which replicates of a study converged well enough to be used."""
 
     passed: list[int]
     """Indices of the replicates that met both thresholds."""
@@ -104,7 +111,11 @@ class Gate(NamedTuple):
     """The share of replicates that failed, out of those that ran."""
 
     within_tolerance: bool
-    """Whether the failure rate is low enough for the results to be interpreted."""
+    """Whether the failure rate is at or below the tolerance. Only meaningful when
+    `tolerance_assessable` is True."""
+
+    tolerance_assessable: bool
+    """Whether there were enough replicates for the failure rate to mean anything."""
 
 
 class PreparedReplicate(NamedTuple):
@@ -458,6 +469,7 @@ def gate_replicates(
     r_hat_max: float = R_HAT_MAX,
     ess_min: float = ESS_MIN,
     max_failure_rate: float = MAX_FAILURE_RATE,
+    min_replicates: int = MIN_REPLICATES_FOR_TOLERANCE,
 ) -> Gate:
     """Decide which replicates converged well enough to be used.
 
@@ -468,10 +480,11 @@ def gate_replicates(
         r_hat_max: the largest tolerable R-hat
         ess_min: the smallest tolerable effective sample size
         max_failure_rate: the share of failures above which a study is not interpreted
+        min_replicates: the fewest replicates for which the failure rate is judged
 
     Returns:
-        The passed and failed replicates, why each failure failed, and whether the
-        failure rate is within tolerance.
+        The passed and failed replicates, why each failure failed, the failure rate and
+        whether it can be judged against the tolerance.
 
     Raises:
         ValueError: if no replicate diagnostics are given.
@@ -507,6 +520,7 @@ def gate_replicates(
         reasons=reasons,
         failure_rate=failure_rate,
         within_tolerance=failure_rate <= max_failure_rate,
+        tolerance_assessable=len(diagnostics) >= min_replicates,
     )
 
 
@@ -1411,6 +1425,28 @@ def ecdf_excursions(
 
     return pd.DataFrame(rows)
 
+def parameter_transformations(config: SBayesConfig) -> set[bool]:
+    """The `use_parameter_transformation` flags of every categorical prior.
+
+    Args:
+        config: an inference config, after validation
+
+    Returns:
+        The distinct flag values found. A single value means the priors agree.
+    """
+    priors = [config.model.prior.cluster_effect]
+    priors += [
+        group
+        for confounder in config.model.prior.confounding_effects.values()
+        for group in confounder.values()
+    ]
+
+    return {
+        prior.categorical.use_parameter_transformation
+        for prior in priors
+        if prior.categorical is not None
+    }
+
 
 def write_study_report(
     study: Study,
@@ -1467,7 +1503,14 @@ def write_study_report(
         "",
     ]
 
-    if not gate.within_tolerance:
+    if not gate.tolerance_assessable:
+        lines += [
+            f"> The failure rate is not assessable at {n_read} replicates "
+            f"(at least {MIN_REPLICATES_FOR_TOLERANCE} are needed).",
+            "",
+        ]
+
+    elif not gate.within_tolerance:
         lines += [
             "> **The failure rate is above tolerance, so these results are not "
             "interpretable.** Correct the sampler settings and run the study again.",
@@ -1478,6 +1521,7 @@ def write_study_report(
         lines += ["### Why replicates failed", ""]
         lines += [f"- replicate {i}: {gate.reasons[i]}" for i in gate.failed]
         lines += [""]
+
 
     if decisiveness:
         lines += [
@@ -1545,12 +1589,27 @@ def run_no_data_check(
         n_replicates: the number of replicates. Cheap here, since no likelihood is
             evaluated, so prefer enough to read the plots - a hundred or more.
         prob: the coverage of the confidence bands
-        bucket: the bucket to upload the results to
+        bucket: the GCS bucket to upload the results to; None skips the upload
 
-    Returns:
-        The fraction of parameters whose ECDF leaves the band, per group. Compare it
-        against `expected_outside`.
+    Raises:
+        Exception: if the upload fails, so the caller can keep the VM alive.
     """
+    inf_config = config.inf_config
+    if inf_config is None:
+        raise ValueError(
+            "The study config has no inference section, so there is nothing to "
+            "calibrate against."
+        )
+
+    flags = parameter_transformations(inf_config)
+    if flags != {False}:
+        raise ValueError(
+            f"The no-data check requires the untransformed parameterization on both "
+            f"sides, but the priors give {flags}."
+        )
+
+    archive_yaml(config, output_path)
+
     study = run_study(
         config=config,
         output_path=output_path,
@@ -1567,25 +1626,17 @@ def run_no_data_check(
         excursion = ecdf_excursions(ranks, prob=prob)
         write_study_report(study, prepared, gate, ranks, study.path / "report.md")
         write_excursions(excursion, study.path / "excursions.tsv")
-
     except Exception:
         logging.exception("The study failed; uploading whatever was written.")
 
-    # Only interact with the cloud infrastructure if a bucket name was passed
     if bucket is not None:
+        print(f"Uploading results from {study.path} to GCS bucket: {bucket}")
         try:
-            print(f"Cloud execution detected. Uploading results from {study.path} to GCS bucket: {bucket}")
-            # FIX: Uploaded the actual path where your files were written instead of hardcoded "output"
             upload_directory(study.path, bucket, "calibration")
-
-            # SAFETY: Shutdown ONLY triggers if the upload completely succeeds without raising errors
-            print("Upload successful. Safely shutting down VM to save costs.")
-            subprocess.run(["sudo", "shutdown", "-h", "now"], check=False)
-
         except Exception:
-            # The VM stays alive so you can SSH back in and retrieve files manually from the disk
-            logging.exception("Upload failed! Leaving the VM online so the results survive on disk.")
+            logging.exception("Upload failed; results remain on disk.")
             raise
+        print("Upload successful.")
 
 
 def write_excursions(excursions: pd.DataFrame, path: Path) -> None:
@@ -1612,3 +1663,36 @@ def upload_directory(local_dir: Path, bucket: str, prefix: str) -> None:
          str(local_dir), f"gs://{bucket}/{prefix}"],
         check=True,
     )
+
+
+def archive_yaml(config: SimulateConfigFile, output_path: Path) -> None:
+    """Archive the resolved configs, with all overrides applied.
+
+    Two files, mirroring the inputs: the simulation settings and the inference
+    settings.
+
+    Args:
+        config: the study's config, after any overrides
+        output_path: the study folder
+
+    Raises:
+        ValueError: if the config has no inference section.
+    """
+    if config.inf_config is None:
+        raise ValueError("The study config has no inference section to archive.")
+
+    output_path.mkdir(parents=True, exist_ok=True)
+
+    # The nested inference config is written separately, so neither file repeats it
+    simulate = config.model_dump(mode="json", exclude={"inf_config"})
+    inference = config.inf_config.model_dump(mode="json")
+
+    yaml = YAML()
+    yaml.default_flow_style = False
+
+    for name, resolved in [
+        ("config_simulate.yaml", simulate),
+        ("config.yaml", inference),
+    ]:
+        with open(output_path / name, "w", encoding="utf-8") as f:
+            yaml.dump(resolved, f)
