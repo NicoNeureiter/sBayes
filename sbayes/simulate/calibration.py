@@ -1549,7 +1549,7 @@ def write_study_report(
 
 def run_no_data_check(
     config: SimulateConfigFile,
-    output_path: Path,
+    name: str = "no_data",
     n_replicates: int = 100,
     prob: float = 0.95,
     bucket: str | None = None,
@@ -1562,7 +1562,7 @@ def run_no_data_check(
 
     Args:
         config: the study's simulation config
-        output_path: the folder for this check, kept separate from the real study
+        name: the name of this check
         n_replicates: the number of replicates. Cheap here, since no likelihood is
             evaluated, so prefer enough to read the plots - a hundred or more.
         prob: the coverage of the confidence bands
@@ -1581,6 +1581,8 @@ def run_no_data_check(
 
     # Neither side reads this, but it makes the archived config reflect what ran
     inf_config.model.sample_from_prior = True
+
+    output_path = Path("output", name)
     archive_yaml(config, output_path)
 
     study = run_study(
@@ -1605,7 +1607,7 @@ def run_no_data_check(
     if bucket is not None:
         print(f"Uploading results from {study.path} to GCS bucket: {bucket}")
         try:
-            upload_directory(study.path, bucket, "calibration")
+            upload_directory(study.path, bucket, name)
         except Exception:
             logging.exception("Upload failed; results remain on disk.")
             raise

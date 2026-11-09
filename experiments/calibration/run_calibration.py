@@ -27,7 +27,7 @@ if __name__ == "__main__":
     config = SimulateConfigFile.from_config_file(Path("config_simulate.yaml"))
     on_gce = are_we_on_gce()
     bucket = "sbayes-bucket" if on_gce else None
-    run_no_data_check(config, name="test", n_replicates=1, bucket=bucket)
+    run_no_data_check(config, n_replicates=100, bucket=bucket)
 
 
     # Reached only if the run and upload succeeded; a failure raises above
