@@ -1,0 +1,64 @@
+mcmc:
+    steps: 3000
+    samples: 500
+    runs: 2
+    warmup:
+        warmup_steps: 1000
+
+model:
+    clusters: 2
+    confounders:
+        - social_group
+    prior:
+        cluster_assignment:
+            type: logistic_normal
+            logistic_normal_config:
+                scale: 3
+        geo:
+            type: uniform
+        weights:
+               type: symmetric_dirichlet
+               prior_concentration: 0.6
+        cluster_effect:
+                categorical:
+                    type: symmetric_dirichlet
+                    prior_concentration: 0.6
+                gaussian:
+                  mean:
+                    type: gaussian
+                    parameters:
+                      mu_0: 0.
+                      sigma_0: 10.
+                  variance:
+                    type: gamma
+                    parameters:
+                      shape: 10.
+                      rate: 1.
+                poisson:
+                  type: gamma
+                  parameters:
+                    shape: 10.
+                    rate: 1.
+        confounding_effects:
+            social_group:
+                <DEFAULT>:
+                    categorical:
+                        type: symmetric_dirichlet
+                        prior_concentration: 0.6
+                    gaussian:
+                      mean:
+                        type: gaussian
+                        parameters:
+                          mu_0: 0.
+                          sigma_0: 10.
+                      variance:
+                        type: gamma
+                        parameters:
+                          shape: 10.
+                          rate: 1.
+                    poisson:
+                      type: gamma
+                      parameters:
+                        shape: 10.
+                        rate: 1.
+simulation: True
