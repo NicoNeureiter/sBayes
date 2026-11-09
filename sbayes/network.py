@@ -229,26 +229,27 @@ def geodesic_distance_matrix(
         The symmetric distance matrix in metres, shape: (n_objects, n_objects), and the
         locations transformed to WGS84 lon/lat, shape: (n_objects, 2)
     """
-    try:
-        from cartopy.geodesic import Geodesic
-    except ImportError as e:
-        raise ImportError(
-            "Using a coordinate reference system (crs) requires the `cartopy` library: "
-            "pip install cartopy"
-        ) from e
 
-    # always_xy=True forces (lon, lat) order for both input and output, independently of
-    # the axis order declared by the CRS (epsg:4326 declares lat/lon).
     transformer = pyproj.Transformer.from_crs(crs, "epsg:4326", always_xy=True)
     lons, lats = transformer.transform(locations[:, 0], locations[:, 1])
 
-    lon_lat = np.vstack((lons, lats)).T.astype(np.float64)
-
-    geod = Geodesic()
-    dist_mat = np.array(
-        [geod.inverse(loc, lon_lat)[:, 0] for loc in lon_lat], dtype=np.float64
+    lon_lat: NDArray[np.float64] = np.asarray(
+        np.vstack((lons, lats)).T, dtype=np.float64
     )
-    # noinspection PyTypeChecker
+    n_objects = len(lon_lat)
+
+    geod = pyproj.Geod(ellps="WGS84")
+    _, _, distances = geod.inv(
+        np.repeat(lon_lat[:, 0], n_objects),
+        np.repeat(lon_lat[:, 1], n_objects),
+        np.tile(lon_lat[:, 0], n_objects),
+        np.tile(lon_lat[:, 1], n_objects),
+    )
+
+    dist_mat: NDArray[np.float64] = np.asarray(
+        np.reshape(distances, (n_objects, n_objects)), dtype=np.float64
+    )
+
     return dist_mat, lon_lat
 
 

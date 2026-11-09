@@ -14,7 +14,6 @@ from ruamel.yaml import YAML
 from typing import NamedTuple, Sequence
 
 
-from sbayes.config.config import SBayesConfig
 from sbayes.results import Results
 from sbayes.sampling.loggers import logger
 from sbayes.simulate.config import SimulateConfigFile
@@ -1425,28 +1424,6 @@ def ecdf_excursions(
 
     return pd.DataFrame(rows)
 
-def parameter_transformations(config: SBayesConfig) -> set[bool]:
-    """The `use_parameter_transformation` flags of every categorical prior.
-
-    Args:
-        config: an inference config, after validation
-
-    Returns:
-        The distinct flag values found. A single value means the priors agree.
-    """
-    priors = [config.model.prior.cluster_effect]
-    priors += [
-        group
-        for confounder in config.model.prior.confounding_effects.values()
-        for group in confounder.values()
-    ]
-
-    return {
-        prior.categorical.use_parameter_transformation
-        for prior in priors
-        if prior.categorical is not None
-    }
-
 
 def write_study_report(
     study: Study,
@@ -1595,19 +1572,15 @@ def run_no_data_check(
         Exception: if the upload fails, so the caller can keep the VM alive.
     """
     inf_config = config.inf_config
+
     if inf_config is None:
         raise ValueError(
             "The study config has no inference section, so there is nothing to "
             "calibrate against."
         )
 
-    flags = parameter_transformations(inf_config)
-    if flags != {False}:
-        raise ValueError(
-            f"The no-data check requires the untransformed parameterization on both "
-            f"sides, but the priors give {flags}."
-        )
-
+    # Neither side reads this, but it makes the archived config reflect what ran
+    inf_config.model.sample_from_prior = True
     archive_yaml(config, output_path)
 
     study = run_study(

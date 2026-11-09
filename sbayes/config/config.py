@@ -1006,3 +1006,26 @@ class SBayesConfig(BaseConfig):
 
         # Create SBayesConfig instance from the dictionary
         return cls(**config_dict)
+
+
+def parameter_transformations(config: SBayesConfig) -> set[bool]:
+    """The `use_parameter_transformation` flags of every categorical prior.
+
+    Args:
+        config: an inference config, after validation
+
+    Returns:
+        The distinct flag values found. A single value means the priors agree.
+    """
+    priors = [config.model.prior.cluster_effect]
+    priors += [
+        group
+        for confounder in config.model.prior.confounding_effects.values()
+        for group in confounder.values()
+    ]
+
+    return {
+        prior.categorical.use_parameter_transformation
+        for prior in priors
+        if prior.categorical is not None
+    }
