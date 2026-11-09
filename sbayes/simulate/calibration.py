@@ -1,7 +1,7 @@
 
 import arviz as az
+import logging
 import math
-
 import numpy as np
 import pandas as pd
 import re
@@ -18,6 +18,9 @@ from sbayes.simulate.config import SimulateConfigFile
 from sbayes.simulate.simulator import Simulator
 from sbayes.simulate.validate import Paths, build_result_paths
 from sbayes.util import EPS
+
+# For running on the server only
+import subprocess
 
 R_HAT_MAX = 1.01
 """The largest tolerable rank-normalised R-hat."""
@@ -1528,7 +1531,8 @@ def run_no_data_check(
     output_path: Path,
     n_replicates: int = 100,
     prob: float = 0.95,
-) -> pd.DataFrame:
+    bucket: str | None = None,
+) -> None:
     """Validate the calibration pipeline on a problem whose answer is known.
 
     With the likelihood switched off on both sides there is nothing to learn from the
@@ -1541,6 +1545,7 @@ def run_no_data_check(
         n_replicates: the number of replicates. Cheap here, since no likelihood is
             evaluated, so prefer enough to read the plots - a hundred or more.
         prob: the coverage of the confidence bands
+        bucket: the bucket to upload the results to
 
     Returns:
         The fraction of parameters whose ECDF leaves the band, per group. Compare it
@@ -1552,13 +1557,58 @@ def run_no_data_check(
         n_replicates=n_replicates,
         sample_from_prior=True,
     )
+    try:
+        prepared = prepare_replicates(study)
+        gate = gate_replicates({i: p.diagnostics for i, p in prepared.items()})
+        ranks = collect_ranks(prepared, gate, master_seed=config.simulation.seed)
 
-    prepared = prepare_replicates(study)
-    gate = gate_replicates({i: p.diagnostics for i, p in prepared.items()})
-    ranks = collect_ranks(prepared, gate, master_seed=config.simulation.seed)
+        ranks.to_csv(study.path / "ranks.tsv", sep="\t", index=False)
+        plot_rank_ecdf(ranks, study.path / "rank_ecdf.png", prob=prob)
+        excursion = ecdf_excursions(ranks, prob=prob)
+        write_study_report(study, prepared, gate, ranks, study.path / "report.md")
+        write_excursions(excursion, study.path / "excursions.tsv")
 
-    ranks.to_csv(study.path / "ranks.tsv", sep="\t", index=False)
-    plot_rank_ecdf(ranks, study.path / "rank_ecdf.png", prob=prob)
-    write_study_report(study, prepared, gate, ranks, study.path / "report.md")
+    except Exception:
+        logging.exception("The study failed; uploading whatever was written.")
 
-    return ecdf_excursions(ranks, prob=prob)
+    # Only interact with the cloud infrastructure if a bucket name was passed
+    if bucket is not None:
+        try:
+            print(f"Cloud execution detected. Uploading results from {study.path} to GCS bucket: {bucket}")
+            # FIX: Uploaded the actual path where your files were written instead of hardcoded "output"
+            upload_directory(study.path, bucket, "calibration")
+
+            # SAFETY: Shutdown ONLY triggers if the upload completely succeeds without raising errors
+            print("Upload successful. Safely shutting down VM to save costs.")
+            subprocess.run(["sudo", "shutdown", "-h", "now"], check=False)
+
+        except Exception:
+            # The VM stays alive so you can SSH back in and retrieve files manually from the disk
+            logging.exception("Upload failed! Leaving the VM online so the results survive on disk.")
+            raise
+
+
+def write_excursions(excursions: pd.DataFrame, path: Path) -> None:
+    """Write the band excursions of a study or a check to a TSV file.
+
+    Args:
+        excursions: the table from `ecdf_excursions`
+        path: the TSV file to write
+    """
+    path.parent.mkdir(parents=True, exist_ok=True)
+    excursions.to_csv(path, sep="\t", index=False)
+
+
+def upload_directory(local_dir: Path, bucket: str, prefix: str) -> None:
+    """Copy a directory to a GCS bucket, recursively.
+
+    Args:
+        local_dir: the local directory to copy
+        bucket: the bucket to copy to
+        prefix: the prefix to add to each copy
+    """
+    subprocess.run(
+        ["gcloud", "storage", "rsync", "--recursive",
+         str(local_dir), f"gs://{bucket}/{prefix}"],
+        check=True,
+    )
