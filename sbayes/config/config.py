@@ -860,8 +860,10 @@ class MCMCConfig(BaseConfig):
     initialization_strategy: Literal["SVI", "heuristic"] = "SVI"
     """How to generate an initial sample for the MCMC chain. Choose from: [SVI, heuristic]."""
 
-    svi_guide: Literal["AutoDelta", "AutoNormal"] = "AutoDelta"
-    """Guide family used for SVI-based initialization."""
+    svi_guide: Literal["AutoLaplace", "AutoDelta", "AutoNormal"] = "AutoLaplace"
+    """Guide family used for SVI-based initialization. AutoLaplace starts from the
+    posterior mode in unconstrained space; AutoDelta's mode in constrained space can lie
+    on the boundary of the simplex, where NUTS cannot start."""
 
     svi_steps: PositiveInt = 5_000
     """Number of optimization steps for SVI-based initialization."""

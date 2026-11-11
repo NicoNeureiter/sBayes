@@ -22,7 +22,7 @@ def sample_nuts(
     thinning: int = 1,
     init_state: HMCState | None = None,
     init_strategy: str = "SVI",
-    svi_guide: str = "AutoDelta",
+    svi_guide: str = "AutoLaplace",
     svi_steps: int = 4000,
 ) -> dict:
     """Sample the model with the NUTS sampler, writing samples to disk as they arrive.

@@ -6,7 +6,7 @@ import warnings
 
 from numpyro import handlers
 from numpyro.infer import SVI, Trace_ELBO, init_to_value, init_to_mean
-from numpyro.infer.autoguide import AutoNormal, AutoDelta
+from numpyro.infer.autoguide import AutoDelta, AutoLaplaceApproximation, AutoNormal
 from numpyro.infer.util import log_density
 from numpyro.infer.util import initialize_model
 from numpyro.optim import Adam
@@ -97,21 +97,25 @@ def get_svi_init_sample(
     rng_key: jax.Array,
     svi_steps: int = 100,
     max_retries: int = 3,
-    guide_name: str = "AutoDelta",
+    guide_name: str = "AutoLaplace",
 ) -> dict:
     """Find a starting point for MCMC by fitting a variational approximation.
 
-    Runs SVI and draws a sample from the fitted guide. If the optimization diverges or
-    the resulting sample cannot be used to start NUTS, the fit is retried with a smaller
-    learning rate. After `max_retries` failures, the heuristic initialization is used
-    instead.
+    Runs SVI and starts from the median of the fitted guide. If the optimization
+    diverges or the median cannot be used to start NUTS, the fit is retried with a
+    smaller learning rate. After `max_retries` failures, the heuristic initialization is
+    used instead.
+
+    AutoLaplace finds the posterior mode in unconstrained space, the space NUTS samples
+    in. AutoDelta finds the mode in constrained space, which lies on the boundary of the
+    simplex for Dirichlet priors with concentration below 1, where NUTS cannot start.
 
     Args:
         model: the model to initialize
         rng_key: JAX random key
         svi_steps: number of optimization steps per attempt
         max_retries: number of attempts before falling back to the heuristic
-        guide_name: the guide family, either "AutoDelta" or "AutoNormal"
+        guide_name: the guide family: "AutoLaplace", "AutoDelta" or "AutoNormal"
 
     Returns:
         The site values to start the sampler from.
@@ -129,14 +133,16 @@ def get_svi_init_sample(
         rng_keys = jax.random.split(rng_key, 4)
         learning_rate = learning_rates[min(attempt, len(learning_rates) - 1)]
 
-        if guide_name == "AutoDelta":
-            guide = AutoDelta(svi_model_fn, init_loc_fn=init_to_mean)
-        elif guide_name == "AutoNormal":
-            guide = AutoNormal(svi_model_fn, init_loc_fn=init_to_mean)
-        else:
+        guide_classes = {
+            "AutoLaplace": AutoLaplaceApproximation,
+            "AutoDelta": AutoDelta,
+            "AutoNormal": AutoNormal,
+        }
+        if guide_name not in guide_classes:
             raise ValueError(
-                f"Unknown SVI guide `{guide_name}` (choose from: AutoDelta, AutoNormal)."
+                f"Unknown SVI guide `{guide_name}` (choose from: {', '.join(guide_classes)})."
             )
+        guide = guide_classes[guide_name](svi_model_fn, init_loc_fn=init_to_mean)
 
         svi = SVI(svi_model_fn, guide, Adam(learning_rate), loss=Trace_ELBO())
         svi_result = svi.run(rng_keys[1], svi_steps, progress_bar=True)
@@ -144,8 +150,9 @@ def get_svi_init_sample(
         if not jnp.isfinite(svi_result.losses[-1]):
             reason = f"the optimization diverged (final loss {svi_result.losses[-1]})"
         else:
-            # Draw a sample from the fitted guide and put the fixed sites back in
-            init_sample = guide.sample_posterior(rng_keys[2], svi_result.params)
+            # Start from the guide's median (not a random draw) and put the fixed
+            # sites back in
+            init_sample = dict(guide.median(svi_result.params))
             init_sample.update(fixed_values)
 
             valid, reason = _validate_init_sample(
