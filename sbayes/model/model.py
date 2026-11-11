@@ -23,6 +23,14 @@ from sbayes.util import onehot_to_integer_encoding, FLOAT_TYPE, EPS
 from typing import Literal
 
 
+def _fill_na(partition) -> jnp.ndarray:
+    """Return the observed values with NAs replaced by 0, a value in every support.
+
+    NAs are masked out of the likelihood, but numpyro still checks masked values
+    against the support and warns about the NA placeholders (-1 or NaN).
+    """
+    return jnp.where(partition.na_values, 0, partition.values)
+
 
 NO_GROUP = -1
 CLUSTER_COMPONENT = 0
@@ -241,7 +249,7 @@ class Model:
                     numpyro.sample(
                         f"x_{p_name}",
                         dist.Categorical(probs=p_data_mixed),
-                        obs=None if self.observations == "simulate" else partition.values
+                        obs=None if self.observations == "simulate" else _fill_na(partition)
                     )
 
     def add_partition_gaussian(
@@ -342,7 +350,7 @@ class Model:
                                 scale=variance_by_comp.transpose((1, 2, 0)) ** 0.5,
                             ),
                         ),
-                        obs=None if self.observations == "simulate" else partition.values,
+                        obs=None if self.observations == "simulate" else _fill_na(partition),
                     ) # Shape: [n_objects, n_features, n_components]
 
     def add_partition_poisson(
@@ -417,7 +425,7 @@ class Model:
                                 rate=rate_by_comp.transpose((1, 2, 0))
                             ),
                         ),
-                        obs=None if self.observations == "simulate" else partition.values,
+                        obs=None if self.observations == "simulate" else _fill_na(partition),
                     )
 
     def add_weights_prior(
