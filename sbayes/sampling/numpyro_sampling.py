@@ -94,7 +94,11 @@ def sample_nuts(
 
     if init_state is None:
         rng_key, subkey = random.split(rng_key, 2)
+        # Show warm-up progress even when the chunked sampling below shows only a
+        # per-chunk progress bar
+        mcmc.progress_bar = True
         mcmc.warmup(rng_key=subkey)
+        mcmc.progress_bar = not split_runs
         mcmc_state = mcmc.post_warmup_state
     else:
         mcmc.post_warmup_state = mcmc_state = init_state
