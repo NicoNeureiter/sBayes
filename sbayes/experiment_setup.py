@@ -116,7 +116,12 @@ class Experiment:
         """
         logger = logging.getLogger(f"sbayes.{name}")
         logger.setLevel(logging.DEBUG)
-        if not logger.handlers:
+        # Check for a console handler specifically: a planning-only Experiment of the
+        # same run adds a NullHandler, and a FileHandler is also a StreamHandler
+        has_console = any(
+            type(handler) is logging.StreamHandler for handler in logger.handlers
+        )
+        if not has_console:
             logger.addHandler(logging.StreamHandler())
         return logger
 
