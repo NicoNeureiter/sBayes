@@ -465,13 +465,15 @@ class Model:
             w_concentration = self.w_prior_conc
 
 
+        # The offset `normalize(w_concentration)` only moves if the concentration is
+        # sampled (hierarchical prior); otherwise a plain Dirichlet is equivalent.
         with numpyro.plate("plate_objects_w", self.shapes.n_features, dim=-1):
-            if self.allow_reparameterization:
-                w = numpyro.sample("w", dist.Dirichlet(w_concentration))
-            else:
+            if self.allow_reparameterization and weights_config.hierarchical:
                 w = dirichlet_from_latent(
                     "w", w_concentration, offset=normalize(w_concentration, axis=-1)
                 )
+            else:
+                w = numpyro.sample("w", dist.Dirichlet(w_concentration))
         # w.shape: (n_features, n_components)
 
         # Mask out components that the object does not belong to

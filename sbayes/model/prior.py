@@ -322,17 +322,6 @@ class CategoricalConfoundingEffectsPrior:
 
         self.concentration_array = jnp.asarray(concentration_array)
 
-        # The Dirichlet is sampled for all groups at once, so the transformation flag
-        # has to be the same for every group of this confounder.
-        flags = {g: cfg.use_parameter_transformation
-                 for g, cfg in self.group_configs.items()}
-        if len(set(flags.values())) > 1:
-            raise ValueError(
-                f"`use_parameter_transformation` must be the same for all groups of "
-                f"confounder '{conf.name}', but got {flags}."
-            )
-        self.use_parameter_transformation = next(iter(flags.values()))
-
     def get_setup_message(self) -> str:
         """Compile a set-up message for logging."""
         msg = f"Prior on confounding effect {self.conf.name}:\n"
@@ -340,12 +329,11 @@ class CategoricalConfoundingEffectsPrior:
             msg += f"\tPrior for group {group}: {group_config.type.value}\n"
         return msg
 
-    def get_numpyro_distr(self, allow_reparameterization: bool = False) -> jnp.ndarray:
+    def get_numpyro_distr(self) -> jnp.ndarray:
         """Sample the state probabilities of each group of this confounder.
 
-        Args:
-            allow_reparameterization: if False, the Dirichlet is sampled directly
-                instead of being constructed from latent parameters
+        The Dirichlet is sampled directly: without a moving offset, the latent
+        reparameterization would be equivalent (see `reparameterization.py`).
 
         Returns:
             The state probabilities per group and feature.
@@ -356,13 +344,9 @@ class CategoricalConfoundingEffectsPrior:
 
         with numpyro.plate(f"plate_groups_{c_name}_{p_name}", self.conf.n_groups, dim=-2):
             with numpyro.plate(f"plate_features_{c_name}_{p_name}", self.partition.n_features, dim=-1):
-                site_name = f"conf_effect_{c_name}_{p_name}"
-                if allow_reparameterization and self.use_parameter_transformation:
-                    conf_eff = dirichlet_from_latent(site_name, self.concentration_array)
-                else:
-                    conf_eff = numpyro.sample(
-                        site_name, dist.Dirichlet(self.concentration_array)
-                    )
+                conf_eff = numpyro.sample(
+                    f"conf_effect_{c_name}_{p_name}", dist.Dirichlet(self.concentration_array)
+                )
         return jnp.asarray(conf_eff)
 
 
@@ -1245,8 +1229,16 @@ class ClusterPrior:
             if c_nocluster is not None:
                 concentration = concentration.at[-1].set(c_nocluster)
 
+            # The offset `normalize(concentration)` only moves (and the reparameterization
+            # only differs from a plain Dirichlet) if the no-cluster concentration is
+            # sampled; a symmetric concentration always gives the uniform offset.
+            reparameterize = (
+                allow_reparameterization
+                and self.use_parameter_transformation
+                and self.config.estimate_no_cluster_concentration
+            )
             with numpyro.plate("plate_objects_z", self.shapes.n_objects, dim=-1):
-                if allow_reparameterization and self.use_parameter_transformation:
+                if reparameterize:
                     z = dirichlet_from_latent(
                         "z_unstretched", concentration, offset=normalize(concentration)
                     )
