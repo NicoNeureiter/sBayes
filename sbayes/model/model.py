@@ -19,6 +19,7 @@ from sbayes.model.prior import (
     PoissonClusterEffectPrior,
     dirichlet_from_latent,
 )
+from sbayes.model.reparameterization import latent_from_simplex
 from sbayes.util import onehot_to_integer_encoding, FLOAT_TYPE, EPS
 from typing import Literal
 
@@ -86,8 +87,8 @@ class Model:
             data: the data the model is fitted to
             config: the model configuration, for a single number of clusters
             simulate_observations: whether to simulate observations
-            offset_reparameterization: whether to sample Dirichlets with a moving offset
-                in a centred latent space (see `reparameterization.py`)
+            offset_reparameterization: whether to centre the latent space of Dirichlets
+                on a moving offset, where one exists (see `reparameterization.py`)
         """
         if not isinstance(config.clusters, int):
             raise ValueError(
@@ -152,7 +153,7 @@ class Model:
 
     @property
     def allow_reparameterization(self) -> bool:
-        """Whether parameters with a moving offset are sampled in a latent space."""
+        """Whether Dirichlet latents are centred on a moving offset, where one exists."""
         return self.offset_reparameterization
 
     def get_model(self) -> None:
@@ -471,14 +472,14 @@ class Model:
 
 
         # The offset `normalize(w_concentration)` only moves if the concentration is
-        # sampled (hierarchical prior); otherwise a plain Dirichlet is equivalent.
+        # sampled (hierarchical prior); a constant offset is just a translation.
+        moving_offset = self.allow_reparameterization and weights_config.hierarchical
         with numpyro.plate("plate_objects_w", self.shapes.n_features, dim=-1):
-            if self.allow_reparameterization and weights_config.hierarchical:
-                w = dirichlet_from_latent(
-                    "w", w_concentration, offset=normalize(w_concentration, axis=-1)
-                )
-            else:
-                w = numpyro.sample("w", dist.Dirichlet(w_concentration))
+            w = dirichlet_from_latent(
+                "w",
+                w_concentration,
+                offset=normalize(w_concentration, axis=-1) if moving_offset else None,
+            )
         # w.shape: (n_features, n_components)
 
         # Mask out components that the object does not belong to
@@ -500,15 +501,11 @@ class Model:
 
             with numpyro.plate("plate_clusters_w", self.shapes.n_clusters, dim=-2):
                 with numpyro.plate("plate_features_w", self.shapes.n_features, dim=-1):
-                    if self.allow_reparameterization:
-                        cluster_factor = dirichlet_from_latent(
-                            "w_cluster_factor", factor_conc, offset=normalize(factor_conc)
-                        )
-                    else:
-                        cluster_factor = numpyro.sample(
-                            "w_cluster_factor", dist.Dirichlet(factor_conc)
-                        )
-                    cluster_factor = cluster_factor[..., 1]
+                    cluster_factor = dirichlet_from_latent(
+                        "w_cluster_factor",
+                        factor_conc,
+                        offset=normalize(factor_conc) if self.allow_reparameterization else None,
+                    )[..., 1]
 
             w_cluster = cluster_factor * w[:, CLUSTER_COMPONENT]
             w_cluster_mixed = clusters @ w_cluster
@@ -586,8 +583,10 @@ class Model:
                     # Count the observed states of the objects in this group
                     feature_counts = jnp.sum(features_binary, axis=0, where=g[:, None, None])
                     conf_eff_c_g = normalize(prior_counts[i_g] + feature_counts, axis=-1)
-                    init_params[f"conf_effect_{conf.name}_{p}"] = (
-                        init_params[f"conf_effect_{conf.name}_{p}"].at[i_g].set(conf_eff_c_g)
+                    # The confounding effects are sampled through their latent `_raw` site
+                    site = f"conf_effect_{conf.name}_{p}_raw"
+                    init_params[site] = (
+                        init_params[site].at[i_g].set(latent_from_simplex(conf_eff_c_g))
                     )
 
         # TODO: initialize the cluster assignments and cluster effects as well - they

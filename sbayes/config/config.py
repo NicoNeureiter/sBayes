@@ -847,7 +847,7 @@ class MCMCConfig(BaseConfig):
     """Number of optimization steps for SVI-based initialization."""
 
     offset_reparameterization: bool = True
-    """Sample Dirichlets with a moving offset in a centred latent space."""
+    """Centre the latent space of Dirichlets on a moving offset, where one exists."""
 
     warmup: WarmupConfig = Field(default_factory=WarmupConfig)
     mc3: MC3Config = Field(default_factory=MC3Config)

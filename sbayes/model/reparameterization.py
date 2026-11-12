@@ -10,9 +10,12 @@ f_i = sigmoid(u_i), each u_i has the log-concave density
 same density NUTS sees for a plain `dist.Dirichlet`, but it is defined on the whole real
 line (no bound needed) and stays finite where the simplex value underflows to 0.
 
-The reparameterization only changes the sampling geometry if the latent space is
-centered on an `offset` that depends on other sampled parameters. For a constant (or
-no) offset it is equivalent to a plain `dist.Dirichlet`, which should be used instead.
+All Dirichlet sites of the model are sampled this way: in float32, a plain
+`dist.Dirichlet` with concentration below 1 gives a non-finite density (and divergent
+NUTS transitions) once a simplex entry underflows to 0, which happens far in the tails.
+
+Centering the latent space on an `offset` only changes the sampling geometry if the
+offset depends on other sampled parameters; a constant offset is just a translation.
 """
 from __future__ import annotations
 
@@ -112,6 +115,21 @@ class LatentDirichlet(dist.Distribution):
         return self._from_logits(digamma(self._a) - digamma(self._b))
 
 
+def latent_from_simplex(x: jnp.ndarray, offset: jnp.ndarray | None = None) -> jnp.ndarray:
+    """The latent value of `dirichlet_from_latent` that maps to the simplex value `x`.
+
+    Args:
+        x: a point on the simplex, shape (..., K)
+        offset: the offset the latent space is centered on, if any
+
+    Returns:
+        The latent value, shape (..., K-1)
+    """
+    sb = StickBreakingTransform()
+    latent = sb.inv(x)
+    return latent if offset is None else latent - sb.inv(offset)
+
+
 def dirichlet_from_latent(
     name: str,
     concentration: jnp.ndarray,
@@ -120,8 +138,8 @@ def dirichlet_from_latent(
     """Sample from a Dirichlet distribution through the stick-breaking latent space.
 
     The latent value is sampled at site `{name}_raw` and its value on the simplex is
-    recorded as the deterministic site `{name}`. Only worth using if `offset` depends on
-    other sampled parameters; otherwise a plain `dist.Dirichlet` is equivalent.
+    recorded as the deterministic site `{name}`. An `offset` only changes the sampling
+    geometry if it depends on other sampled parameters.
 
     Args:
         name: the name of the numpyro sample site

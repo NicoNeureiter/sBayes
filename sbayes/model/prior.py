@@ -344,8 +344,8 @@ class CategoricalConfoundingEffectsPrior:
 
         with numpyro.plate(f"plate_groups_{c_name}_{p_name}", self.conf.n_groups, dim=-2):
             with numpyro.plate(f"plate_features_{c_name}_{p_name}", self.partition.n_features, dim=-1):
-                conf_eff = numpyro.sample(
-                    f"conf_effect_{c_name}_{p_name}", dist.Dirichlet(self.concentration_array)
+                conf_eff = dirichlet_from_latent(
+                    f"conf_effect_{c_name}_{p_name}", self.concentration_array
                 )
         return jnp.asarray(conf_eff)
 
@@ -449,9 +449,7 @@ class CategoricalClusterEffectPrior:
                         offset=clust_eff_pred,
                     )
                 else:
-                    clust_eff = numpyro.sample(
-                        site_name, dist.Dirichlet(self.concentration_array)
-                    )
+                    clust_eff = dirichlet_from_latent(site_name, self.concentration_array)
 
         return jnp.asarray(clust_eff)
 
@@ -1225,19 +1223,18 @@ class ClusterPrior:
             if c_nocluster is not None:
                 concentration = concentration.at[-1].set(c_nocluster)
 
-            # The offset `normalize(concentration)` only moves (and the reparameterization
-            # only differs from a plain Dirichlet) if the no-cluster concentration is
-            # sampled; a symmetric concentration always gives the uniform offset.
-            reparameterize = (
+            # The offset `normalize(concentration)` only moves if the no-cluster
+            # concentration is sampled; a symmetric concentration gives the uniform
+            # offset, which is the same as no offset.
+            moving_offset = (
                 allow_reparameterization and self.config.estimate_no_cluster_concentration
             )
             with numpyro.plate("plate_objects_z", self.shapes.n_objects, dim=-1):
-                if reparameterize:
-                    z = dirichlet_from_latent(
-                        "z_unstretched", concentration, offset=normalize(concentration)
-                    )
-                else:
-                    z = numpyro.sample("z_unstretched", dist.Dirichlet(concentration))
+                z = dirichlet_from_latent(
+                    "z_unstretched",
+                    concentration,
+                    offset=normalize(concentration) if moving_offset else None,
+                )
 
         elif self.prior_type is ClusterPriorConfig.Types.LOGISTIC_NORMAL:
             if self.config.hierarchical:
