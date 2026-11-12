@@ -23,7 +23,6 @@ model:
                 categorical:
                     type: symmetric_dirichlet
                     prior_concentration: 0.6
-                    use_parameter_transformation: false
                 gaussian:
                   mean:
                     type: gaussian
@@ -46,7 +45,6 @@ model:
                     categorical:
                         type: symmetric_dirichlet
                         prior_concentration: 0.6
-                        use_parameter_transformation: false
                     gaussian:
                       mean:
                         type: gaussian

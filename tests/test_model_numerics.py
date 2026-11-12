@@ -18,12 +18,6 @@ TEST_DATA = Path(__file__).parent / "data"
 # One override per case, applied on top of the baseline config
 MODEL_SETTINGS = {
     "baseline": {},
-    "no_reparameterization": {
-        "prior": {
-            "cluster_assignment": {"dirichlet_config": {"use_parameter_transformation": False}},
-            "cluster_effect": {"categorical": {"use_parameter_transformation": False}},
-        }
-    },
     "sample_from_prior": {"sample_from_prior": True},
     "stretch_and_clip": {"prior": {"cluster_assignment": {"stretch_and_clip": True}}},
     "varying_cluster_weights": {"prior": {"weights": {"varying_cluster_weights": True}}},
@@ -91,10 +85,16 @@ def assert_model_is_samplable(model: Model) -> None:
         )
 
 
+@pytest.mark.parametrize("offset_reparameterization", [True, False])
 @pytest.mark.parametrize("setting", MODEL_SETTINGS, ids=list(MODEL_SETTINGS))
-def test_model_is_samplable(build_model, setting):
-    """The model is numerically sound for each model setting."""
-    assert_model_is_samplable(build_model({"model": MODEL_SETTINGS[setting]}))
+def test_model_is_samplable(build_model, setting, offset_reparameterization):
+    """The model is numerically sound for each model setting, with and without the
+    offset reparameterization."""
+    overrides = {
+        "model": MODEL_SETTINGS[setting],
+        "mcmc": {"offset_reparameterization": offset_reparameterization},
+    }
+    assert_model_is_samplable(build_model(overrides))
 
 
 @pytest.mark.parametrize("setting", GEO_SETTINGS, ids=list(GEO_SETTINGS))

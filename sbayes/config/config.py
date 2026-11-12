@@ -337,8 +337,9 @@ class CategoricalPriorConfig(BaseConfig):
     """The scale of the logistic normal prior. Will be required once
     `logistic_normal` is implemented."""
 
-    use_parameter_transformation: bool = True
-    """If `true`, use a parameter transformation to improve mixing of the MCMC chain."""
+    @classmethod
+    def deprecated_attributes(cls) -> list[str]:
+        return ["use_parameter_transformation"]
 
     @model_validator(mode="after")
     def validate_type_specific_parameters(self) -> Self:
@@ -743,30 +744,6 @@ class ModelConfig(BaseConfig):
 
         return self
 
-    @model_validator(mode="after")
-    def deactivate_dirichlet_transform_when_sampling_from_prior(self) -> Self:
-        """Disable the categorical parameter transformation when sampling from the prior.
-
-        The transformation is not supported in this mode, so an explicit setting is
-        overridden with a warning.
-        """
-        if not self.sample_from_prior:
-            return self
-
-        categorical_priors = [self.prior.cluster_effect.categorical]
-        for conf_eff in self.prior.confounding_effects.values():
-            categorical_priors.extend(grp.categorical for grp in conf_eff.values())
-
-        for prior in categorical_priors:
-            if prior is not None and prior.use_parameter_transformation:
-                warnings.warn(
-                    "`use_parameter_transformation` is not supported when sampling "
-                    "from the prior. Disabling it."
-                )
-                prior.use_parameter_transformation = False
-
-        return self
-
 
 class WarmupConfig(BaseConfig):
     """Configuration of the warm-up phase in the MCMC chain."""
@@ -867,6 +844,9 @@ class MCMCConfig(BaseConfig):
 
     svi_steps: PositiveInt = 5_000
     """Number of optimization steps for SVI-based initialization."""
+
+    offset_reparameterization: bool = True
+    """Sample Dirichlets with a moving offset in a centred latent space."""
 
     warmup: WarmupConfig = Field(default_factory=WarmupConfig)
     mc3: MC3Config = Field(default_factory=MC3Config)
@@ -1009,25 +989,3 @@ class SBayesConfig(BaseConfig):
         # Create SBayesConfig instance from the dictionary
         return cls(**config_dict)
 
-
-def parameter_transformations(config: SBayesConfig) -> set[bool]:
-    """The `use_parameter_transformation` flags of every categorical prior.
-
-    Args:
-        config: an inference config, after validation
-
-    Returns:
-        The distinct flag values found. A single value means the priors agree.
-    """
-    priors = [config.model.prior.cluster_effect]
-    priors += [
-        group
-        for confounder in config.model.prior.confounding_effects.values()
-        for group in confounder.values()
-    ]
-
-    return {
-        prior.categorical.use_parameter_transformation
-        for prior in priors
-        if prior.categorical is not None
-    }

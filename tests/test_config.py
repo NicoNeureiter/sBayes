@@ -135,14 +135,19 @@ def test_sample_from_prior_without_categorical_prior(prior_dict):
     # Previously an AttributeError: cluster_effect.categorical is None.
     cfg = ModelConfig(prior=prior_dict, sample_from_prior=True)
     assert cfg.prior.cluster_effect.categorical is None
-    # With a categorical prior present the transformation is switched off.
-    prior = prior_dict
-    prior["cluster_effect"] = {"categorical": {"type": "uniform"}}
-    prior["confounding_effects"] = {"family": {"a": {"categorical": {"type": "uniform"}}}}
-    cfg = ModelConfig(prior=prior, confounders=["family"], sample_from_prior=True)
-    assert cfg.prior.cluster_effect.categorical.use_parameter_transformation is False
-    conf = cfg.prior.confounding_effects["family"]["a"]
-    assert conf.categorical.use_parameter_transformation is False
+
+
+def test_use_parameter_transformation_is_deprecated(prior_dict):
+    prior_dict["cluster_effect"] = {
+        "categorical": {"type": "uniform", "use_parameter_transformation": False}
+    }
+    with pytest.warns(UserWarning, match="use_parameter_transformation"):
+        cfg = ModelConfig(prior=prior_dict)
+    assert not hasattr(cfg.prior.cluster_effect.categorical, "use_parameter_transformation")
+
+
+def test_offset_reparameterization_defaults_to_true():
+    assert MCMCConfig().offset_reparameterization is True
 
 
 def test_mc3_prior_temperature_default():

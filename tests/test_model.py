@@ -36,10 +36,13 @@ def test_shapes_are_consistent(data, config):
     assert model.shapes.n_components == 3
     assert model.shapes.n_components_expanded == 4
 
-def test_allow_parameterization_follows_sample_from_prior(data, config):
+def test_allow_reparameterization_follows_the_switch(data, config):
     assert Model(data, config.model).allow_reparameterization is True
+    model = Model(data, config.model, offset_reparameterization=False)
+    assert model.allow_reparameterization is False
+    # Prior sampling no longer switches the reparameterization off
     config.model.sample_from_prior = True
-    assert Model(data, config.model).allow_reparameterization is False
+    assert Model(data, config.model).allow_reparameterization is True
 
 
 def test_normalize():

@@ -74,12 +74,20 @@ class Model:
 
     """
 
-    def __init__(self, data: Data, config: ModelConfig, simulate_observations: bool = False) -> None:
+    def __init__(
+        self,
+        data: Data,
+        config: ModelConfig,
+        simulate_observations: bool = False,
+        offset_reparameterization: bool = True,
+    ) -> None:
         """
         Args:
             data: the data the model is fitted to
             config: the model configuration, for a single number of clusters
             simulate_observations: whether to simulate observations
+            offset_reparameterization: whether to sample Dirichlets with a moving offset
+                in a centred latent space (see `reparameterization.py`)
         """
         if not isinstance(config.clusters, int):
             raise ValueError(
@@ -89,6 +97,7 @@ class Model:
 
         self.data = data
         self.config = config
+        self.offset_reparameterization = offset_reparameterization
         self.confounders = data.confounders
 
         if not self.confounders:
@@ -143,12 +152,8 @@ class Model:
 
     @property
     def allow_reparameterization(self) -> bool:
-        """Whether parameters may be sampled through a latent reparameterization.
-
-        The reparameterization is not supported when sampling from the prior, where the
-        parameters are sampled from their prior distributions directly.
-        """
-        return not self.config.sample_from_prior
+        """Whether parameters with a moving offset are sampled in a latent space."""
+        return self.offset_reparameterization
 
     def get_model(self) -> None:
         """Define the sBayes model for NumPyro.
@@ -495,9 +500,15 @@ class Model:
 
             with numpyro.plate("plate_clusters_w", self.shapes.n_clusters, dim=-2):
                 with numpyro.plate("plate_features_w", self.shapes.n_features, dim=-1):
-                    cluster_factor = dirichlet_from_latent(
-                        "w_cluster_factor", factor_conc, offset=normalize(factor_conc)
-                    )[..., 1]
+                    if self.allow_reparameterization:
+                        cluster_factor = dirichlet_from_latent(
+                            "w_cluster_factor", factor_conc, offset=normalize(factor_conc)
+                        )
+                    else:
+                        cluster_factor = numpyro.sample(
+                            "w_cluster_factor", dist.Dirichlet(factor_conc)
+                        )
+                    cluster_factor = cluster_factor[..., 1]
 
             w_cluster = cluster_factor * w[:, CLUSTER_COMPONENT]
             w_cluster_mixed = clusters @ w_cluster
@@ -591,7 +602,12 @@ class Model:
         Note: this rebuilds the model rather than copying its state, so the new instance
         shares no JAX arrays with the original.
         """
-        return Model(self.data, self.config)
+        return Model(
+            self.data,
+            self.config,
+            simulate_observations=self.observations == "simulate",
+            offset_reparameterization=self.offset_reparameterization,
+        )
 
     def get_setup_message(self) -> str:
         """Compile a set-up message for logging."""

@@ -442,7 +442,7 @@ class CategoricalClusterEffectPrior:
 
         with numpyro.plate(f"plate_clusters_{p_name}", n_clusters, dim=-2):
             with numpyro.plate(f"plate_features_{p_name}", self.partition.n_features, dim=-1):
-                if allow_reparameterization and self.config.use_parameter_transformation:
+                if allow_reparameterization:
                     clust_eff = dirichlet_from_latent(
                         name=site_name,
                         concentration=self.concentration_array,
@@ -1100,7 +1100,6 @@ class ClusterPrior:
         self.concentration = None
         self.logi_norm_loc = None
         self.logi_norm_scale = None
-        self.use_parameter_transformation = False
 
         if self.prior_type is ClusterPriorConfig.Types.CATEGORICAL:
             pass
@@ -1113,9 +1112,6 @@ class ClusterPrior:
             self.concentration = parse_dirichlet_concentration(
                 config=config.dirichlet_config,
                 shape=(shapes.n_clusters + 1,),
-            )
-            self.use_parameter_transformation = (
-                config.dirichlet_config.use_parameter_transformation
             )
 
         elif self.prior_type is ClusterPriorConfig.Types.LOGISTIC_NORMAL:
@@ -1233,9 +1229,7 @@ class ClusterPrior:
             # only differs from a plain Dirichlet) if the no-cluster concentration is
             # sampled; a symmetric concentration always gives the uniform offset.
             reparameterize = (
-                allow_reparameterization
-                and self.use_parameter_transformation
-                and self.config.estimate_no_cluster_concentration
+                allow_reparameterization and self.config.estimate_no_cluster_concentration
             )
             with numpyro.plate("plate_objects_z", self.shapes.n_objects, dim=-1):
                 if reparameterize:

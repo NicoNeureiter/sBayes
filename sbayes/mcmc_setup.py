@@ -35,7 +35,11 @@ class MCMCSetup:
 
 
         # Create the model to sample from
-        self.model = Model(data=self.data, config=self.config.model)
+        self.model = Model(
+            data=self.data,
+            config=self.config.model,
+            offset_reparameterization=self.config.mcmc.offset_reparameterization,
+        )
 
         # Set the results directory based on the number of clusters
         self.path_results = experiment.path_results / f"K{self.model.n_clusters}"
