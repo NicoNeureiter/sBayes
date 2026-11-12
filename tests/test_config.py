@@ -150,6 +150,11 @@ def test_offset_reparameterization_defaults_to_true():
     assert MCMCConfig().offset_reparameterization is True
 
 
+def test_mass_matrix_settings_default_to_true():
+    assert MCMCConfig().laplace_mass_matrix is True
+    assert MCMCConfig().adapt_mass_matrix is True
+
+
 def test_mc3_prior_temperature_default():
     cfg = MC3Config(temperature_diff=0.2)
     assert cfg.prior_temperature_diff == 0.2

@@ -849,6 +849,12 @@ class MCMCConfig(BaseConfig):
     offset_reparameterization: bool = True
     """Centre the latent space of Dirichlets on a moving offset, where one exists."""
 
+    laplace_mass_matrix: bool = True
+    """Start the NUTS mass-matrix adaptation from the curvature at the SVI mode."""
+
+    adapt_mass_matrix: bool = True
+    """Adapt the NUTS mass matrix during warm-up (if false, the initial one is kept)."""
+
     warmup: WarmupConfig = Field(default_factory=WarmupConfig)
     mc3: MC3Config = Field(default_factory=MC3Config)
 

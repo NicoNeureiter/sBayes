@@ -1,13 +1,24 @@
+from __future__ import annotations
+
 import jax
+import time
 
 from jax import random
+from logging import Logger
 from numpyro.infer.hmc import HMCState
 from numpyro.infer import MCMC, NUTS, init_to_value
 from sbayes.model import Model
-from sbayes.sampling.initialization import get_svi_init_sample, find_best_initial_sample
+from sbayes.sampling.initialization import (
+    get_svi_init_sample,
+    find_best_initial_sample,
+    laplace_inverse_mass_matrix,
+)
 from sbayes.sampling.loggers import OnlineSampleLogger
 from sbayes.util import timeit
 from tqdm import tqdm
+
+MAX_TREE_DEPTH = 13
+"""Maximum tree depth of the NUTS sampler (at most 2^13 - 1 leapfrog steps per step)."""
 
 
 @timeit('s')
@@ -24,6 +35,9 @@ def sample_nuts(
     init_strategy: str = "SVI",
     svi_guide: str = "AutoLaplace",
     svi_steps: int = 4000,
+    laplace_mass_matrix: bool = True,
+    adapt_mass_matrix: bool = True,
+    logger: Logger | None = None,
 ) -> dict:
     """Sample the model with the NUTS sampler, writing samples to disk as they arrive.
 
@@ -46,12 +60,19 @@ def sample_nuts(
         sample_logger: the logger writing the samples to disk
         svi_guide: the guide family used by the "SVI" init strategy
         svi_steps: number of SVI steps used by the "SVI" init strategy
+        laplace_mass_matrix: whether to start the mass-matrix adaptation from the
+            curvature at the SVI mode (only with the "SVI" init strategy)
+        adapt_mass_matrix: whether to adapt the mass matrix during warm-up. If False,
+            the initial one is kept for the whole run.
+        logger: where to write progress messages (printed if None)
 
     Returns:
         The samples of this run, read back from the results file.
     """
     # TODO: re-reading a previous run's samples without sampling was removed here.
     #   If reinstated, it belongs in loggers.py as a standalone function.
+
+    log = logger.info if logger is not None else print
 
     if init_state is None:
         # Find a good starting point for the sampler
@@ -67,11 +88,29 @@ def sample_nuts(
                 f"(choose from: SVI, heuristic)."
             )
 
+        inverse_mass_matrix = None
+        if laplace_mass_matrix and init_strategy == "SVI":
+            t_start = time.time()
+            rng_key, subkey = random.split(rng_key, 2)
+            inverse_mass_matrix = laplace_inverse_mass_matrix(model, initial_sample, subkey)
+            log(
+                f"Initial inverse mass matrix from the curvature at the SVI mode "
+                f"({inverse_mass_matrix.shape[0]} parameters, {time.time() - t_start:.1f}s)."
+            )
+
+        if not adapt_mass_matrix and inverse_mass_matrix is None:
+            log(
+                "Warning: the mass matrix is not adapted and not initialized from the "
+                "SVI mode, so NUTS uses the identity matrix for the whole run."
+            )
+
         kernel = NUTS(
             model.get_model,
             init_strategy=init_to_value(values=initial_sample),
+            inverse_mass_matrix=inverse_mass_matrix,
+            adapt_mass_matrix=adapt_mass_matrix,
             find_heuristic_step_size=True,
-            max_tree_depth=13,
+            max_tree_depth=MAX_TREE_DEPTH,
             target_accept_prob=0.7,
         )
     else:
