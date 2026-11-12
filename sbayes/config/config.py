@@ -415,15 +415,9 @@ class ClusterPriorConfig(BaseConfig):
     cluster_mask_concentration: PositiveFloat = 1.0
     """Concentration of the cluster mask (only used if `cluster_mask` is set)."""
 
-    min: PositiveInt = 2
-    """Minimum cluster size (currently not enforced, see TODO below)."""
-
-    max: PositiveInt = 10000
-    """Maximum cluster size (currently not enforced, see TODO below)."""
-
     @classmethod
     def deprecated_attributes(cls) -> list[str]:
-        return ["stretch_factor"]
+        return ["stretch_factor", "min", "max"]
 
     @model_validator(mode="after")
     def validate_type_is_supported(self) -> Self:
@@ -472,10 +466,6 @@ class ClusterPriorConfig(BaseConfig):
                 "feature and state. Use `uniform` or `symmetric_dirichlet`."
             )
         return self
-
-    # NN: min and max bounds are tricky to enforce with continuous assignments and are
-    # currently ignored by the model.
-    # TODO: Discuss if there is demand and how it could be implemented.
 
 
 class GeoPriorConfig(BaseConfig):
