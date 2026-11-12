@@ -748,11 +748,12 @@ class ModelConfig(BaseConfig):
 class WarmupConfig(BaseConfig):
     """Configuration of the warm-up phase in the MCMC chain."""
 
-    warmup_steps: PositiveInt = 50000
+    warmup_steps: PositiveInt = 5000
     """The number of steps performed in the warm-up phase."""
 
-    warmup_chains: PositiveInt = 10
-    """The number parallel chains used in the warm-up phase."""
+    @classmethod
+    def deprecated_attributes(cls) -> list[str]:
+        return ["warmup_chains"]
 
 
 class MC3Config(BaseConfig):
