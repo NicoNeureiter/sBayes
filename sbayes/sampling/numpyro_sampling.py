@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import jax
+import numpy as np
 import time
 
 from jax import random
@@ -19,6 +20,34 @@ from tqdm import tqdm
 
 MAX_TREE_DEPTH = 13
 """Maximum tree depth of the NUTS sampler (at most 2^13 - 1 leapfrog steps per step)."""
+
+MAX_DIVERGENT_SHARE = 0.01
+"""Share of divergent steps above which the samples are flagged as unreliable."""
+
+
+def summarize_steps(diverging: np.ndarray, num_steps: np.ndarray) -> list[str]:
+    """Summarize the divergences and tree sizes of the sampling steps.
+
+    Args:
+        diverging: whether each step diverged
+        num_steps: number of leapfrog steps of each step
+
+    Returns:
+        The summary lines, ending with a warning if too many steps diverged.
+    """
+    n = diverging.size
+    n_divergent = int(diverging.sum())
+    n_saturated = int(np.sum(num_steps >= 2 ** MAX_TREE_DEPTH - 1))
+    lines = [
+        f"Divergent steps: {n_divergent} / {n} ({n_divergent / n:.1%})",
+        f"Steps at the maximum tree depth: {n_saturated} / {n} ({n_saturated / n:.1%})",
+        f"Mean number of leapfrog steps: {num_steps.mean():.0f}",
+    ]
+    if n_divergent > MAX_DIVERGENT_SHARE * n:
+        lines.append(
+            "Warning: many steps diverged, so the samples may not represent the posterior."
+        )
+    return lines
 
 
 @timeit('s')
@@ -139,18 +168,24 @@ def sample_nuts(
         mcmc.warmup(rng_key=subkey)
         mcmc.progress_bar = not split_runs
         mcmc_state = mcmc.post_warmup_state
+        step_size = float(np.mean(mcmc_state.adapt_state.step_size))
+        log(f"NUTS step size after warm-up: {step_size:.3g}")
     else:
         mcmc.post_warmup_state = mcmc_state = init_state
+
+    # Per-step diagnostics of the kept (thinned) steps, summarized at the end
+    diverging, num_steps = [], []
 
     def run_chunk(state, key: jax.Array) -> tuple[HMCState, int]:
         """Sample one chunk, write it to disk and return the new state and its size."""
         mcmc.post_warmup_state = state
-        mcmc.run(rng_key=key, extra_fields=("potential_energy",))
+        mcmc.run(rng_key=key, extra_fields=("potential_energy", "diverging", "num_steps"))
 
         samples = mcmc.get_samples(group_by_chain=True)
-        samples["potential_energy"] = mcmc.get_extra_fields(
-            group_by_chain=True
-        )["potential_energy"]
+        extra_fields = mcmc.get_extra_fields(group_by_chain=True)
+        diverging.append(np.asarray(extra_fields["diverging"]).ravel())
+        num_steps.append(np.asarray(extra_fields["num_steps"]).ravel())
+        samples["potential_energy"] = extra_fields["potential_energy"]
 
         sample_logger.write_sample(samples)
         sample_logger.dump_state(mcmc.last_state)
@@ -172,5 +207,7 @@ def sample_nuts(
     else:
         run_chunk(mcmc_state, rng_key)
 
+    for line in summarize_steps(np.concatenate(diverging), np.concatenate(num_steps)):
+        log(line)
     return sample_logger.read_samples()
 
