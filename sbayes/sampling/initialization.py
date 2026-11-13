@@ -179,7 +179,7 @@ def laplace_inverse_mass_matrix(
     model: Model,
     init_sample: dict,
     rng_key: jax.Array,
-    chunk_size: int = 256,
+    chunk_size: int = 64,
     min_curvature: float = 1e-6,
 ) -> jnp.ndarray:
     """Diagonal inverse mass matrix from the curvature of the posterior at `init_sample`.
