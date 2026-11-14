@@ -412,6 +412,9 @@ class Results:
             # Permutes `z` and the cluster effects in place
             match_clusters(clusters, z, cluster_effect_arrays)
 
+        # shape: (n_clusters, n_samples, n_objects)
+        clusters = np.ascontiguousarray(clusters.transpose(1, 0, 2))
+
         feature_to_states = {}
         for p in partitions:
             for feature_name in p["feature_names"]:

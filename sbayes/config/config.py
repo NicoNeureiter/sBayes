@@ -337,8 +337,9 @@ class CategoricalPriorConfig(BaseConfig):
     """The scale of the logistic normal prior. Will be required once
     `logistic_normal` is implemented."""
 
-    use_parameter_transformation: bool = True
-    """If `true`, use a parameter transformation to improve mixing of the MCMC chain."""
+    @classmethod
+    def deprecated_attributes(cls) -> list[str]:
+        return ["use_parameter_transformation"]
 
     @model_validator(mode="after")
     def validate_type_specific_parameters(self) -> Self:
@@ -414,15 +415,9 @@ class ClusterPriorConfig(BaseConfig):
     cluster_mask_concentration: PositiveFloat = 1.0
     """Concentration of the cluster mask (only used if `cluster_mask` is set)."""
 
-    min: PositiveInt = 2
-    """Minimum cluster size (currently not enforced, see TODO below)."""
-
-    max: PositiveInt = 10000
-    """Maximum cluster size (currently not enforced, see TODO below)."""
-
     @classmethod
     def deprecated_attributes(cls) -> list[str]:
-        return ["stretch_factor"]
+        return ["stretch_factor", "min", "max"]
 
     @model_validator(mode="after")
     def validate_type_is_supported(self) -> Self:
@@ -471,10 +466,6 @@ class ClusterPriorConfig(BaseConfig):
                 "feature and state. Use `uniform` or `symmetric_dirichlet`."
             )
         return self
-
-    # NN: min and max bounds are tricky to enforce with continuous assignments and are
-    # currently ignored by the model.
-    # TODO: Discuss if there is demand and how it could be implemented.
 
 
 class GeoPriorConfig(BaseConfig):
@@ -743,39 +734,16 @@ class ModelConfig(BaseConfig):
 
         return self
 
-    @model_validator(mode="after")
-    def deactivate_dirichlet_transform_when_sampling_from_prior(self) -> Self:
-        """Disable the categorical parameter transformation when sampling from the prior.
-
-        The transformation is not supported in this mode, so an explicit setting is
-        overridden with a warning.
-        """
-        if not self.sample_from_prior:
-            return self
-
-        categorical_priors = [self.prior.cluster_effect.categorical]
-        for conf_eff in self.prior.confounding_effects.values():
-            categorical_priors.extend(grp.categorical for grp in conf_eff.values())
-
-        for prior in categorical_priors:
-            if prior is not None and prior.use_parameter_transformation:
-                warnings.warn(
-                    "`use_parameter_transformation` is not supported when sampling "
-                    "from the prior. Disabling it."
-                )
-                prior.use_parameter_transformation = False
-
-        return self
-
 
 class WarmupConfig(BaseConfig):
     """Configuration of the warm-up phase in the MCMC chain."""
 
-    warmup_steps: PositiveInt = 50000
+    warmup_steps: PositiveInt = 5000
     """The number of steps performed in the warm-up phase."""
 
-    warmup_chains: PositiveInt = 10
-    """The number parallel chains used in the warm-up phase."""
+    @classmethod
+    def deprecated_attributes(cls) -> list[str]:
+        return ["warmup_chains"]
 
 
 class MC3Config(BaseConfig):
@@ -860,11 +828,22 @@ class MCMCConfig(BaseConfig):
     initialization_strategy: Literal["SVI", "heuristic"] = "SVI"
     """How to generate an initial sample for the MCMC chain. Choose from: [SVI, heuristic]."""
 
-    svi_guide: Literal["AutoDelta", "AutoNormal"] = "AutoDelta"
-    """Guide family used for SVI-based initialization."""
+    svi_guide: Literal["AutoLaplace", "AutoDelta", "AutoNormal"] = "AutoLaplace"
+    """Guide family used for SVI-based initialization. AutoLaplace starts from the
+    posterior mode in unconstrained space; AutoDelta's mode in constrained space can lie
+    on the boundary of the simplex, where NUTS cannot start."""
 
     svi_steps: PositiveInt = 5_000
     """Number of optimization steps for SVI-based initialization."""
+
+    offset_reparameterization: bool = True
+    """Centre the latent space of Dirichlets on a moving offset, where one exists."""
+
+    laplace_mass_matrix: bool = True
+    """Start the NUTS mass-matrix adaptation from the curvature at the SVI mode."""
+
+    adapt_mass_matrix: bool = True
+    """Adapt the NUTS mass matrix during warm-up (if false, the initial one is kept)."""
 
     warmup: WarmupConfig = Field(default_factory=WarmupConfig)
     mc3: MC3Config = Field(default_factory=MC3Config)
@@ -1007,25 +986,3 @@ class SBayesConfig(BaseConfig):
         # Create SBayesConfig instance from the dictionary
         return cls(**config_dict)
 
-
-def parameter_transformations(config: SBayesConfig) -> set[bool]:
-    """The `use_parameter_transformation` flags of every categorical prior.
-
-    Args:
-        config: an inference config, after validation
-
-    Returns:
-        The distinct flag values found. A single value means the priors agree.
-    """
-    priors = [config.model.prior.cluster_effect]
-    priors += [
-        group
-        for confounder in config.model.prior.confounding_effects.values()
-        for group in confounder.values()
-    ]
-
-    return {
-        prior.categorical.use_parameter_transformation
-        for prior in priors
-        if prior.categorical is not None
-    }

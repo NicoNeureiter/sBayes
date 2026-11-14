@@ -36,10 +36,13 @@ def test_shapes_are_consistent(data, config):
     assert model.shapes.n_components == 3
     assert model.shapes.n_components_expanded == 4
 
-def test_allow_parameterization_follows_sample_from_prior(data, config):
+def test_allow_reparameterization_follows_the_switch(data, config):
     assert Model(data, config.model).allow_reparameterization is True
+    model = Model(data, config.model, offset_reparameterization=False)
+    assert model.allow_reparameterization is False
+    # Prior sampling no longer switches the reparameterization off
     config.model.sample_from_prior = True
-    assert Model(data, config.model).allow_reparameterization is False
+    assert Model(data, config.model).allow_reparameterization is True
 
 
 def test_normalize():
@@ -118,6 +121,25 @@ def test_aggregated_distance_is_finite(build_model, skeleton):
 
     assert jnp.isfinite(distance).all()
     assert (distance >= 0).all()
+
+
+@pytest.mark.parametrize("aggregation", ["sum", "mean", "sum_of_mean"])
+def test_complete_graph_cost_matches_pairwise_sum(build_model, aggregation):
+    """The bilinear form equals the explicit weighted sum over all pairs of objects."""
+    model = build_model({
+        "model": {"prior": {"geo": COST_BASED_GEO | {
+            "skeleton": "complete_graph", "aggregation": aggregation,
+        }}}
+    })
+    geo_prior = model.prior.geo_prior
+    clusters = random.uniform(random.PRNGKey(0), (model.shapes.n_objects, 3))
+
+    normed = clusters / clusters.sum(axis=0)
+    a, b = {"sum": (clusters, clusters), "mean": (normed, normed),
+            "sum_of_mean": (normed, clusters)}[aggregation]
+    expected = jnp.einsum("ik,jk,ij->k", a, b, geo_prior.cost_matrix)
+
+    assert jnp.allclose(geo_prior.complete_graph_cost(clusters), expected, rtol=1e-5)
 
 
 def test_mst_skeleton_is_rejected(build_model):

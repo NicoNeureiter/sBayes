@@ -65,28 +65,35 @@ class GeoPrior:
             self.inflection_point = config.inflection_point
 
 
-    def same_cluster_prob(self, clusters: jnp.ndarray) -> jnp.ndarray:
-        """Probability that each pair of objects is in the same cluster.
+    def complete_graph_cost(self, clusters: jnp.ndarray) -> jnp.ndarray:
+        """Sum of the pairwise costs within each cluster, weighted by the aggregation policy.
+
+        Each pair (i, j) is weighted by a_ik * b_jk, where a and b are the raw or
+        size-normalized cluster weights, depending on the aggregation policy. Since this is
+        bilinear, the sum over pairs is computed as sum_i a_ik (D b)_ik, which avoids an
+        (n_objects, n_objects, n_clusters) intermediate.
 
         Args:
             clusters: the fuzzy cluster assignments. shape: (n_objects, n_clusters)
 
         Returns:
-            shape: (n_objects, n_objects, n_clusters)
+            The weighted within-cluster cost per cluster. shape: (n_clusters,)
         """
         cluster_size = jnp.sum(clusters, axis=-2)
         clusters_normed = clusters / cluster_size[None, :]
 
         if self.aggregation_policy is self.AggrStrats.MEAN:
-            return jnp.einsum("ik,jk->ijk", clusters_normed, clusters_normed)
+            a, b = clusters_normed, clusters_normed
         elif self.aggregation_policy is self.AggrStrats.SUM:
-            return jnp.einsum("ik,jk->ijk", clusters, clusters)
+            a, b = clusters, clusters
         elif self.aggregation_policy is self.AggrStrats.SUM_OF_MEAN:
-            return jnp.einsum("ik,jk->ijk", clusters_normed, clusters)
+            a, b = clusters_normed, clusters
         else:
             raise ValueError(
                 f"Unknown aggregation policy `{self.aggregation_policy}`."
             )
+
+        return jnp.sum(a * (self.cost_matrix @ b), axis=-2)
 
     def calibrate(self, cluster_prior: ClusterPrior) -> None:
         """Estimate the normalization constant of the geo-prior over a grid of rates.
@@ -104,12 +111,7 @@ class GeoPrior:
 
         def cost(z: jax.Array, rate: float) -> jax.Array:
             clusters = z[..., :-1]
-            same_cluster_prob = self.same_cluster_prob(clusters) # (n_objects, n_clusters)
-
-            total_dist_per_cluster = jnp.sum(
-                same_cluster_prob * self.cost_matrix[..., None], axis=(0, 1)
-            )
-            return self.log_prob(total_dist_per_cluster, rate)
+            return self.log_prob(self.aggregated_distance(clusters), rate)
 
         # Grid around the configured rate, denser towards small rates
         grid_size = self.config.approx_norm_const["grid_size"]
@@ -267,10 +269,7 @@ class GeoPrior:
             )
 
         elif self.config.skeleton is skeletons.COMPLETE:
-            same_cluster_prob = self.same_cluster_prob(clusters)
-            return jnp.sum(
-                same_cluster_prob * self.cost_matrix[..., None], axis=(0, 1)
-            )
+            return self.complete_graph_cost(clusters)
 
         elif self.config.skeleton is skeletons.SPECTRAL:
             def get_spectrum(c: jnp.ndarray) -> jnp.ndarray:

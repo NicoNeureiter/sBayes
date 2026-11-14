@@ -6,7 +6,6 @@ from numpyro.infer import Predictive
 from sbayes.load_data import Experiment, Data, write_feature_types
 from sbayes.mcmc_setup import MCMCSetup
 from sbayes.model import Model
-from sbayes.config.config import parameter_transformations
 from sbayes.simulate.io import (prepare_output_folders, write_simulated_data,
                                 write_simulated_parameters)
 from string import ascii_uppercase
@@ -267,14 +266,6 @@ class Simulator:
                     log=True,
                     copy_config=False,
                 )
-                if sample_from_prior:
-
-                    flags = parameter_transformations(experiment.config)
-                    if flags != {False}:
-                        raise ValueError(
-                            f"Prior sampling requires the untransformed "
-                            f"parameterization, but the priors give {flags}."
-                        )
 
                 data = Data.from_experiment(experiment)
                 mcmc = MCMCSetup(data, experiment)

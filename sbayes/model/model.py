@@ -19,9 +19,18 @@ from sbayes.model.prior import (
     PoissonClusterEffectPrior,
     dirichlet_from_latent,
 )
+from sbayes.model.reparameterization import latent_from_simplex
 from sbayes.util import onehot_to_integer_encoding, FLOAT_TYPE, EPS
 from typing import Literal
 
+
+def _fill_na(partition) -> jnp.ndarray:
+    """Return the observed values with NAs replaced by 0, a value in every support.
+
+    NAs are masked out of the likelihood, but numpyro still checks masked values
+    against the support and warns about the NA placeholders (-1 or NaN).
+    """
+    return jnp.where(partition.na_values, 0, partition.values)
 
 
 NO_GROUP = -1
@@ -66,12 +75,20 @@ class Model:
 
     """
 
-    def __init__(self, data: Data, config: ModelConfig, simulate_observations: bool = False) -> None:
+    def __init__(
+        self,
+        data: Data,
+        config: ModelConfig,
+        simulate_observations: bool = False,
+        offset_reparameterization: bool = True,
+    ) -> None:
         """
         Args:
             data: the data the model is fitted to
             config: the model configuration, for a single number of clusters
             simulate_observations: whether to simulate observations
+            offset_reparameterization: whether to centre the latent space of Dirichlets
+                on a moving offset, where one exists (see `reparameterization.py`)
         """
         if not isinstance(config.clusters, int):
             raise ValueError(
@@ -81,6 +98,7 @@ class Model:
 
         self.data = data
         self.config = config
+        self.offset_reparameterization = offset_reparameterization
         self.confounders = data.confounders
 
         if not self.confounders:
@@ -135,12 +153,8 @@ class Model:
 
     @property
     def allow_reparameterization(self) -> bool:
-        """Whether parameters may be sampled through a latent reparameterization.
-
-        The reparameterization is not supported when sampling from the prior, where the
-        parameters are sampled from their prior distributions directly.
-        """
-        return not self.config.sample_from_prior
+        """Whether Dirichlet latents are centred on a moving offset, where one exists."""
+        return self.offset_reparameterization
 
     def get_model(self) -> None:
         """Define the sBayes model for NumPyro.
@@ -241,7 +255,7 @@ class Model:
                     numpyro.sample(
                         f"x_{p_name}",
                         dist.Categorical(probs=p_data_mixed),
-                        obs=None if self.observations == "simulate" else partition.values
+                        obs=None if self.observations == "simulate" else _fill_na(partition)
                     )
 
     def add_partition_gaussian(
@@ -342,7 +356,7 @@ class Model:
                                 scale=variance_by_comp.transpose((1, 2, 0)) ** 0.5,
                             ),
                         ),
-                        obs=None if self.observations == "simulate" else partition.values,
+                        obs=None if self.observations == "simulate" else _fill_na(partition),
                     ) # Shape: [n_objects, n_features, n_components]
 
     def add_partition_poisson(
@@ -417,7 +431,7 @@ class Model:
                                 rate=rate_by_comp.transpose((1, 2, 0))
                             ),
                         ),
-                        obs=None if self.observations == "simulate" else partition.values,
+                        obs=None if self.observations == "simulate" else _fill_na(partition),
                     )
 
     def add_weights_prior(
@@ -457,13 +471,15 @@ class Model:
             w_concentration = self.w_prior_conc
 
 
+        # The offset `normalize(w_concentration)` only moves if the concentration is
+        # sampled (hierarchical prior); a constant offset is just a translation.
+        moving_offset = self.allow_reparameterization and weights_config.hierarchical
         with numpyro.plate("plate_objects_w", self.shapes.n_features, dim=-1):
-            if self.allow_reparameterization:
-                w = numpyro.sample("w", dist.Dirichlet(w_concentration))
-            else:
-                w = dirichlet_from_latent(
-                    "w", w_concentration, offset=normalize(w_concentration, axis=-1)
-                )
+            w = dirichlet_from_latent(
+                "w",
+                w_concentration,
+                offset=normalize(w_concentration, axis=-1) if moving_offset else None,
+            )
         # w.shape: (n_features, n_components)
 
         # Mask out components that the object does not belong to
@@ -486,7 +502,9 @@ class Model:
             with numpyro.plate("plate_clusters_w", self.shapes.n_clusters, dim=-2):
                 with numpyro.plate("plate_features_w", self.shapes.n_features, dim=-1):
                     cluster_factor = dirichlet_from_latent(
-                        "w_cluster_factor", factor_conc, offset=normalize(factor_conc)
+                        "w_cluster_factor",
+                        factor_conc,
+                        offset=normalize(factor_conc) if self.allow_reparameterization else None,
                     )[..., 1]
 
             w_cluster = cluster_factor * w[:, CLUSTER_COMPONENT]
@@ -565,8 +583,10 @@ class Model:
                     # Count the observed states of the objects in this group
                     feature_counts = jnp.sum(features_binary, axis=0, where=g[:, None, None])
                     conf_eff_c_g = normalize(prior_counts[i_g] + feature_counts, axis=-1)
-                    init_params[f"conf_effect_{conf.name}_{p}"] = (
-                        init_params[f"conf_effect_{conf.name}_{p}"].at[i_g].set(conf_eff_c_g)
+                    # The confounding effects are sampled through their latent `_raw` site
+                    site = f"conf_effect_{conf.name}_{p}_raw"
+                    init_params[site] = (
+                        init_params[site].at[i_g].set(latent_from_simplex(conf_eff_c_g))
                     )
 
         # TODO: initialize the cluster assignments and cluster effects as well - they
@@ -581,7 +601,12 @@ class Model:
         Note: this rebuilds the model rather than copying its state, so the new instance
         shares no JAX arrays with the original.
         """
-        return Model(self.data, self.config)
+        return Model(
+            self.data,
+            self.config,
+            simulate_observations=self.observations == "simulate",
+            offset_reparameterization=self.offset_reparameterization,
+        )
 
     def get_setup_message(self) -> str:
         """Compile a set-up message for logging."""

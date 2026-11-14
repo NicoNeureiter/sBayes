@@ -35,7 +35,11 @@ class MCMCSetup:
 
 
         # Create the model to sample from
-        self.model = Model(data=self.data, config=self.config.model)
+        self.model = Model(
+            data=self.data,
+            config=self.config.model,
+            offset_reparameterization=self.config.mcmc.offset_reparameterization,
+        )
 
         # Set the results directory based on the number of clusters
         self.path_results = experiment.path_results / f"K{self.model.n_clusters}"
@@ -100,6 +104,9 @@ class MCMCSetup:
                 sample_logger=sample_logger,
                 svi_guide=mcmc_config.svi_guide,
                 svi_steps=mcmc_config.svi_steps,
+                laplace_mass_matrix=mcmc_config.laplace_mass_matrix,
+                adapt_mass_matrix=mcmc_config.adapt_mass_matrix,
+                logger=self.logger,
             )
 
         if not results_config.samples_file_only:

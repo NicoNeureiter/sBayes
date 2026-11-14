@@ -5,11 +5,12 @@ import jax.numpy as jnp
 import warnings
 
 from numpyro import handlers
-from numpyro.infer import SVI, Trace_ELBO, init_to_value, init_to_mean
-from numpyro.infer.autoguide import AutoNormal, AutoDelta
+from numpyro.infer import SVI, Trace_ELBO, init_to_value, init_to_uniform
+from numpyro.infer.autoguide import AutoDelta, AutoLaplaceApproximation, AutoNormal
 from numpyro.infer.util import log_density
 from numpyro.infer.util import initialize_model
 from numpyro.optim import Adam
+from jax.flatten_util import ravel_pytree
 from sbayes.util import FLOAT_TYPE
 from typing import TYPE_CHECKING
 
@@ -97,21 +98,25 @@ def get_svi_init_sample(
     rng_key: jax.Array,
     svi_steps: int = 100,
     max_retries: int = 3,
-    guide_name: str = "AutoDelta",
+    guide_name: str = "AutoLaplace",
 ) -> dict:
     """Find a starting point for MCMC by fitting a variational approximation.
 
-    Runs SVI and draws a sample from the fitted guide. If the optimization diverges or
-    the resulting sample cannot be used to start NUTS, the fit is retried with a smaller
-    learning rate. After `max_retries` failures, the heuristic initialization is used
-    instead.
+    Runs SVI and starts from the median of the fitted guide. If the optimization
+    diverges or the median cannot be used to start NUTS, the fit is retried with a
+    smaller learning rate. After `max_retries` failures, the heuristic initialization is
+    used instead.
+
+    AutoLaplace finds the posterior mode in unconstrained space, the space NUTS samples
+    in. AutoDelta finds the mode in constrained space, which lies on the boundary of the
+    simplex for Dirichlet priors with concentration below 1, where NUTS cannot start.
 
     Args:
         model: the model to initialize
         rng_key: JAX random key
         svi_steps: number of optimization steps per attempt
         max_retries: number of attempts before falling back to the heuristic
-        guide_name: the guide family, either "AutoDelta" or "AutoNormal"
+        guide_name: the guide family: "AutoLaplace", "AutoDelta" or "AutoNormal"
 
     Returns:
         The site values to start the sampler from.
@@ -129,14 +134,16 @@ def get_svi_init_sample(
         rng_keys = jax.random.split(rng_key, 4)
         learning_rate = learning_rates[min(attempt, len(learning_rates) - 1)]
 
-        if guide_name == "AutoDelta":
-            guide = AutoDelta(svi_model_fn, init_loc_fn=init_to_mean)
-        elif guide_name == "AutoNormal":
-            guide = AutoNormal(svi_model_fn, init_loc_fn=init_to_mean)
-        else:
+        guide_classes = {
+            "AutoLaplace": AutoLaplaceApproximation,
+            "AutoDelta": AutoDelta,
+            "AutoNormal": AutoNormal,
+        }
+        if guide_name not in guide_classes:
             raise ValueError(
-                f"Unknown SVI guide `{guide_name}` (choose from: AutoDelta, AutoNormal)."
+                f"Unknown SVI guide `{guide_name}` (choose from: {', '.join(guide_classes)})."
             )
+        guide = guide_classes[guide_name](svi_model_fn, init_loc_fn=init_to_uniform)
 
         svi = SVI(svi_model_fn, guide, Adam(learning_rate), loss=Trace_ELBO())
         svi_result = svi.run(rng_keys[1], svi_steps, progress_bar=True)
@@ -144,8 +151,9 @@ def get_svi_init_sample(
         if not jnp.isfinite(svi_result.losses[-1]):
             reason = f"the optimization diverged (final loss {svi_result.losses[-1]})"
         else:
-            # Draw a sample from the fitted guide and put the fixed sites back in
-            init_sample = guide.sample_posterior(rng_keys[2], svi_result.params)
+            # Start from the guide's median (not a random draw) and put the fixed
+            # sites back in
+            init_sample = dict(guide.median(svi_result.params))
             init_sample.update(fixed_values)
 
             valid, reason = _validate_init_sample(
@@ -165,6 +173,61 @@ def get_svi_init_sample(
         f"Falling back to heuristic initialization."
     )
     return find_best_initial_sample(model, rng_key=rng_key)
+
+
+def laplace_inverse_mass_matrix(
+    model: Model,
+    init_sample: dict,
+    rng_key: jax.Array,
+    chunk_size: int = 64,
+    min_curvature: float = 1e-6,
+) -> jnp.ndarray:
+    """Diagonal inverse mass matrix from the curvature of the posterior at `init_sample`.
+
+    Computes the diagonal of the Hessian of NUTS's potential energy (the negative log
+    posterior in unconstrained space) and returns 1 / H_ii, the conditional variances of
+    a Laplace approximation. At the SVI mode this gives NUTS realistic per-parameter
+    scales to start the mass-matrix adaptation from. Directions with non-positive or
+    non-finite curvature keep the default value of 1.
+
+    The diagonal is computed exactly with one Hessian-vector product per parameter, in
+    chunks of `chunk_size`, so the full Hessian is never stored.
+
+    Args:
+        model: the model to sample from
+        init_sample: the site values to evaluate the curvature at, usually the SVI mode
+        rng_key: JAX random key, only used to set up the model
+        chunk_size: number of Hessian-vector products evaluated at once
+        min_curvature: curvatures below this keep the default value
+
+    Returns:
+        The diagonal inverse mass matrix, flat in the site order NUTS uses.
+    """
+    model_info = initialize_model(
+        rng_key, model.get_model, init_strategy=init_to_value(values=init_sample)
+    )
+    # NUTS ravels the same unconstrained parameters in the same (sorted) site order
+    flat_z, unravel = ravel_pytree(model_info.param_info.z)
+    n_params = flat_z.shape[0]
+
+    grad_fn = jax.grad(lambda flat: model_info.potential_fn(unravel(flat)))
+
+    @jax.jit
+    def hessian_diagonal_chunk(indices: jnp.ndarray) -> jnp.ndarray:
+        basis = jax.nn.one_hot(indices, n_params, dtype=flat_z.dtype)
+        hvp = jax.vmap(lambda v: jax.jvp(grad_fn, (flat_z,), (v,))[1])(basis)
+        return hvp[jnp.arange(indices.shape[0]), indices]
+
+    chunk_size = min(chunk_size, n_params)
+    diagonal = []
+    for start in range(0, n_params, chunk_size):
+        # Pad the last chunk to the full size, so that it reuses the compiled function
+        indices = jnp.minimum(jnp.arange(start, start + chunk_size), n_params - 1)
+        diagonal.append(hessian_diagonal_chunk(indices)[: n_params - start])
+    curvature = jnp.concatenate(diagonal)
+
+    valid = jnp.isfinite(curvature) & (curvature > min_curvature)
+    return jnp.where(valid, 1.0 / jnp.where(valid, curvature, 1.0), 1.0)
 
 
 def find_best_initial_sample(

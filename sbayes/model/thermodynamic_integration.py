@@ -91,7 +91,10 @@ def run_thermodynamic_integration(
     dlogg_dr_batched = vmap(dlogg_dr, in_axes=(0, None))
 
     kernel = NUTS(model_for_ti, find_heuristic_step_size=True)
-    mcmc_args = dict(num_warmup=num_warmup, num_chains=4, progress_bar=False)
+    # On CPU, parallel chains (one per host device, see --numCPUs) use far less CPU time than
+    # vectorized ones. On a single GPU, parallel would fall back to running chains sequentially.
+    chain_method = "vectorized" if jax.default_backend() == "gpu" else "parallel"
+    mcmc_args = dict(num_warmup=num_warmup, num_chains=4, chain_method=chain_method, progress_bar=False)
 
     # Adapt the sampler once at the first grid point, with a longer run
     num_init_samples = int(num_samples * len(r_grid) / 2)

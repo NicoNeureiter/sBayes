@@ -49,6 +49,20 @@ def set_numpyro_platform(use_gpu: bool, num_cpus: int) -> None:
         numpyro.set_platform("cpu")
         numpyro.set_host_device_count(num_cpus)
 
+    enable_jax_compilation_cache()
+
+
+def enable_jax_compilation_cache() -> None:
+    """Persist compiled JAX programs on disk, so that later runs skip recompilation.
+
+    Uses `~/.cache/sbayes/jax`, unless `JAX_COMPILATION_CACHE_DIR` is set.
+    """
+    import jax
+
+    if not os.environ.get("JAX_COMPILATION_CACHE_DIR"):
+        cache_dir = Path.home() / ".cache" / "sbayes" / "jax"
+        jax.config.update("jax_compilation_cache_dir", str(cache_dir))
+
 
 def run_experiment(
         config: PathLike,

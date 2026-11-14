@@ -65,23 +65,22 @@ def concentration_from_counts(
 ) -> NDArray[np.floating]:
     """Turn state counts into Dirichlet concentration parameters.
 
-    The hyper-prior concentration is added to every state first, then the total per
-    feature is capped at `max_counts`, keeping the proportions. The result therefore
-    never exceeds `max_counts`, including the hyper-prior contribution.
+    The observed counts per feature are capped at `max_counts`, keeping their
+    proportions, and then the hyper-prior concentration is added to every state.
 
     Args:
         counts: the state counts. shape: (n_features, n_states)
         concentration: the hyper-prior concentration added to each state
             (1.0 corresponds to a uniform hyper-prior)
-        max_counts: the maximum total concentration per feature, or None for no cap
+        max_counts: the maximum total of the observed counts per feature, or None for
+            no cap
 
     Returns:
         The concentration parameters. shape: (n_features, n_states)
     """
-    alpha = counts + concentration
     if max_counts is not None:
-        alpha = cap_counts(alpha, max_counts)
-    return alpha
+        counts = cap_counts(counts, max_counts)
+    return concentration + counts
 
 
 def build_prior_counts(
@@ -98,7 +97,8 @@ def build_prior_counts(
         features: all features of the data
         members: the objects of the group. shape: (n_objects,). None for all objects.
         concentration: the hyper-prior concentration added to each state
-        max_counts: the maximum total concentration per feature, or None for no cap
+        max_counts: the maximum total of the observed counts per feature, or None for
+            no cap
 
     Returns:
         The concentration parameters per feature and state.
@@ -205,8 +205,8 @@ def parse_args(argv: Sequence[str] | None) -> argparse.Namespace:
                         help="Hyper-prior concentration added to each state "
                              "(1.0 corresponds to a uniform hyper-prior).")
     parser.add_argument("--maxCounts", type=float, default=None,
-                        help="Maximum total concentration per feature, including the "
-                             "hyper-prior (default: no cap).")
+                        help="Maximum total of the observed counts per feature, before "
+                             "the hyper-prior is added (default: no cap).")
     args = parser.parse_args(argv)
 
     if args.concentration < 0:
