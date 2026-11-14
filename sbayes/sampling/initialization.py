@@ -5,7 +5,7 @@ import jax.numpy as jnp
 import warnings
 
 from numpyro import handlers
-from numpyro.infer import SVI, Trace_ELBO, init_to_value, init_to_mean
+from numpyro.infer import SVI, Trace_ELBO, init_to_value, init_to_uniform
 from numpyro.infer.autoguide import AutoDelta, AutoLaplaceApproximation, AutoNormal
 from numpyro.infer.util import log_density
 from numpyro.infer.util import initialize_model
@@ -143,7 +143,7 @@ def get_svi_init_sample(
             raise ValueError(
                 f"Unknown SVI guide `{guide_name}` (choose from: {', '.join(guide_classes)})."
             )
-        guide = guide_classes[guide_name](svi_model_fn, init_loc_fn=init_to_mean)
+        guide = guide_classes[guide_name](svi_model_fn, init_loc_fn=init_to_uniform)
 
         svi = SVI(svi_model_fn, guide, Adam(learning_rate), loss=Trace_ELBO())
         svi_result = svi.run(rng_keys[1], svi_steps, progress_bar=True)
