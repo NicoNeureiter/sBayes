@@ -25,7 +25,7 @@ class Results:
 
     Attributes:
         clusters: cluster assignment samples.
-            shape: (n_clusters, n_samples, n_objects)
+            shape: (n_samples, n_clusters, n_objects)
         cluster_names: the names of the clusters
         feature_names: the names of the features
         feature_states: the states of each feature, in the order of `feature_names`
@@ -412,9 +412,6 @@ class Results:
             # Permutes `z` and the cluster effects in place
             match_clusters(clusters, z, cluster_effect_arrays)
 
-        # shape: (n_clusters, n_samples, n_objects)
-        clusters = np.ascontiguousarray(clusters.transpose(1, 0, 2))
-
         feature_to_states = {}
         for p in partitions:
             for feature_name in p["feature_names"]:
@@ -647,9 +644,9 @@ class Results:
                 if line.strip()
             ]
 
-        # shape: (n_samples, n_clusters, n_objects) -> (n_clusters, n_samples, n_objects)
+        # shape: (n_samples, n_clusters, n_objects)
         clusters = np.array(samples, dtype=int).astype(bool)
-        return np.transpose(clusters, (1, 0, 2))
+        return clusters
 
     @staticmethod
     def read_stats(

@@ -835,12 +835,13 @@ def prepare_replicate(
     draws = stack_chains(replicate.chains)
 
     n_chains = next(iter(draws.values())).shape[0]
-    cluster_names = replicate.truth.cluster_names
 
+    cluster_names = replicate.truth.cluster_names
     draws = _split_chains(
         reorder_clusters(_merge_chains(draws), cluster_names), n_chains
     )
     diagnostics = convergence_diagnostics(expand_parameters(draws, n_leading=2))
+
 
     decisiveness = float(np.mean([
         ordering_decisiveness(memberships)
