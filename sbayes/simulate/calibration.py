@@ -1546,6 +1546,88 @@ def write_study_report(
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("\n".join(lines), encoding="utf-8")
 
+def run_calibration_study(
+    config: SimulateConfigFile,
+    name: str,
+    n_replicates: int = 100,
+    prob: float = 0.95,
+    bucket: str | None = None,
+    sample_from_prior: bool = False,
+) -> None:
+    """Run a calibration study end to end: simulate, infer, rank, report, upload.
+
+    Args:
+        config: the study's simulation config
+        name: the name of this study, used for the output folder and the upload prefix
+        n_replicates: the number of replicates
+        prob: the coverage of the confidence bands
+        bucket: the GCS bucket to upload the results to; None skips the upload
+        sample_from_prior: whether the inference samples from the prior, which makes
+            this a validation of the pipeline rather than of the model
+
+    Raises:
+        Exception: if the upload fails, so the caller can keep the VM alive.
+    """
+    output_path = Path("output", name)
+    archive_yaml(config, output_path)
+
+    study = run_study(
+        config=config,
+        output_path=output_path,
+        n_replicates=n_replicates,
+        sample_from_prior=sample_from_prior,
+    )
+
+    try:
+        prepared = prepare_replicates(study)
+        gate = gate_replicates({i: p.diagnostics for i, p in prepared.items()})
+        ranks = collect_ranks(prepared, gate, master_seed=config.simulation.seed)
+
+        ranks.to_csv(study.path / "ranks.tsv", sep="\t", index=False)
+        plot_rank_ecdf(ranks, study.path / "rank_ecdf.png", prob=prob)
+        write_excursions(ecdf_excursions(ranks, prob=prob), study.path / "excursions.tsv")
+        write_study_report(study, prepared, gate, ranks, study.path / "report.md")
+    except Exception:
+        logging.exception("The analysis failed; uploading whatever was written.")
+
+    if bucket is not None:
+        print(f"Uploading results from {study.path} to GCS bucket: {bucket}")
+        try:
+            upload_directory(study.path, bucket, name)
+        except Exception:
+            logging.exception("Upload failed; results remain on disk.")
+            raise
+        print("Upload successful.")
+
+
+def run_categorical(
+    config: SimulateConfigFile,
+    name: str = "categorical",
+    n_replicates: int = 100,
+    prob: float = 0.95,
+    bucket: str | None = None,
+) -> None:
+    """Run the calibration study for categorical features.
+
+    Parameters are drawn from the prior, features are simulated from them, and the
+    inference is run with the same model and priors. The rank of each simulated value
+    among its posterior draws should be uniform; the plots and the excursion table say
+    whether it is.
+
+    Args:
+        config: the study's simulation config, with categorical features
+        name: the name of this study, used for the output folder and the upload prefix
+        n_replicates: the number of replicates
+        prob: the coverage of the confidence bands
+        bucket: the GCS bucket to upload the results to; None skips the upload
+
+    Raises:
+        Exception: if the upload fails, so the caller can keep the VM alive.
+    """
+    run_calibration_study(
+        config, name=name, n_replicates=n_replicates, prob=prob, bucket=bucket
+    )
+
 
 def run_no_data_check(
     config: SimulateConfigFile,
@@ -1572,7 +1654,6 @@ def run_no_data_check(
         Exception: if the upload fails, so the caller can keep the VM alive.
     """
     inf_config = config.inf_config
-
     if inf_config is None:
         raise ValueError(
             "The study config has no inference section, so there is nothing to "
@@ -1582,36 +1663,10 @@ def run_no_data_check(
     # Neither side reads this, but it makes the archived config reflect what ran
     inf_config.model.sample_from_prior = True
 
-    output_path = Path("output", name)
-    archive_yaml(config, output_path)
-
-    study = run_study(
-        config=config,
-        output_path=output_path,
-        n_replicates=n_replicates,
+    run_calibration_study(
+        config, name=name, n_replicates=n_replicates, prob=prob, bucket=bucket,
         sample_from_prior=True,
     )
-    try:
-        prepared = prepare_replicates(study)
-        gate = gate_replicates({i: p.diagnostics for i, p in prepared.items()})
-        ranks = collect_ranks(prepared, gate, master_seed=config.simulation.seed)
-
-        ranks.to_csv(study.path / "ranks.tsv", sep="\t", index=False)
-        plot_rank_ecdf(ranks, study.path / "rank_ecdf.png", prob=prob)
-        excursion = ecdf_excursions(ranks, prob=prob)
-        write_study_report(study, prepared, gate, ranks, study.path / "report.md")
-        write_excursions(excursion, study.path / "excursions.tsv")
-    except Exception:
-        logging.exception("The study failed; uploading whatever was written.")
-
-    if bucket is not None:
-        print(f"Uploading results from {study.path} to GCS bucket: {bucket}")
-        try:
-            upload_directory(study.path, bucket, name)
-        except Exception:
-            logging.exception("Upload failed; results remain on disk.")
-            raise
-        print("Upload successful.")
 
 
 def write_excursions(excursions: pd.DataFrame, path: Path) -> None:

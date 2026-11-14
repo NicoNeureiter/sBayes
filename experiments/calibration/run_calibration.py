@@ -4,14 +4,8 @@ from pathlib import Path
 
 
 from sbayes.simulate.calibration import (
-    run_study,
     SimulateConfigFile,
-    prepare_replicates,
-    collect_ranks,
-    gate_replicates,
-    plot_rank_ecdf,
-    write_study_report,
-    run_no_data_check
+    run_no_data_check, run_categorical
 )
 
 def are_we_on_gce():
@@ -27,8 +21,8 @@ if __name__ == "__main__":
     config = SimulateConfigFile.from_config_file(Path("config_simulate.yaml"))
     on_gce = are_we_on_gce()
     bucket = "sbayes-bucket" if on_gce else None
-    run_no_data_check(config, n_replicates=100, bucket=bucket)
-
+    # run_no_data_check(config, n_replicates=100, bucket=bucket)
+    run_categorical(config=config, n_replicates=2, bucket=bucket)
 
     # Reached only if the run and upload succeeded; a failure raises above
     # and leaves the VM up so the results can be retrieved from disk.
