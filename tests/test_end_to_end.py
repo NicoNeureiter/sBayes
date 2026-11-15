@@ -202,3 +202,37 @@ def test_experiment_name_is_used_for_the_results_directory(tmp_path):
         experiment_name="my_experiment",
     )
     assert (tmp_path / "my_experiment").is_dir(), [p.name for p in tmp_path.iterdir()]
+
+def test_resume_samples_only_the_remaining_steps(tmp_path):
+    """A resumed run tops up an interrupted run to the configured number of samples,
+    and resuming a run whose sampling is complete only writes the results."""
+    name = "test_resume"
+    run_settings = settings(
+        tmp_path, mcmc={"runs": 1}, results={"path": str(tmp_path), "write_interval": 10}
+    )
+    sbayes_main(config=SOUTH_AMERICA_CONFIG, custom_settings=run_settings,
+                experiment_name=name, n_clusters=2)
+    run_dir = tmp_path / name / "K2"
+
+    # Fully sampled but interrupted while writing: resuming must not add samples
+    (run_dir / "stats_K2_0.tsv").unlink()
+    with tables.open_file(str(run_dir / "samples_0.h5"), mode="a") as f:
+        f.remove_node("/derived/likelihood")
+        samples_before = np.array(f.root.potential_energy)
+    sbayes_main(config=SOUTH_AMERICA_CONFIG, custom_settings=run_settings,
+                experiment_name=name, n_clusters=2, i_run=0, resume=True)
+    assert_run_is_complete(run_dir, n_samples=20)
+    with tables.open_file(str(run_dir / "samples_0.h5")) as f:
+        np.testing.assert_array_equal(np.array(f.root.potential_energy), samples_before)
+
+    # Interrupted halfway through sampling: resuming adds the missing samples
+    with tables.open_file(str(run_dir / "samples_0.h5"), mode="a") as f:
+        for leaf in f.iter_nodes(f.root, classname="Leaf"):
+            leaf.truncate(10)
+    sbayes_main(config=SOUTH_AMERICA_CONFIG, custom_settings=run_settings,
+                experiment_name=name, n_clusters=2, i_run=0, resume=True)
+    assert_run_is_complete(run_dir, n_samples=20)
+
+    log = (tmp_path / name / "experiment_2_0.log").read_text()
+    assert "Resuming run 0: 40 of 40 steps already sampled, 0 remaining." in log
+    assert "Resuming run 0: 20 of 40 steps already sampled, 20 remaining." in log

@@ -106,32 +106,47 @@ class MCMCSetup:
 
         self.calibrate()
 
+        thinning = mcmc_config.steps // mcmc_config.samples
+        num_steps = mcmc_config.steps
+
         with OnlineSampleLogger(self.path_results, run, resume) as sample_logger:
+            initial_state = None
             if resume:
                 # The file has to be open for the samples to be read back at the end
                 sample_logger.open()
                 initial_state = sample_logger.load_state()
-            else:
-                initial_state = None
 
-            samples = sample_nuts(
-                model=self.model,
-                num_warmup=mcmc_config.warmup.warmup_steps,
-                num_samples=mcmc_config.steps,
-                # One chain per run; cli.py loops over runs
-                num_chains=1,
-                rng_key=rng_key,
-                write_interval=results_config.write_interval,
-                thinning=mcmc_config.steps // mcmc_config.samples,
-                init_state=initial_state,
-                init_strategy=mcmc_config.initialization_strategy,
-                sample_logger=sample_logger,
-                svi_guide=mcmc_config.svi_guide,
-                svi_steps=mcmc_config.svi_steps,
-                laplace_mass_matrix=mcmc_config.laplace_mass_matrix,
-                adapt_mass_matrix=mcmc_config.adapt_mass_matrix,
-                logger=self.logger,
-            )
+                # Only sample the steps that the interrupted run did not get to
+                num_done = sample_logger.num_written_samples() * thinning
+                num_steps = max(mcmc_config.steps - num_done, 0)
+                self.logger.info(
+                    f"Resuming run {run}: {num_done} of {mcmc_config.steps} steps "
+                    f"already sampled, {num_steps} remaining."
+                )
+                # Avoid repeating the random numbers from the start of the run
+                rng_key = random.fold_in(rng_key, num_done)
+
+            if num_steps == 0:
+                samples = sample_logger.read_samples()
+            else:
+                samples = sample_nuts(
+                    model=self.model,
+                    num_warmup=mcmc_config.warmup.warmup_steps,
+                    num_samples=num_steps,
+                    # One chain per run; cli.py loops over runs
+                    num_chains=1,
+                    rng_key=rng_key,
+                    write_interval=results_config.write_interval,
+                    thinning=thinning,
+                    init_state=initial_state,
+                    init_strategy=mcmc_config.initialization_strategy,
+                    sample_logger=sample_logger,
+                    svi_guide=mcmc_config.svi_guide,
+                    svi_steps=mcmc_config.svi_steps,
+                    laplace_mass_matrix=mcmc_config.laplace_mass_matrix,
+                    adapt_mass_matrix=mcmc_config.adapt_mass_matrix,
+                    logger=self.logger,
+                )
 
         if not results_config.samples_file_only:
             self.logger.info("Writing samples to disk")
