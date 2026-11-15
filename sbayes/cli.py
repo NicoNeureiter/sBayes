@@ -7,7 +7,6 @@ import warnings
 
 from copy import deepcopy
 from pathlib import Path
-from pydantic import PositiveInt
 
 from sbayes.experiment_setup import Experiment
 from sbayes.util import PathLike, update_recursive, default_experiment_name
@@ -25,6 +24,22 @@ class RunTask(NamedTuple):
     resume: bool
     use_gpu: bool
     num_cpus: int
+
+
+def positive_int(value: str) -> int:
+    """Argparse type for an integer > 0."""
+    number = int(value)
+    if number <= 0:
+        raise argparse.ArgumentTypeError(f"must be a positive integer, got {value}")
+    return number
+
+
+def non_negative_int(value: str) -> int:
+    """Argparse type for an integer >= 0."""
+    number = int(value)
+    if number < 0:
+        raise argparse.ArgumentTypeError(f"must be a non-negative integer, got {value}")
+    return number
 
 
 def set_numpyro_platform(use_gpu: bool, num_cpus: int) -> None:
@@ -246,7 +261,7 @@ def cli() -> None:
     )
     parser.add_argument(
         "-t", "--threads",
-        nargs="?", type=PositiveInt, default=1,
+        nargs="?", type=positive_int, default=1,
         help="Number of parallel runs. Default 1 (all runs executed sequentially).",
     )
     parser.add_argument(
@@ -267,13 +282,13 @@ def cli() -> None:
     )
     parser.add_argument(
         "-K", "--numClusters",
-        nargs="*", type=PositiveInt,
+        nargs="*", type=positive_int,
         help="[DEVELOPER OPTION] Number of clusters (overrides the config value). "
              "Multiple values result in multiple runs.",
     )
     parser.add_argument(
         "-i", "--runID",
-        nargs="?", type=PositiveInt,
+        nargs="?", type=non_negative_int,
         help="[DEVELOPER OPTION] Index of this run, to distinguish runs with the "
              "same cluster count and experiment name.",
     )
