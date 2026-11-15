@@ -27,6 +27,10 @@ logger = logging.getLogger(__name__)
 # Suppress warnings from PyTables about natural names
 warnings.simplefilter("ignore", category=tables.NaturalNameWarning)
 
+DENSITY_BATCH_SIZE = 10
+"""Number of samples whose density is evaluated at once. Evaluating all samples in one
+`vmap` holds the model's intermediates for every sample in memory at the same time."""
+
 def density_params(samples: dict[str, np.ndarray]) -> dict[str, np.ndarray]:
     """Return the sample entries to substitute when evaluating a density.
 
@@ -58,7 +62,8 @@ def joint_log_density(model: Model, samples: dict[str, np.ndarray]) -> np.ndarra
     def one_sample(sample: dict[str, ArrayLike]) -> jnp.ndarray:
         return log_density(seeded, (), {}, sample)[0]
 
-    return np.asarray(jax.vmap(one_sample)(params), dtype=np.float64)
+    log_densities = jax.lax.map(one_sample, params, batch_size=DENSITY_BATCH_SIZE)
+    return np.asarray(log_densities, dtype=np.float64)
 
 
 def pointwise_log_likelihood(
@@ -309,8 +314,10 @@ def write_samples(
     with tables.open_file(str(samples_h5_path), mode="a") as h5_file:
         h5_file.set_node_attr(h5_file.root, "metadata", json.dumps(metadata))
 
-        if "/derived" not in h5_file:
-            h5_file.create_group(h5_file.root, "derived")
+        # Replace derived arrays of an earlier (possibly interrupted) write
+        if "/derived" in h5_file:
+            h5_file.remove_node("/derived", recursive=True)
+        h5_file.create_group(h5_file.root, "derived")
 
         # The joint log density, so that `Results.from_h5` does not have to recompute
         # it or fall back to `potential_energy`
@@ -613,8 +620,19 @@ class OnlineSampleLogger:
                 f"The samples file '{self.path.name}' is not open. `write_sample` or "
                 f"`open` must be called before reading."
             )
-        # noinspection PyProtectedMember
-        return {param._v_name: np.array(param) for param in self.file.root}
+        # Only the sample arrays at the root, not the `derived` group of `write_samples`
+        return {
+            param.name: np.array(param)
+            for param in self.file.iter_nodes(self.file.root, classname="Leaf")
+        }
+
+    def num_written_samples(self) -> int:
+        """Number of (thinned) samples in the file, 0 if it holds none."""
+        if self.file is None:
+            raise ValueError(f"The samples file '{self.path.name}' is not open.")
+        if "/potential_energy" not in self.file:
+            return 0
+        return self.file.root.potential_energy.nrows
 
     def dump_state(self, state) -> None:
         """Write the sampler state to disk, so that the run can be resumed."""
