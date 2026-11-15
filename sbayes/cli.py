@@ -105,17 +105,18 @@ def run_experiment(
     # Initialise the experiment
 
     with Experiment(config_file=config, experiment_name=experiment_name,
-                    custom_settings=custom_settings, log=True, i_run=i_run) as experiment:
+                    custom_settings=custom_settings, log=True, i_run=i_run,
+                    append_log=resume) as experiment:
         data = Data.from_experiment(experiment)
         mcmc = MCMCSetup(data=data, experiment=experiment)
         mcmc.log_setup()
         mcmc.sample(run=i_run, resume=resume)
 
 def runner(task: RunTask) -> None:
-    """Execute a single analysis from a run task, for pool.map.
+    """Execute a single analysis from a run task.
 
-    Wraps `run_experiment` so it can be called with a single argument, as
-    required by `multiprocessing.Pool.map`. Sets the NumPyro compute platform
+    Wraps `run_experiment` so it can be called with a single argument, e.g. as
+    the target of a worker process. Sets the NumPyro compute platform
     in the worker process (which must happen before any JAX/NumPyro operation),
     forces the run to a single cluster count and a single run, then delegates
     to `run_experiment`.
@@ -234,9 +235,57 @@ def main(
         for task in tasks:
             runner(task)
     else:
-        import multiprocessing
-        pool = multiprocessing.Pool(processes=processes)
-        pool.map(runner, tasks)
+        run_in_parallel(tasks, processes)
+
+
+def run_in_parallel(tasks: list[RunTask], processes: int) -> None:
+    """Run the tasks in separate processes, at most `processes` at a time.
+
+    Each task gets its own process, so a run that crashes or is killed (e.g. by the
+    out-of-memory killer) does not take the other runs down or block the job. Failed
+    runs are reported at the end.
+
+    Args:
+        tasks: the runs to execute
+        processes: the maximum number of runs at the same time
+
+    Raises:
+        RuntimeError: if any of the runs failed.
+    """
+    import multiprocessing
+    from multiprocessing.connection import wait
+
+    pending = list(reversed(tasks))
+    running: dict[int, tuple[multiprocessing.Process, RunTask]] = {}
+    failed: list[tuple[RunTask, int]] = []
+
+    while pending or running:
+        while pending and len(running) < processes:
+            task = pending.pop()
+            process = multiprocessing.Process(target=runner, args=(task,))
+            process.start()
+            running[process.sentinel] = (process, task)
+
+        for sentinel in wait(list(running)):
+            process, task = running.pop(sentinel)
+            process.join()
+            if process.exitcode != 0:
+                failed.append((task, process.exitcode))
+                print(
+                    f"Run {task.i_run} with K={task.n_clusters} failed "
+                    f"(exit code {process.exitcode})."
+                )
+
+    if failed:
+        lines = [
+            f"  K={task.n_clusters}, run {task.i_run}: exit code {code}"
+            + (" (killed, possibly out of memory)" if code < 0 else "")
+            for task, code in failed
+        ]
+        raise RuntimeError(
+            f"{len(failed)} of {len(tasks)} runs failed:\n" + "\n".join(lines)
+            + "\nResume them with `--resume -K <K> -i <run>`."
+        )
 
 
 def cli() -> None:
