@@ -1,6 +1,10 @@
 from __future__ import annotations
 
 
+import hashlib
+import os
+from pathlib import Path
+
 from sbayes.config.config import GeoPriorConfig
 from numpy.typing import NDArray
 
@@ -12,6 +16,7 @@ import jax.numpy as jnp
 import numpy as np
 import numpyro
 import numpyro.distributions as dist
+from jax.scipy.interpolate import RegularGridInterpolator
 
 from typing import Callable, TYPE_CHECKING
 
@@ -55,6 +60,8 @@ class GeoPrior:
         self._log_norm_const_interpolator: Callable | None = None
         self._norm_const_grid_min: float | None = None
         self._norm_const_grid_max: float | None = None
+        self.calibration_file: Path | None = None
+        self.calibration_from_cache = False
 
         if self.prior_type is self.PriorTypes.COST_BASED:
             if self.cost_matrix is None:
@@ -95,7 +102,10 @@ class GeoPrior:
 
         return jnp.sum(a * (self.cost_matrix @ b), axis=-2)
 
-    def calibrate(self, cluster_prior: ClusterPrior) -> None:
+    # Bump when the calibration procedure changes, to invalidate cached results
+    CALIBRATION_VERSION = 1
+
+    def calibrate(self, cluster_prior: ClusterPrior, cache_dir: Path | None = None) -> None:
         """Estimate the normalization constant of the geo-prior over a grid of rates.
 
         The cost-based geo-prior is unnormalized: its normalization constant depends on
@@ -103,12 +113,47 @@ class GeoPrior:
         rate. It is estimated once by thermodynamic integration and stored as an
         interpolator over a grid around the configured rate.
 
+        If `cache_dir` is given, the estimate is looked up there by a hash of all inputs
+        it depends on, and stored there after it is computed. Runs with the same
+        geo-prior, cluster prior, locations and number of clusters share one estimate.
+
         Args:
             cluster_prior: the prior on the cluster assignments, used as the base measure
+            cache_dir: directory for cached calibration results (no caching if None)
         """
         if not self.config.estimate_rate:
             return
 
+        cache_file = None
+        if cache_dir is not None:
+            key = self.calibration_key(cluster_prior)
+            cache_file = Path(cache_dir) / f"geo_norm_const_{key}.npz"
+
+        self.calibration_from_cache = cache_file is not None and cache_file.exists()
+        if self.calibration_from_cache:
+            with np.load(cache_file) as cached:
+                r_grid, log_c_values = cached["r_grid"], cached["log_c"]
+        else:
+            r_grid, log_c_values = self._estimate_log_norm_const(cluster_prior)
+            if cache_file is not None:
+                cache_file.parent.mkdir(parents=True, exist_ok=True)
+                # Write to a temporary file and rename, so that parallel runs never
+                # read a partially written file
+                tmp_file = cache_file.with_name(f"{cache_file.stem}.{os.getpid()}.tmp.npz")
+                np.savez(tmp_file, r_grid=r_grid, log_c=log_c_values)
+                os.replace(tmp_file, cache_file)
+
+        self.set_log_norm_const(r_grid, log_c_values)
+        self.calibration_file = cache_file
+
+    def _estimate_log_norm_const(
+        self, cluster_prior: ClusterPrior
+    ) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
+        """Run thermodynamic integration to estimate `log c(r)` over a grid of rates.
+
+        Returns:
+            The ascending grid of rates and the log normalization constant on it.
+        """
         def cost(z: jax.Array, rate: float) -> jax.Array:
             clusters = z[..., :-1]
             return self.log_prob(self.aggregated_distance(clusters), rate)
@@ -119,7 +164,7 @@ class GeoPrior:
         grid_max = self.rate * 4.0
         r_grid = jnp.linspace(grid_min ** 0.5, grid_max ** 0.5, grid_size) ** 2
 
-        self._log_norm_const_interpolator, _, _ = estimate_marginal_log_likelihood_curve(
+        interpolator, _, _ = estimate_marginal_log_likelihood_curve(
             base_prior=lambda: cluster_prior.get_numpyro_distr(
                 allow_reparameterization=False
             ),
@@ -127,10 +172,30 @@ class GeoPrior:
             r_grid=r_grid,
             num_samples=self.config.approx_norm_const["steps_per_setting"],
         )
+        (r_grid_sorted,) = interpolator.grid
+        return np.asarray(r_grid_sorted), np.asarray(interpolator.values)
 
+    def set_log_norm_const(
+        self, r_grid: NDArray[np.float64], log_c_values: NDArray[np.float64]
+    ) -> None:
+        """Set the log normalization constant from its values on an ascending grid."""
+        r_grid = jnp.asarray(r_grid)
+        self._log_norm_const_interpolator = RegularGridInterpolator(
+            (r_grid,), jnp.asarray(log_c_values)
+        )
         self._norm_const_grid_min = float(jnp.min(r_grid))
         self._norm_const_grid_max = float(jnp.max(r_grid))
 
+    def calibration_key(self, cluster_prior: ClusterPrior) -> str:
+        """Hash of everything the calibration result depends on, used as cache key."""
+        h = hashlib.sha256()
+        h.update(f"v{self.CALIBRATION_VERSION}".encode())
+        h.update(np.ascontiguousarray(self.cost_matrix, dtype=np.float64).tobytes())
+        # The cost matrix is hashed directly, so its source path is irrelevant
+        h.update(self.config.model_dump_json(exclude={"costs"}).encode())
+        h.update(cluster_prior.config.model_dump_json().encode())
+        h.update(f"{cluster_prior.shapes.n_clusters},{cluster_prior.shapes.n_objects}".encode())
+        return h.hexdigest()[:16]
 
     def log_norm_const(self, rate: jnp.ndarray | float) -> jnp.ndarray:
         """Look up the log normalization constant of the geo-prior for a given rate.

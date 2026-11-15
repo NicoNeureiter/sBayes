@@ -935,6 +935,10 @@ class ResultsConfig(BaseConfig):
     float_precision: PositiveInt = 8
     """The precision (number of decimal places) of real valued parameters in the stats file."""
 
+    cache_calibration: bool = True
+    """Whether to cache the geo-prior calibration in `<path>/.cache` and reuse it across runs
+    and experiments with the same geo-prior, cluster prior, locations and number of clusters."""
+
 
 class SBayesConfig(BaseConfig):
     """Top-level configuration of an sBayes analysis."""

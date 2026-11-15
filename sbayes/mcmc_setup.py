@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import numpy as np
+import shutil
 import time
 
 from jax import random
@@ -58,6 +59,29 @@ class MCMCSetup:
     ##########################################
     ''')
 
+    def calibrate(self) -> None:
+        """Run the model calibration, reusing a cached result if one exists.
+
+        The calibration file that was used is copied into the results directory, so
+        that each result records the normalization constant it was sampled with.
+        """
+        cache_dir = None
+        if self.config.results.cache_calibration:
+            cache_dir = self.config.results.path / ".cache"
+
+        t_start = time.time()
+        self.model.calibrate(cache_dir=cache_dir)
+
+        geo_prior = self.model.prior.geo_prior
+        if geo_prior.config.estimate_rate:
+            source = "Loaded cached" if geo_prior.calibration_from_cache else "Estimated"
+            self.logger.info(
+                f"{source} geo-prior normalization constant "
+                f"({time.time() - t_start:.1f} seconds)"
+            )
+        if geo_prior.calibration_file is not None:
+            shutil.copy(geo_prior.calibration_file, self.path_results / "geo_norm_const.npz")
+
     def sample(self, run: int, resume: bool = False) -> None:
         """Run the inference and write the resulting samples to disk.
 
@@ -80,7 +104,7 @@ class MCMCSetup:
         if mcmc_config.inference_mode is not MCMCConfig.InferenceMode.MCMC:
             raise ValueError(f"Unknown inference mode: {mcmc_config.inference_mode}")
 
-        self.model.calibrate()
+        self.calibrate()
 
         with OnlineSampleLogger(self.path_results, run, resume) as sample_logger:
             if resume:

@@ -2,6 +2,8 @@
 # -*- coding: utf-8 -*-
 from __future__ import annotations
 
+from pathlib import Path
+
 import jax.numpy as jnp
 import numpyro
 import numpyro.distributions as dist
@@ -142,9 +144,13 @@ class Model:
 
         self.partitions = self.data.features.partitions
 
-    def calibrate(self) -> None:
-        """Run any calibration procedures that are required before the MCMC run."""
-        self.prior.geo_prior.calibrate(self.prior.cluster_prior)
+    def calibrate(self, cache_dir: Path | None = None) -> None:
+        """Run any calibration procedures that are required before the MCMC run.
+
+        Args:
+            cache_dir: directory for cached calibration results (no caching if None)
+        """
+        self.prior.geo_prior.calibrate(self.prior.cluster_prior, cache_dir=cache_dir)
 
     @property
     def n_clusters(self) -> int:
