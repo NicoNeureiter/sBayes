@@ -33,6 +33,7 @@ class Experiment:
         i_run: int = 0,
         create_experiment_folder: bool = True,
         copy_config: bool = True,
+        append_log: bool = False,
     ):
         """Initialise an experiment from a configuration file.
 
@@ -48,6 +49,8 @@ class Experiment:
                 False for a planning-only experiment that should not touch the disk.
             copy_config: If True (and the results folder exists), copy the config
                 file into the results directory for reproducibility.
+            append_log: If True, append to an existing log file of this run instead
+                of replacing it (used when resuming a run).
         """
         # Resolve the experiment name (generate one if not provided)
         self.experiment_name: str = experiment_name or default_experiment_name()
@@ -65,7 +68,7 @@ class Experiment:
         if log:
             self.logger = self.init_logger(f"{self.experiment_name}.{self.i_run}")
             if self.path_results is not None:
-                self.add_logger_file(self.path_results)
+                self.add_logger_file(self.path_results, append=append_log)
             self.log_experiment()
         else:
             self.logger = logging.getLogger(f"sbayes.{self.experiment_name}.{self.i_run}")
@@ -125,22 +128,25 @@ class Experiment:
             logger.addHandler(logging.StreamHandler())
         return logger
 
-    def add_logger_file(self, path_results: Path) -> None:
+    def add_logger_file(self, path_results: Path, append: bool = False) -> None:
         """Add a file handler writing this run's log to the results directory.
 
         The log file is named per run (by cluster count and run index) so that
         parallel or repeated runs do not write to the same file. An existing log
-        file at that path is removed first so each run starts with a fresh log.
+        file at that path is removed first so each run starts with a fresh log,
+        unless `append` is set.
 
         Args:
             path_results: The results directory in which to create the log file.
+            append: If True, keep an existing log file and append to it.
         """
         log_path = path_results / f"experiment_{self.config.model.clusters}_{self.i_run}.log"
         # Remove an existing log file so the run starts fresh; ignore if absent
-        try:
-            os.remove(log_path)
-        except FileNotFoundError:
-            pass
+        if not append:
+            try:
+                os.remove(log_path)
+            except FileNotFoundError:
+                pass
         log_file_handler = logging.FileHandler(filename=log_path)
         self.logger.addHandler(log_file_handler)
 
