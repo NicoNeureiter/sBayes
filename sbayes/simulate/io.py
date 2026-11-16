@@ -37,8 +37,7 @@ def write_simulated_data(
             column_indices = np.arange(simulated.shape[1])[None, :]
             simulated = partition.state_names[column_indices, simulated]
 
-        features_csv[partition.names] = features_csv[partition.names].astype(str)
-        features_csv.update(pd.DataFrame(simulated, columns=partition.names))
+        features_csv[list(partition.names)] = simulated
 
     features_csv.to_csv(base_path / "features.csv", index=False)
 

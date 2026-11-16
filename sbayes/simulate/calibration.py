@@ -7,6 +7,7 @@ import pandas as pd
 import re
 import warnings
 
+from arviz_stats.ecdf_utils import simulate_confidence_bands
 from jax import random
 from matplotlib import pyplot as plt
 from pathlib import Path
@@ -1281,7 +1282,14 @@ def plot_rank_ecdf(
         ValueError: if the table is empty after filtering, or the draw count varies.
     """
     if passed_only:
-        ranks = ranks[ranks["passed_gate"]]
+        passed = ranks[ranks["passed_gate"]]
+        if passed.empty:
+            warnings.warn(
+                "No replicate passed the convergence gate; plotting all replicates "
+                "instead. The ranks of unconverged chains are not meaningful."
+            )
+        else:
+            ranks = passed
     if ranks.empty:
         raise ValueError("No ranks left to plot.")
 
@@ -1330,6 +1338,12 @@ def plot_rank_ecdf(
     figure.savefig(path, dpi=150)
 
     return figure
+
+def _coverage_block(ranks: pd.DataFrame, levels: Sequence[float]) -> str:
+    """Format the coverage table, or say so when there is nothing to summarise."""
+    if ranks.empty:
+        return "_No replicates in this set._"
+    return _as_block(coverage_table(ranks, levels))
 
 
 def coverage_table(
@@ -1529,11 +1543,11 @@ def write_study_report(
             "",
             "### Replicates that passed the gate",
             "",
-            _as_block(coverage_table(ranks[ranks["passed_gate"]], levels)),
+            _coverage_block(ranks[ranks["passed_gate"]], levels),
             "",
             "### All readable replicates",
             "",
-            _as_block(coverage_table(ranks, levels)),
+            _coverage_block(ranks, levels),
             "",
             "## Files",
             "",
@@ -1585,9 +1599,12 @@ def run_calibration_study(
         ranks = collect_ranks(prepared, gate, master_seed=config.simulation.seed)
 
         ranks.to_csv(study.path / "ranks.tsv", sep="\t", index=False)
-        plot_rank_ecdf(ranks, study.path / "rank_ecdf.png", prob=prob)
-        write_excursions(ecdf_excursions(ranks, prob=prob), study.path / "excursions.tsv")
         write_study_report(study, prepared, gate, ranks, study.path / "report.md")
+        write_excursions(ecdf_excursions(ranks, prob=prob), study.path / "excursions.tsv")
+
+        plot_rank_ecdf(ranks, study.path / "rank_ecdf_all.png", prob=prob, passed_only=False)
+        plot_rank_ecdf(ranks, study.path / "rank_ecdf.png", prob=prob)
+
     except Exception:
         logging.exception("The analysis failed; uploading whatever was written.")
 
@@ -1601,30 +1618,52 @@ def run_calibration_study(
         print("Upload successful.")
 
 
-def run_categorical(
+def run_variant(
     config: SimulateConfigFile,
-    name: str = "categorical",
+    name: str,
+    feature_types: dict[str, int],
     n_replicates: int = 100,
     prob: float = 0.95,
     bucket: str | None = None,
 ) -> None:
-    """Run the calibration study for categorical features.
+    """Run the calibration study for one set of feature types.
 
-    Parameters are drawn from the prior, features are simulated from them, and the
-    inference is run with the same model and priors. The rank of each simulated value
-    among its posterior draws should be uniform; the plots and the excursion table say
-    whether it is.
+    The variants of a study differ in which features are simulated - categorical
+    with a given number of states, Gaussian, Poisson or logit-normal.
 
     Args:
-        config: the study's simulation config, with categorical features
-        name: the name of this study, used for the output folder and the upload prefix
+        config: the study's simulation config
+        name: the name of this variant, used for the output folder and the upload prefix
+        feature_types: how many features of each type to simulate, e.g.
+            `{"categorical_2": 10, "categorical_3": 30}` or `{"gaussian": 40}`
         n_replicates: the number of replicates
         prob: the coverage of the confidence bands
         bucket: the GCS bucket to upload the results to; None skips the upload
 
     Raises:
+        ValueError: if the config has no inference section, or no prior for a feature
+            type this variant simulates.
         Exception: if the upload fails, so the caller can keep the VM alive.
     """
+    config = config.model_copy(deep=True)
+
+    inf_config = config.inf_config
+    if inf_config is None:
+        raise ValueError(
+            "The study config has no inference section, so there is nothing to "
+            "calibrate against."
+        )
+
+    # A missing prior section fails deep inside the model, so it is caught here
+    cluster_effect = inf_config.model.prior.cluster_effect
+    for section in sorted({feature_type.split("_")[0] for feature_type in feature_types}):
+        if getattr(cluster_effect, section, None) is None:
+            raise ValueError(
+                f"The variant '{name}' simulates {section} features, but the config "
+                f"has no `prior.cluster_effect.{section}` section."
+            )
+
+    config.simulation.features = dict(feature_types)
     run_calibration_study(
         config, name=name, n_replicates=n_replicates, prob=prob, bucket=bucket
     )
