@@ -530,6 +530,17 @@ def samples_array_to_df(
     return pd.DataFrame(flattened_samples, columns=column_names)
 
 
+def _num_readable_rows(array: tables.Leaf) -> int:
+    """Number of leading rows of `array` that can be read, chunk by chunk."""
+    step = array.chunkshape[0] if array.chunkshape else max(array.nrows, 1)
+    for start in range(0, array.nrows, step):
+        try:
+            array.read(start, min(start + step, array.nrows))
+        except tables.HDF5ExtError:
+            return start
+    return array.nrows
+
+
 class OnlineSampleLogger:
 
     """Continually writes the samples of one run to a pytables file (.h5).
