@@ -97,6 +97,45 @@ class TestOnlineSampleLogger:
         assert loaded["step_size"] == state["step_size"]
         assert np.array_equal(loaded["position"], state["position"])
 
+    def test_resume_discards_a_corrupt_tail(self, tmp_path):
+        """Unreadable chunks at the end of a killed run's file are cut off on resume."""
+        rng = np.random.default_rng(0)
+        with OnlineSampleLogger(tmp_path, run=0, resume=False) as logger:
+            for _ in range(5):
+                # Random values, so that the chunks are not trivially compressible
+                logger.write_sample({"w": rng.random((1, 400, 50))})
+            chunk_rows = logger.file.root.w.chunkshape[0]
+            n_rows = logger.file.root.w.nrows
+            # The first row of the last chunk, which holds the rows up to `n_rows`
+            last_start = (n_rows - 1) // chunk_rows * chunk_rows
+            info = logger.file.root.w.chunk_info((last_start, 0))
+
+        assert 0 < last_start
+        with open(tmp_path / "samples_0.h5", "r+b") as f:
+            f.seek(info.offset)
+            f.write(b"\xff" * info.size)
+
+        with OnlineSampleLogger(tmp_path, run=0, resume=True) as logger:
+            logger.open()
+            assert logger.read_samples()["w"].shape[0] == last_start
+            logger.write_sample({"w": rng.random((1, 10, 50))})
+            samples = logger.read_samples()
+
+        assert samples["w"].shape == (last_start + 10, 50)
+
+    def test_resume_aligns_arrays_of_different_length(self, tmp_path):
+        """A run killed between the appends of two parameters is cut to the shorter one."""
+        with OnlineSampleLogger(tmp_path, run=0, resume=False) as logger:
+            logger.write_sample(make_chunk(4, z=(3, 2), w=(2,)))
+            logger.file.root.w.append(np.zeros((2, 2)))
+
+        with OnlineSampleLogger(tmp_path, run=0, resume=True) as logger:
+            logger.open()
+            samples = logger.read_samples()
+
+        assert samples["z"].shape == (4, 3, 2)
+        assert samples["w"].shape == (4, 2)
+
     def test_reading_before_writing_raises(self, tmp_path):
         with OnlineSampleLogger(tmp_path, run=0, resume=False) as logger:
             with pytest.raises(ValueError, match="not open"):
