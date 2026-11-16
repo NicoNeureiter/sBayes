@@ -52,6 +52,15 @@ CLUSTER_INDEXED = ("clusters", "areal_effect")
 DIRECT_TARGET_PREFIXES = ("weights", AREAL_EFFECT, "confounding_effects")
 """Parameters tested by ranking the truth among the draws."""
 
+PRIOR_SECTIONS = {
+    "categorical": "categorical",
+    "gaussian": "gaussian",
+    "logitnormal": "gaussian",  # LogitNormalFeatures subclasses GaussianFeatures
+    "poisson": "poisson",
+}
+"""Which `prior.cluster_effect` section each feature type draws its prior from."""
+
+
 
 class ReplicateSeeds(NamedTuple):
     """The seeds of one replicate, all derived from the study's master seed."""
@@ -1656,12 +1665,24 @@ def run_variant(
 
     # A missing prior section fails deep inside the model, so it is caught here
     cluster_effect = inf_config.model.prior.cluster_effect
-    for section in sorted({feature_type.split("_")[0] for feature_type in feature_types}):
+    for feature_type in sorted(feature_types):
+        section = PRIOR_SECTIONS[feature_type.split("_")[0]]
         if getattr(cluster_effect, section, None) is None:
             raise ValueError(
-                f"The variant '{name}' simulates {section} features, but the config "
-                f"has no `prior.cluster_effect.{section}` section."
+                f"The variant '{name}' simulates {feature_type} features, which need "
+                f"a `prior.cluster_effect.{section}` section."
             )
+
+    if name == "logitnormal":
+
+        priors = [inf_config.model.prior.cluster_effect]
+        priors += [
+            group
+            for confounder in inf_config.model.prior.confounding_effects.values()
+            for group in confounder.values()
+        ]
+        for prior in priors:
+            prior.gaussian.mean.parameters["sigma_0"] = 1.5
 
     config.simulation.features = dict(feature_types)
     run_calibration_study(

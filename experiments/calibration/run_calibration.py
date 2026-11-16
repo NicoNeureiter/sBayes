@@ -11,10 +11,9 @@ VARIANTS: dict[str, dict[str, int]] = {
     "gaussian": {"gaussian": 40},
     "poisson": {"poisson": 40},
     "logitnormal": {"logitnormal": 40},
-    "mixed": {"categorical_3": 10, "gaussian":10, "poisson":10, "logitnormal":10},
+    "mixed": {"categorical_2": 10, "categorical_3":10, "gaussian":10, "poisson":10, "logitnormal":10},
 }
 """The feature types of each study variant. Everything else is shared."""
-
 
 def are_we_on_gce():
     try:
@@ -31,7 +30,7 @@ if __name__ == "__main__":
     # run_no_data_check(config, n_replicates=100, bucket=bucket)
 
     for variant, feature_types in VARIANTS.items():
-        if variant == "poisson":
+        if variant == "logitnormal":
             run_variant(config, name=variant, feature_types=feature_types,
                         n_replicates=100, bucket=bucket)
 
