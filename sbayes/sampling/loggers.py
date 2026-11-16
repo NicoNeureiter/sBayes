@@ -573,6 +573,34 @@ class OnlineSampleLogger:
             )
             self.resume = False
             self.file = tables.open_file(str(self.path), mode="w")
+            return
+
+        self._truncate_to_readable()
+
+    def _truncate_to_readable(self) -> None:
+        """Cut the sample arrays back to the rows that all of them can read.
+
+        A run that is killed while the file is open can leave unreadable chunks at
+        the end of the arrays, or arrays of different lengths. Truncating them lets
+        the resumed run sample the lost steps again.
+        """
+        arrays = list(self.file.iter_nodes(self.file.root, classname="EArray"))
+        if not arrays:
+            return
+
+        n_readable = min(_num_readable_rows(a) for a in arrays)
+        n_rows = max(a.nrows for a in arrays)
+        if n_readable == n_rows:
+            return
+
+        logger.warning(
+            f"The sample file '{self.path.name}' is damaged after sample {n_readable} "
+            f"(of {n_rows}), probably because an earlier run was killed while writing. "
+            f"Discarding the damaged samples and sampling them again."
+        )
+        for array in arrays:
+            array.truncate(n_readable)
+        self.file.flush()
 
     def close(self) -> None:
         """Close the samples file, if it is open."""
