@@ -16,9 +16,11 @@ from pathlib import Path
 import jax.random as random
 import numpy as np
 import pandas as pd
+import pytest
 import tables
 
 from sbayes.cli import main as sbayes_main
+from sbayes.results import Results
 from sbayes.simulate.config import load_config
 from sbayes.simulate.simulator import Simulator
 from sbayes.simulate.validate import compare_parameters, read_simulations
@@ -236,3 +238,19 @@ def test_resume_samples_only_the_remaining_steps(tmp_path):
     log = (tmp_path / name / "experiment_2_0.log").read_text()
     assert "Resuming run 0: 40 of 40 steps already sampled, 0 remaining." in log
     assert "Resuming run 0: 20 of 40 steps already sampled, 20 remaining." in log
+
+def test_samples_file_is_readable_before_the_run_finishes(tmp_path):
+    """The samples file of a run that is still sampling can be loaded as Results."""
+    name = "test_partial"
+    run_settings = settings(
+        tmp_path, mcmc={"runs": 1},
+        results={"path": str(tmp_path), "write_interval": 10, "samples_file_only": True},
+    )
+    sbayes_main(config=SOUTH_AMERICA_CONFIG, custom_settings=run_settings,
+                experiment_name=name, n_clusters=2)
+
+    # Without `write_samples`, the file holds what the sampler logged during the run
+    with pytest.warns(UserWarning, match="no `/derived/log_posterior`"):
+        results = Results.from_h5(tmp_path / name / "K2" / "samples_0.h5")
+    assert results.n_clusters == 2
+    assert results.n_samples == 20

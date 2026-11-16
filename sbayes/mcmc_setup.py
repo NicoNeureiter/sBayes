@@ -8,7 +8,7 @@ import time
 from jax import random
 from sbayes.config.config import MCMCConfig
 from sbayes.model import Model
-from sbayes.sampling.loggers import write_samples, OnlineSampleLogger
+from sbayes.sampling.loggers import write_samples, OnlineSampleLogger, h5_metadata
 from sbayes.experiment_setup import Experiment
 from sbayes.load_data import Data
 from sbayes.sampling.numpyro_sampling import sample_nuts
@@ -109,11 +109,10 @@ class MCMCSetup:
         thinning = mcmc_config.steps // mcmc_config.samples
         num_steps = mcmc_config.steps
 
-        with OnlineSampleLogger(self.path_results, run, resume) as sample_logger:
+        metadata = h5_metadata(self.data, self.model.n_clusters)
+        with OnlineSampleLogger(self.path_results, run, resume, metadata) as sample_logger:
             initial_state = None
             if resume:
-                # The file has to be open for the samples to be read back at the end
-                sample_logger.open()
                 initial_state = sample_logger.load_state()
 
                 # Only sample the steps that the interrupted run did not get to

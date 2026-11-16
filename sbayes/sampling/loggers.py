@@ -5,9 +5,11 @@ import jax.numpy as jnp
 import json
 import logging
 import numpy as np
+import os
 import pandas as pd
 import pickle
 import tables
+import time
 import warnings
 
 from itertools import product
@@ -309,7 +311,7 @@ def write_samples(
 
     # Write metadata (and optionally the likelihood) into the samples h5 file
     samples_h5_path = base_path / f'samples_{run}.h5'
-    metadata = _build_h5_metadata(data, cluster_names, feature_names, component_names)
+    metadata = h5_metadata(data, n_clusters)
 
     with tables.open_file(str(samples_h5_path), mode="a") as h5_file:
         h5_file.set_node_attr(h5_file.root, "metadata", json.dumps(metadata))
@@ -395,6 +397,16 @@ def get_cluster_effect_names(partitions: list[GenericTypeFeatures]) -> list[str]
                 f"Partition type {type(p).__name__} is not supported."
             )
     return names
+
+def h5_metadata(data: Data, n_clusters: int) -> dict:
+    """Metadata stored in the samples h5 file, for `Results.from_h5()`."""
+    return _build_h5_metadata(
+        data,
+        cluster_names=get_cluster_names(n_clusters),
+        feature_names=data.features.names,
+        component_names=['areal', *data.confounders.keys()],
+    )
+
 
 def _build_h5_metadata(
     data: Data,
@@ -530,6 +542,30 @@ def samples_array_to_df(
     return pd.DataFrame(flattened_samples, columns=column_names)
 
 
+def _open_h5(
+    path: Path, mode: str, timeout: float = 600.0, interval: float = 5.0
+) -> tables.File:
+    """Open an h5 file, waiting while another process (e.g. a plot) holds a lock on it.
+
+    Raises:
+        tables.HDF5ExtError: if the file cannot be opened for another reason, or is
+            still locked after `timeout` seconds.
+    """
+    deadline = time.monotonic() + timeout
+    while True:
+        try:
+            return tables.open_file(str(path), mode=mode)
+        except tables.HDF5ExtError as e:
+            if not _is_lock_error(e) or time.monotonic() > deadline:
+                raise
+            time.sleep(interval)
+
+
+def _is_lock_error(error: tables.HDF5ExtError) -> bool:
+    """Whether opening an h5 file failed because another process has it open."""
+    return "unable to lock the file" in str(error)
+
+
 def _num_readable_rows(array: tables.Leaf) -> int:
     """Number of leading rows of `array` that can be read, chunk by chunk."""
     step = array.chunkshape[0] if array.chunkshape else max(array.nrows, 1)
@@ -546,56 +582,76 @@ class OnlineSampleLogger:
     """Continually writes the samples of one run to a pytables file (.h5).
 
     The samples are written in chunks during the run, so that a long run's results are
-    available before it finishes and can be resumed after an interruption.
+    available before it finishes and can be resumed after an interruption. The file is
+    only open while a chunk is written, so it can be read (e.g. plotted) during the run
+    and a run that is killed between writes leaves it intact.
     """
 
-    def __init__(self, base_path: PathLike, run: int, resume: bool) -> None:
+    def __init__(
+        self,
+        base_path: PathLike,
+        run: int,
+        resume: bool,
+        metadata: dict | None = None,
+    ) -> None:
         """
         Args:
             base_path: directory to write the samples and sampler state to
             run: index of this run, used in the file names
             resume: if True, append to an existing samples file instead of overwriting
+            metadata: metadata for `Results.from_h5`, written when the file is created
+                (see `h5_metadata`)
         """
         self.base_path = Path(base_path)
         self.path = self.base_path / f'samples_{run}.h5'
         self.state_path = self.base_path / f'state_{run}.pkl'
         self.resume = resume
-        self.file: tables.File | None = None
-        self._header_written = False
+        self.metadata = metadata
+        # Whether the file holds this run's samples, so that writes append to it
+        self._file_ready = False
 
     def __enter__(self) -> Self:
         return self
 
     def __exit__(self, *exc_info) -> None:
-        self.close()
+        pass
 
-    def open(self) -> None:
-        """Open the samples file, appending to it when resuming."""
-        if not self.resume:
-            self.file = tables.open_file(str(self.path), mode="w")
+    def _prepare(self) -> None:
+        """On resume, check the existing file and repair it if needed (only once)."""
+        if self._file_ready or not self.resume:
             return
 
         try:
-            self.file = tables.open_file(str(self.path), mode="a")
+            file = _open_h5(self.path, mode="a")
         except tables.exceptions.HDF5ExtError as e:
+            if _is_lock_error(e):
+                # Still in use (e.g. by a plot or another run): never overwrite it
+                raise
             logger.warning(
                 f"Could not append to the existing sample file '{self.path.name}' "
                 f"({type(e).__name__}). Overwriting the previous samples."
             )
             self.resume = False
-            self.file = tables.open_file(str(self.path), mode="w")
             return
 
-        self._truncate_to_readable()
+        with file:
+            self._truncate_to_readable(file)
+            # The derived values of an earlier write do not match the samples once
+            # more are added; `write_samples` writes them again at the end
+            if "/derived" in file:
+                file.remove_node("/derived", recursive=True)
+            if self.metadata is not None:
+                file.set_node_attr(file.root, "metadata", json.dumps(self.metadata))
+        self._file_ready = True
 
-    def _truncate_to_readable(self) -> None:
+    def _truncate_to_readable(self, file: tables.File) -> None:
         """Cut the sample arrays back to the rows that all of them can read.
 
-        A run that is killed while the file is open can leave unreadable chunks at
-        the end of the arrays, or arrays of different lengths. Truncating them lets
-        the resumed run sample the lost steps again.
+        A run that is killed while writing can leave unreadable chunks at the end of
+        the arrays, or arrays of different lengths. Truncating them lets the resumed
+        run sample the lost steps again.
         """
-        arrays = list(self.file.iter_nodes(self.file.root, classname="EArray"))
+        arrays = list(file.iter_nodes(file.root, classname="EArray"))
         if not arrays:
             return
 
@@ -611,72 +667,61 @@ class OnlineSampleLogger:
         )
         for array in arrays:
             array.truncate(n_readable)
-        self.file.flush()
-
-    def close(self) -> None:
-        """Close the samples file, if it is open."""
-        if self.file is not None:
-            self.file.close()
-            self.file = None
 
     def write_sample(self, sample: dict[str, np.ndarray]) -> None:
-        """Write one chunk of samples, creating the file and its arrays if needed."""
-        if self.file is None:
-            self.open()
+        """Append one chunk of samples, creating the file and its arrays if needed."""
+        self._prepare()
 
-        file = self.file
-        if file is None:
-            raise ValueError(f"Could not open the samples file '{self.path}'.")
+        mode = "a" if self._file_ready else "w"
+        with _open_h5(self.path, mode=mode) as file:
+            if mode == "w" and self.metadata is not None:
+                file.set_node_attr(file.root, "metadata", json.dumps(self.metadata))
 
-        if not self._header_written:
-            self._write_header(file, sample)
-            self._header_written = True
-
-        for param_name, param_values in sample.items():
-            file.root[param_name].append(np.array(param_values)[0])
-        file.flush()
-
-    def _write_header(self, file: tables.File, sample: dict[str, np.ndarray]) -> None:
-        """Create one extendable array per parameter, sized from the first chunk."""
-        if self.resume:
-            return
-
-        for param_name, param_value in sample.items():
-            squeezed = np.array(param_value)[0]
-            _, *param_dims = squeezed.shape
-            file.create_earray(
-                where=file.root,
-                name=param_name,
-                atom=numpy_to_tables_dtype(squeezed.dtype),
-                filters=tables.Filters(complevel=5),
-                shape=(0, *param_dims),
-            )
+            for param_name, param_values in sample.items():
+                # Drop the chain dimension
+                values = np.array(param_values)[0]
+                if f"/{param_name}" not in file:
+                    file.create_earray(
+                        where=file.root,
+                        name=param_name,
+                        atom=numpy_to_tables_dtype(values.dtype),
+                        filters=tables.Filters(complevel=5),
+                        shape=(0, *values.shape[1:]),
+                    )
+                file.root[param_name].append(values)
+        self._file_ready = True
 
     def read_samples(self) -> dict[str, np.ndarray]:
         """Read all samples written to the file so far."""
-        if self.file is None:
-            raise ValueError(
-                f"The samples file '{self.path.name}' is not open. `write_sample` or "
-                f"`open` must be called before reading."
-            )
-        # Only the sample arrays at the root, not the `derived` group of `write_samples`
-        return {
-            param.name: np.array(param)
-            for param in self.file.iter_nodes(self.file.root, classname="Leaf")
-        }
+        self._prepare()
+        if not self._file_ready:
+            raise ValueError(f"No samples have been written to '{self.path.name}' yet.")
+
+        with _open_h5(self.path, mode="r") as file:
+            # Only the sample arrays at the root, not the `derived` group of `write_samples`
+            return {
+                param.name: np.array(param)
+                for param in file.iter_nodes(file.root, classname="Leaf")
+            }
 
     def num_written_samples(self) -> int:
         """Number of (thinned) samples in the file, 0 if it holds none."""
-        if self.file is None:
-            raise ValueError(f"The samples file '{self.path.name}' is not open.")
-        if "/potential_energy" not in self.file:
+        self._prepare()
+        if not self._file_ready:
             return 0
-        return self.file.root.potential_energy.nrows
+
+        with _open_h5(self.path, mode="r") as file:
+            if "/potential_energy" not in file:
+                return 0
+            return file.root.potential_energy.nrows
 
     def dump_state(self, state) -> None:
         """Write the sampler state to disk, so that the run can be resumed."""
-        with open(self.state_path, 'wb') as f:
+        # Write to a temporary file first, so that a crash cannot leave a partial state
+        tmp_path = self.state_path.with_suffix(".pkl.tmp")
+        with open(tmp_path, 'wb') as f:
             pickle.dump(state, f)
+        os.replace(tmp_path, self.state_path)
 
     def load_state(self):
         """Read the sampler state of a previous run."""

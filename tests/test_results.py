@@ -1,6 +1,8 @@
 """Tests for sbayes/results.py."""
 
 import numpy as np
+import shutil
+import tables
 import pytest
 
 from sbayes.experiment_setup import Experiment
@@ -86,6 +88,18 @@ def test_h5_burn_in_and_subsampling(tmp_path, h5_path):
         Results.from_h5(h5_path, subsample_interval=0)
 
 
+def test_h5_arrays_of_different_length_are_cropped(tmp_path, h5_path):
+    """A file read between the appends of two arrays loads the samples they share."""
+    path = tmp_path / "samples_0.h5"
+    shutil.copy(h5_path, path)
+    with tables.open_file(str(path), mode="a") as f:
+        f.root.z.append(np.array(f.root.z[-2:]))
+
+    results = Results.from_h5(path, burn_in=0.0)
+    assert results.n_samples == 10
+    assert results.weights[results.feature_names[0]].shape[0] == 10
+
+
 def test_read_stats_subsampling(tmp_path):
     """Subsampling keeps every n-th sample, starting from the first."""
     stats_path = tmp_path / "stats.tsv"
@@ -111,9 +125,13 @@ def test_match_clusters_aligns_swapped_labels():
     # One effect array, distinguishable per cluster
     effects = {"cluster_effect": np.array([[[1.0], [2.0]], [[2.0], [1.0]]])}
 
-    match_clusters(z, effects)
+    # shape: (n_samples, n_clusters, n_objects)
+    clusters = (z[:, :, :-1] > 0.5).transpose(0, 2, 1).astype(float)
+
+    match_clusters(clusters, z, effects)
 
     # After matching, both samples assign objects 0-1 to the same cluster
+    np.testing.assert_array_equal(clusters[0], clusters[1])
     assert np.argmax(z[0, 0, :-1]) == np.argmax(z[1, 0, :-1])
     # The effects were permuted along with the clusters
     assert np.allclose(effects["cluster_effect"][0], effects["cluster_effect"][1])

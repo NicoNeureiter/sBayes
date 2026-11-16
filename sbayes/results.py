@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import numpy as np
 import pandas as pd
 import tables
@@ -12,6 +13,8 @@ from pathlib import Path
 from sbayes.util import PathLike, get_best_permutation
 from scipy.optimize import linear_sum_assignment
 from typing import Sequence, Callable, Literal, Self, Any
+
+logger = logging.getLogger(__name__)
 
 # Column names used for the log-probabilities, in order of preference. Earlier versions
 # of sBayes wrote the columns without the `log_` prefix.
@@ -25,7 +28,7 @@ class Results:
 
     Attributes:
         clusters: cluster assignment samples.
-            shape: (n_samples, n_clusters, n_objects)
+            shape: (n_clusters, n_samples, n_objects)
         cluster_names: the names of the clusters
         feature_names: the names of the features
         feature_states: the states of each feature, in the order of `feature_names`
@@ -338,43 +341,39 @@ class Results:
                     array = array[:, 0]
                 return array
 
-            z = read("z")
-            w = read("w")
-
             # The keys of the effect parameters are taken from the metadata, so that
             # files written by earlier versions remain readable
-            cluster_effect_arrays = {
-                key: read(key)
-                for p in partitions
-                for key in p["cluster_effect_keys"]
-            }
-            conf_effect_arrays = {
-                key: read(key)
+            cluster_effect_keys = [
+                key for p in partitions for key in p["cluster_effect_keys"]
+            ]
+            conf_effect_keys = [
+                key
                 for p in partitions
                 for keys in p["confounder_effect_keys"].values()
                 for key in keys
-            }
+            ]
 
-            log_posterior: NDArray[np.float64] | None = None
-            log_likelihood: NDArray[np.float64] | None = None
-            likelihood_pointwise: NDArray[np.float64] | None = None
+            # All per-sample arrays, so that they are cropped and subsampled together
+            arrays = {
+                key: read(key)
+                for key in ["z", "w", *cluster_effect_keys, *conf_effect_keys]
+            }
 
             if "derived" in f.root:
                 derived = f.get_node(f.root, "derived")
 
                 if "log_posterior" in derived:
-                    log_posterior = np.array(f.get_node(derived, "log_posterior"))
+                    log_posterior = f.get_node(derived, "log_posterior")
+                    arrays["log_posterior"] = np.array(log_posterior)
 
                 if "likelihood" in derived:
                     likelihood = np.array(f.get_node(derived, "likelihood"))
                     if "na_values" in derived:
                         na_values = np.array(f.get_node(derived, "na_values"))
                         likelihood = likelihood[:, ~na_values]
+                    arrays["likelihood_pointwise"] = likelihood
 
-                    likelihood_pointwise = likelihood
-                    log_likelihood = likelihood.sum(axis=1)
-
-            if log_posterior is None and "potential_energy" in f.root:
+            if "log_posterior" not in arrays and "potential_energy" in f.root:
                 # Some older files may only the sampler's potential, which lives in
                 # unconstrained space and is therefore not comparable to
                 # `log_likelihood`; `log_prior` derived from it is meaningless.
@@ -383,34 +382,34 @@ class Results:
                     f"`potential_energy`, which is not a log posterior: the log "
                     f"densities of this run cannot be compared or decomposed."
                 )
-                log_posterior = read("potential_energy")
+                arrays["log_posterior"] = read("potential_energy")
+
+        arrays = _crop_to_common_length(arrays)
 
         # Apply burn-in and subsampling. Indexing with `indices` copies, so the arrays
         # can be permuted by `match_clusters` below.
-        n_total = z.shape[0]
+        n_total = len(arrays["z"])
         indices = np.arange(int(burn_in * n_total), n_total, subsample_interval)
+        arrays = {key: array[indices] for key, array in arrays.items()}
 
-        z = z[indices]
-        w = w[indices]
-        cluster_effect_arrays = {
-            key: array[indices] for key, array in cluster_effect_arrays.items()
-        }
-        conf_effect_arrays = {
-            key: array[indices] for key, array in conf_effect_arrays.items()
-        }
-
-        if log_posterior is not None:
-            log_posterior = log_posterior[indices]
-        if log_likelihood is not None:
-            log_likelihood = log_likelihood[indices]
-        if likelihood_pointwise is not None:
-            likelihood_pointwise = likelihood_pointwise[indices]
+        z = arrays["z"]
+        w = arrays["w"]
+        cluster_effect_arrays = {key: arrays[key] for key in cluster_effect_keys}
+        conf_effect_arrays = {key: arrays[key] for key in conf_effect_keys}
+        log_posterior = arrays.get("log_posterior")
+        likelihood_pointwise = arrays.get("likelihood_pointwise")
+        log_likelihood = (
+            None if likelihood_pointwise is None else likelihood_pointwise.sum(axis=1)
+        )
 
         clusters = np.transpose(z[:, :, :-1], (0, 2, 1)).astype(np.float64)
 
         if do_match_clusters:
             # Permutes `z` and the cluster effects in place
             match_clusters(clusters, z, cluster_effect_arrays)
+
+        # shape: (n_clusters, n_samples, n_objects)
+        clusters = np.ascontiguousarray(clusters.transpose(1, 0, 2))
 
         feature_to_states = {}
         for p in partitions:
@@ -644,9 +643,9 @@ class Results:
                 if line.strip()
             ]
 
-        # shape: (n_samples, n_clusters, n_objects)
+        # shape: (n_samples, n_clusters, n_objects) -> (n_clusters, n_samples, n_objects)
         clusters = np.array(samples, dtype=int).astype(bool)
-        return clusters
+        return np.transpose(clusters, (1, 0, 2))
 
     @staticmethod
     def read_stats(
@@ -801,6 +800,19 @@ def match_clusters(
                 effect_array[i] = effect_array[i][permutation]
 
         clusters_sum += clusters[i]
+
+
+def _crop_to_common_length(arrays: dict[str, NDArray]) -> dict[str, NDArray]:
+    """Crop all per-sample arrays to the length of the shortest one.
+
+    The arrays grow by appending samples, so the rows they share are complete and
+    aligned. A file read during a run can be caught between the appends of two
+    arrays, leaving the last chunk in only some of them.
+    """
+    n_samples = min(len(array) for array in arrays.values())
+    if any(len(array) != n_samples for array in arrays.values()):
+        logger.debug(f"Cropping the sample arrays to {n_samples} common samples.")
+    return {key: array[:n_samples] for key, array in arrays.items()}
 
 
 def _build_effect_dict(

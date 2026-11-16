@@ -3,21 +3,27 @@
 The end-to-end test is the acceptance criterion for this layer: it runs the whole
 pipeline from the config file to the results files.
 """
+import json
 import numpy as np
 import numpyro
 import pandas as pd
 import pytest
+import subprocess
+import sys
 import tables
 import jax.numpy as jnp
 
 from jax import random
 from numpyro.infer import MCMC, NUTS, init_to_median
+from functools import partial
 from pathlib import Path
+from unittest.mock import patch
 from sbayes.experiment_setup import Experiment
 from sbayes.load_data import Data
 from sbayes.mcmc_setup import MCMCSetup
 from sbayes.model.model import Model
 from sbayes.results import Results
+import sbayes.sampling.loggers as loggers_module
 from sbayes.sampling.loggers import (
     OnlineSampleLogger, samples_array_to_df, write_samples
 )
@@ -104,19 +110,20 @@ class TestOnlineSampleLogger:
             for _ in range(5):
                 # Random values, so that the chunks are not trivially compressible
                 logger.write_sample({"w": rng.random((1, 400, 50))})
-            chunk_rows = logger.file.root.w.chunkshape[0]
-            n_rows = logger.file.root.w.nrows
-            # The first row of the last chunk, which holds the rows up to `n_rows`
-            last_start = (n_rows - 1) // chunk_rows * chunk_rows
-            info = logger.file.root.w.chunk_info((last_start, 0))
+
+        path = tmp_path / "samples_0.h5"
+        with tables.open_file(str(path)) as f:
+            chunk_rows = f.root.w.chunkshape[0]
+            # The first row of the last chunk
+            last_start = (f.root.w.nrows - 1) // chunk_rows * chunk_rows
+            info = f.root.w.chunk_info((last_start, 0))
 
         assert 0 < last_start
-        with open(tmp_path / "samples_0.h5", "r+b") as f:
+        with open(path, "r+b") as f:
             f.seek(info.offset)
             f.write(b"\xff" * info.size)
 
         with OnlineSampleLogger(tmp_path, run=0, resume=True) as logger:
-            logger.open()
             assert logger.read_samples()["w"].shape[0] == last_start
             logger.write_sample({"w": rng.random((1, 10, 50))})
             samples = logger.read_samples()
@@ -127,19 +134,95 @@ class TestOnlineSampleLogger:
         """A run killed between the appends of two parameters is cut to the shorter one."""
         with OnlineSampleLogger(tmp_path, run=0, resume=False) as logger:
             logger.write_sample(make_chunk(4, z=(3, 2), w=(2,)))
-            logger.file.root.w.append(np.zeros((2, 2)))
+        with tables.open_file(str(tmp_path / "samples_0.h5"), mode="a") as f:
+            f.root.w.append(np.zeros((2, 2)))
 
         with OnlineSampleLogger(tmp_path, run=0, resume=True) as logger:
-            logger.open()
             samples = logger.read_samples()
 
         assert samples["z"].shape == (4, 3, 2)
         assert samples["w"].shape == (4, 2)
 
-    def test_reading_before_writing_raises(self, tmp_path):
+    def test_resume_removes_stale_derived_values(self, tmp_path):
+        """Derived values of an earlier write do not survive a resume."""
         with OnlineSampleLogger(tmp_path, run=0, resume=False) as logger:
-            with pytest.raises(ValueError, match="not open"):
-                logger.read_samples()
+            logger.write_sample(make_chunk(4, z=(3, 2)))
+        with tables.open_file(str(tmp_path / "samples_0.h5"), mode="a") as f:
+            f.create_group(f.root, "derived")
+            f.create_array(f.root.derived, "log_posterior", np.zeros(4))
+
+        with OnlineSampleLogger(tmp_path, run=0, resume=True) as logger:
+            logger.write_sample(make_chunk(4, z=(3, 2)))
+
+        with tables.open_file(str(tmp_path / "samples_0.h5")) as f:
+            assert "/derived" not in f
+            assert f.root.z.nrows == 8
+
+    def test_file_can_be_read_between_writes(self, tmp_path):
+        """The file is closed after each write, so other readers can open it."""
+        metadata = {"cluster_names": ["a0"]}
+        logger = OnlineSampleLogger(tmp_path, run=0, resume=False, metadata=metadata)
+        logger.write_sample(make_chunk(4, z=(3, 2)))
+
+        with tables.open_file(str(tmp_path / "samples_0.h5"), mode="r") as f:
+            assert f.root.z.nrows == 4
+            assert json.loads(f.get_node_attr(f.root, "metadata")) == metadata
+
+        logger.write_sample(make_chunk(4, z=(3, 2)))
+        assert logger.read_samples()["z"].shape == (8, 3, 2)
+
+    def test_write_waits_for_a_reader_to_release_the_file(self, tmp_path):
+        """A write while another process reads the file waits instead of failing."""
+        logger = OnlineSampleLogger(tmp_path, run=0, resume=False)
+        logger.write_sample(make_chunk(4, z=(3, 2)))
+
+        path = tmp_path / "samples_0.h5"
+        reader = subprocess.Popen(
+            [sys.executable, "-c",
+             f"import tables, time; f = tables.open_file({str(path)!r}, 'r'); "
+             f"print('open', flush=True); time.sleep(2); f.close()"],
+            stdout=subprocess.PIPE, text=True,
+        )
+        try:
+            assert reader.stdout.readline().strip() == "open"
+            with patch.object(loggers_module, "_open_h5",
+                              partial(loggers_module._open_h5, interval=0.2)):
+                logger.write_sample(make_chunk(4, z=(3, 2)))
+        finally:
+            reader.wait()
+
+        assert logger.read_samples()["z"].shape == (8, 3, 2)
+
+    def test_resume_does_not_overwrite_a_locked_file(self, tmp_path):
+        """A resume that cannot get the file from another process fails instead."""
+        with OnlineSampleLogger(tmp_path, run=0, resume=False) as logger:
+            logger.write_sample(make_chunk(4, z=(3, 2)))
+
+        path = tmp_path / "samples_0.h5"
+        reader = subprocess.Popen(
+            [sys.executable, "-c",
+             f"import tables, time; f = tables.open_file({str(path)!r}, 'r'); "
+             f"print('open', flush=True); time.sleep(3); f.close()"],
+            stdout=subprocess.PIPE, text=True,
+        )
+        try:
+            assert reader.stdout.readline().strip() == "open"
+            logger = OnlineSampleLogger(tmp_path, run=0, resume=True)
+            with patch.object(loggers_module, "_open_h5",
+                              partial(loggers_module._open_h5, timeout=0.5, interval=0.1)):
+                with pytest.raises(tables.HDF5ExtError):
+                    logger.read_samples()
+        finally:
+            reader.wait()
+
+        with tables.open_file(str(path)) as f:
+            assert f.root.z.nrows == 4
+
+    def test_reading_before_writing_raises(self, tmp_path):
+        logger = OnlineSampleLogger(tmp_path, run=0, resume=False)
+        with pytest.raises(ValueError, match="No samples"):
+            logger.read_samples()
+
 
 
 class TestSamplesArrayToDf:
