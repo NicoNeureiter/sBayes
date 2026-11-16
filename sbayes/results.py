@@ -28,7 +28,7 @@ class Results:
 
     Attributes:
         clusters: cluster assignment samples.
-            shape: (n_clusters, n_samples, n_objects)
+            shape: (n_samples, n_clusters, n_objects)
         cluster_names: the names of the clusters
         feature_names: the names of the features
         feature_states: the states of each feature, in the order of `feature_names`
@@ -101,11 +101,11 @@ class Results:
 
     @property
     def n_clusters(self) -> int:
-        return self.clusters.shape[0]
+        return self.clusters.shape[1]
 
     @property
     def n_samples(self) -> int:
-        return self.clusters.shape[1]
+        return self.clusters.shape[0]
 
     @property
     def n_objects(self) -> int:
@@ -170,8 +170,8 @@ class Results:
             results_list = cls.align_results_list(results_list)
 
         # Concatenate along the samples axis of each parameter
-        clusters = np.concatenate([r.clusters for r in results_list], axis=1)
         concat_samples = partial(np.concatenate, axis=0)
+        clusters = concat_samples([r.clusters for r in results_list])
         weights = concat_dicts_recursive(
             [r.weights for r in results_list], concat_samples
         )
@@ -212,7 +212,7 @@ class Results:
             feature_names=ref.feature_names,
             feature_states=ref.feature_states,
             groups_by_confounders=ref.groups_by_confounders,
-            sample_id=np.arange(clusters.shape[1]),
+            sample_id=np.arange(len(clusters)),
             log_posterior=log_posterior,
             log_likelihood=log_likelihood,
             likelihood_pointwise=likelihood_pointwise,
@@ -241,11 +241,11 @@ class Results:
             raise ValueError("Cannot align an empty list of Results.")
 
         ref = results_list[0]
-        ref_mean = np.mean(ref.clusters, axis=1)  # (n_clusters, n_objects)
+        ref_mean = np.mean(ref.clusters, axis=0)  # (n_clusters, n_objects)
 
         aligned = [ref]
         for r in results_list[1:]:
-            r_mean = np.mean(r.clusters, axis=1)
+            r_mean = np.mean(r.clusters, axis=0)
             agreement = ref_mean @ r_mean.T  # (n_clusters, n_clusters)
             permutation = linear_sum_assignment(agreement, maximize=True)[1]
 
@@ -261,7 +261,7 @@ class Results:
             }
 
             aligned.append(cls(
-                clusters=r.clusters[permutation],
+                clusters=r.clusters[:, permutation],
                 weights=r.weights,
                 areal_effect=areal_effect_aligned,
                 confounding_effects=r.confounding_effects,
@@ -408,9 +408,6 @@ class Results:
             # Permutes `z` and the cluster effects in place
             match_clusters(clusters, z, cluster_effect_arrays)
 
-        # shape: (n_clusters, n_samples, n_objects)
-        clusters = np.ascontiguousarray(clusters.transpose(1, 0, 2))
-
         feature_to_states = {}
         for p in partitions:
             for feature_name in p["feature_names"]:
@@ -493,11 +490,11 @@ class Results:
         parameters = cls.read_stats(parameters_path)
 
         # Apply the burn-in before subsampling, as `from_h5` does
-        n_total = clusters.shape[1]
+        n_total = len(clusters)
 
         indices = np.arange(int(burn_in * n_total), n_total, subsample_interval)
 
-        clusters = clusters[:, indices, :]
+        clusters = clusters[indices]
         parameters = parameters.iloc[list(indices)].reset_index(drop=True)
 
         # Extract names from the column headers
@@ -597,7 +594,7 @@ class Results:
             subsample_interval: keep only every n-th sample
 
         Returns:
-            The cluster samples, of shape (n_clusters, n_samples, n_objects). Float for
+            The cluster samples, of shape (n_samples, n_clusters, n_objects). Float for
             the `.npy` format, bool for the `.txt` format.
 
         Raises:
@@ -629,9 +626,9 @@ class Results:
             if subsample_interval > 1:
                 clusters = clusters[::subsample_interval]
 
-            # Drop the not-assigned component and move the cluster axis to the front
+            # Drop the not-assigned component and move the cluster axis before objects
             clusters = clusters[..., :-1]
-            return np.transpose(clusters, (2, 0, 1)).astype(float, copy=False)
+            return np.transpose(clusters, (0, 2, 1)).astype(float, copy=False)
 
         # One line per sample, tab-separated clusters, one character per object:
         # "0110\t1001" is two clusters over four objects
@@ -643,9 +640,8 @@ class Results:
                 if line.strip()
             ]
 
-        # shape: (n_samples, n_clusters, n_objects) -> (n_clusters, n_samples, n_objects)
-        clusters = np.array(samples, dtype=int).astype(bool)
-        return np.transpose(clusters, (1, 0, 2))
+        # shape: (n_samples, n_clusters, n_objects)
+        return np.array(samples, dtype=int).astype(bool)
 
     @staticmethod
     def read_stats(

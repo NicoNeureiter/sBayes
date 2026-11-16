@@ -610,11 +610,7 @@ def flatten_parameters(results: Results) -> dict[str, np.ndarray]:
             flat[name] = np.asarray(value)
 
     for parameter in MONITORED_PARAMETERS:
-        value = getattr(results, parameter, None)
-        if parameter == "clusters" and value is not None:
-            # Results stores (n_clusters, n_samples, n_objects); draws are samples-first
-            value = np.swapaxes(value, 0, 1)
-        add(parameter, value)
+        add(parameter, getattr(results, parameter, None))
 
     return flat
 

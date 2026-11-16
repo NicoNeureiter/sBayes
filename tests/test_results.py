@@ -50,6 +50,16 @@ def test_h5_round_trip(h5_path, config):
     assert results.n_samples == 10
     assert results.n_clusters == config.model.clusters
     assert results.n_objects == len(data.objects.id)
+    # Samples first, like every other per-sample array
+    assert results.clusters.shape == (
+        results.n_samples, results.n_clusters, results.n_objects
+    )
+
+    combined = Results.concatenate([results, results], align_clusters=True)
+    assert combined.clusters.shape == (
+        2 * results.n_samples, results.n_clusters, results.n_objects
+    )
+    np.testing.assert_array_equal(combined.clusters[results.n_samples:], results.clusters)
     assert results.feature_names == list(data.features.names)
     assert set(results.groups_by_confounders) == set(data.confounders)
 
