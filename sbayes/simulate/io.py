@@ -1,11 +1,12 @@
 import numpy as np
 import pandas as pd
 
-from numpyro import handlers
 from pathlib import Path
-from sbayes.load_data import Data, CategoricalFeatures, GenericTypeFeatures
+
+from sbayes.load_data import Data, CategoricalFeatures, GenericTypeFeatures, LogitNormalFeatures
 from sbayes.model import Model
 from sbayes.sampling.loggers import write_samples, OnlineSampleLogger
+from scipy.special import expit
 from typing import Sequence
 
 
@@ -36,6 +37,10 @@ def write_simulated_data(
         if isinstance(partition, CategoricalFeatures):
             column_indices = np.arange(simulated.shape[1])[None, :]
             simulated = partition.state_names[column_indices, simulated]
+
+        elif isinstance(partition, LogitNormalFeatures):
+            # The model works on the logit scale; the CSV holds proportions in (0, 1)
+            simulated = expit(simulated)
 
         features_csv[list(partition.names)] = simulated
 
