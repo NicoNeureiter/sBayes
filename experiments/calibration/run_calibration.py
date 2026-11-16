@@ -31,7 +31,7 @@ if __name__ == "__main__":
     # run_no_data_check(config, n_replicates=100, bucket=bucket)
 
     for variant, feature_types in VARIANTS.items():
-        if variant == "gaussian":
+        if variant == "poisson":
             run_variant(config, name=variant, feature_types=feature_types,
                         n_replicates=100, bucket=bucket)
 
