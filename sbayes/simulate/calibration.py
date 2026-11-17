@@ -367,6 +367,7 @@ def run_study(
     Returns:
         The samples files of each replicate, in order.
     """
+
     if n_replicates is None:
         n_replicates = config.simulation.datasets
 
@@ -376,6 +377,7 @@ def run_study(
 
     replicates = {}
     for replicate_seed in seeds:
+
         replicate_path = output_path / f"replicate_{replicate_seed.replicate:03d}"
         paths = replicate_paths(config, replicate_path)
 
