@@ -1,10 +1,13 @@
 
 import arviz as az
+import gc
+import jax
 import logging
 import math
 import numpy as np
 import pandas as pd
 import re
+import resource
 import warnings
 
 from arviz_stats.ecdf_utils import simulate_confidence_bands
@@ -367,6 +370,7 @@ def run_study(
     Returns:
         The samples files of each replicate, in order.
     """
+
     if n_replicates is None:
         n_replicates = config.simulation.datasets
 
@@ -376,6 +380,7 @@ def run_study(
 
     replicates = {}
     for replicate_seed in seeds:
+
         replicate_path = output_path / f"replicate_{replicate_seed.replicate:03d}"
         paths = replicate_paths(config, replicate_path)
 
@@ -386,6 +391,12 @@ def run_study(
                           sample_from_prior=sample_from_prior)
 
         replicates[replicate_seed.replicate] = replicate_path
+        jax.clear_caches()
+        gc.collect()
+        logger.info(
+            f"Replicate {replicate_seed.replicate} done, peak memory "
+            f"{resource.getrusage(resource.RUSAGE_SELF).ru_maxrss // 1024} MB."
+        )
 
     return Study(
         path=output_path, config=config, replicates=replicates, seeds=seeds

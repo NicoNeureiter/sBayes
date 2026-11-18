@@ -30,9 +30,8 @@ if __name__ == "__main__":
     # run_no_data_check(config, n_replicates=100, bucket=bucket)
 
     for variant, feature_types in VARIANTS.items():
-        if variant == "categorical":
-            run_variant(config, name=variant, feature_types=feature_types,
-                        n_replicates=100, bucket=bucket)
+        run_variant(config, name=variant, feature_types=feature_types,
+                    n_replicates=100, bucket=bucket)
 
     # Reached only if the run and upload succeeded; a failure raises above
     # and leaves the VM up so the results can be retrieved from disk.
