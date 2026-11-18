@@ -713,7 +713,8 @@ class OnlineSampleLogger:
         with _open_h5(self.path, mode="r") as file:
             if "/potential_energy" not in file:
                 return 0
-            return file.root.potential_energy.nrows
+            # `nrows` is a NumPy integer, which NumPyro does not accept as a count
+            return int(file.root.potential_energy.nrows)
 
     def dump_state(self, state) -> None:
         """Write the sampler state to disk, so that the run can be resumed."""
