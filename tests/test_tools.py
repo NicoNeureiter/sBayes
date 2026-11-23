@@ -320,6 +320,7 @@ def write_run(
     labels: list[tuple[str, str]],
     object_ids: list[str] | None = None,
     object_names: list[str] | None = None,
+    membership: float = 0.9,
 ) -> Path:
     """Write a samples file in which sample i labels the clusters `labels[i]`.
 
@@ -332,8 +333,8 @@ def write_run(
     total_dist = np.zeros((n_samples, 2))
     for i, sample_labels in enumerate(labels):
         for k, cluster in enumerate(sample_labels):
-            z[i, MEMBERS[cluster], k] = 0.9
-            z[i, MEMBERS[cluster], 2] = 0.1
+            z[i, MEMBERS[cluster], k] = membership
+            z[i, MEMBERS[cluster], 2] = 1 - membership
             effect[i, k, 0] = EFFECT[cluster]
             total_dist[i, k] = TOTAL_DIST[cluster]
 
@@ -575,3 +576,58 @@ def test_summary_of_an_older_samples_file_lists_object_indices(tmp_path):
     table = pd.read_csv(path, sep="\t")
     assert list(table.columns) == ["object", "a0", "a1"]
 
+
+
+def test_summarize_combines_the_runs_of_a_directory(tmp_path):
+    """Runs are aligned to the first run and averaged, weighted by their samples."""
+    write_run(tmp_path / "K2" / "samples_0.h5", [("A", "B")] * 1, membership=0.9)
+    write_run(tmp_path / "K2" / "samples_1.h5", [("B", "A")] * 3, membership=0.5)
+
+    (path,) = summarize_main([tmp_path], burn_in=0.0, combine=True)
+
+    assert path.name == "cluster_summary_K2.tsv"
+    assert not list(tmp_path.rglob("cluster_summary_K2_*.tsv"))
+    summary = ClusterReference.read(path)
+    assert summary.cluster_names == ["a0", "a1"]
+    # A is a0 in the first run: (1 * 0.9 + 3 * 0.5) / 4 = 0.6
+    np.testing.assert_allclose(summary.mean_clusters, [[0.6, 0.6, 0, 0], [0, 0, 0.6, 0.6]])
+
+
+def test_summarize_combines_each_directory_separately(tmp_path):
+    write_run(tmp_path / "a" / "samples_0.h5", [("A", "B")] * 2)
+    write_run(tmp_path / "a" / "samples_1.h5", [("B", "A")] * 2)
+    write_run(tmp_path / "b" / "samples_0.h5", [("B", "A")] * 2)
+
+    paths = summarize_main([tmp_path / "a", tmp_path / "b"], burn_in=0.0, combine=True)
+
+    assert paths == [tmp_path / "a" / "cluster_summary_K2.tsv", tmp_path / "b" / "cluster_summary_K2.tsv"]
+    # Without a reference, each directory keeps the labels of its first run
+    np.testing.assert_allclose(
+        ClusterReference.read(paths[1]).mean_clusters,
+        ClusterReference.read(paths[0]).mean_clusters[::-1],
+    )
+
+
+def test_summarize_combined_runs_take_the_reference_labels(tmp_path):
+    write_run(tmp_path / "samples_0.h5", [("A", "B")] * 2)
+    write_run(tmp_path / "samples_1.h5", [("B", "A")] * 2)
+    reference = ClusterReference(
+        cluster_names=["east", "west"],
+        mean_clusters=np.array([[0.0, 0.0, 1.0, 1.0], [1.0, 1.0, 0.0, 0.0]]),
+    )
+    reference.write(tmp_path / "ref.tsv")
+
+    (path,) = summarize_main(
+        [tmp_path], burn_in=0.0, combine=True, reference_path=tmp_path / "ref.tsv"
+    )
+
+    summary = ClusterReference.read(path)
+    assert summary.cluster_names == ["east", "west"]
+    np.testing.assert_allclose(summary.mean_clusters, [[0, 0, 0.9, 0.9], [0.9, 0.9, 0, 0]])
+
+
+def test_summarize_does_not_combine_runs_of_other_objects(tmp_path):
+    write_run(tmp_path / "samples_0.h5", [("A", "B")] * 2, object_ids=["o0", "o1", "o2", "o3"])
+    write_run(tmp_path / "samples_1.h5", [("A", "B")] * 2, object_ids=["x0", "x1", "x2", "x3"])
+    with pytest.raises(ValueError, match="same clusters and objects"):
+        summarize_main([tmp_path], burn_in=0.0, combine=True)

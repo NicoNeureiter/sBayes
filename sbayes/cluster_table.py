@@ -2,8 +2,9 @@
 
 A cluster table holds the mean membership of each object (rows) in each cluster
 (columns). It is used in two ways:
-- as a cluster summary of one run (`cluster_summary_K{K}_{run}.tsv`, written by
-  `sbayesSummarizeClusters`), readable without the samples file
+- as a cluster summary of one run (`cluster_summary_K{K}_{run}.tsv`) or of several
+  runs combined (`cluster_summary_K{K}.tsv`), written by `sbayesSummarizeClusters` and
+  readable without the samples file
 - as a cluster reference, one per number of clusters (`cluster_reference_K{K}.tsv`,
   written by `sbayesAlignClusters`). Results are aligned to it by matching their mean
   memberships to the reference columns, so the cluster labels (and the colours derived
@@ -39,7 +40,10 @@ def reference_file_name(n_clusters: int) -> str:
     return f"cluster_reference_K{n_clusters}.tsv"
 
 
-def summary_file_name(n_clusters: int, run: int) -> str:
+def summary_file_name(n_clusters: int, run: int | None = None) -> str:
+    """Name of the summary of one run, or of all runs combined if `run` is None."""
+    if run is None:
+        return f"cluster_summary_K{n_clusters}.tsv"
     return f"cluster_summary_K{n_clusters}_{run}.tsv"
 
 
