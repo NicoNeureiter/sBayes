@@ -9,8 +9,9 @@ from pathlib import Path
 from sbayes.load_data import FeatureType
 from sbayes.sampling.loggers import write_stats_file
 from sbayes.tools._h5 import parse_run_location
-from sbayes.cluster_reference import ClusterReference, align_to_reference, find_reference_files
+from sbayes.cluster_table import ClusterReference, align_to_reference, find_reference_files
 from sbayes.results import Results, cluster_overlap
+from sbayes.tools.summarize_clusters import main as summarize_main
 from sbayes.tools.align_clusters import align_runs, find_runs, main as align_main
 from sbayes.tools.convert_prior_csv_to_json import read_prior_counts
 from sbayes.tools.find_correlated_features import find_correlated_pairs
@@ -21,6 +22,7 @@ from sbayes.tools.elpd import RunFile, find_run_files, resolve_na, to_log_likeli
 @pytest.mark.parametrize("name", [
     "guess_feature_types", "migrate_results", "estimate_empirical_prior",
     "find_correlated_features", "elpd", "convert_prior_csv_to_json", "align_clusters",
+    "summarize_clusters",
 ])
 def test_tool_imports(name):
     importlib.import_module(f"sbayes.tools.{name}")
@@ -313,8 +315,17 @@ ALIGN_METADATA = {
 }
 
 
-def write_run(path: Path, labels: list[tuple[str, str]]) -> Path:
-    """Write a samples file in which sample i labels the clusters `labels[i]`."""
+def write_run(
+    path: Path,
+    labels: list[tuple[str, str]],
+    object_ids: list[str] | None = None,
+    object_names: list[str] | None = None,
+) -> Path:
+    """Write a samples file in which sample i labels the clusters `labels[i]`.
+
+    The object IDs and names are stored in the metadata if given, as by the current
+    sampler; without them, the file is like one written by earlier versions.
+    """
     n_samples = len(labels)
     z = np.zeros((n_samples, 4, 3))
     effect = np.zeros((n_samples, 2, 1, 2))
@@ -336,7 +347,12 @@ def write_run(path: Path, labels: list[tuple[str, str]]) -> Path:
     }
     path.parent.mkdir(parents=True, exist_ok=True)
     with tables.open_file(str(path), mode="w") as f:
-        f.set_node_attr(f.root, "metadata", json.dumps(ALIGN_METADATA))
+        metadata = dict(ALIGN_METADATA)
+        if object_ids is not None:
+            metadata["object_ids"] = object_ids
+        if object_names is not None:
+            metadata["object_names"] = object_names
+        f.set_node_attr(f.root, "metadata", json.dumps(metadata))
         for name, array in arrays.items():
             f.create_array(f.root, name, array)
         f.create_group(f.root, "derived")
@@ -470,17 +486,92 @@ def test_align_to_reference_rejects_a_different_number_of_clusters(tmp_path):
 
 
 def test_align_main_writes_the_reference(tmp_path):
-    write_run(tmp_path / "K2" / "samples_0.h5", [("B", "A")] * 4)
-    write_run(tmp_path / "K2" / "samples_1.h5", [("A", "B")] * 4)
-    pd.DataFrame({"id": ["o0", "o1", "o2", "o3"], "x": 0, "y": 0}).to_csv(
-        tmp_path / "features.csv", index=False
-    )
+    ids = ["o0", "o1", "o2", "o3"]
+    write_run(tmp_path / "K2" / "samples_0.h5", [("B", "A")] * 4, object_ids=ids)
+    write_run(tmp_path / "K2" / "samples_1.h5", [("A", "B")] * 4, object_ids=ids)
 
-    align_main([tmp_path], burn_in=0.0, reference_dir=tmp_path,
-               features_path=tmp_path / "features.csv")
+    align_main([tmp_path], burn_in=0.0, reference_dir=tmp_path)
 
     reference = ClusterReference.read(tmp_path / "cluster_reference_K2.tsv")
     assert reference.object_ids == ["o0", "o1", "o2", "o3"]
     assert reference.object_names is None
     # Run 0 is the reference, in which cluster a0 is B (objects 2 and 3)
     np.testing.assert_allclose(reference.mean_clusters, [[0, 0, 0.9, 0.9], [0.9, 0.9, 0, 0]])
+
+
+# --- Cluster summaries ------------------------------------------------------------
+
+def test_summarize_writes_one_table_per_run(tmp_path):
+    write_run(tmp_path / "K2" / "samples_0.h5", [("A", "B")] * 4)
+    write_run(tmp_path / "K2" / "samples_1.h5", [("B", "A")] * 4)
+
+    paths = summarize_main([tmp_path], burn_in=0.0)
+
+    assert [p.name for p in paths] == ["cluster_summary_K2_0.tsv", "cluster_summary_K2_1.tsv"]
+    summary_0 = ClusterReference.read(paths[0])
+    summary_1 = ClusterReference.read(paths[1])
+    assert summary_0.cluster_names == ["a0", "a1"]
+    np.testing.assert_allclose(summary_0.mean_clusters, [[0.9, 0.9, 0, 0], [0, 0, 0.9, 0.9]])
+    # Without a reference, each run keeps its own labels
+    np.testing.assert_allclose(summary_1.mean_clusters, summary_0.mean_clusters[::-1])
+
+
+def test_summarize_aligns_to_a_reference(tmp_path):
+    ids, names = ["o0", "o1", "o2", "o3"], list("pqrs")
+    write_run(tmp_path / "K2" / "samples_0.h5", [("A", "B")] * 4, ids, names)
+    write_run(tmp_path / "K2" / "samples_1.h5", [("B", "A")] * 4, ids, names)
+    reference = ClusterReference(
+        cluster_names=["east", "west"],
+        mean_clusters=np.array([[0.0, 0.0, 1.0, 1.0], [1.0, 1.0, 0.0, 0.0]]),
+        object_ids=["o0", "o1", "o2", "o3"],
+    )
+    reference.write(tmp_path / "cluster_reference_K2.tsv")
+
+    paths = summarize_main([tmp_path], burn_in=0.0, reference_path=tmp_path)
+
+    for path in paths:
+        summary = ClusterReference.read(path)
+        assert summary.cluster_names == ["east", "west"]
+        assert summary.object_names == list("pqrs")
+        np.testing.assert_allclose(summary.mean_clusters, [[0, 0, 0.9, 0.9], [0.9, 0.9, 0, 0]])
+
+
+def test_a_summary_can_serve_as_reference(tmp_path):
+    write_run(tmp_path / "a" / "samples_0.h5", [("A", "B")] * 4)
+    write_run(tmp_path / "b" / "samples_0.h5", [("B", "A")] * 4)
+    (summary_a,) = summarize_main([tmp_path / "a"], burn_in=0.0)
+
+    (summary_b,) = summarize_main([tmp_path / "b"], burn_in=0.0, reference_path=summary_a)
+
+    np.testing.assert_allclose(
+        ClusterReference.read(summary_b).mean_clusters,
+        ClusterReference.read(summary_a).mean_clusters,
+    )
+
+
+def test_summarize_matches_the_reference_by_object_id(tmp_path):
+    """A reference with its rows in another order is matched by object ID."""
+    write_run(tmp_path / "samples_0.h5", [("A", "B")] * 2, object_ids=["o0", "o1", "o2", "o3"])
+    reference = ClusterReference(
+        cluster_names=["east", "west"],
+        # Objects o2, o3 (cluster B) first
+        mean_clusters=np.array([[1.0, 1.0, 0.0, 0.0], [0.0, 0.0, 1.0, 1.0]]),
+        object_ids=["o2", "o3", "o0", "o1"],
+    )
+    reference.write(tmp_path / "ref.tsv")
+
+    (path,) = summarize_main([tmp_path], burn_in=0.0, reference_path=tmp_path / "ref.tsv")
+
+    summary = ClusterReference.read(path)
+    assert summary.object_ids == ["o0", "o1", "o2", "o3"]
+    np.testing.assert_allclose(summary.mean_clusters, [[0, 0, 0.9, 0.9], [0.9, 0.9, 0, 0]])
+
+
+def test_summary_of_an_older_samples_file_lists_object_indices(tmp_path):
+    """Files written before the metadata held the object IDs still work."""
+    write_run(tmp_path / "samples_0.h5", [("A", "B")] * 2)
+    (path,) = summarize_main([tmp_path], burn_in=0.0)
+
+    table = pd.read_csv(path, sep="\t")
+    assert list(table.columns) == ["object", "a0", "a1"]
+

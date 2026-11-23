@@ -725,6 +725,7 @@ def read_h5_samples(
     h5_path: PathLike,
     extra_keys: Sequence[str] = (),
     match: bool = True,
+    include_derived: bool = True,
 ) -> tuple[dict[str, Any], dict[str, NDArray]]:
     """Read the metadata and the sample arrays of one run from its samples h5 file.
 
@@ -736,6 +737,8 @@ def read_h5_samples(
         extra_keys: further sample arrays to read, each only if present in the file
         match: if True, permute the clusters of each sample so that cluster labels are
             consistent across the chain (see `match_clusters`)
+        include_derived: if False, skip the log-densities in `/derived`, e.g. to avoid
+            reading the (large) pointwise likelihood when only the clusters are needed
 
     Returns:
         The metadata, and the arrays by h5 key. Besides the keys read from the file,
@@ -783,7 +786,7 @@ def read_h5_samples(
         keys += [k for k in extra_keys if k not in keys and f"/{k}" in f]
         arrays = {key: read(key) for key in keys}
 
-        if "derived" in f.root:
+        if include_derived and "derived" in f.root:
             derived = f.get_node(f.root, "derived")
 
             if "log_posterior" in derived:
@@ -797,7 +800,8 @@ def read_h5_samples(
                     likelihood = likelihood[:, ~na_values]
                 arrays["likelihood_pointwise"] = likelihood
 
-        if "log_posterior" not in arrays and "potential_energy" in f.root:
+        if (include_derived and "log_posterior" not in arrays
+                and "potential_energy" in f.root):
             # Some older files may only the sampler's potential, which lives in
             # unconstrained space and is therefore not comparable to
             # `log_likelihood`; `log_prior` derived from it is meaningless.

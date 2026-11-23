@@ -506,6 +506,9 @@ def _build_h5_metadata(
 
     return {
         "cluster_names": list(cluster_names),
+        # The objects, so that results can be matched to cluster tables by ID
+        "object_ids": [str(i) for i in data.objects.id],
+        "object_names": [str(n) for n in data.objects.names],
         "feature_names": list(feature_names),
         "component_names": list(component_names),
         "confounders": {

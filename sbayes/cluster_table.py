@@ -1,10 +1,14 @@
-"""Cluster reference tables: a fixed cluster order to align results to.
+"""Cluster tables: the mean cluster memberships of a run, as a TSV table.
 
-A cluster reference is a TSV table with the mean membership of each object (rows) in
-each cluster (columns), one file per number of clusters (`cluster_reference_K{K}.tsv`).
-Results are aligned to it by matching their mean memberships to the reference columns,
-so the cluster labels (and the colours derived from them) stay the same across
-experiments and across separate plotting sessions.
+A cluster table holds the mean membership of each object (rows) in each cluster
+(columns). It is used in two ways:
+- as a cluster summary of one run (`cluster_summary_K{K}_{run}.tsv`, written by
+  `sbayesSummarizeClusters`), readable without the samples file
+- as a cluster reference, one per number of clusters (`cluster_reference_K{K}.tsv`,
+  written by `sbayesAlignClusters`). Results are aligned to it by matching their mean
+  memberships to the reference columns, so the cluster labels (and the colours derived
+  from them) stay the same across experiments and plotting sessions. Any cluster
+  summary can serve as a reference as well.
 
 The table is meant to be human-readable and editable:
 - the column order sets the cluster order (e.g. the colours on a map)
@@ -33,6 +37,10 @@ FILE_PATTERN = re.compile(r"cluster_reference_K(\d+)\.tsv")
 
 def reference_file_name(n_clusters: int) -> str:
     return f"cluster_reference_K{n_clusters}.tsv"
+
+
+def summary_file_name(n_clusters: int, run: int) -> str:
+    return f"cluster_summary_K{n_clusters}_{run}.tsv"
 
 
 @dataclass
@@ -72,6 +80,31 @@ class ClusterReference:
             mean_clusters=results.mean_clusters(),
             object_ids=None if object_ids is None else [str(i) for i in object_ids],
             object_names=None if object_names is None else [str(n) for n in object_names],
+        )
+
+    @classmethod
+    def from_metadata(
+        cls,
+        mean_clusters: NDArray,
+        metadata: dict,
+        cluster_names: list[str] | None = None,
+    ) -> ClusterReference:
+        """Build a table from mean memberships and the metadata of a samples file.
+
+        The object IDs and names are taken from the metadata. Samples files written by
+        earlier versions have neither, so their tables match objects by position.
+
+        Args:
+            mean_clusters: mean membership of each object in each cluster.
+                shape: (n_clusters, n_objects)
+            metadata: the metadata of the samples file
+            cluster_names: the cluster names. None = those of the metadata.
+        """
+        return cls(
+            cluster_names=list(cluster_names or metadata["cluster_names"]),
+            mean_clusters=mean_clusters,
+            object_ids=metadata.get("object_ids"),
+            object_names=metadata.get("object_names"),
         )
 
     def write(self, path: PathLike, decimals: int = 3) -> None:
@@ -171,13 +204,38 @@ def align_to_reference(
     Raises:
         ValueError: if the number of clusters or the objects do not match.
     """
-    if reference.n_clusters != results.n_clusters:
+    permutation, overlap = match_to_reference(results.mean_clusters(), reference, object_ids)
+    return results.permute_clusters(permutation, reference.cluster_names), overlap
+
+
+def match_to_reference(
+    mean_clusters: NDArray,
+    reference: ClusterReference,
+    object_ids: list | None = None,
+) -> tuple[NDArray, NDArray]:
+    """Match mean cluster memberships to the clusters of `reference`.
+
+    Args:
+        mean_clusters: mean membership of each object in each cluster.
+            shape: (n_clusters, n_objects)
+        reference: the reference, with the same number of clusters
+        object_ids: the ID of each object, used to match the objects to the
+            reference. None = match by position.
+
+    Returns:
+        The permutation (cluster `permutation[i]` corresponds to reference cluster `i`)
+        and the overlap of each reference cluster with its match (see
+        `cluster_overlap`).
+
+    Raises:
+        ValueError: if the number of clusters or the objects do not match.
+    """
+    n_clusters, n_objects = mean_clusters.shape
+    if reference.n_clusters != n_clusters:
         raise ValueError(
             f"The cluster reference has {reference.n_clusters} clusters, but the "
-            f"results have {results.n_clusters}."
+            f"results have {n_clusters}."
         )
-    ref_mean = reference.mean_clusters_for(object_ids, results.n_objects)
-    mean = results.mean_clusters()
-    permutation = match_mean_clusters(ref_mean, mean)
-    overlap = cluster_overlap(ref_mean, mean[permutation])
-    return results.permute_clusters(permutation, reference.cluster_names), overlap
+    ref_mean = reference.mean_clusters_for(object_ids, n_objects)
+    permutation = match_mean_clusters(ref_mean, mean_clusters)
+    return permutation, cluster_overlap(ref_mean, mean_clusters[permutation])

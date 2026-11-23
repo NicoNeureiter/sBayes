@@ -7,14 +7,14 @@ that the traces of all runs can be compared directly, e.g. in Tracer. The sample
 files are not changed: the stats files can be rebuilt from them at any time.
 
 With --write-reference, the mean cluster memberships of the reference run are also
-written to `cluster_reference_K{K}.tsv` (see `sbayes.cluster_reference`). sBlot can
+written to `cluster_reference_K{K}.tsv` (see `sbayes.cluster_table`). sBlot can
 align results to this table, and it can be edited by hand, e.g. to reorder clusters.
 
 Usage:
     sbayesAlignClusters results/my_experiment
     sbayesAlignClusters results/my_experiment/K5 --reference 2
     sbayesAlignClusters results/exp_a results/exp_b -k 5
-    sbayesAlignClusters results/exp_a results/exp_b --write-reference --features data/features.csv
+    sbayesAlignClusters results/exp_a results/exp_b --write-reference
 """
 from __future__ import annotations
 
@@ -27,13 +27,11 @@ from collections import defaultdict
 from dataclasses import dataclass
 from numpy.typing import NDArray
 from pathlib import Path
-from sbayes.cluster_reference import ClusterReference, reference_file_name
+from sbayes.cluster_table import ClusterReference, reference_file_name
 from sbayes.results import alignment_permutation, cluster_overlap
 from sbayes.sampling.loggers import (
     build_stats_table, permute_clusters, read_stats_samples, write_stats_table
 )
-
-import pandas as pd
 
 SAMPLES_FILE_PATTERN = re.compile(r"samples_(?:K\d+_)?(\d+)\.h5")
 """Samples file names: `samples_{run}.h5`, or `samples_K{K}_{run}.h5` in some versions."""
@@ -109,7 +107,6 @@ def align_runs(
     burn_in: float = 0.1,
     warn_below: float = 0.5,
     reference_dir: Path | None = None,
-    objects: pd.DataFrame | None = None,
 ) -> dict[Run, NDArray]:
     """Align the clusters of `runs` to `reference` and rewrite their stats files.
 
@@ -125,8 +122,6 @@ def align_runs(
         warn_below: report clusters whose overlap with the reference is below this
         reference_dir: if given, write the mean cluster memberships of the reference
             run (after the burn-in) to `cluster_reference_K{K}.tsv` in this directory
-        objects: the `id` and (optional) `name` of each object, added to the
-            reference table
 
     Returns:
         The overlap of each cluster with the reference, per run.
@@ -143,7 +138,7 @@ def align_runs(
     del ref_arrays
 
     if reference_dir is not None:
-        write_reference(ref_clusters.mean(axis=0), cluster_names, reference_dir, objects)
+        write_reference(ref_clusters.mean(axis=0), ref_metadata, reference_dir)
 
     overlaps = {}
     for run in runs:
@@ -186,43 +181,16 @@ def align_runs(
     return overlaps
 
 
-def write_reference(
-    mean_clusters: NDArray,
-    cluster_names: list[str],
-    directory: Path,
-    objects: pd.DataFrame | None = None,
-) -> Path:
+def write_reference(mean_clusters: NDArray, metadata: dict, directory: Path) -> Path:
     """Write the cluster reference table for one number of clusters.
 
-    Raises:
-        ValueError: if `objects` does not have one row per object.
+    The object IDs and names are taken from the metadata of the samples file.
     """
-    n_clusters, n_objects = mean_clusters.shape
-    if objects is not None and len(objects) != n_objects:
-        raise ValueError(
-            f"The features file has {len(objects)} objects, but the results have {n_objects}."
-        )
-    reference = ClusterReference(
-        cluster_names=list(cluster_names),
-        mean_clusters=mean_clusters,
-        object_ids=None if objects is None else objects["id"].astype(str).tolist(),
-        object_names=(
-            None if objects is None or "name" not in objects
-            else objects["name"].astype(str).tolist()
-        ),
-    )
-    path = directory / reference_file_name(n_clusters)
+    reference = ClusterReference.from_metadata(mean_clusters, metadata)
+    path = directory / reference_file_name(reference.n_clusters)
     reference.write(path)
     print(f"Cluster reference: {path}")
     return path
-
-
-def read_objects(features_path: Path) -> pd.DataFrame:
-    """The `id` and (optional) `name` columns of a features file, in data order."""
-    features = pd.read_csv(features_path, dtype=str)
-    if "id" not in features:
-        raise ValueError(f"{features_path} has no `id` column.")
-    return features[[c for c in ("id", "name") if c in features]]
 
 
 def main(
@@ -232,7 +200,6 @@ def main(
     burn_in: float = 0.1,
     warn_below: float = 0.5,
     reference_dir: Path | None = None,
-    features_path: Path | None = None,
 ) -> None:
     """Align the runs found in `paths`, separately for each number of clusters.
 
@@ -245,13 +212,9 @@ def main(
         warn_below: report clusters whose overlap with the reference is below this
         reference_dir: if given, write a cluster reference table per number of
             clusters to this directory (see `align_runs`)
-        features_path: features file, whose object IDs and names are added to the
-            reference tables
     """
     if not 0.0 <= burn_in < 1.0:
         raise ValueError(f"`burn_in` must be in [0, 1), but was {burn_in}.")
-
-    objects = None if features_path is None else read_objects(features_path)
 
     # Runs per number of clusters, keeping the order of `paths`
     runs_by_k: dict[int, list[Run]] = defaultdict(list)
@@ -283,7 +246,7 @@ def main(
 
         align_runs(
             runs, ref_run, burn_in=burn_in, warn_below=warn_below,
-            reference_dir=reference_dir, objects=objects,
+            reference_dir=reference_dir,
         )
 
 
@@ -315,11 +278,6 @@ def cli() -> None:
              "cluster_reference_K{K}.tsv in DIR (default: the first results "
              "directory). sBlot can align results to these tables.",
     )
-    parser.add_argument(
-        "--features", type=Path, default=None,
-        help="Features file of the analysis, whose object IDs and names are added "
-             "to the reference tables.",
-    )
     args = parser.parse_args()
     reference_dir = args.paths[0] if args.write_reference is True else args.write_reference
     main(
@@ -329,7 +287,6 @@ def cli() -> None:
         burn_in=args.burn_in,
         warn_below=args.warn_below,
         reference_dir=reference_dir,
-        features_path=args.features,
     )
 
 
