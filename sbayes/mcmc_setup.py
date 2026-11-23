@@ -8,7 +8,9 @@ import time
 from jax import random
 from sbayes.config.config import MCMCConfig
 from sbayes.model import Model
-from sbayes.sampling.loggers import write_samples, OnlineSampleLogger, h5_metadata
+from sbayes.sampling.loggers import (
+    DerivedValues, OnlineSampleLogger, h5_metadata, write_samples
+)
 from sbayes.experiment_setup import Experiment
 from sbayes.load_data import Data
 from sbayes.sampling.numpyro_sampling import sample_nuts
@@ -109,8 +111,12 @@ class MCMCSetup:
         thinning = mcmc_config.steps // mcmc_config.samples
         num_steps = mcmc_config.steps
 
-        metadata = h5_metadata(self.data, self.model.n_clusters)
-        with OnlineSampleLogger(self.path_results, run, resume, metadata) as sample_logger:
+        sample_logger = OnlineSampleLogger(
+            self.path_results, run, resume,
+            metadata=h5_metadata(self.data, self.model.n_clusters),
+            derive=DerivedValues(self.model, self.data),
+        )
+        with sample_logger:
             initial_state = None
             if resume:
                 initial_state = sample_logger.load_state()
@@ -149,7 +155,7 @@ class MCMCSetup:
 
         if not results_config.samples_file_only:
             self.logger.info("Writing samples to disk")
-            # Write results to sBayes results files (stats TSV + likelihood into samples h5)
+            # Write the stats TSV and the metadata (the derived values are already in the h5)
             np.random.seed(mcmc_config.seed + run)
             write_samples(
                 run=run,
