@@ -1,7 +1,6 @@
 """ Setup of the MCMC process """
 from __future__ import annotations
 
-import numpy as np
 import shutil
 import time
 
@@ -155,8 +154,7 @@ class MCMCSetup:
 
         if not results_config.samples_file_only:
             self.logger.info("Writing samples to disk")
-            # Write the stats TSV and the metadata (the derived values are already in the h5)
-            np.random.seed(mcmc_config.seed + run)
+            # Write the metadata to the samples file and the stats TSV from it
             write_samples(
                 run=run,
                 base_path=self.path_results,

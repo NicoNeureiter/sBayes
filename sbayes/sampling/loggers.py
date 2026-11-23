@@ -20,7 +20,8 @@ from numpyro.infer.util import log_density
 from pathlib import Path
 from sbayes.load_data import Data, CategoricalFeatures, GaussianFeatures, PoissonFeatures, GenericTypeFeatures
 from sbayes.model import Model
-from sbayes.util import PathLike, sample_categorical, get_best_permutation
+from sbayes.results import PER_CLUSTER_KEYS, read_h5_samples
+from sbayes.util import PathLike
 from typing import Sequence, Any, Self
 
 
@@ -188,225 +189,238 @@ def write_samples(
     samples: dict[str, np.ndarray],
     data: Data,
     model: Model,
-    match_clusters: bool = True,
 ) -> None:
-    """Write the samples of one run to a stats file and the samples file.
+    """Complete the samples file of a finished run and write its stats file.
 
-    Writes a TSV with one row per sample, holding the cluster sizes, the weights, the
-    effect parameters and the log-densities (formatted for Tracer), and adds the
-    metadata to the samples HDF5 file that the sampler wrote during the run. The
-    log-densities are taken from the file's `/derived` group, and computed and written
-    there only if they are missing.
+    Adds the metadata to the samples HDF5 file that the sampler wrote during the run,
+    computes the derived log-densities if the run did not write them, and writes the
+    stats TSV from the completed file (see `write_stats_file`).
 
     Args:
         run: index of this run, used in the file names
         base_path: directory to write the files to
-        samples: the samples of this run, per parameter
+        samples: the samples of this run, per parameter, as stored in the samples file
         data: the data the model was fitted to
         model: the model that was sampled
-        match_clusters: if True, permute the clusters of each sample so that cluster
-            labels are consistent across samples
     """
-    clusters_samples = sample_categorical(
-        np.array(samples['z']), binary_encoding=True
-    )[:, :, :-1].transpose(0, 2, 1)
-    n_samples, n_clusters, n_objects = clusters_samples.shape
-
-    partitions = data.features.partitions
-
-    # Cast all parameters from jax.numpy to numpy
     samples = {k: np.array(v) for k, v in samples.items()}
+    n_samples = len(samples["z"])
+    n_clusters = samples["z"].shape[-1] - 1
 
-    # The derived values are usually written by the online logger during the run, and
-    # only computed here if they are missing. They must be computed before the cluster
-    # permutation below: that permutes the cluster effects but leaves `z` as it is, so
-    # afterwards the two no longer describe the same parameter point. Both are
-    # invariant to the permutation itself, so the values apply to the permuted samples.
     samples_h5_path = base_path / f'samples_{run}.h5'
     with_likelihood = not model.config.sample_from_prior
     with _open_h5(samples_h5_path, mode="a") as h5_file:
         h5_file.set_node_attr(
             h5_file.root, "metadata", json.dumps(h5_metadata(data, n_clusters))
         )
+        # The derived values are usually written by the online logger during the run,
+        # and only computed here if they are missing
         if not _has_derived(h5_file, n_samples, with_likelihood):
             if "/derived" in h5_file:
                 h5_file.remove_node("/derived", recursive=True)
             derive = DerivedValues(model, data)
             _append_derived(h5_file, derive(samples), derive.constants())
 
-        log_posterior = h5_file.root.derived.log_posterior.read()
-        log_likelihood = (
-            h5_file.root.derived.likelihood.read().sum(axis=-1)
-            if with_likelihood else None
-        )
+    write_stats_file(samples_h5_path, base_path / f'stats_K{n_clusters}_{run}.tsv')
 
-    if match_clusters:
-        # Cluster labels are arbitrary, so the clusters of each sample are permuted to
-        # match the clusters seen so far. Note: only the binarized clusters and the
-        # cluster effects are permuted - `z` in the samples file stays unpermuted.
-        clusters_sum = np.zeros(clusters_samples.shape[1:], dtype=int)
 
-        for i, clusters in enumerate(clusters_samples):
-            permutation = get_best_permutation(clusters, clusters_sum)
+OPTIONAL_PARAMETERS = (
+    "w_cluster_factor_c",
+    "w_concentration",
+    "z_concentration",
+    "z_concentration_nocluster",
+    "cluster_mask",
+    "geoprior_scale",
+    "geoprior",
+    "geoprior_total_dist",
+    "highest_z_penalty",
+    "z0_stretch_factor",
+)
+"""Parameters that are only sampled under some settings, written to the stats file
+if present."""
 
-            clusters = clusters[permutation]
-            for param_name in get_cluster_effect_names(partitions):
-                samples[param_name][i] = samples[param_name][i, permutation]
 
-            clusters_sum += clusters
-            clusters_samples[i] = clusters
+def read_stats_samples(h5_path: PathLike) -> tuple[dict[str, Any], dict[str, np.ndarray]]:
+    """Read the samples of a run that go into its stats file.
 
-    cluster_names = get_cluster_names(n_clusters)
-    feature_names = data.features.names
-    n_states = max(
-        (p.n_states for p in data.features.categorical_partitions()), default=0
-    )
-    state_names = [f"s{s}" for s in range(n_states)]
+    The clusters are matched within the run (see `Results.from_h5`), so the labels in
+    the stats file agree with those of the loaded results.
 
-    param_dfs_list: list[pd.DataFrame] = []
+    Args:
+        h5_path: path to the samples h5 file, with metadata
 
-    cluster_sizes = np.sum(clusters_samples, axis=-1)
+    Returns:
+        The metadata, and the sample arrays of the whole chain (see `read_h5_samples`).
+    """
+    extra_keys = ["w_cluster", "potential_energy", *OPTIONAL_PARAMETERS]
+    return read_h5_samples(h5_path, extra_keys=extra_keys, match=True)
 
-    sample_id_df = pd.DataFrame(data=np.arange(n_samples), columns=['Sample'])
-    cluster_sizes_df = pd.DataFrame(
-        data=cluster_sizes, columns=[f'size_{c}' for c in cluster_names]
-    )
-    param_dfs_list += [sample_id_df, cluster_sizes_df]
 
-    # Transform the weights samples to a data frame
+def permute_clusters(
+    metadata: dict[str, Any],
+    arrays: dict[str, np.ndarray],
+    permutation: Sequence[int],
+) -> dict[str, np.ndarray]:
+    """Relabel the clusters of every sample with the same permutation.
+
+    Args:
+        metadata: the metadata of the samples file
+        arrays: the sample arrays, as returned by `read_stats_samples`
+        permutation: cluster `permutation[i]` becomes cluster `i`
+
+    Returns:
+        The arrays with the per-cluster ones permuted (the others are not copied).
+    """
+    permutation = np.asarray(permutation)
+    per_cluster_keys = [
+        "clusters",
+        *(key for p in metadata["partitions"] for key in p["cluster_effect_keys"]),
+        *PER_CLUSTER_KEYS,
+    ]
+    permuted = dict(arrays)
+    for key in per_cluster_keys:
+        if key in arrays:
+            permuted[key] = arrays[key][:, permutation]
+    return permuted
+
+
+def build_stats_table(
+    metadata: dict[str, Any], arrays: dict[str, np.ndarray]
+) -> pd.DataFrame:
+    """Build the stats table of a run, with one row per sample.
+
+    Holds the expected cluster sizes, the weights, the effect parameters, the
+    log-densities and the optional parameters, in the column format read by Tracer.
+
+    Args:
+        metadata: the metadata of the samples file
+        arrays: the sample arrays, as returned by `read_stats_samples`
+
+    Returns:
+        The stats table.
+    """
+    cluster_names = metadata["cluster_names"]
+    feature_names = metadata["feature_names"]
+    partitions = metadata["partitions"]
+    confounders = metadata["confounders"]
+    n_samples = len(arrays["clusters"])
+
+    # The expected size of each cluster: the sum of its membership probabilities
+    cluster_sizes = arrays["clusters"].sum(axis=-1)
+
+    param_dfs_list: list[pd.DataFrame] = [
+        pd.DataFrame({"Sample": np.arange(n_samples)}),
+        pd.DataFrame(cluster_sizes, columns=[f"size_{c}" for c in cluster_names]),
+    ]
+
     # w shape: (n_samples, n_features, n_components)
-    component_names = ['areal', *data.confounders.keys()]
-    weights_df = samples_array_to_df(
-        param_samples=samples['w'].transpose((0, 2, 1)),
-        names=[component_names, feature_names],
-        prefix='w',
-    )
-    param_dfs_list.append(weights_df)
+    param_dfs_list.append(samples_array_to_df(
+        param_samples=arrays["w"].transpose((0, 2, 1)),
+        names=[metadata["component_names"], feature_names],
+        prefix="w",
+    ))
 
-    # If using varying weights per cluster, add them to the data frame list
-    if "w_cluster" in samples:
-        w_cluster_df = samples_array_to_df(
-            param_samples=samples['w_cluster'],
+    if "w_cluster" in arrays:
+        param_dfs_list.append(samples_array_to_df(
+            param_samples=arrays["w_cluster"],
             names=[cluster_names, feature_names],
-            prefix='w_cluster',
-        )
-        param_dfs_list.append(w_cluster_df)
+            prefix="w_cluster",
+        ))
 
-    all_cluster_eff_dfs: list[pd.DataFrame] = []
-    all_conf_eff_dfs: list[pd.DataFrame] = []
-
-    for partition in partitions:
-        # Note: LogitNormalFeatures subclasses GaussianFeatures and is handled by the
-        # Gaussian branch.
-        if isinstance(partition, CategoricalFeatures):
-            all_cluster_eff_dfs.append(samples_array_to_df(
-                param_samples=samples[f'cluster_effect_{partition.name}'],
-                names=[cluster_names, partition.names, state_names[:partition.n_states]],
-                prefix='areal',
-            ))
-
-            for conf in data.confounders.values():
-                all_conf_eff_dfs.append(samples_array_to_df(
-                    param_samples=samples[f"conf_effect_{conf.name}_{partition.name}"],
-                    names=[
-                        conf.group_names,
-                        partition.names,
-                        state_names[:partition.n_states],
-                    ],
-                    prefix=conf.name,
-                ))
-
-        elif isinstance(partition, GaussianFeatures):
-            for suffix in ("mean", "variance"):
-                all_cluster_eff_dfs.append(samples_array_to_df(
-                    param_samples=samples[f'cluster_effect_{partition.name}_{suffix}'],
-                    names=[cluster_names, partition.names],
-                    prefix='areal',
-                    suffix=suffix,
-                ))
-
-                for conf in data.confounders.values():
-                    all_conf_eff_dfs.append(samples_array_to_df(
-                        param_samples=samples[
-                            f"conf_effect_{conf.name}_{partition.name}_{suffix}"
-                        ],
-                        names=[conf.group_names, partition.names],
-                        prefix=conf.name,
-                        suffix=suffix,
-                    ))
-
-        elif isinstance(partition, PoissonFeatures):
-            all_cluster_eff_dfs.append(samples_array_to_df(
-                param_samples=samples[f'cluster_effect_{partition.name}_rate'],
-                names=[cluster_names, partition.names],
-                prefix='areal',
-                suffix='rate',
-            ))
-
-            for conf in data.confounders.values():
-                all_conf_eff_dfs.append(samples_array_to_df(
-                    param_samples=samples[
-                        f"conf_effect_{conf.name}_{partition.name}_rate"
-                    ],
-                    names=[conf.group_names, partition.names],
-                    prefix=conf.name,
-                    suffix='rate',
-                ))
-
-        else:
-            raise NotImplementedError(
-                f"Partition type {type(partition).__name__} is not supported."
+    def effect_dfs(
+        entity_names: Sequence[str], keys: Sequence[str], p: dict[str, Any], prefix: str
+    ) -> list[pd.DataFrame]:
+        """Data frames of the effect parameters of one partition, for clusters or groups."""
+        if p["type"] == "categorical":
+            # One array with the states as its last dimension
+            return [samples_array_to_df(
+                param_samples=arrays[keys[0]],
+                names=[entity_names, p["feature_names"], p["state_names"]],
+                prefix=prefix,
+            )]
+        # One array per parameter (mean and variance, or rate)
+        return [
+            samples_array_to_df(
+                param_samples=arrays[key],
+                names=[entity_names, p["feature_names"]],
+                prefix=prefix,
+                suffix=state_name,
             )
+            for key, state_name in zip(keys, p["state_names"])
+        ]
 
-    # Add cluster and confounding effects to the data frame list
-    param_dfs_list += all_cluster_eff_dfs + all_conf_eff_dfs
+    for p in partitions:
+        param_dfs_list += effect_dfs(cluster_names, p["cluster_effect_keys"], p, "areal")
+    for p in partitions:
+        for conf_name, group_names in confounders.items():
+            param_dfs_list += effect_dfs(
+                group_names, p["confounder_effect_keys"][conf_name], p, conf_name
+            )
 
     params_df = pd.concat(param_dfs_list, axis=1)
 
-    params_df["log_posterior"] = log_posterior
-    if log_likelihood is not None:
-        params_df["log_likelihood"] = log_likelihood
-        params_df["log_prior"] = (
-            params_df["log_posterior"] - params_df["log_likelihood"]
-        )
+    if "log_posterior" in arrays:
+        params_df["log_posterior"] = arrays["log_posterior"]
+    if "likelihood_pointwise" in arrays:
+        params_df["log_likelihood"] = arrays["likelihood_pointwise"].sum(axis=1)
+        params_df["log_prior"] = params_df["log_posterior"] - params_df["log_likelihood"]
 
     # The sampler's own diagnostic, in unconstrained space — not the log posterior
-    if "potential_energy" in samples:
-        params_df["potential_energy"] = samples["potential_energy"]
+    if "potential_energy" in arrays:
+        params_df["potential_energy"] = arrays["potential_energy"]
 
-    # Parameters that are only sampled under some settings
-    optional_parameters = [
-        "w_cluster_factor_c",
-        "w_concentration",
-        "z_concentration",
-        "z_concentration_nocluster",
-        "cluster_mask",
-        "geoprior_scale",
-        "geoprior",
-        "geoprior_total_dist",
-        "highest_z_penalty",
-        "z0_stretch_factor",
-    ]
-    for param in optional_parameters:
-        if param not in samples:
+    for param in OPTIONAL_PARAMETERS:
+        if param not in arrays:
             continue
 
-        values = samples[param]
+        values = arrays[param]
         if values.ndim == 1:
             params_df[param] = values
         elif values.ndim == 2:
-            for i in range(values.shape[1]):
-                params_df[f"{param}_{i}"] = values[:, i]
+            # Per-cluster parameters are named by cluster, others by index
+            names = (
+                cluster_names if param in PER_CLUSTER_KEYS
+                else [str(i) for i in range(values.shape[1])]
+            )
+            for i, name in enumerate(names):
+                params_df[f"{param}_{name}"] = values[:, i]
         else:
             raise ValueError(
                 f"Cannot write parameter `{param}` with shape {values.shape} to the "
                 f"stats file: at most 2 dimensions are supported."
             )
 
-    # Write params file (TSV for Tracer compatibility)
-    params_path = base_path / f'stats_K{n_clusters}_{run}.tsv'
-    with open(params_path, "w") as params_file:
-        params_df.to_csv(params_file, sep='\t', index=False)
+    return params_df
+
+
+def write_stats_table(params_df: pd.DataFrame, stats_path: PathLike) -> None:
+    """Write a stats table as TSV, replacing the file only once it is complete."""
+    stats_path = Path(stats_path)
+    tmp_path = stats_path.with_name(stats_path.name + ".tmp")
+    params_df.to_csv(tmp_path, sep="\t", index=False)
+    os.replace(tmp_path, stats_path)
+
+
+def write_stats_file(
+    h5_path: PathLike,
+    stats_path: PathLike,
+    permutation: Sequence[int] | None = None,
+) -> None:
+    """Write the stats TSV of a run from its samples file.
+
+    The stats file holds nothing that is not in the samples file, so it can be
+    rewritten at any time, e.g. to relabel the clusters.
+
+    Args:
+        h5_path: path to the samples h5 file, with metadata
+        stats_path: path of the stats file to (over)write
+        permutation: if given, relabel the clusters after the matching within the run:
+            cluster `permutation[i]` becomes cluster `i`
+    """
+    metadata, arrays = read_stats_samples(h5_path)
+    if permutation is not None:
+        arrays = permute_clusters(metadata, arrays, permutation)
+    write_stats_table(build_stats_table(metadata, arrays), stats_path)
 
 
 def get_cluster_names(n_clusters: int) -> list[str]:
@@ -420,40 +434,6 @@ def get_cluster_names(n_clusters: int) -> list[str]:
         term for a cluster).
     """
     return [f"a{i}" for i in range(n_clusters)]
-
-
-def get_cluster_effect_names(partitions: list[GenericTypeFeatures]) -> list[str]:
-    """Create the names of the cluster effect parameters, one or two per partition.
-
-    The names must match the sample sites created by the `Model.add_partition_*`
-    methods: Gaussian features have a mean and a variance, Poisson features a rate, and
-    categorical features a single set of state probabilities.
-
-    Args:
-        partitions: the feature partitions of the data
-
-    Returns:
-        The parameter names, in the order of `partitions`.
-
-    Raises:
-        ValueError: if a partition has an unsupported feature type.
-    """
-    names = []
-    for p in partitions:
-        # Note: LogitNormalFeatures subclasses GaussianFeatures and is handled by the
-        # Gaussian branch.
-        if isinstance(p, CategoricalFeatures):
-            names.append(f"cluster_effect_{p.name}")
-        elif isinstance(p, GaussianFeatures):
-            names.append(f"cluster_effect_{p.name}_mean")
-            names.append(f"cluster_effect_{p.name}_variance")
-        elif isinstance(p, PoissonFeatures):
-            names.append(f"cluster_effect_{p.name}_rate")
-        else:
-            raise ValueError(
-                f"Partition type {type(p).__name__} is not supported."
-            )
-    return names
 
 
 def h5_metadata(data: Data, n_clusters: int) -> dict:
