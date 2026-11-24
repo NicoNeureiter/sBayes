@@ -64,6 +64,7 @@ class Results:
         log_likelihood: NDArray[np.float64] | None = None,
         likelihood_pointwise: NDArray[np.float64] | None = None,
         parameters: pd.DataFrame | None = None,
+        fixed_parameters: Sequence[str] = (),
     ) -> None:
 
         self.clusters = clusters
@@ -91,6 +92,9 @@ class Results:
             self.prior = None
 
         self.likelihood_pointwise = likelihood_pointwise
+
+        self.fixed_parameters = list(fixed_parameters)
+        """Site names the config fixed to a constant"""
 
         # Legacy: only set by `from_csv_files`, for the alignment tools
         self.parameters = parameters
@@ -294,7 +298,8 @@ class Results:
 
         The h5 file contains the parameter samples of the run and a JSON metadata
         attribute describing the feature names, partitions and confounders, so the
-        results can be read without the stats file.
+        results can be read without the stats file. The metadata also names the
+        parameters the config fixed to a constant.
 
         Args:
             h5_path: path to the samples h5 file
@@ -330,6 +335,9 @@ class Results:
             feature_names = metadata["feature_names"]
             confounders = metadata["confounders"]
             partitions = metadata["partitions"]
+
+            # Absent in files written before fixed priors were supported
+            fixed_parameters = metadata.get("fixed_parameters", [])
 
             # Old-format h5 files have a chain dimension at axis 1
             old_format = np.array(f.get_node(f.root, "z")).ndim == 4
@@ -374,7 +382,7 @@ class Results:
                     arrays["likelihood_pointwise"] = likelihood
 
             if "log_posterior" not in arrays and "potential_energy" in f.root:
-                # Some older files may only the sampler's potential, which lives in
+                # Some older files only have the sampler's potential, which lives in
                 # unconstrained space and is therefore not comparable to
                 # `log_likelihood`; `log_prior` derived from it is meaningless.
                 warnings.warn(
@@ -402,10 +410,10 @@ class Results:
             None if likelihood_pointwise is None else likelihood_pointwise.sum(axis=1)
         )
 
-        clusters = np.transpose(z[:, :, :-1], (0, 2, 1)).astype(np.float64)
+        clusters = np.ascontiguousarray(z[:, :, :-1].transpose(0, 2, 1), dtype=np.float64)
 
         if do_match_clusters:
-            # Permutes `z` and the cluster effects in place
+            # Permutes `clusters`, `z` and the cluster effects in place
             match_clusters(clusters, z, cluster_effect_arrays)
 
         feature_to_states = {}
@@ -441,6 +449,7 @@ class Results:
             log_posterior=log_posterior,
             log_likelihood=log_likelihood,
             likelihood_pointwise=likelihood_pointwise,
+            fixed_parameters=fixed_parameters,
         )
 
     # ----------------------------------------------------------------

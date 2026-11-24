@@ -313,6 +313,11 @@ def write_samples(
     samples_h5_path = base_path / f'samples_{run}.h5'
     metadata = h5_metadata(data, n_clusters)
 
+    # Parameters the config fixes to a constant. They are written as deterministic
+    # sites, so they appear in the samples like any other parameter but never vary.
+
+    metadata["fixed_parameters"] = sorted(model.fixed_parameter_names())
+
     with tables.open_file(str(samples_h5_path), mode="a") as h5_file:
         h5_file.set_node_attr(h5_file.root, "metadata", json.dumps(metadata))
 
