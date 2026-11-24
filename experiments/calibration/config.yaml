@@ -30,10 +30,9 @@ model:
                       mu_0: 0.
                       sigma_0: 10.
                   variance:
-                    type: gamma
+                    type: fixed
                     parameters:
-                      shape: 10.
-                      rate: 1.
+                      value: 1.
                 poisson:
                   type: gamma
                   parameters:
@@ -52,10 +51,9 @@ model:
                           mu_0: 0.
                           sigma_0: 10.
                       variance:
-                        type: gamma
+                        type: fixed
                         parameters:
-                          shape: 10.
-                          rate: 1.
+                          value: 1.
                     poisson:
                       type: gamma
                       parameters:

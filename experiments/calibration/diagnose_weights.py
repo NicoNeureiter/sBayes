@@ -20,7 +20,8 @@ from sbayes.simulate.calibration import (
 )
 from sbayes.simulate.config import SimulateConfigFile
 
-STUDY_PATH = Path("output/poisson")
+# STUDY_PATH = Path("output/poisson")
+STUDY_PATH = Path("output/gaussian")
 CONFIG_PATH = Path("config_simulate.yaml")
 
 
@@ -61,8 +62,8 @@ def component_of(parameter: str, confounders: list[str]) -> tuple[str, int] | No
 def main() -> None:
     config = SimulateConfigFile.from_config_file(CONFIG_PATH)
     # Apply the same variant overrides the study was run with
-    config.simulation.features = {"poisson": 40}
-
+    # config.simulation.features = {"poisson": 40}
+    config.simulation.features = {"gaussian": 40}
     study = Study.from_path(STUDY_PATH, config)
     prepared = prepare_replicates(study)
     gate = gate_replicates({i: p.diagnostics for i, p in prepared.items()})

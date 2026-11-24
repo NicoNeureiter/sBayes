@@ -16,8 +16,8 @@ from pathlib import Path
 import jax.random as random
 import numpy as np
 import pandas as pd
-import pytest
 import tables
+import warnings
 
 from sbayes.cli import main as sbayes_main
 from sbayes.results import Results
@@ -227,17 +227,18 @@ def test_resume_samples_only_the_remaining_steps(tmp_path):
     with tables.open_file(str(run_dir / "samples_0.h5")) as f:
         np.testing.assert_array_equal(np.array(f.root.potential_energy), samples_before)
 
-    # Interrupted halfway through sampling: resuming adds the missing samples
+    # Interrupted near the end: resuming adds the missing samples. Less than two write
+    # intervals remain, so they are sampled in one go rather than in chunks
     with tables.open_file(str(run_dir / "samples_0.h5"), mode="a") as f:
         for leaf in f.iter_nodes(f.root, classname="Leaf"):
-            leaf.truncate(10)
+            leaf.truncate(15)
     sbayes_main(config=SOUTH_AMERICA_CONFIG, custom_settings=run_settings,
                 experiment_name=name, n_clusters=2, i_run=0, resume=True)
     assert_run_is_complete(run_dir, n_samples=20)
 
     log = (tmp_path / name / "experiment_2_0.log").read_text()
     assert "Resuming run 0: 40 of 40 steps already sampled, 0 remaining." in log
-    assert "Resuming run 0: 20 of 40 steps already sampled, 20 remaining." in log
+    assert "Resuming run 0: 30 of 40 steps already sampled, 10 remaining." in log
 
 def test_samples_file_is_readable_before_the_run_finishes(tmp_path):
     """The samples file of a run that is still sampling can be loaded as Results."""
@@ -249,8 +250,18 @@ def test_samples_file_is_readable_before_the_run_finishes(tmp_path):
     sbayes_main(config=SOUTH_AMERICA_CONFIG, custom_settings=run_settings,
                 experiment_name=name, n_clusters=2)
 
-    # Without `write_samples`, the file holds what the sampler logged during the run
-    with pytest.warns(UserWarning, match="no `/derived/log_posterior`"):
-        results = Results.from_h5(tmp_path / name / "K2" / "samples_0.h5")
+    # Without `write_samples`, the file holds what the sampler logged during the run,
+    # including the derived values of every chunk
+    samples_path = tmp_path / name / "K2" / "samples_0.h5"
+    with tables.open_file(str(samples_path)) as f:
+        n_samples = f.root.potential_energy.nrows
+        assert f.root.derived.log_posterior.nrows == n_samples
+        assert f.root.derived.likelihood.nrows == n_samples
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", UserWarning)
+        results = Results.from_h5(samples_path, burn_in=0.0)
     assert results.n_clusters == 2
-    assert results.n_samples == 20
+    assert results.n_samples == n_samples
+    assert np.isfinite(results.posterior).all()
+    assert (results.likelihood < 0).all()

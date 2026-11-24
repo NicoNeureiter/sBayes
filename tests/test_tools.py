@@ -1,11 +1,17 @@
 import importlib
+import json
 import numpy as np
 import pandas as pd
 import pytest
+import tables
 
 from pathlib import Path
 from sbayes.load_data import FeatureType
+from sbayes.sampling.loggers import write_stats_file
 from sbayes.tools._h5 import parse_run_location
+from sbayes.cluster_reference import ClusterReference, align_to_reference, find_reference_files
+from sbayes.results import Results, cluster_overlap
+from sbayes.tools.align_clusters import align_runs, find_runs, main as align_main
 from sbayes.tools.convert_prior_csv_to_json import read_prior_counts
 from sbayes.tools.find_correlated_features import find_correlated_pairs
 from sbayes.tools.guess_feature_types import guess_feature_type, describe_feature, merge_feature_states
@@ -14,7 +20,7 @@ from sbayes.tools.elpd import RunFile, find_run_files, resolve_na, to_log_likeli
 
 @pytest.mark.parametrize("name", [
     "guess_feature_types", "migrate_results", "estimate_empirical_prior",
-    "find_correlated_features", "elpd", "convert_prior_csv_to_json",
+    "find_correlated_features", "elpd", "convert_prior_csv_to_json", "align_clusters",
 ])
 def test_tool_imports(name):
     importlib.import_module(f"sbayes.tools.{name}")
@@ -284,3 +290,197 @@ def test_parse_run_location(path, expected):
 def test_parse_run_location_rejects_other_paths(path):
     with pytest.raises(ValueError, match="K<k>"):
         parse_run_location(Path(path))
+
+# --- Aligning clusters ------------------------------------------------------------
+
+# Two clusters over four objects: cluster A holds objects 0 and 1, cluster B objects 2
+# and 3. Each has its own effect and geo-prior distance, which must move with its label.
+MEMBERS = {"A": [0, 1], "B": [2, 3]}
+EFFECT = {"A": [0.9, 0.1], "B": [0.2, 0.8]}
+TOTAL_DIST = {"A": 1.0, "B": 2.0}
+ALIGN_METADATA = {
+    "cluster_names": ["a0", "a1"],
+    "feature_names": ["f0"],
+    "component_names": ["areal", "universal"],
+    "confounders": {"universal": ["<ALL>"]},
+    "partitions": [{
+        "feature_names": ["f0"],
+        "type": "categorical",
+        "state_names": ["s0", "s1"],
+        "cluster_effect_keys": ["cluster_effect_cat"],
+        "confounder_effect_keys": {"universal": ["conf_effect_universal_cat"]},
+    }],
+}
+
+
+def write_run(path: Path, labels: list[tuple[str, str]]) -> Path:
+    """Write a samples file in which sample i labels the clusters `labels[i]`."""
+    n_samples = len(labels)
+    z = np.zeros((n_samples, 4, 3))
+    effect = np.zeros((n_samples, 2, 1, 2))
+    total_dist = np.zeros((n_samples, 2))
+    for i, sample_labels in enumerate(labels):
+        for k, cluster in enumerate(sample_labels):
+            z[i, MEMBERS[cluster], k] = 0.9
+            z[i, MEMBERS[cluster], 2] = 0.1
+            effect[i, k, 0] = EFFECT[cluster]
+            total_dist[i, k] = TOTAL_DIST[cluster]
+
+    arrays = {
+        "z": z,
+        "w": np.full((n_samples, 1, 2), 0.5),
+        "cluster_effect_cat": effect,
+        "conf_effect_universal_cat": np.full((n_samples, 1, 1, 2), 0.5),
+        "geoprior_total_dist": total_dist,
+        "potential_energy": np.arange(n_samples, dtype=float),
+    }
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with tables.open_file(str(path), mode="w") as f:
+        f.set_node_attr(f.root, "metadata", json.dumps(ALIGN_METADATA))
+        for name, array in arrays.items():
+            f.create_array(f.root, name, array)
+        f.create_group(f.root, "derived")
+        f.create_array(f.root.derived, "log_posterior", -np.arange(n_samples, dtype=float))
+    return path
+
+
+def test_stats_file_is_written_from_the_samples_file(tmp_path):
+    samples_path = write_run(tmp_path / "samples_0.h5", [("A", "B")] * 3)
+    write_stats_file(samples_path, tmp_path / "stats_K2_0.tsv")
+
+    stats = pd.read_csv(tmp_path / "stats_K2_0.tsv", sep="\t")
+    assert stats["Sample"].tolist() == [0, 1, 2]
+    # The expected size: the sum of the membership probabilities
+    assert stats["size_a0"].tolist() == pytest.approx([1.8] * 3)
+    assert stats["areal_a0_f0_s0"].tolist() == pytest.approx([0.9] * 3)
+    assert stats["geoprior_total_dist_a1"].tolist() == pytest.approx([2.0] * 3)
+    assert stats["log_posterior"].tolist() == pytest.approx([0.0, -1.0, -2.0])
+    assert not (tmp_path / "stats_K2_0.tsv.tmp").exists()
+
+
+def test_stats_file_matches_clusters_within_the_run(tmp_path):
+    """A label switch within the chain is undone, for every per-cluster column."""
+    samples_path = write_run(tmp_path / "samples_0.h5", [("A", "B"), ("A", "B"), ("B", "A")])
+    write_stats_file(samples_path, tmp_path / "stats_K2_0.tsv")
+
+    stats = pd.read_csv(tmp_path / "stats_K2_0.tsv", sep="\t")
+    assert stats["areal_a0_f0_s0"].tolist() == pytest.approx([0.9] * 3)
+    assert stats["geoprior_total_dist_a0"].tolist() == pytest.approx([1.0] * 3)
+    assert stats["geoprior_total_dist_a1"].tolist() == pytest.approx([2.0] * 3)
+
+
+def test_align_runs_relabels_the_stats_files(tmp_path):
+    write_run(tmp_path / "K2" / "samples_0.h5", [("A", "B")] * 4)
+    write_run(tmp_path / "K2" / "samples_1.h5", [("B", "A")] * 4)
+    runs = find_runs(tmp_path)
+    assert [r.run_id for r in runs] == [0, 1]
+
+    overlaps = align_runs(runs, reference=runs[0], burn_in=0.0)
+
+    stats_0 = pd.read_csv(tmp_path / "K2" / "stats_K2_0.tsv", sep="\t")
+    stats_1 = pd.read_csv(tmp_path / "K2" / "stats_K2_1.tsv", sep="\t")
+    pd.testing.assert_frame_equal(stats_0, stats_1)
+    assert overlaps[runs[1]] == pytest.approx([1.0, 1.0])
+
+
+def test_align_main_uses_the_given_reference(tmp_path):
+    write_run(tmp_path / "samples_0.h5", [("A", "B")] * 4)
+    write_run(tmp_path / "samples_1.h5", [("B", "A")] * 4)
+
+    align_main([tmp_path], reference=1, burn_in=0.0)
+
+    stats_0 = pd.read_csv(tmp_path / "stats_K2_0.tsv", sep="\t")
+    assert stats_0["areal_a0_f0_s0"].tolist() == pytest.approx([0.2] * 4)
+
+
+def test_cluster_overlap():
+    a = np.array([[1.0, 1.0, 0.0, 0.0], [0.0, 0.0, 1.0, 1.0]])
+    b = np.array([[1.0, 0.0, 0.0, 0.0], [0.0, 0.0, 1.0, 1.0]])
+    assert cluster_overlap(a, b) == pytest.approx([0.5, 1.0])
+
+
+# --- Cluster reference tables -----------------------------------------------------
+
+def test_permute_clusters_moves_the_cluster_effects(tmp_path):
+    results = Results.from_h5(write_run(tmp_path / "samples_0.h5", [("A", "B")] * 4))
+    permuted = results.permute_clusters(np.array([1, 0]), ["x", "y"])
+
+    assert permuted.cluster_names == ["x", "y"]
+    np.testing.assert_allclose(permuted.clusters[:, 0], results.clusters[:, 1])
+    np.testing.assert_allclose(
+        permuted.areal_effect["x"]["f0"], results.areal_effect["a1"]["f0"]
+    )
+
+
+def test_cluster_reference_round_trip(tmp_path):
+    reference = ClusterReference(
+        cluster_names=["a0", "a1"],
+        mean_clusters=np.array([[0.9, 0.9, 0.0, 0.0], [0.0, 0.0, 0.9, 0.9]]),
+        object_ids=["o0", "o1", "o2", "o3"],
+        object_names=["zero", "one", "two", "three"],
+    )
+    reference.write(tmp_path / "cluster_reference_K2.tsv")
+    read = ClusterReference.read(tmp_path / "cluster_reference_K2.tsv")
+
+    assert read.cluster_names == reference.cluster_names
+    assert read.object_ids == reference.object_ids
+    assert read.object_names == reference.object_names
+    np.testing.assert_allclose(read.mean_clusters, reference.mean_clusters)
+    assert find_reference_files(tmp_path) == {2: tmp_path / "cluster_reference_K2.tsv"}
+
+
+def test_align_to_an_edited_reference(tmp_path):
+    """Swapping and renaming the columns of the table relabels the clusters."""
+    results = Results.from_h5(write_run(tmp_path / "samples_0.h5", [("A", "B")] * 4))
+    ClusterReference.from_results(results).write(tmp_path / "ref.tsv")
+
+    table = pd.read_csv(tmp_path / "ref.tsv", sep="\t")
+    table = table[["object", "a1", "a0"]].rename(columns={"a1": "east", "a0": "west"})
+    table.to_csv(tmp_path / "ref.tsv", sep="\t", index=False)
+
+    aligned, overlap = align_to_reference(results, ClusterReference.read(tmp_path / "ref.tsv"))
+    assert aligned.cluster_names == ["east", "west"]
+    np.testing.assert_allclose(aligned.clusters[:, 0], results.clusters[:, 1])
+    assert aligned.areal_effect["east"]["f0"][0] == pytest.approx(EFFECT["B"])
+    assert overlap == pytest.approx([1.0, 1.0])
+
+
+def test_align_to_reference_matches_objects_by_id(tmp_path):
+    results = Results.from_h5(write_run(tmp_path / "samples_0.h5", [("B", "A")] * 4))
+    # The reference lists the objects in reverse order, so cluster A (objects 0 and 1)
+    # is in its second column
+    reference = ClusterReference(
+        cluster_names=["a0", "a1"],
+        mean_clusters=np.array([[0.9, 0.9, 0.0, 0.0], [0.0, 0.0, 0.9, 0.9]]),
+        object_ids=["o3", "o2", "o1", "o0"],
+    )
+    aligned, _ = align_to_reference(results, reference, object_ids=["o0", "o1", "o2", "o3"])
+    assert aligned.clusters[0, 0, :2] == pytest.approx([0.0, 0.0])
+    assert aligned.clusters[0, 1, :2] == pytest.approx([0.9, 0.9])
+
+    with pytest.raises(ValueError, match="not in the cluster reference"):
+        align_to_reference(results, reference, object_ids=["o0", "o1", "o2", "o9"])
+
+
+def test_align_to_reference_rejects_a_different_number_of_clusters(tmp_path):
+    results = Results.from_h5(write_run(tmp_path / "samples_0.h5", [("A", "B")] * 4))
+    reference = ClusterReference(["a0"], np.zeros((1, 4)))
+    with pytest.raises(ValueError, match="1 clusters"):
+        align_to_reference(results, reference)
+
+
+def test_align_main_writes_the_reference(tmp_path):
+    write_run(tmp_path / "K2" / "samples_0.h5", [("B", "A")] * 4)
+    write_run(tmp_path / "K2" / "samples_1.h5", [("A", "B")] * 4)
+    pd.DataFrame({"id": ["o0", "o1", "o2", "o3"], "x": 0, "y": 0}).to_csv(
+        tmp_path / "features.csv", index=False
+    )
+
+    align_main([tmp_path], burn_in=0.0, reference_dir=tmp_path,
+               features_path=tmp_path / "features.csv")
+
+    reference = ClusterReference.read(tmp_path / "cluster_reference_K2.tsv")
+    assert reference.object_ids == ["o0", "o1", "o2", "o3"]
+    assert reference.object_names is None
+    # Run 0 is the reference, in which cluster a0 is B (objects 2 and 3)
+    np.testing.assert_allclose(reference.mean_clusters, [[0, 0, 0.9, 0.9], [0.9, 0.9, 0, 0]])

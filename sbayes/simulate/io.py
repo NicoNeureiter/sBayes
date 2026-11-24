@@ -80,7 +80,6 @@ def write_simulated_parameters(
         samples=sample,
         data=data,
         model=model,
-        match_clusters=False,
     )
 
 

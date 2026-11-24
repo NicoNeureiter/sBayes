@@ -44,6 +44,29 @@ def make_chunk(n_samples: int, **param_dims: tuple[int, ...]) -> dict:
     }
 
 
+class SumOfZ:
+    """Stands in for `DerivedValues`: the `log_posterior` of a sample is the sum of `z`."""
+
+    with_likelihood = False
+
+    def __init__(self):
+        self.n_calls = 0
+
+    def constants(self) -> dict:
+        return {}
+
+    def __call__(self, samples: dict) -> dict:
+        self.n_calls += 1
+        z = np.asarray(samples["z"])
+        return {"log_posterior": z.reshape(len(z), -1).sum(axis=1)}
+
+
+def read_derived(path: Path) -> tuple[np.ndarray, np.ndarray]:
+    """The `z` samples and the derived log posterior in a samples file."""
+    with tables.open_file(str(path)) as f:
+        return f.root.z.read(), f.root.derived.log_posterior.read()
+
+
 class TestOnlineSampleLogger:
 
     def test_two_chunks_are_appended(self, tmp_path):
@@ -157,6 +180,54 @@ class TestOnlineSampleLogger:
         with tables.open_file(str(tmp_path / "samples_0.h5")) as f:
             assert "/derived" not in f
             assert f.root.z.nrows == 8
+
+    def test_derived_values_are_written_with_each_chunk(self, tmp_path):
+        logger = OnlineSampleLogger(tmp_path, run=0, resume=False, derive=SumOfZ())
+        logger.write_sample(make_chunk(4, z=(3, 2)))
+        logger.write_sample(make_chunk(3, z=(3, 2)))
+
+        z, log_posterior = read_derived(tmp_path / "samples_0.h5")
+        assert len(log_posterior) == len(z) == 7
+        np.testing.assert_array_equal(log_posterior, z.sum(axis=(1, 2)))
+
+    def test_resume_drops_samples_without_derived_values(self, tmp_path):
+        """A run killed between writing a chunk and its derived values loses the chunk."""
+        logger = OnlineSampleLogger(tmp_path, run=0, resume=False, derive=SumOfZ())
+        logger.write_sample(make_chunk(4, z=(3, 2)))
+        with tables.open_file(str(tmp_path / "samples_0.h5"), mode="a") as f:
+            f.root.z.append(np.ones((2, 3, 2)))
+
+        logger = OnlineSampleLogger(tmp_path, run=0, resume=True, derive=SumOfZ())
+        assert logger.read_samples()["z"].shape == (4, 3, 2)
+        z, log_posterior = read_derived(tmp_path / "samples_0.h5")
+        np.testing.assert_array_equal(log_posterior, z.sum(axis=(1, 2)))
+
+    def test_resume_recomputes_derived_values_written_at_the_end(self, tmp_path):
+        """Files of earlier versions hold `/derived` as fixed arrays, written once."""
+        with OnlineSampleLogger(tmp_path, run=0, resume=False) as logger:
+            logger.write_sample(make_chunk(4, z=(3, 2)))
+        with tables.open_file(str(tmp_path / "samples_0.h5"), mode="a") as f:
+            f.create_group(f.root, "derived")
+            f.create_carray(f.root.derived, "log_posterior", obj=np.zeros(4))
+
+        derive = SumOfZ()
+        logger = OnlineSampleLogger(tmp_path, run=0, resume=True, derive=derive)
+        logger.write_sample(make_chunk(2, z=(3, 2)))
+
+        z, log_posterior = read_derived(tmp_path / "samples_0.h5")
+        assert len(log_posterior) == len(z) == 6
+        np.testing.assert_array_equal(log_posterior, z.sum(axis=(1, 2)))
+        # Once for the existing samples, once for the new chunk
+        assert derive.n_calls == 2
+
+    def test_resume_keeps_matching_derived_values(self, tmp_path):
+        with OnlineSampleLogger(tmp_path, run=0, resume=False, derive=SumOfZ()) as logger:
+            logger.write_sample(make_chunk(4, z=(3, 2)))
+
+        derive = SumOfZ()
+        logger = OnlineSampleLogger(tmp_path, run=0, resume=True, derive=derive)
+        logger.read_samples()
+        assert derive.n_calls == 0
 
     def test_file_can_be_read_between_writes(self, tmp_path):
         """The file is closed after each write, so other readers can open it."""

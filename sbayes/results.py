@@ -47,6 +47,9 @@ class Results:
             missing values excluded. shape: (n_samples, n_observations). Only available
             when read from an h5 file that contains the derived likelihood.
         parameters: the raw parameters data frame, only set by `from_csv_files`
+        fixed_parameters: site names the config fixed to a constant, e.g.
+            `cluster_effect_Gaussian_variance`. Excluded from convergence diagnostics
+            and calibration ranks, where a parameter that cannot vary is meaningless.
     """
 
     def __init__(
@@ -93,11 +96,10 @@ class Results:
 
         self.likelihood_pointwise = likelihood_pointwise
 
-        self.fixed_parameters = list(fixed_parameters)
-        """Site names the config fixed to a constant"""
-
         # Legacy: only set by `from_csv_files`, for the alignment tools
         self.parameters = parameters
+
+        self.fixed_parameters = list(fixed_parameters)
 
     @property
     def n_features(self) -> int:
@@ -166,6 +168,11 @@ class Results:
                 raise ValueError(
                     f"Results {i} describes different features than the first result."
                 )
+            if list(r.fixed_parameters) != list(ref.fixed_parameters):
+                raise ValueError(
+                    f"Results {i} fixes different parameters than the first result, so "
+                    f"their samples are not comparable."
+                )
 
         if len(results_list) == 1:
             return ref
@@ -221,6 +228,59 @@ class Results:
             log_likelihood=log_likelihood,
             likelihood_pointwise=likelihood_pointwise,
             parameters=parameters,
+            fixed_parameters=ref.fixed_parameters,
+        )
+
+    def mean_clusters(self) -> NDArray:
+        """The mean membership of each object in each cluster. shape: (n_clusters, n_objects)"""
+        return self.clusters.mean(axis=0)
+
+    def permute_clusters(
+        self,
+        permutation: NDArray[np.intp],
+        cluster_names: list[str] | None = None,
+    ) -> "Results":
+        """Relabel the clusters, so that new cluster `i` is old cluster `permutation[i]`.
+
+        Args:
+            permutation: the old cluster index of each new cluster. shape: (n_clusters,)
+            cluster_names: the names of the new clusters. None = keep the current names.
+
+        Returns:
+            The results with permuted clusters and cluster effects. The weights and
+            confounding effects are unchanged, since neither is indexed by cluster. The
+            results are returned unchanged if neither the order nor the names change.
+        """
+        if cluster_names is None:
+            cluster_names = self.cluster_names
+        if len(cluster_names) != self.n_clusters or len(permutation) != self.n_clusters:
+            raise ValueError(
+                f"Expected {self.n_clusters} clusters, got a permutation of length "
+                f"{len(permutation)} and {len(cluster_names)} cluster names."
+            )
+        if (np.all(permutation == np.arange(self.n_clusters))
+                and list(cluster_names) == self.cluster_names):
+            return self
+
+        areal_effect = {
+            name: self.areal_effect[self.cluster_names[int(i)]]
+            for name, i in zip(cluster_names, permutation)
+        }
+        return type(self)(
+            clusters=self.clusters[:, permutation],
+            weights=self.weights,
+            areal_effect=areal_effect,
+            confounding_effects=self.confounding_effects,
+            cluster_names=list(cluster_names),
+            feature_names=self.feature_names,
+            feature_states=self.feature_states,
+            groups_by_confounders=self.groups_by_confounders,
+            sample_id=self.sample_id,
+            log_posterior=self.posterior,
+            log_likelihood=self.likelihood,
+            likelihood_pointwise=self.likelihood_pointwise,
+            parameters=self.parameters,
+            fixed_parameters=self.fixed_parameters,
         )
 
     @classmethod
@@ -245,40 +305,11 @@ class Results:
             raise ValueError("Cannot align an empty list of Results.")
 
         ref = results_list[0]
-        ref_mean = np.mean(ref.clusters, axis=0)  # (n_clusters, n_objects)
 
         aligned = [ref]
         for r in results_list[1:]:
-            r_mean = np.mean(r.clusters, axis=0)
-            agreement = ref_mean @ r_mean.T  # (n_clusters, n_clusters)
-            permutation = linear_sum_assignment(agreement, maximize=True)[1]
-
-            if np.all(permutation == np.arange(len(permutation))):
-                aligned.append(r)
-                continue
-
-            # Reference cluster i corresponds to cluster permutation[i] of `r`
-            permuted_names = [r.cluster_names[int(i)] for i in permutation]
-            areal_effect_aligned = {
-                ref_name: r.areal_effect[r_name]
-                for ref_name, r_name in zip(ref.cluster_names, permuted_names)
-            }
-
-            aligned.append(cls(
-                clusters=r.clusters[:, permutation],
-                weights=r.weights,
-                areal_effect=areal_effect_aligned,
-                confounding_effects=r.confounding_effects,
-                cluster_names=ref.cluster_names,
-                feature_names=r.feature_names,
-                feature_states=r.feature_states,
-                groups_by_confounders=r.groups_by_confounders,
-                sample_id=r.sample_id,
-                log_posterior=r.posterior,
-                log_likelihood=r.likelihood,
-                likelihood_pointwise=r.likelihood_pointwise,
-                parameters=r.parameters,
-            ))
+            permutation = alignment_permutation(ref.clusters, r.clusters)
+            aligned.append(r.permute_clusters(permutation, ref.cluster_names))
 
         return aligned
 
@@ -298,15 +329,17 @@ class Results:
 
         The h5 file contains the parameter samples of the run and a JSON metadata
         attribute describing the feature names, partitions and confounders, so the
-        results can be read without the stats file. The metadata also names the
-        parameters the config fixed to a constant.
+        results can be read without the stats file.
 
         Args:
             h5_path: path to the samples h5 file
             burn_in: proportion of the samples to discard from the start of the chain
             subsample_interval: keep only every n-th sample after the burn-in
             do_match_clusters: if True, permute the clusters of each sample so that
-                cluster labels are consistent across samples
+                cluster labels are consistent across samples. The matching runs over
+                the whole chain, before the burn-in is removed, so the labels do not
+                depend on `burn_in` or `subsample_interval` and agree with the stats
+                file.
 
         Returns:
             The results of the run.
@@ -322,99 +355,23 @@ class Results:
                 f"`subsample_interval` must be positive, but was {subsample_interval}."
             )
 
-        with tables.open_file(str(h5_path), mode="r") as f:
-            try:
-                metadata = json.loads(f.get_node_attr(f.root, "metadata"))
-            except AttributeError:
-                raise ValueError(
-                    f"No metadata in {h5_path}. Run "
-                    f"'python -m sbayes.tools.migrate_results <results_dir>' first."
-                ) from None
+        metadata, arrays = read_h5_samples(h5_path, match=do_match_clusters)
+        cluster_names = metadata["cluster_names"]
+        feature_names = metadata["feature_names"]
+        confounders = metadata["confounders"]
+        partitions = metadata["partitions"]
 
-            cluster_names = metadata["cluster_names"]
-            feature_names = metadata["feature_names"]
-            confounders = metadata["confounders"]
-            partitions = metadata["partitions"]
-
-            # Absent in files written before fixed priors were supported
-            fixed_parameters = metadata.get("fixed_parameters", [])
-
-            # Old-format h5 files have a chain dimension at axis 1
-            old_format = np.array(f.get_node(f.root, "z")).ndim == 4
-
-            def read(key: str) -> NDArray:
-                """Read one parameter array, dropping the chain dimension if present."""
-                array = np.array(f.get_node(f.root, key))
-                if old_format and array.ndim > 1:
-                    array = array[:, 0]
-                return array
-
-            # The keys of the effect parameters are taken from the metadata, so that
-            # files written by earlier versions remain readable
-            cluster_effect_keys = [
-                key for p in partitions for key in p["cluster_effect_keys"]
-            ]
-            conf_effect_keys = [
-                key
-                for p in partitions
-                for keys in p["confounder_effect_keys"].values()
-                for key in keys
-            ]
-
-            # All per-sample arrays, so that they are cropped and subsampled together
-            arrays = {
-                key: read(key)
-                for key in ["z", "w", *cluster_effect_keys, *conf_effect_keys]
-            }
-
-            if "derived" in f.root:
-                derived = f.get_node(f.root, "derived")
-
-                if "log_posterior" in derived:
-                    log_posterior = f.get_node(derived, "log_posterior")
-                    arrays["log_posterior"] = np.array(log_posterior)
-
-                if "likelihood" in derived:
-                    likelihood = np.array(f.get_node(derived, "likelihood"))
-                    if "na_values" in derived:
-                        na_values = np.array(f.get_node(derived, "na_values"))
-                        likelihood = likelihood[:, ~na_values]
-                    arrays["likelihood_pointwise"] = likelihood
-
-            if "log_posterior" not in arrays and "potential_energy" in f.root:
-                # Some older files only have the sampler's potential, which lives in
-                # unconstrained space and is therefore not comparable to
-                # `log_likelihood`; `log_prior` derived from it is meaningless.
-                warnings.warn(
-                    f"{h5_path} has no `/derived/log_posterior`. Falling back to "
-                    f"`potential_energy`, which is not a log posterior: the log "
-                    f"densities of this run cannot be compared or decomposed."
-                )
-                arrays["log_posterior"] = read("potential_energy")
-
-        arrays = _crop_to_common_length(arrays)
-
-        # Apply burn-in and subsampling. Indexing with `indices` copies, so the arrays
-        # can be permuted by `match_clusters` below.
+        # Apply burn-in and subsampling
         n_total = len(arrays["z"])
         indices = np.arange(int(burn_in * n_total), n_total, subsample_interval)
         arrays = {key: array[indices] for key, array in arrays.items()}
 
-        z = arrays["z"]
         w = arrays["w"]
-        cluster_effect_arrays = {key: arrays[key] for key in cluster_effect_keys}
-        conf_effect_arrays = {key: arrays[key] for key in conf_effect_keys}
         log_posterior = arrays.get("log_posterior")
         likelihood_pointwise = arrays.get("likelihood_pointwise")
         log_likelihood = (
             None if likelihood_pointwise is None else likelihood_pointwise.sum(axis=1)
         )
-
-        clusters = np.ascontiguousarray(z[:, :, :-1].transpose(0, 2, 1), dtype=np.float64)
-
-        if do_match_clusters:
-            # Permutes `clusters`, `z` and the cluster effects in place
-            match_clusters(clusters, z, cluster_effect_arrays)
 
         feature_to_states = {}
         for p in partitions:
@@ -425,19 +382,19 @@ class Results:
         weights = {f: w[:, i, :] for i, f in enumerate(feature_names)}
 
         areal_effect = _build_effect_dict(
-            cluster_names, partitions, cluster_effect_arrays,
+            cluster_names, partitions, arrays,
             get_keys=lambda p: p["cluster_effect_keys"],
         )
         confounding_effects = {
             conf_name: _build_effect_dict(
-                group_names, partitions, conf_effect_arrays,
+                group_names, partitions, arrays,
                 get_keys=lambda p, cn=conf_name: p["confounder_effect_keys"][cn],
             )
             for conf_name, group_names in confounders.items()
         }
 
         return cls(
-            clusters=clusters,
+            clusters=arrays["clusters"],
             weights=weights,
             areal_effect=areal_effect,
             confounding_effects=confounding_effects,
@@ -449,7 +406,9 @@ class Results:
             log_posterior=log_posterior,
             log_likelihood=log_likelihood,
             likelihood_pointwise=likelihood_pointwise,
-            fixed_parameters=fixed_parameters,
+            # Absent in files written before fixed priors were supported, where no
+            # parameter could be constant
+            fixed_parameters=metadata.get("fixed_parameters", []),
         )
 
     # ----------------------------------------------------------------
@@ -471,6 +430,9 @@ class Results:
         The parameters are parsed from the column names of the stats file, so this
         reader depends on the column naming of the version that wrote them. Prefer
         `from_h5`, which reads the parameter names from the file's own metadata.
+
+        The legacy format carries no metadata, so `fixed_parameters` is left empty:
+        files in that format predate fixed priors.
 
         Args:
             clusters_path: path to the clusters file (text or .npy)
@@ -689,6 +651,7 @@ class Results:
                 return pd.read_csv(path, delimiter="\t", engine="pyarrow")
 
             except ImportError:
+                # pyarrow is an optional extra, so the default engine is the normal path
                 pass
 
             except Exception as e:
@@ -700,7 +663,6 @@ class Results:
         # The python engine is only needed for the `skiprows` callable
         engine: Literal["c", "python"] = "python" if skip_rows is not None else "c"
         return pd.read_csv(path, delimiter="\t", engine=engine, skiprows=skip_rows)
-
 
     @staticmethod
     def get_cluster_names(column_names: Sequence[str]) -> list[str]:
@@ -724,7 +686,6 @@ class Results:
             if cluster_name not in cluster_names:
                 cluster_names.append(cluster_name)
         return cluster_names
-
 
     @staticmethod
     def get_groups_by_confounder(
@@ -772,6 +733,175 @@ class Results:
 # ----------------------------------------------------------------
 # Module-level helpers
 # ----------------------------------------------------------------
+
+PER_CLUSTER_KEYS = ("w_cluster", "geoprior_total_dist")
+"""Sample arrays, besides the cluster effects, that are indexed by cluster along their
+second axis, so that they are permuted with the cluster labels."""
+
+
+def read_h5_samples(
+    h5_path: PathLike,
+    extra_keys: Sequence[str] = (),
+    match: bool = True,
+) -> tuple[dict[str, Any], dict[str, NDArray]]:
+    """Read the metadata and the sample arrays of one run from its samples h5 file.
+
+    Reads the cluster assignments, the weights, the effect parameters and the derived
+    log-densities of the whole chain, with no burn-in removed.
+
+    Args:
+        h5_path: path to the samples h5 file
+        extra_keys: further sample arrays to read, each only if present in the file
+        match: if True, permute the clusters of each sample so that cluster labels are
+            consistent across the chain (see `match_clusters`)
+
+    Returns:
+        The metadata, and the arrays by h5 key. Besides the keys read from the file,
+        the arrays hold `clusters`, the continuous cluster memberships of shape
+        (n_samples, n_clusters, n_objects), and, if present in the file,
+        `log_posterior` and `likelihood_pointwise` (with the missing values removed).
+
+    Raises:
+        ValueError: if the file contains no metadata.
+    """
+    with tables.open_file(str(h5_path), mode="r") as f:
+        try:
+            metadata = json.loads(f.get_node_attr(f.root, "metadata"))
+        except AttributeError:
+            raise ValueError(
+                f"No metadata in {h5_path}. Run "
+                f"'python -m sbayes.tools.migrate_results <results_dir>' first."
+            ) from None
+        partitions = metadata["partitions"]
+
+        # Old-format h5 files have a chain dimension at axis 1
+        old_format = np.array(f.get_node(f.root, "z")).ndim == 4
+
+        def read(key: str) -> NDArray:
+            """Read one parameter array, dropping the chain dimension if present."""
+            array = np.array(f.get_node(f.root, key))
+            if old_format and array.ndim > 1:
+                array = array[:, 0]
+            return array
+
+        # The keys of the effect parameters are taken from the metadata, so that
+        # files written by earlier versions remain readable
+        cluster_effect_keys = [
+            key for p in partitions for key in p["cluster_effect_keys"]
+        ]
+        conf_effect_keys = [
+            key
+            for p in partitions
+            for keys in p["confounder_effect_keys"].values()
+            for key in keys
+        ]
+
+        # All per-sample arrays, so that they are cropped and subsampled together
+        keys = ["z", "w", *cluster_effect_keys, *conf_effect_keys]
+        keys += [k for k in extra_keys if k not in keys and f"/{k}" in f]
+        arrays = {key: read(key) for key in keys}
+
+        if "derived" in f.root:
+            derived = f.get_node(f.root, "derived")
+
+            if "log_posterior" in derived:
+                log_posterior = f.get_node(derived, "log_posterior")
+                arrays["log_posterior"] = np.array(log_posterior)
+
+            if "likelihood" in derived:
+                likelihood = np.array(f.get_node(derived, "likelihood"))
+                if "na_values" in derived:
+                    na_values = np.array(f.get_node(derived, "na_values"))
+                    likelihood = likelihood[:, ~na_values]
+                arrays["likelihood_pointwise"] = likelihood
+
+        if "log_posterior" not in arrays and "potential_energy" in f.root:
+            # Some older files only have the sampler's potential, which lives in
+            # unconstrained space and is therefore not comparable to
+            # `log_likelihood`; `log_prior` derived from it is meaningless.
+            warnings.warn(
+                f"{h5_path} has no `/derived/log_posterior`. Falling back to "
+                f"`potential_energy`, which is not a log posterior: the log "
+                f"densities of this run cannot be compared or decomposed."
+            )
+            arrays["log_posterior"] = read("potential_energy")
+
+    arrays = _crop_to_common_length(arrays)
+
+    z = arrays["z"]
+    clusters = np.transpose(z[:, :, :-1], (0, 2, 1)).astype(np.float64)
+    if match:
+        # Permutes `z` and the per-cluster arrays in place
+        per_cluster_keys = cluster_effect_keys + [
+            k for k in PER_CLUSTER_KEYS if k in arrays
+        ]
+        match_clusters(clusters, z, {k: arrays[k] for k in per_cluster_keys})
+    arrays["clusters"] = clusters
+
+    return metadata, arrays
+
+
+def alignment_permutation(
+    ref_clusters: NDArray, clusters: NDArray
+) -> NDArray[np.intp]:
+    """Find the relabelling of `clusters` that best matches `ref_clusters`.
+
+    The clusters are compared by their mean memberships and matched one-to-one with
+    the Hungarian algorithm, maximizing the total shared membership.
+
+    Args:
+        ref_clusters: the reference cluster samples. shape: (n_samples, n_clusters, n_objects)
+        clusters: the cluster samples to align, with the same number of clusters and
+            objects (the number of samples may differ)
+
+    Returns:
+        `perm` such that cluster `perm[i]` of `clusters` corresponds to reference
+        cluster `i`. shape: (n_clusters,)
+    """
+    return match_mean_clusters(np.mean(ref_clusters, axis=0), np.mean(clusters, axis=0))
+
+
+def match_mean_clusters(ref_mean: NDArray, mean: NDArray) -> NDArray[np.intp]:
+    """Find the relabelling of the clusters in `mean` that best matches `ref_mean`.
+
+    Same as `alignment_permutation`, but on the mean memberships, which is all the
+    matching depends on.
+
+    Args:
+        ref_mean: mean membership of each object in each reference cluster.
+            shape: (n_clusters, n_objects)
+        mean: mean memberships of the clusters to align, of the same shape
+
+    Returns:
+        `perm` such that cluster `perm[i]` of `mean` corresponds to reference cluster
+        `i`. shape: (n_clusters,)
+    """
+    if ref_mean.shape != mean.shape:
+        raise ValueError(
+            f"Cannot match {mean.shape[0]} clusters over {mean.shape[1]} objects to "
+            f"{ref_mean.shape[0]} clusters over {ref_mean.shape[1]} objects."
+        )
+    return linear_sum_assignment(ref_mean @ mean.T, maximize=True)[1]
+
+
+def cluster_overlap(ref_mean: NDArray, mean: NDArray) -> NDArray:
+    """Overlap of each reference cluster with the (aligned) cluster in the same position.
+
+    The overlap is the weighted Jaccard index of the mean memberships: 1 for clusters
+    with the same memberships, 0 for clusters that share no objects.
+
+    Args:
+        ref_mean: mean membership of each object in each reference cluster.
+            shape: (n_clusters, n_objects)
+        mean: mean memberships of the aligned clusters, of the same shape
+
+    Returns:
+        One overlap per cluster. shape: (n_clusters,)
+    """
+    union = np.maximum(ref_mean, mean).sum(axis=-1)
+    intersection = np.minimum(ref_mean, mean).sum(axis=-1)
+    return np.divide(intersection, union, out=np.ones_like(union), where=union > 0)
+
 
 def match_clusters(
     clusters: NDArray,
