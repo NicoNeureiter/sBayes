@@ -619,8 +619,13 @@ class GaussianMeanPrior:
 
         return jnp.asarray(effect_mean)
 
+
 class GaussianVariancePrior:
-    """The prior on the variance for Gaussian features."""
+    """The prior on the variance for Gaussian features.
+
+    A `fixed` prior is a special case: the variance is a constant rather than something
+    to infer, so `sample` records it as a deterministic site instead of sampling it.
+    """
 
     def __init__(
         self,
@@ -715,26 +720,59 @@ class GaussianVariancePrior:
         """Return the prior distribution on the variance of the Gaussian features.
 
         Unlike most `get_numpyro_distr` methods in this module, this returns a
-        distribution rather than a sample: the caller declares the plates and samples
-        from it.
+        distribution rather than a sample. Prefer `sample`, which declares the site
+        correctly for every prior type; this method exists for callers that need the
+        distribution itself.
 
         Returns:
             The prior distribution, batched over features (and groups, for a
             confounding effect).
-        """
 
+        Raises:
+            ValueError: if the variance is fixed, which has no distribution, or if the
+                prior type is not implemented.
+        """
         if self.prior_type is GaussianVariancePriorConfig.Types.EXPONENTIAL:
             return dist.Exponential(rate=self.parameters)
         elif self.prior_type is GaussianVariancePriorConfig.Types.GAMMA:
             return dist.Gamma(concentration=self.parameters[0], rate=self.parameters[1])
         elif self.prior_type is GaussianVariancePriorConfig.Types.FIXED:
-            return dist.Delta(v=self.parameters)
+            raise ValueError(
+                "A `fixed` variance has no distribution to sample from. Use `sample`, "
+                "which records it with `numpyro.deterministic` instead."
+            )
         else:
             valid_types = ', '.join(t.value for t in GaussianVariancePriorConfig.Types)
             raise ValueError(
                 "Prior type `%s` is not implemented for %s (choose from: %s)."
                 % (self.prior_type.value, type(self).__name__, valid_types)
             )
+
+    def sample(self, name: str, shape: tuple[int, ...]) -> jnp.ndarray:
+        """Sample the variance, or record it when the prior fixes it.
+
+        A fixed value has no freedom, so it cannot be a latent site: numpyro rejects a
+        `Delta` distribution there. `deterministic` keeps the name in the trace, which
+        `Results` needs in order to reconstruct the effects, without claiming it is
+        something to infer.
+
+        Call this inside the plates that define the batch shape.
+
+        Args:
+            name: the site name
+            shape: the shape the value should take, from the enclosing plates
+                - (n_clusters, n_features) for a cluster effect, (n_groups, n_features)
+                for a confounding effect
+
+        Returns:
+            The variance, sampled or fixed. shape: `shape`
+        """
+        if self.prior_type is GaussianVariancePriorConfig.Types.FIXED:
+            value = numpyro.deterministic(name, jnp.broadcast_to(self.parameters, shape))
+        else:
+            value = numpyro.sample(name, self.get_numpyro_distr())
+
+        return jnp.asarray(value)
 
 
 class GaussianConfoundingEffectsPrior:

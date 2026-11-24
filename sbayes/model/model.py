@@ -12,7 +12,7 @@ from jax.typing import ArrayLike
 from numpyro.infer import init_to_median
 from numpyro.infer.util import initialize_model, constrain_fn
 from sbayes.load_data import Data, CategoricalFeatures, GaussianFeatures, PoissonFeatures
-from sbayes.config.config import ModelConfig
+from sbayes.config.config import ModelConfig, GaussianVariancePriorConfig
 from sbayes.model.model_shapes import ModelShapes
 from sbayes.model.prior import (
     Prior,
@@ -302,14 +302,14 @@ class Model:
             allow_reparameterization=self.allow_reparameterization,
         )
         # Note: `mean.get_numpyro_distr` samples internally (including its own plates),
-        # while `variance.get_numpyro_distr` returns a distribution to sample here.
-        # TODO: unify this convention when auditing model/prior.py.
+        # while `variance.sample` declares the site here as a latent site, or as a
+        # deterministic one when the variance is fixed.
 
         with numpyro.plate(f"plate_clusters_{p_name}", n_clusters, dim=-2):
             with numpyro.plate(f"plate_features_{p_name}", partition.n_features, dim=-1):
-                cluster_variance = numpyro.sample(
+                cluster_variance = cluster_eff_prior.variance.sample(
                     f"cluster_effect_{p_name}_variance",
-                    cluster_eff_prior.variance.get_numpyro_distr(),
+                    (n_clusters, partition.n_features),
                 )
 
         mean_by_comp = mean_by_comp.at[:n_clusters].set(cluster_mean[:, None, :])
@@ -328,9 +328,9 @@ class Model:
                     conf_eff_mean = numpyro.sample(
                         f"conf_effect_{conf.name}_{p_name}_mean", mean_prior
                     )
-                    conf_eff_variance = numpyro.sample(
+                    conf_eff_variance = conf_eff_prior.variance.sample(
                         f"conf_effect_{conf.name}_{p_name}_variance",
-                        conf_eff_prior.variance.get_numpyro_distr(),
+                        (len(conf.group_names), partition.n_features),
                     )
                     # shape of both: (n_groups, partition.n_features)
 
@@ -600,6 +600,30 @@ class Model:
 
         return init_params
 
+    def fixed_parameter_names(self) -> list[str]:
+        """The site names whose value the config fixes rather than infers.
+
+        Returns:
+            The site names, in no particular order.
+        """
+        fixed = GaussianVariancePriorConfig.Types.FIXED
+        names = []
+
+        for partition in self.data.features.partitions:
+            if not isinstance(partition, GaussianFeatures):
+                continue
+            p_name = partition.name
+
+            cluster_prior = self.prior.cluster_effect_prior[p_name]
+            if cluster_prior.variance.prior_type is fixed:
+                names.append(f"cluster_effect_{p_name}_variance")
+
+            for conf in self.confounders.values():
+                conf_prior = self.prior.confounding_effects_prior[conf.name][p_name]
+                if conf_prior.variance.prior_type is fixed:
+                    names.append(f"conf_effect_{conf.name}_{p_name}_variance")
+
+        return names
 
     def __copy__(self) -> Model:
         """Build an independent Model from the same data and config.

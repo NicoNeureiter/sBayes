@@ -47,6 +47,9 @@ class Results:
             missing values excluded. shape: (n_samples, n_observations). Only available
             when read from an h5 file that contains the derived likelihood.
         parameters: the raw parameters data frame, only set by `from_csv_files`
+        fixed_parameters: site names the config fixed to a constant, e.g.
+            `cluster_effect_Gaussian_variance`. Excluded from convergence diagnostics
+            and calibration ranks, where a parameter that cannot vary is meaningless.
     """
 
     def __init__(
@@ -64,6 +67,7 @@ class Results:
         log_likelihood: NDArray[np.float64] | None = None,
         likelihood_pointwise: NDArray[np.float64] | None = None,
         parameters: pd.DataFrame | None = None,
+        fixed_parameters: Sequence[str] = (),
     ) -> None:
 
         self.clusters = clusters
@@ -94,6 +98,8 @@ class Results:
 
         # Legacy: only set by `from_csv_files`, for the alignment tools
         self.parameters = parameters
+
+        self.fixed_parameters = list(fixed_parameters)
 
     @property
     def n_features(self) -> int:
@@ -162,6 +168,11 @@ class Results:
                 raise ValueError(
                     f"Results {i} describes different features than the first result."
                 )
+            if list(r.fixed_parameters) != list(ref.fixed_parameters):
+                raise ValueError(
+                    f"Results {i} fixes different parameters than the first result, so "
+                    f"their samples are not comparable."
+                )
 
         if len(results_list) == 1:
             return ref
@@ -217,6 +228,7 @@ class Results:
             log_likelihood=log_likelihood,
             likelihood_pointwise=likelihood_pointwise,
             parameters=parameters,
+            fixed_parameters=ref.fixed_parameters,
         )
 
     def mean_clusters(self) -> NDArray:
@@ -268,6 +280,7 @@ class Results:
             log_likelihood=self.likelihood,
             likelihood_pointwise=self.likelihood_pointwise,
             parameters=self.parameters,
+            fixed_parameters=self.fixed_parameters,
         )
 
     @classmethod
@@ -393,6 +406,9 @@ class Results:
             log_posterior=log_posterior,
             log_likelihood=log_likelihood,
             likelihood_pointwise=likelihood_pointwise,
+            # Absent in files written before fixed priors were supported, where no
+            # parameter could be constant
+            fixed_parameters=metadata.get("fixed_parameters", []),
         )
 
     # ----------------------------------------------------------------
@@ -414,6 +430,9 @@ class Results:
         The parameters are parsed from the column names of the stats file, so this
         reader depends on the column naming of the version that wrote them. Prefer
         `from_h5`, which reads the parameter names from the file's own metadata.
+
+        The legacy format carries no metadata, so `fixed_parameters` is left empty:
+        files in that format predate fixed priors.
 
         Args:
             clusters_path: path to the clusters file (text or .npy)
@@ -632,6 +651,7 @@ class Results:
                 return pd.read_csv(path, delimiter="\t", engine="pyarrow")
 
             except ImportError:
+                # pyarrow is an optional extra, so the default engine is the normal path
                 pass
 
             except Exception as e:
@@ -643,7 +663,6 @@ class Results:
         # The python engine is only needed for the `skiprows` callable
         engine: Literal["c", "python"] = "python" if skip_rows is not None else "c"
         return pd.read_csv(path, delimiter="\t", engine=engine, skiprows=skip_rows)
-
 
     @staticmethod
     def get_cluster_names(column_names: Sequence[str]) -> list[str]:
@@ -667,7 +686,6 @@ class Results:
             if cluster_name not in cluster_names:
                 cluster_names.append(cluster_name)
         return cluster_names
-
 
     @staticmethod
     def get_groups_by_confounder(
@@ -749,7 +767,7 @@ def read_h5_samples(
     Raises:
         ValueError: if the file contains no metadata.
     """
-    with tables.open_file(str(h5_path), mode="r") as f:
+    with (tables.open_file(str(h5_path), mode="r") as f):
         try:
             metadata = json.loads(f.get_node_attr(f.root, "metadata"))
         except AttributeError:
@@ -800,9 +818,10 @@ def read_h5_samples(
                     likelihood = likelihood[:, ~na_values]
                 arrays["likelihood_pointwise"] = likelihood
 
-        if (include_derived and "log_posterior" not in arrays
+        if (include_derived
+                and "log_posterior" not in arrays
                 and "potential_energy" in f.root):
-            # Some older files may only the sampler's potential, which lives in
+            # Some older files only have the sampler's potential, which lives in
             # unconstrained space and is therefore not comparable to
             # `log_likelihood`; `log_prior` derived from it is meaningless.
             warnings.warn(

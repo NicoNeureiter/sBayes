@@ -5,7 +5,7 @@ on:
     branches: [master, language_sbayes, devel]
     paths:
       - sbayes/**
-      - test/**
+      - tests/**
       - .github/workflows/python_package.yml
   pull_request:
     branches: [master, language_sbayes, devel]

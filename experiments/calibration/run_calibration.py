@@ -7,11 +7,11 @@ from sbayes.simulate.calibration import (
 )
 
 VARIANTS: dict[str, dict[str, int]] = {
-    "categorical": {"categorical_2": 10, "categorical_3": 20, "categorical_4": 10},
-    "gaussian": {"gaussian": 40},
+    #"categorical": {"categorical_2": 10, "categorical_3": 20, "categorical_4": 10},
+    #gaussian": {"gaussian": 4},
     "poisson": {"poisson": 40},
-    "logitnormal": {"logitnormal": 40},
-    "mixed": {"categorical_2": 10, "categorical_3":10, "gaussian":10, "poisson":10, "logitnormal":10},
+    #"logitnormal": {"logitnormal": 40},
+    #"mixed": {"categorical_2": 10, "categorical_3":10, "gaussian":10, "poisson":10, "logitnormal":10},
 }
 """The feature types of each study variant. Everything else is shared."""
 

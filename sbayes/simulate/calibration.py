@@ -1,3 +1,4 @@
+import shutil
 
 import arviz as az
 import gc
@@ -15,15 +16,15 @@ from jax import random
 from matplotlib import pyplot as plt
 from pathlib import Path
 from ruamel.yaml import YAML
-from typing import NamedTuple, Sequence
-
-
+from ruamel.yaml.error import YAMLError
 from sbayes.results import Results
 from sbayes.sampling.loggers import logger
 from sbayes.simulate.config import SimulateConfigFile
 from sbayes.simulate.simulator import Simulator
-from sbayes.simulate.validate import Paths, build_result_paths
+from sbayes.simulate.validate import Paths, build_result_paths, inference_chain_paths
 from sbayes.util import EPS
+import tables
+from typing import NamedTuple, Sequence
 
 # For running on the server only
 import subprocess
@@ -63,6 +64,12 @@ PRIOR_SECTIONS = {
 }
 """Which `prior.cluster_effect` section each feature type draws its prior from."""
 
+MARKER_NAME = "replicate.yaml"
+"""Written as the last action of a finished replicate to record completeness"""
+
+_yaml = YAML()
+_yaml.default_flow_style = False
+"""Shared writer for the YAML files in a study folder"""
 
 
 class ReplicateSeeds(NamedTuple):
@@ -147,6 +154,9 @@ class PreparedReplicate(NamedTuple):
 
     cluster_names: Sequence[str]
     """The cluster names in the order they index `clusters`, from `Results`."""
+
+    excluded: set[str]
+    """Excluded fixed scalars"""
 
 
 class Study(NamedTuple):
@@ -345,7 +355,9 @@ def run_replicate(
     if not isinstance(sim_k, int):
         raise ValueError(f"A simulation has a single cluster count, got {sim_k}.")
 
-    return replicate_paths(replicate_config, output_path)
+    paths = replicate_paths(replicate_config, output_path)
+    write_replicate_marker(output_path, config, seeds)
+    return paths
 
 
 def run_study(
@@ -357,22 +369,26 @@ def run_study(
     """Run every replicate of a calibration study.
 
     Each replicate gets its own folder and its own seeds, all derived from the master
-    seed in the config. Replicates whose inference has already finished are skipped, so
-    an interrupted study can be resumed by calling this again with the same arguments.
+    seed in the config. A replicate is skipped only if its marker says it finished
+    under the settings this study asks for, so an interrupted run can be resumed by
+    calling this again with the same arguments, and a replicate left half-written by a
+    crash is redone rather than trusted.
 
     Args:
         config: the simulation config
-        output_path: Receives one `replicate_###` folder per
-            replicate, plus the seed file.
+        output_path: receives one `replicate_###` folder per replicate, plus the seed
+            file
         n_replicates: the number of replicates. Defaults to `simulation.datasets`.
-        sample_from_prior: whether to sample from the prior for no-data inference
+        sample_from_prior: whether the inference samples from the prior, for the
+            no-data check
 
     Returns:
-        The samples files of each replicate, in order.
+        The study, with the folder and seeds of every replicate.
     """
-
     if n_replicates is None:
         n_replicates = config.simulation.datasets
+
+    replicate_paths(config, output_path)
 
     master_seed = config.simulation.seed
     seeds = replicate_seeds(master_seed, n_replicates)
@@ -380,19 +396,21 @@ def run_study(
 
     replicates = {}
     for replicate_seed in seeds:
-
         replicate_path = output_path / f"replicate_{replicate_seed.replicate:03d}"
-        paths = replicate_paths(config, replicate_path)
-
-        if paths.simulated.exists() and paths.inferred:
-            logger.info(f"Skipping replicate {replicate_seed.replicate}, already done.")
-        else:
-            run_replicate(config, replicate_seed, replicate_path,
-                          sample_from_prior=sample_from_prior)
-
         replicates[replicate_seed.replicate] = replicate_path
+
+        if replicate_is_complete(replicate_path, config, replicate_seed):
+            logger.info(f"Skipping replicate {replicate_seed.replicate}, already done.")
+            continue
+
+        run_replicate(config, replicate_seed, replicate_path,
+                      sample_from_prior=sample_from_prior)
+
+        # Each replicate builds a fresh model, so JAX compiles and caches a new
+        # executable for it; without clearing, the caches grow replicate by replicate
         jax.clear_caches()
         gc.collect()
+
         logger.info(
             f"Replicate {replicate_seed.replicate} done, peak memory "
             f"{resource.getrusage(resource.RUSAGE_SELF).ru_maxrss // 1024} MB."
@@ -861,8 +879,13 @@ def prepare_replicate(
     draws = _split_chains(
         reorder_clusters(_merge_chains(draws), cluster_names), n_chains
     )
-    diagnostics = convergence_diagnostics(expand_parameters(draws, n_leading=2))
+    excluded = fixed_scalar_names(replicate.truth)
 
+    diagnostics = convergence_diagnostics({
+        name: values
+        for name, values in expand_parameters(draws, n_leading=2).items()
+        if name not in excluded
+    })
 
     decisiveness = float(np.mean([
         ordering_decisiveness(memberships)
@@ -878,7 +901,8 @@ def prepare_replicate(
         draws=thinned,
         diagnostics=diagnostics,
         decisiveness=decisiveness,
-        cluster_names=cluster_names
+        cluster_names=cluster_names,
+        excluded = excluded
     )
 
 
@@ -1153,8 +1177,16 @@ def replicate_ranks(
         return 0
 
     # The individual parameters
-    truth = expand_parameters(direct_targets(prepared.truth), n_leading=1)
-    draws = expand_parameters(direct_targets(prepared.draws), n_leading=1)
+    truth = {
+        name: values
+        for name, values in expand_parameters(direct_targets(prepared.truth), n_leading=1).items()
+        if name not in prepared.excluded
+    }
+    draws = {
+        name: values
+        for name, values in expand_parameters(direct_targets(prepared.draws), n_leading=1).items()
+        if name not in prepared.excluded
+    }
     ranks = ranks_of_truth(truth, draws, rng=rng)
 
     # The order-independent summaries
@@ -1494,7 +1526,7 @@ def write_study_report(
         "## Settings",
         "",
         f"- objects: {simulation.objects}",
-        f"- features: {len(simulation.features)}",
+        f"- features: {sum(simulation.features.values())}",
         f"- clusters: {simulation.clusters} (simulated and inferred)",
         f"- confounders: {dict(simulation.confounders)}",
         f"- mcmc: {mcmc.steps} steps, {mcmc.samples} samples, {mcmc.runs} runs",
@@ -1588,6 +1620,7 @@ def run_calibration_study(
     prob: float = 0.95,
     bucket: str | None = None,
     sample_from_prior: bool = False,
+    audit_existing: bool = True
 ) -> None:
     """Run a calibration study end to end: simulate, infer, rank, report, upload.
 
@@ -1599,6 +1632,7 @@ def run_calibration_study(
         bucket: the GCS bucket to upload the results to; None skips the upload
         sample_from_prior: whether the inference samples from the prior, which makes
             this a validation of the pipeline rather than of the model
+        audit_existing: Validate every replicate of a study, and repair what is broken?
 
     Raises:
         Exception: if the upload fails, so the caller can keep the VM alive.
@@ -1606,12 +1640,22 @@ def run_calibration_study(
     output_path = Path("output", name)
     archive_yaml(config, output_path)
 
+    if audit_existing and any(output_path.glob("replicate_*")):
+        audit = audit_study(Study.from_path(output_path, config))
+        broken = audit[~audit["complete"]]
+        if not broken.empty:
+            logger.warning(
+                f"Re-running {len(broken)} incomplete replicates: "
+                f"{sorted(broken['replicate'])}"
+            )
+
     study = run_study(
         config=config,
         output_path=output_path,
         n_replicates=n_replicates,
         sample_from_prior=sample_from_prior,
     )
+
 
     try:
         prepared = prepare_replicates(study)
@@ -1789,12 +1833,294 @@ def archive_yaml(config: SimulateConfigFile, output_path: Path) -> None:
     simulate = config.model_dump(mode="json", exclude={"inf_config"})
     inference = config.inf_config.model_dump(mode="json")
 
-    yaml = YAML()
-    yaml.default_flow_style = False
-
     for name, resolved in [
         ("config_simulate.yaml", simulate),
         ("config.yaml", inference),
     ]:
         with open(output_path / name, "w", encoding="utf-8") as f:
-            yaml.dump(resolved, f)
+            _yaml.dump(resolved, f)
+
+
+def replicate_expectations(config: SimulateConfigFile, seeds: ReplicateSeeds) -> dict:
+    """What a finished replicate of this study should contain.
+
+    Args:
+        config: the study's simulation config
+        seeds: the seeds of this replicate
+
+    Returns:
+        The facts that define completeness, as JSON-serialisable values.
+    """
+    mcmc = config.inf_config.mcmc
+    return {
+        "replicate": seeds.replicate,
+        "seeds": dict(seeds._asdict()),
+        "simulated_k": config.simulation.clusters,
+        "n_objects": config.simulation.objects,
+        "n_runs": mcmc.runs,
+        "n_samples": mcmc.samples,
+    }
+
+def write_replicate_marker(
+    replicate_path: Path, config: SimulateConfigFile, seeds: ReplicateSeeds
+) -> None:
+    """Record that a replicate finished, and under which settings.
+
+    Called as the last action of a replicate: anything that kills the run earlier
+    leaves no marker.
+
+    Args:
+        replicate_path: the folder of this replicate
+        config: the study's simulation config
+        seeds: the seeds this replicate was run with
+    """
+
+    marker = replicate_expectations(config, seeds)
+    with open(replicate_path / MARKER_NAME, "w", encoding="utf-8") as f:
+        _yaml.dump(marker, f)
+
+
+def replicate_is_complete(
+    replicate_path: Path, config: SimulateConfigFile, seeds: ReplicateSeeds
+) -> bool:
+    """Whether a replicate finished under the settings this study asks for.
+    Used to skip replicates on a restart.
+
+    Args:
+        replicate_path: the folder of this replicate
+        config: the study's simulation config
+        seeds: the seeds this replicate should have been run with
+
+    Returns:
+        True only if the marker is present and matches the current expectations.
+    """
+    marker_path = replicate_path / MARKER_NAME
+    if not marker_path.exists():
+        return False
+
+    try:
+        with open(marker_path, encoding="utf-8") as f:
+            marker = _yaml.load(f)
+    except (OSError, YAMLError):
+        return False
+
+    if not isinstance(marker, dict):
+        return False
+
+
+    expected = replicate_expectations(config, seeds)
+    return all(marker.get(key) == value for key, value in expected.items())
+
+
+def _h5_problems(path: Path, n_samples: int) -> list[str] | None :
+    """Check that one samples file is whole.
+
+    Args:
+        path: the samples h5 file
+        n_samples: how many samples it should hold
+
+    Returns:
+        One message per problem found; empty if the file is sound.
+    """
+    try:
+        with tables.open_file(str(path), mode="r") as f:
+            problems = []
+            try:
+                f.get_node_attr(f.root, "metadata")
+            except AttributeError:
+                # `write_samples` sets this last, so its absence means the run died
+                problems.append(f"{path.name}: no metadata")
+
+            if "/z" not in f:
+                problems.append(f"{path.name}: no `/z` node")
+            else:
+                node = f.get_node(f.root, "z")
+                rows = int(node.shape[0]) if isinstance(node, tables.Array) else 0
+                if rows != n_samples:
+                    problems.append(f"{path.name}: {rows} samples, expected {n_samples}")
+
+            return problems
+    except (OSError, tables.HDF5ExtError) as e:
+        return [f"{path.name}: cannot be opened ({type(e).__name__})"]
+
+
+def _tsv_problems(path: Path, n_rows: int) -> list[str]:
+    """Check that one stats file exists and has the expected number of rows.
+
+    Args:
+        path: the stats file
+        n_rows: how many rows it should have
+    """
+
+    if not path.exists():
+        return [f"{path.name}: missing"]
+    try:
+        rows = len(pd.read_csv(path, sep="\t"))
+    except (OSError, pd.errors.ParserError) as e:
+        return [f"{path.name}: cannot be read ({type(e).__name__})"]
+
+    return [] if rows == n_rows else [f"{path.name}: {rows} rows, expected {n_rows}"]
+
+
+def validate_replicate(
+    replicate_path: Path, config: SimulateConfigFile
+) -> list[str]:
+    """Check that every file a finished replicate should have is present and whole.
+
+    The thorough check, looking at structural completeness (files present, nodes
+    present, row counts right).
+
+    Args:
+        replicate_path: the folder of this replicate
+        config: the study's simulation config
+
+    Returns:
+        One message per problem found; empty if the replicate is complete.
+    """
+    simulation = config.simulation
+    mcmc = config.inf_config.mcmc
+    k = simulation.clusters
+
+    problems = []
+
+    features = replicate_path / "sim_data" / "features.csv"
+    if not features.exists():
+        problems.append("sim_data/features.csv: missing")
+    else:
+        try:
+            if len(pd.read_csv(features)) != simulation.objects:
+                problems.append(
+                    f"sim_data/features.csv: not {simulation.objects} objects"
+                )
+        except (OSError, pd.errors.ParserError) as e:
+            problems.append(f"sim_data/features.csv: cannot be read ({type(e).__name__})")
+
+    # The ground truth is a single draw
+    truth = replicate_path / "sim_params" / "samples_0.h5"
+    if not truth.exists():
+        problems.append("sim_params/samples_0.h5: missing")
+    else:
+        problems += _h5_problems(truth, n_samples=1)
+    problems += _tsv_problems(replicate_path / "sim_params" / f"stats_K{k}_0.tsv", 1)
+
+    chains = inference_chain_paths(replicate_path, simulated_k=k, k=k)
+    if len(chains) != mcmc.runs:
+        problems.append(f"inference: {len(chains)} chains, expected {mcmc.runs}")
+
+    for chain in chains:
+        problems += _h5_problems(chain, n_samples=mcmc.samples)
+
+    inference_dir = replicate_path / "results" / f"simK{k}" / f"K{k}"
+    for run in range(len(chains)):
+        problems += _tsv_problems(
+            inference_dir / f"stats_K{k}_{run}.tsv", mcmc.samples
+        )
+
+    return problems
+
+
+def audit_study(
+    study: Study,
+    write_markers: bool = True,
+    only_unmarked: bool = True,
+    quarantine: bool = True,
+) -> pd.DataFrame:
+    """Validate every replicate of a study, and repair what is broken.
+
+   Replicates that pass get a marker, so the fast check skips them from
+    then on. Replicates that fail are moved aside, so the next `run_study` re-runs them.
+
+    Args:
+        study: the study to audit
+        write_markers: whether to mark the replicates that pass
+        only_unmarked: whether to check all replicated or only the unmarked ones?
+        quarantine: whether to move failing replicates into `_incomplete/`
+
+    Returns:
+        One row per replicate, with its verdict and the problems found.
+    """
+    seeds_by_replicate = {s.replicate: s for s in study.seeds}
+
+    rows = []
+    for replicate, folder in sorted(study.replicates.items()):
+        seeds = seeds_by_replicate.get(replicate)
+
+        if only_unmarked and seeds is not None \
+                and replicate_is_complete(folder, study.config, seeds):
+            rows.append({
+                "replicate": replicate,
+                "checked": "marker",
+                "complete": True,
+                "n_problems": 0,
+                "problems": "",
+            })
+            continue
+
+        problems = validate_replicate(folder, study.config)
+
+        if not problems and write_markers and seeds is not None:
+            write_replicate_marker(folder, study.config, seeds)
+
+        if problems and quarantine:
+            destination = study.path / "_incomplete" / folder.name
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            if destination.exists():
+                shutil.rmtree(destination)
+            shutil.move(str(folder), str(destination))
+
+        rows.append({
+            "replicate": replicate,
+            "checked": "files",
+            "complete": not problems,
+            "n_problems": len(problems),
+            "problems": "; ".join(problems),
+        })
+
+    audit = pd.DataFrame(rows)
+    audit.to_csv(study.path / "audit.tsv", sep="\t", index=False)
+
+    return audit
+
+
+def fixed_scalar_names(results: Results) -> set[str]:
+    """The expanded parameter names whose value the config fixed to a constant.
+
+    The samples file records fixed parameters by site name, e.g.
+    `conf_effect_social_group_Gaussian_variance`. The statistics work on expanded
+    names, e.g. `confounding_effects.social_group.group_A.f_3[1]`, where the trailing
+    index selects `variance` out of the last axis. This maps one to the other.
+
+    Args:
+        results: the samples of one chain, carrying `fixed_parameters`
+
+    Returns:
+        The expanded names to exclude.
+    """
+    excluded: set[str] = set()
+
+    for site in results.fixed_parameters:
+        # The trailing word names the position in the last axis: mean, variance, rate
+        suffix = site.rsplit("_", 1)[-1]
+
+        if site.startswith("cluster_effect_"):
+            families = [(AREAL_EFFECT, results.cluster_names)]
+        else:
+            # Confounder names may contain underscores, so match them rather than split
+            families = [
+                (f"confounding_effects.{conf}", groups)
+                for conf, groups in results.groups_by_confounders.items()
+                if site.startswith(f"conf_effect_{conf}_")
+            ]
+            if not families:
+                warnings.warn(f"Could not place the fixed parameter '{site}'.")
+                continue
+
+        for feature, state_names in zip(results.feature_names, results.feature_states):
+            if suffix not in state_names:
+                continue
+            index = state_names.index(suffix)
+            for family, group_names in families:
+                for group in group_names:
+                    excluded.add(f"{family}.{group}.{feature}[{index}]")
+
+    return excluded

@@ -112,7 +112,8 @@ class MCMCSetup:
 
         sample_logger = OnlineSampleLogger(
             self.path_results, run, resume,
-            metadata=h5_metadata(self.data, self.model.n_clusters),
+            metadata=h5_metadata(self.data, self.model.n_clusters,
+                                 self.model.fixed_parameter_names()),
             derive=DerivedValues(self.model, self.data),
         )
         with sample_logger:

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import jax
-import jax.numpy as jnp
 import json
 import logging
 import numpy as np
@@ -13,7 +12,6 @@ import time
 import warnings
 
 from itertools import product
-from jax.typing import ArrayLike
 from numpyro import handlers
 from numpyro.infer import log_likelihood
 from numpyro.infer.util import log_density
@@ -211,7 +209,9 @@ def write_samples(
     with_likelihood = not model.config.sample_from_prior
     with _open_h5(samples_h5_path, mode="a") as h5_file:
         h5_file.set_node_attr(
-            h5_file.root, "metadata", json.dumps(h5_metadata(data, n_clusters))
+            h5_file.root,
+            "metadata",
+            json.dumps(h5_metadata(data, n_clusters, model.fixed_parameter_names())),
         )
         # The derived values are usually written by the online logger during the run,
         # and only computed here if they are missing
@@ -418,6 +418,8 @@ def write_stats_file(
             cluster `permutation[i]` becomes cluster `i`
     """
     metadata, arrays = read_stats_samples(h5_path)
+
+
     if permutation is not None:
         arrays = permute_clusters(metadata, arrays, permutation)
     write_stats_table(build_stats_table(metadata, arrays), stats_path)
@@ -436,13 +438,24 @@ def get_cluster_names(n_clusters: int) -> list[str]:
     return [f"a{i}" for i in range(n_clusters)]
 
 
-def h5_metadata(data: Data, n_clusters: int) -> dict:
-    """Metadata stored in the samples h5 file, for `Results.from_h5()`."""
+def h5_metadata(
+    data: Data, n_clusters: int, fixed_parameters: Sequence[str] = ()
+) -> dict:
+    """Metadata stored in the samples h5 file, for `Results.from_h5()`.
+
+    Args:
+        data: the data the model was fitted to
+        n_clusters: the number of clusters in the model
+        fixed_parameters: site names the config fixed to a constant, from
+            `Model.fixed_parameter_names`. Readers exclude them from convergence
+            diagnostics and calibration ranks, where a constant is meaningless.
+    """
     return _build_h5_metadata(
         data,
         cluster_names=get_cluster_names(n_clusters),
         feature_names=data.features.names,
         component_names=['areal', *data.confounders.keys()],
+        fixed_parameters=fixed_parameters,
     )
 
 
@@ -451,6 +464,7 @@ def _build_h5_metadata(
     cluster_names: Sequence[str],
     feature_names: Sequence[str],
     component_names: Sequence[str],
+    fixed_parameters: Sequence[str] = (),
 ) -> dict:
     """Build the metadata stored as an h5 attribute, for `Results.from_h5()`.
 
@@ -511,6 +525,7 @@ def _build_h5_metadata(
         "object_names": [str(n) for n in data.objects.names],
         "feature_names": list(feature_names),
         "component_names": list(component_names),
+        "fixed_parameters": sorted(fixed_parameters),
         "confounders": {
             conf.name: list(conf.group_names) for conf in data.confounders.values()
         },
