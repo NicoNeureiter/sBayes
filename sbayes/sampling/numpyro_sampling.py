@@ -64,6 +64,7 @@ def sample_nuts(
     init_strategy: str = "SVI",
     svi_guide: str = "AutoLaplace",
     svi_steps: int = 4000,
+    svi_attempts: int = 1,
     laplace_mass_matrix: bool = True,
     adapt_mass_matrix: bool = True,
     logger: Logger | None = None,
@@ -89,6 +90,8 @@ def sample_nuts(
         sample_logger: the logger writing the samples to disk
         svi_guide: the guide family used by the "SVI" init strategy
         svi_steps: number of SVI steps used by the "SVI" init strategy
+        svi_attempts: number of SVI runs from different starting points; the one whose
+            mode has the highest local evidence is used
         laplace_mass_matrix: whether to start the mass-matrix adaptation from the
             curvature at the SVI mode (only with the "SVI" init strategy)
         adapt_mass_matrix: whether to adapt the mass matrix during warm-up. If False,
@@ -107,7 +110,12 @@ def sample_nuts(
         # Find a good starting point for the sampler
         if init_strategy == "SVI":
             initial_sample = get_svi_init_sample(
-                model, rng_key=rng_key, svi_steps=svi_steps, guide_name=svi_guide
+                model,
+                rng_key=rng_key,
+                svi_steps=svi_steps,
+                n_attempts=svi_attempts,
+                guide_name=svi_guide,
+                logger=logger,
             )
         elif init_strategy == "heuristic":
             initial_sample = find_best_initial_sample(model, rng_key=rng_key)

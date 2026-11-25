@@ -1,4 +1,4 @@
-"""Tests for the Laplace-based initial mass matrix in sbayes/sampling/initialization.py."""
+"""Tests for the Laplace mass matrix and local evidence in sbayes/sampling/initialization.py."""
 
 import jax.numpy as jnp
 import numpy as np
@@ -8,7 +8,7 @@ import numpyro.distributions as dist
 from jax import random
 from jax.flatten_util import ravel_pytree
 from numpyro.infer import MCMC, NUTS, init_to_value
-from sbayes.sampling.initialization import laplace_inverse_mass_matrix
+from sbayes.sampling.initialization import laplace_inverse_mass_matrix, log_local_evidence
 
 SD_A = jnp.array([0.1, 1.0, 10.0])
 SD_B = 2.0
@@ -78,3 +78,44 @@ def test_nuts_accepts_the_matrix_for_constrained_sites():
     used = mcmc.last_state.adapt_state.inverse_mass_matrix
     assert list(used) == [("a", "p")]
     np.testing.assert_allclose(used[("a", "p")], imm)
+
+
+def test_local_evidence_is_exact_for_a_gaussian():
+    """For a conjugate Gaussian the Laplace proposal is the posterior, so IS is exact."""
+    y = 1.5
+
+    def model():
+        x = numpyro.sample("x", dist.Normal(0.0, 1.0))
+        numpyro.sample("y", dist.Normal(x, 1.0), obs=y)
+
+    # Posterior mode y / 2, evidence N(y; 0, sqrt(2))
+    evidence = log_local_evidence(model, {"x": jnp.array(y / 2)}, random.PRNGKey(0))
+    np.testing.assert_allclose(evidence, dist.Normal(0.0, jnp.sqrt(2.0)).log_prob(y), rtol=1e-4)
+
+
+def test_local_evidence_accounts_for_the_transform():
+    """A normalized prior alone has evidence 1, also on a constrained site."""
+
+    def model():
+        numpyro.sample("p", dist.Dirichlet(jnp.array([2.0, 3.0, 4.0])))
+
+    init = {"p": jnp.array([1 / 6, 2 / 6, 3 / 6])}   # the mode
+    evidence = log_local_evidence(model, init, random.PRNGKey(0), num_samples=4000)
+    assert abs(evidence) < 0.05
+
+
+def test_local_evidence_prefers_the_mode_with_more_mass():
+    """The narrow mode is higher, but the wide one holds 70% of the mass."""
+    narrow = dist.Normal(-3.0, 0.2)
+    wide = dist.Normal(3.0, 1.0)
+
+    def model():
+        x = numpyro.sample("x", dist.ImproperUniform(dist.constraints.real, (), ()))
+        numpyro.factor("mix", jnp.logaddexp(
+            jnp.log(0.3) + narrow.log_prob(x), jnp.log(0.7) + wide.log_prob(x)
+        ))
+
+    ev_narrow = log_local_evidence(model, {"x": jnp.array(-3.0)}, random.PRNGKey(0))
+    ev_wide = log_local_evidence(model, {"x": jnp.array(3.0)}, random.PRNGKey(0))
+    np.testing.assert_allclose(ev_narrow, np.log(0.3), atol=0.02)
+    np.testing.assert_allclose(ev_wide, np.log(0.7), atol=0.02)

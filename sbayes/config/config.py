@@ -836,6 +836,10 @@ class MCMCConfig(BaseConfig):
     svi_steps: PositiveInt = 5_000
     """Number of optimization steps for SVI-based initialization."""
 
+    svi_attempts: PositiveInt = 1
+    """Number of SVI runs from different random starting points. The run whose mode has
+    the highest local evidence (importance sampling around the mode) initializes MCMC."""
+
     offset_reparameterization: bool = True
     """Centre the latent space of Dirichlets on a moving offset, where one exists."""
 
