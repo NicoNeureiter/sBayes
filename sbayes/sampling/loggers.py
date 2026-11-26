@@ -135,6 +135,15 @@ def _padded_block(
     return block
 
 
+def _chunkshape(values: np.ndarray) -> tuple[int, ...]:
+    """Chunk shape holding exactly one write of `values` (the samples of one chunk).
+
+    Each append then fills new chunks instead of rewriting the last one, so a copy
+    made while the run writes (e.g. by a sync) can only lose the newest samples.
+    """
+    return max(len(values), 1), *values.shape[1:]
+
+
 def _append_derived(
     file: tables.File, values: dict[str, np.ndarray], constants: dict[str, np.ndarray]
 ) -> None:
@@ -164,6 +173,7 @@ def _append_derived(
                 atom=tables.Float64Col(),
                 shape=(0, *value.shape[1:]),
                 filters=filters,
+                chunkshape=_chunkshape(value),
             )
         file.get_node("/derived", name).append(value)
 
@@ -784,6 +794,7 @@ class OnlineSampleLogger:
                         atom=numpy_to_tables_dtype(values.dtype),
                         filters=tables.Filters(complevel=5),
                         shape=(0, *values.shape[1:]),
+                        chunkshape=_chunkshape(values),
                     )
                 file.root[param_name].append(values)
 
