@@ -85,16 +85,10 @@ def assert_model_is_samplable(model: Model) -> None:
         )
 
 
-@pytest.mark.parametrize("offset_reparameterization", [True, False])
 @pytest.mark.parametrize("setting", MODEL_SETTINGS, ids=list(MODEL_SETTINGS))
-def test_model_is_samplable(build_model, setting, offset_reparameterization):
-    """The model is numerically sound for each model setting, with and without the
-    offset reparameterization."""
-    overrides = {
-        "model": MODEL_SETTINGS[setting],
-        "mcmc": {"offset_reparameterization": offset_reparameterization},
-    }
-    assert_model_is_samplable(build_model(overrides))
+def test_model_is_samplable(build_model, setting):
+    """The model is numerically sound for each model setting."""
+    assert_model_is_samplable(build_model({"model": MODEL_SETTINGS[setting]}))
 
 
 @pytest.mark.parametrize("setting", GEO_SETTINGS, ids=list(GEO_SETTINGS))

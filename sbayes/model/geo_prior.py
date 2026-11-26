@@ -165,9 +165,7 @@ class GeoPrior:
         r_grid = jnp.linspace(grid_min ** 0.5, grid_max ** 0.5, grid_size) ** 2
 
         interpolator, _, _ = estimate_marginal_log_likelihood_curve(
-            base_prior=lambda: cluster_prior.get_numpyro_distr(
-                allow_reparameterization=False
-            ),
+            base_prior=cluster_prior.get_numpyro_distr,
             log_g_fn=cost,
             r_grid=r_grid,
             num_samples=self.config.approx_norm_const["steps_per_setting"],

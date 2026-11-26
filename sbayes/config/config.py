@@ -840,9 +840,6 @@ class MCMCConfig(BaseConfig):
     """Number of SVI runs from different random starting points. The run whose mode has
     the highest local evidence (importance sampling around the mode) initializes MCMC."""
 
-    offset_reparameterization: bool = True
-    """Centre the latent space of Dirichlets on a moving offset, where one exists."""
-
     laplace_mass_matrix: bool = True
     """Start the NUTS mass-matrix adaptation from the curvature at the SVI mode."""
 
@@ -863,6 +860,7 @@ class MCMCConfig(BaseConfig):
         return [
             "sample_from_prior",
             "operators",
+            "offset_reparameterization",
             "init_objects_per_cluster",
             "initialization",
             "grow_to_adjacent",

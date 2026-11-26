@@ -13,9 +13,6 @@ line (no bound needed) and stays finite where the simplex value underflows to 0.
 All Dirichlet sites of the model are sampled this way: in float32, a plain
 `dist.Dirichlet` with concentration below 1 gives a non-finite density (and divergent
 NUTS transitions) once a simplex entry underflows to 0, which happens far in the tails.
-
-Centering the latent space on an `offset` only changes the sampling geometry if the
-offset depends on other sampled parameters; a constant offset is just a translation.
 """
 from __future__ import annotations
 
@@ -39,14 +36,11 @@ class LatentDirichlet(dist.Distribution):
     """A Dirichlet distribution expressed in the stick-breaking latent space.
 
     Samples are unconstrained vectors of length K-1. They map to the simplex by
-    `to_simplex`, i.e. by adding the latent representation of `offset` and applying
-    numpyro's `StickBreakingTransform`. The density is that of the latent value, so
-    the transform's Jacobian is already included.
+    `to_simplex`, i.e. by numpyro's `StickBreakingTransform`. The density is that of the
+    latent value, so the transform's Jacobian is already included.
 
     Args:
         concentration: the Dirichlet concentration, shape (..., K)
-        offset: optional point on the simplex to center the latent space on, shape
-            (..., K). Without it the latent space is centered on the uniform simplex.
     """
 
     arg_constraints = {"concentration": constraints.independent(constraints.positive, 1)}
@@ -55,22 +49,12 @@ class LatentDirichlet(dist.Distribution):
     def __init__(
         self,
         concentration: jnp.ndarray,
-        offset: jnp.ndarray | None = None,
         *,
         validate_args: bool | None = None,
     ):
-        concentration = jnp.asarray(concentration)
-        n_states = concentration.shape[-1]
-        if offset is None:
-            latent_offset = jnp.zeros(n_states - 1, dtype=concentration.dtype)
-        else:
-            latent_offset = StickBreakingTransform().inv(jnp.asarray(offset))
-
-        batch_shape = jax.lax.broadcast_shapes(
-            concentration.shape[:-1], latent_offset.shape[:-1]
-        )
-        self.concentration = jnp.broadcast_to(concentration, batch_shape + (n_states,))
-        self.latent_offset = jnp.broadcast_to(latent_offset, batch_shape + (n_states - 1,))
+        self.concentration = jnp.asarray(concentration)
+        n_states = self.concentration.shape[-1]
+        batch_shape = self.concentration.shape[:-1]
         self._shift = _stick_breaking_shift(n_states)
 
         # Beta parameters of the stick fractions: a_i = alpha_i, b_i = sum_{j>i} alpha_j
@@ -85,15 +69,15 @@ class LatentDirichlet(dist.Distribution):
 
     def _to_logits(self, value: jnp.ndarray) -> jnp.ndarray:
         """Logits u of the stick fractions for a latent value."""
-        return value + self.latent_offset - self._shift
+        return value - self._shift
 
     def _from_logits(self, u: jnp.ndarray) -> jnp.ndarray:
         """Latent value for the logits u of the stick fractions."""
-        return u + self._shift - self.latent_offset
+        return u + self._shift
 
     def to_simplex(self, value: jnp.ndarray) -> jnp.ndarray:
         """Map a latent value to the probability simplex."""
-        return StickBreakingTransform()(value + self.latent_offset)
+        return StickBreakingTransform()(value)
 
     def sample(self, key: jax.Array, sample_shape: tuple = ()) -> jnp.ndarray:
         # Gamma construction in log space: f_i = G_i / (G_i + sum_{j>i} G_j), so
@@ -115,41 +99,35 @@ class LatentDirichlet(dist.Distribution):
         return self._from_logits(digamma(self._a) - digamma(self._b))
 
 
-def latent_from_simplex(x: jnp.ndarray, offset: jnp.ndarray | None = None) -> jnp.ndarray:
+def latent_from_simplex(x: jnp.ndarray) -> jnp.ndarray:
     """The latent value of `dirichlet_from_latent` that maps to the simplex value `x`.
 
     Args:
         x: a point on the simplex, shape (..., K)
-        offset: the offset the latent space is centered on, if any
 
     Returns:
         The latent value, shape (..., K-1)
     """
-    sb = StickBreakingTransform()
-    latent = sb.inv(x)
-    return latent if offset is None else latent - sb.inv(offset)
+    return StickBreakingTransform().inv(x)
 
 
 def dirichlet_from_latent(
     name: str,
     concentration: jnp.ndarray,
-    offset: jnp.ndarray | None = None,
 ) -> jnp.ndarray:
     """Sample from a Dirichlet distribution through the stick-breaking latent space.
 
     The latent value is sampled at site `{name}_raw` and its value on the simplex is
-    recorded as the deterministic site `{name}`. An `offset` only changes the sampling
-    geometry if it depends on other sampled parameters.
+    recorded as the deterministic site `{name}`.
 
     Args:
         name: the name of the numpyro sample site
         concentration: the concentration parameter of the Dirichlet distribution
-        offset: optional point on the simplex to center the latent space on
 
     Returns:
         The sampled value on the probability simplex.
     """
-    latent_distr = LatentDirichlet(concentration, offset)
+    latent_distr = LatentDirichlet(concentration)
     z = numpyro.sample(f"{name}_raw", latent_distr)
     x = latent_distr.to_simplex(z)
     numpyro.deterministic(name, x)

@@ -50,11 +50,7 @@ def build_model():
 
     def _build_model(overrides: dict | None = None) -> Model:
         data, config = _build(overrides)
-        return Model(
-            data,
-            config.model,
-            offset_reparameterization=config.mcmc.offset_reparameterization,
-        )
+        return Model(data, config.model)
 
     return _build_model
 

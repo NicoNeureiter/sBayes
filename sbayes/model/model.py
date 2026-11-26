@@ -82,15 +82,12 @@ class Model:
         data: Data,
         config: ModelConfig,
         simulate_observations: bool = False,
-        offset_reparameterization: bool = True,
     ) -> None:
         """
         Args:
             data: the data the model is fitted to
             config: the model configuration, for a single number of clusters
             simulate_observations: whether to simulate observations
-            offset_reparameterization: whether to centre the latent space of Dirichlets
-                on a moving offset, where one exists (see `reparameterization.py`)
         """
         if not isinstance(config.clusters, int):
             raise ValueError(
@@ -100,7 +97,6 @@ class Model:
 
         self.data = data
         self.config = config
-        self.offset_reparameterization = offset_reparameterization
         self.confounders = data.confounders
 
         if not self.confounders:
@@ -157,11 +153,6 @@ class Model:
         """The number of clusters in this model."""
         return self.shapes.n_clusters
 
-    @property
-    def allow_reparameterization(self) -> bool:
-        """Whether Dirichlet latents are centred on a moving offset, where one exists."""
-        return self.offset_reparameterization
-
     def get_model(self) -> None:
         """Define the sBayes model for NumPyro.
 
@@ -171,7 +162,7 @@ class Model:
         """
 
         # Add the cluster prior to the model
-        z = self.prior.cluster_prior.get_numpyro_distr(allow_reparameterization=self.allow_reparameterization)
+        z = self.prior.cluster_prior.get_numpyro_distr()
 
         # `z` has a dummy "no-cluster" at the end, which we want to remove for most purposes
         clusters = z[..., :-1]
@@ -224,15 +215,7 @@ class Model:
         # shape: (n_clusters+n_confounders, n_objects, partition.n_features)
 
         # Sample and assign cluster effects
-        cluster_effect_prior = self.prior.cluster_effect_prior[p_name]
-        cluster_effect_pred = cluster_effect_prior.get_data_dependent_contributions(
-            p_weights[:n_clusters]
-        )
-        cluster_effect = cluster_effect_prior.get_numpyro_distr(
-            n_clusters,
-            cluster_effect_pred,
-            allow_reparameterization=self.allow_reparameterization,
-        )
+        cluster_effect = self.prior.cluster_effect_prior[p_name].get_numpyro_distr(n_clusters)
 
         p_data_by_comp = p_data_by_comp.at[:n_clusters].set(cluster_effect[:, None, :, :])
 
@@ -294,13 +277,7 @@ class Model:
 
         # Sample and assign cluster effects
         cluster_eff_prior = self.prior.cluster_effect_prior[p_name]
-        cluster_effect_pred = cluster_eff_prior.mean.get_data_dependent_contributions(
-            p_weights[:n_clusters]
-        )
-        cluster_mean = cluster_eff_prior.mean.get_numpyro_distr(
-            n_clusters, cluster_effect_pred,
-            allow_reparameterization=self.allow_reparameterization,
-        )
+        cluster_mean = cluster_eff_prior.mean.get_numpyro_distr(n_clusters)
         # Note: `mean.get_numpyro_distr` samples internally (including its own plates),
         # while `variance.sample` declares the site here as a latent site, or as a
         # deterministic one when the variance is fixed.
@@ -476,16 +453,8 @@ class Model:
         else:
             w_concentration = self.w_prior_conc
 
-
-        # The offset `normalize(w_concentration)` only moves if the concentration is
-        # sampled (hierarchical prior); a constant offset is just a translation.
-        moving_offset = self.allow_reparameterization and weights_config.hierarchical
         with numpyro.plate("plate_objects_w", self.shapes.n_features, dim=-1):
-            w = dirichlet_from_latent(
-                "w",
-                w_concentration,
-                offset=normalize(w_concentration, axis=-1) if moving_offset else None,
-            )
+            w = dirichlet_from_latent("w", w_concentration)
         # w.shape: (n_features, n_components)
 
         # Mask out components that the object does not belong to
@@ -507,11 +476,7 @@ class Model:
 
             with numpyro.plate("plate_clusters_w", self.shapes.n_clusters, dim=-2):
                 with numpyro.plate("plate_features_w", self.shapes.n_features, dim=-1):
-                    cluster_factor = dirichlet_from_latent(
-                        "w_cluster_factor",
-                        factor_conc,
-                        offset=normalize(factor_conc) if self.allow_reparameterization else None,
-                    )[..., 1]
+                    cluster_factor = dirichlet_from_latent("w_cluster_factor", factor_conc)[..., 1]
 
             w_cluster = cluster_factor * w[:, CLUSTER_COMPONENT]
             w_cluster_mixed = clusters @ w_cluster
@@ -635,7 +600,6 @@ class Model:
             self.data,
             self.config,
             simulate_observations=self.observations == "simulate",
-            offset_reparameterization=self.offset_reparameterization,
         )
 
     def get_setup_message(self) -> str:

@@ -7,7 +7,6 @@ import numpy as np
 import numpyro
 import numpyro.distributions as dist
 
-from numpyro.distributions.transforms import AffineTransform
 from sbayes.config.config import PriorConfig, CategoricalPriorConfig, \
     ConfoundingEffectConfig, GaussianVariancePriorConfig, GaussianMeanPriorConfig, GaussianPriorConfig, \
     ClusterEffectConfig, PoissonPriorConfig, WeightsPriorConfig, ClusterPriorConfig
@@ -28,12 +27,6 @@ DEFAULT_GROUP = "<DEFAULT>"
 MIN_CLUSTER_PROBABILITY = 1e-9
 """Smallest cluster membership kept by `_stretch_and_clip`, so that `log(p)` stays
 finite. Not machine epsilon: this is a modelling floor, not a precision limit."""
-
-MEAN_OFFSET_IN_PRIOR_SDS = 10.0
-"""Half-width of the reparameterized offset on a cluster mean, in prior standard
-deviations. A cluster mean further than this from the data-dependent prediction has
-zero prior support and cannot be reached by the sampler."""
-
 
 def resolve_group_configs(
     config: dict[GroupName, T],
@@ -332,9 +325,6 @@ class CategoricalConfoundingEffectsPrior:
     def get_numpyro_distr(self) -> jnp.ndarray:
         """Sample the state probabilities of each group of this confounder.
 
-        The Dirichlet is sampled directly: without a moving offset, the latent
-        reparameterization would be equivalent (see `reparameterization.py`).
-
         Returns:
             The state probabilities per group and feature.
             shape: (n_groups, n_features, n_states)
@@ -383,9 +373,6 @@ class CategoricalClusterEffectPrior:
                 f"categorical cluster effects."
             )
 
-        # One-hot encoded features as floats
-        self._x_float = partition.to_binary().astype(FLOAT_TYPE)
-
     def get_setup_message(self) -> str:
         """Compile a set-up message for logging."""
         return (
@@ -393,63 +380,23 @@ class CategoricalClusterEffectPrior:
             f"{self.config.type.value}\n"
         )
 
-    def get_data_dependent_contributions(
-        self,
-        clusters_weights: jnp.ndarray,   # shape: (n_clusters, n_objects, n_features)
-        additive_smoothing: float = 0.5,
-    ) -> jnp.ndarray:
-        """Estimate the state probabilities of each cluster from the observed data.
-
-        Used as the offset of the reparameterized cluster effect, so that sampling
-        starts from a data-informed point rather than from the prior.
-
-        Args:
-            clusters_weights: how much each object contributes to each cluster
-            additive_smoothing: pseudo-count added to every state, so that states not
-                observed in a cluster keep a non-zero probability
-
-        Returns:
-            The estimated state probabilities per cluster and feature.
-            shape: (n_clusters, n_features, n_states)
-        """
-
-        # Weighted count of each state in each cluster
-        # (i: cluster, j: object, k: feature, l: state)
-        feature_counts = jnp.einsum("ijk,jkl->ikl", clusters_weights, self._x_float)
-        return normalize(feature_counts + additive_smoothing, axis=-1)
-
-    def get_numpyro_distr(
-        self,
-        n_clusters: int,
-        clust_eff_pred: jnp.ndarray,   # shape: (n_clusters, n_features, n_states)
-        allow_reparameterization: bool = False,
-    ) -> jnp.ndarray:
+    def get_numpyro_distr(self, n_clusters: int) -> jnp.ndarray:
         """Sample the state probabilities of each cluster.
 
         Args:
             n_clusters: the number of clusters
-            clust_eff_pred: data-dependent estimate of the state probabilities, used as
-                the offset when the effect is reparameterized
-            allow_reparameterization: if False, the Dirichlet is sampled directly
-                instead of being constructed from latent parameters
 
         Returns:
             The state probabilities per cluster and feature.
             shape: (n_clusters, n_features, n_states)
         """
         p_name = self.partition.name
-        site_name = f"cluster_effect_{p_name}"
 
         with numpyro.plate(f"plate_clusters_{p_name}", n_clusters, dim=-2):
             with numpyro.plate(f"plate_features_{p_name}", self.partition.n_features, dim=-1):
-                if allow_reparameterization:
-                    clust_eff = dirichlet_from_latent(
-                        name=site_name,
-                        concentration=self.concentration_array,
-                        offset=clust_eff_pred,
-                    )
-                else:
-                    clust_eff = dirichlet_from_latent(site_name, self.concentration_array)
+                clust_eff = dirichlet_from_latent(
+                    f"cluster_effect_{p_name}", self.concentration_array
+                )
 
         return jnp.asarray(clust_eff)
 
@@ -533,91 +480,24 @@ class GaussianMeanPrior:
         sigma_0_array = jnp.full(n_features, sigma_0)
         return mu_0_array, sigma_0_array
 
-    def get_data_dependent_contributions(
-        self,
-        clusters_weights: jnp.ndarray,   # shape: (n_clusters, n_objects, n_features)
-    ) -> jnp.ndarray:
-        """Estimate the mean of each cluster from the observed data.
-
-        Computes the posterior mean under the conjugate normal-normal update, using the
-        cluster weights as observation weights. Used as the offset of the
-        reparameterized cluster effect.
-
-        Args:
-            clusters_weights: how much each object contributes to each cluster
-
-        Returns:
-            The estimated mean per cluster and feature.
-            shape: (n_clusters, n_features)
-        """
-        # Missing values contribute neither to the sum nor to the counts
-        x = jnp.where(self.partition.na_values, 0.0, self.partition.values)
-        observed = ~self.partition.na_values
-        # shape of both: (n_objects, n_features)
-
-        weighted_sum = jnp.sum(clusters_weights * x[None, :, :], axis=1)
-        observation_counts = jnp.sum(clusters_weights * observed[None, :, :], axis=1)
-
-        prec_0 = 1.0 / self.sigma_0_array ** 2
-        return (self.mu_0_array * prec_0 + weighted_sum) / (prec_0 + observation_counts)
-
-    def get_numpyro_distr(
-        self,
-        n_clusters: int,
-        clust_eff_mean_pred: jnp.ndarray,   # shape: (n_clusters, n_features)
-        allow_reparameterization: bool = False
-    ) -> jnp.ndarray:
+    def get_numpyro_distr(self, n_clusters: int) -> jnp.ndarray:
         """Sample the mean of each cluster.
+
+        The mean is sampled directly. An offset around a data-dependent estimate was
+        tried, but the estimate (weighted by the cluster assignments) moves with them
+        while the mean does not, which correlates the offset with the assignments.
 
         Args:
             n_clusters: the number of clusters
-            clust_eff_mean_pred: data-dependent estimate of the cluster means, used as
-                the offset when the effect is reparameterized
-            allow_reparameterization: if False, the Gaussian is sampled directly rather
-                than through an affine reparameterization
 
         Returns:
             The mean per cluster and feature. shape: (n_clusters, n_features)
         """
         p_name = self.partition.name
         mean_dist = dist.Normal(self.mu_0_array, self.sigma_0_array)
-
-        if not allow_reparameterization:
-            with numpyro.plate(f"plate_clusters_{p_name}", n_clusters, dim=-2):
-                with numpyro.plate(f"plate_features_{p_name}", self.partition.n_features, dim=-1):
-                    return jnp.asarray(numpyro.sample(f"cluster_effect_{p_name}_mean", mean_dist))
-
-        # Reparameterized: sample a bounded offset around the data-dependent estimate
-        # instead of the mean itself, which keeps the sampler in a well-scaled space.
-        offset_dist = dist.Uniform(-1, 1)
         with numpyro.plate(f"plate_clusters_{p_name}", n_clusters, dim=-2):
             with numpyro.plate(f"plate_features_{p_name}", self.partition.n_features, dim=-1):
-                offset_latent = numpyro.sample(
-                    f"cluster_effect_{p_name}_mean_offset", offset_dist
-                )
-
-        # Widen the unit offset to +-MEAN_OFFSET_IN_PRIOR_SDS prior standard deviations.
-        # The prior standard deviation is applied inside the transform,
-        trans = AffineTransform(
-            loc=0.0, scale=MEAN_OFFSET_IN_PRIOR_SDS * self.sigma_0_array
-        )
-        offset = trans(offset_latent)
-        effect_mean = clust_eff_mean_pred + offset
-        numpyro.deterministic(f"cluster_effect_{p_name}_mean", effect_mean)
-
-        # The latent parameterization is uniform, so the actual prior density has to be
-        # added explicitly
-        prior_log_prob = mean_dist.log_prob(effect_mean)
-        prior_correction_factor = (
-            trans.log_abs_det_jacobian(offset_latent, offset)
-            - offset_dist.log_prob(offset_latent)
-        )
-        numpyro.factor(
-            f"cluster_effect_{p_name}_mean_log_prob",
-            prior_log_prob + prior_correction_factor,
-        )
-
-        return jnp.asarray(effect_mean)
+                return jnp.asarray(numpyro.sample(f"cluster_effect_{p_name}_mean", mean_dist))
 
 
 class GaussianVariancePrior:
@@ -1221,12 +1101,8 @@ class ClusterPrior:
         return normalize(z_stretched, axis=-1)
 
 
-    def get_numpyro_distr(self, allow_reparameterization: bool = False) -> jnp.ndarray:
+    def get_numpyro_distr(self) -> jnp.ndarray:
         """Sample the cluster assignment of each object.
-
-        Args:
-            allow_reparameterization: if False, the Dirichlet is sampled directly
-                instead of being constructed from latent parameters
 
         Returns:
             The assignment of each object to each cluster, with a dummy "no-cluster"
@@ -1261,18 +1137,8 @@ class ClusterPrior:
             if c_nocluster is not None:
                 concentration = concentration.at[-1].set(c_nocluster)
 
-            # The offset `normalize(concentration)` only moves if the no-cluster
-            # concentration is sampled; a symmetric concentration gives the uniform
-            # offset, which is the same as no offset.
-            moving_offset = (
-                allow_reparameterization and self.config.estimate_no_cluster_concentration
-            )
             with numpyro.plate("plate_objects_z", self.shapes.n_objects, dim=-1):
-                z = dirichlet_from_latent(
-                    "z_unstretched",
-                    concentration,
-                    offset=normalize(concentration) if moving_offset else None,
-                )
+                z = dirichlet_from_latent("z_unstretched", concentration)
 
         elif self.prior_type is ClusterPriorConfig.Types.LOGISTIC_NORMAL:
             if self.config.hierarchical:

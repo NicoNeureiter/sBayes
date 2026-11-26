@@ -146,8 +146,10 @@ def test_use_parameter_transformation_is_deprecated(prior_dict):
     assert not hasattr(cfg.prior.cluster_effect.categorical, "use_parameter_transformation")
 
 
-def test_offset_reparameterization_defaults_to_true():
-    assert MCMCConfig().offset_reparameterization is True
+def test_offset_reparameterization_is_deprecated():
+    with pytest.warns(UserWarning, match="offset_reparameterization"):
+        cfg = MCMCConfig(offset_reparameterization=True)
+    assert not hasattr(cfg, "offset_reparameterization")
 
 
 def test_mass_matrix_settings_default_to_true():
