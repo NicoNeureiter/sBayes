@@ -161,9 +161,10 @@ def _append_derived(
     for name, value in values.items():
         if f"/derived/{name}" not in file:
             if name == "likelihood":
-                # `bitshuffle` requires a blosc-family compressor
+                # The largest array by far. lz4hc decompresses about 2x faster than
+                # zlib for a slightly larger file. `bitshuffle` requires blosc.
                 filters = tables.Filters(
-                    complevel=9, complib="blosc:zlib", bitshuffle=True, fletcher32=True
+                    complevel=9, complib="blosc:lz4hc", bitshuffle=True, fletcher32=True
                 )
             else:
                 filters = tables.Filters(complevel=9, fletcher32=True)
